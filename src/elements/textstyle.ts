@@ -48,9 +48,10 @@ export function resolveTextStyle(p: Obj, u: UnitContext, lang: string, isBalloon
       rotate: L.rotate !== undefined ? parseAngle(L.rotate as string) : (1.5 * Math.PI) / 180,
       offset: L.offset !== undefined ? toMm(L.offset as string, emCtx) / fontSize : 0.03,
       scale: typeof L.scale === "number" ? L.scale : 0.04,
-      baselineAmp: 0.04,
-      baselineLen: 4,
-      spacing: 0.03,
+      baselineAmp: isObj(L.baseline) && (L.baseline as Obj).amplitude !== undefined ? toMm((L.baseline as Obj).amplitude as string, emCtx) / fontSize : 0.04,
+      baselineLen: isObj(L.baseline) && (L.baseline as Obj).wavelength !== undefined ? toMm((L.baseline as Obj).wavelength as string, emCtx) / fontSize : 4,
+      spacing: L.spacing !== undefined ? toMm(L.spacing as string, emCtx) / fontSize : 0.03,
+      wobble: L.wobble !== undefined ? toMm(L.wobble as string, emCtx) / fontSize : 0.012,
     };
   }
   const ruby = (p.ruby ?? {}) as Obj;

@@ -1,6 +1,6 @@
 // Text composition (spec 7.4-7.10, 7.15).
 import * as hb from "harfbuzzjs";
-import { Rng } from "../core/random.js";
+import { Rng, noise1 } from "../core/random.js";
 import type { FontPick, FontRegistry, LoadedFont } from "../fonts/registry.js";
 import { type PathData, flattenPath, pathFromJson } from "../geom/path.js";
 import { type Matrix, type Rect, boundsOf, matMul, matRotate, matScale, matTranslate } from "../geom/vec.js";
@@ -42,6 +42,7 @@ export interface LetteringSpec {
   baselineAmp: number; // em
   baselineLen: number; // em
   spacing: number; // em sigma
+  wobble?: number; // em, outline roughness (applied by lettering consumers)
 }
 
 export interface GlyphOut {
@@ -279,8 +280,12 @@ function emitBox(b: Box, ox: number, oy: number, _vertical: boolean, out: GlyphO
     if (L) {
       const r = rng.normal() * L.rotate;
       const s = 1 + rng.normal() * L.scale;
-      const dx = rng.normal() * L.offset * b.size;
-      const dy = rng.normal() * L.offset * b.size;
+      // a slow wave of the baseline across the line, and uneven spacing along it
+      const along = _vertical ? oy : ox;
+      const base = "baselineAmp" in L ? (L as LetteringSpec).baselineAmp * b.size * noise1(style.seed ^ 0x51, along / Math.max(1e-6, (L as LetteringSpec).baselineLen * b.size)) : 0;
+      const sp = "spacing" in L ? rng.normal() * (L as LetteringSpec).spacing * b.size : 0;
+      const dx = rng.normal() * L.offset * b.size + (_vertical ? base : sp);
+      const dy = rng.normal() * L.offset * b.size + (_vertical ? sp : base);
       const jit: Matrix = matMul(matTranslate(cx + dx, cy + dy), matMul(matRotate(r), matMul(matScale(s), matTranslate(-cx, -cy))));
       m = matMul(jit, m);
     }
