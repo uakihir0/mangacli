@@ -179,7 +179,13 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       { d: pageDefaults, hand: pageHand },
       { d: panelDefaults ?? {}, hand: panelHand },
     ];
-    const resolveEl = (raw: Obj, path: Path, parentId: string, counters: Record<string, number>, levels: ReturnType<typeof layersFor>, baseSeed: number, fromDialogue = false, dialogueIndex = 0): RElement => {
+    const resolveEl = (raw0: Obj, path: Path, parentId: string, counters: Record<string, number>, levels: ReturnType<typeof layersFor>, baseSeed: number, fromDialogue = false, dialogueIndex = 0): RElement => {
+      let raw = raw0;
+      // `from:` on a balloon is the off-panel speaker's side (spec 6.6.2)
+      if (raw.type === "balloon" && typeof raw.from === "string") {
+        raw = { ...raw, tail: merge(isObj(raw.tail) ? (raw.tail as Obj) : {}, { offscreen: raw.from }) };
+        delete raw.from;
+      }
       const type = String(raw.type ?? "");
       counters[type] = (counters[type] ?? 0) + 1;
       const id = typeof raw.id === "string" ? raw.id : autoId(fromDialogue ? `${parentId}-d${dialogueIndex}` : `${parentId}-${type}${counters[type]}`);

@@ -387,6 +387,11 @@ function rayEllipseEntry(o: Vec, d: Vec, r: Rect): number | null {
   return t > 0 ? t : null;
 }
 
+function nearestSide(c: Vec, b: Rect): string {
+  const d = { left: c.x - b.x, right: b.x + b.w - c.x, top: c.y - b.y, bottom: b.y + b.h - c.y };
+  return (Object.entries(d).sort((x, y) => x[1] - y[1])[0] ?? ["right"])[0];
+}
+
 function quad(a: Vec, c: Vec, b: Vec, t: number): Vec {
   const u = 1 - t;
   return { x: u * u * a.x + 2 * u * t * c.x + t * t * b.x, y: u * u * a.y + 2 * u * t * c.y + t * t * b.y };
@@ -409,9 +414,11 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     // target
     let target: Vec | null = null;
     const who = plan.props.who as string | undefined;
-    if (t.offscreen) {
+    // `as: offscreen` without a side: the speaker is beyond the nearest panel edge
+    const offSide = (t.offscreen as string | undefined) ?? (plan.props.as === "offscreen" ? nearestSide(center, ctx.panel ? ctx.panel.box : ctx.coordsBox) : undefined);
+    if (offSide) {
       const pb = ctx.panel ? ctx.panel.box : ctx.coordsBox;
-      const side = t.offscreen as string;
+      const side = offSide;
       const ext = 4 * u.k;
       target = side === "right" ? { x: pb.x + pb.w + ext, y: center.y + (pb.y + pb.h / 2 - center.y) * 0.3 } : side === "left" ? { x: pb.x - ext, y: center.y } : side === "top" ? { x: center.x, y: pb.y - ext } : { x: center.x, y: pb.y + pb.h + ext };
     } else if (t.to !== undefined) target = resolvePoint(t.to, pc);
@@ -454,7 +461,8 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       }
       length = Math.min(maxLen, Math.max(2.5 * u.k, avail));
     } else length = (kind === "zigzag" ? 7 : 5) * u.k;
-    if (t.offscreen && target) length = Math.min(maxLen * 1.5, Math.hypot(target.x - R.x, target.y - R.y));
+    // off-panel tails run past the frame and are cut by it
+    if (offSide && target) length = Math.hypot(target.x - R.x, target.y - R.y);
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     const bw = (t.width !== undefined ? toMm(t.width as string, u) : Math.min(7 * u.k, Math.max(2.6 * u.k, minSide * 0.3))) * widthScale;
     const bend = typeof t.bend === "number" ? t.bend : 0.1;
@@ -532,7 +540,8 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         cl = { x: zigV[k].x + (zigV[k + 1].x - zigV[k].x) * u, y: zigV[k].y + (zigV[k + 1].y - zigV[k].y) * u };
         if (i > 0 && i < NN && Math.abs(u) < 1e-9) zigCorners.push(i);
       }
-      const f = zig ? Math.max(0, 1 - tt) ** 1.15 : Math.pow(1 - tt, 1 + sideCurve * 1.6);
+      // off-panel tails stay open where the frame cuts them
+      const f = zig ? Math.max(0, 1 - tt) ** 1.15 : offSide ? 1 - 0.65 * Math.pow(tt, 0.8) : Math.pow(1 - tt, 1 + sideCurve * 1.6);
       sideA.push({ x: cl.x + (A.p.x - R.x) * f, y: cl.y + (A.p.y - R.y) * f });
       sideB.push({ x: cl.x + (B.p.x - R.x) * f, y: cl.y + (B.p.y - R.y) * f });
     }
@@ -662,7 +671,7 @@ export function renderBalloon(plan: BalloonPlan, ctx: ElemCtx): { nodes: Node[];
   let nodes: Node[] = [...body.nodes, ...textNodes(plan, ctx)];
   // offscreen tails are cut by the panel frame (spec 6.5): clip to panel ∪ body box
   const tails: Obj[] = Array.isArray(plan.props.tails) ? (plan.props.tails as Obj[]) : isObj(plan.props.tail) ? [plan.props.tail as Obj] : [];
-  if (ctx.panelPoly && tails.some((t) => t.offscreen)) {
+  if (ctx.panelPoly && (tails.some((t) => t.offscreen) || plan.props.as === "offscreen")) {
     const c = plan.center!;
     const m = plan.outer;
     const pad = 1.5 * ctx.u.k;
