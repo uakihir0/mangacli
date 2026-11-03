@@ -326,7 +326,7 @@ function buildBoxes(parsed: ParsedText, style: TextStyle, reg: FontRegistry, mis
     // collect run
     const run: number[] = [i];
     let j = i + 1;
-    const key = (x: Unit & { kind: "char" }) => `${orientOf(x)}|${fontOf(x.style)}|${sizeOf(x.style)}|${x.style.color ?? ""}|${x.tcyGroup ?? ""}`;
+    const key = (x: Unit & { kind: "char" }) => `${orientOf(x)}|${fontOf(x.style)}|${sizeOf(x.style)}|${x.style.color ?? ""}|${x.tcyGroup ?? ""}|${x.style.bold ? 1 : 0}|${x.style.nobr ?? ""}|${x.style.shake ? 1 : 0}|${x.style.hand ? 1 : 0}|${x.style.scaleX ?? ""}|${x.style.scaleY ?? ""}`;
     const k0 = key(u);
     while (j < units.length && units[j].kind === "char" && key(units[j] as Unit & { kind: "char" }) === k0 && (o !== "tcy" || (units[j] as { tcyGroup?: number }).tcyGroup === u.tcyGroup)) {
       run.push(j);
@@ -536,9 +536,9 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
         len += adv;
         continue;
       }
-      // last allowed break
-      let k = -1;
-      for (let j = cur.length - 1; j >= 1; j--) {
+      // last allowed break: right before the overflowing box if possible, else further back
+      let k = canBreakBetween(cur[cur.length - 1], b, wrap, style) ? cur.length : -1;
+      if (k < 0) for (let j = cur.length - 1; j >= 1; j--) {
         if (canBreakBetween(cur[j - 1], cur[j], wrap, style)) {
           k = j;
           break;

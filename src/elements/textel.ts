@@ -9,6 +9,7 @@ import type { RElement } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolveStroke } from "../model/values.js";
 import { inkShape } from "../ink/shape.js";
 import { inksToNodes } from "./inkir.js";
+import { glyphNodes } from "./glyphs.js";
 import type { Node, Paint } from "../render/ir.js";
 import { type TextLayout, layoutText } from "../text/layout.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
@@ -71,7 +72,7 @@ export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
   }
   nodes.push(...outlineNodes(glyphPath, p.outline, ctx, el));
   const color = textPaint(p.color, ctx, el, pl.bbox);
-  nodes.push({ kind: "path", path: glyphPath, fillRule: "nonzero", paint: color, tag: tag(el, "text") });
+  nodes.push(...glyphNodes(tl.glyphs, (g) => transformPath(g, m), color, tl.fontSize, tag(el, "text")));
   return { nodes, bbox: pl.bbox };
 }
 

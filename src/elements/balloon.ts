@@ -17,6 +17,7 @@ import { Contour, type PluginBalloonShape, activePlugins } from "../plugin.js";
 import { type TextLayout, layoutText } from "../text/layout.js";
 import { type ElemCtx, tag } from "./context.js";
 import { fillNode, inksToNodes, polysToPath } from "./inkir.js";
+import { glyphNodes } from "./glyphs.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
 import { resolvePoint, sizeValue } from "../layout/place.js";
 
@@ -631,14 +632,14 @@ function textNodes(plan: BalloonPlan, ctx: ElemCtx): Node[] {
   const ox = center.x + plan.innerCenter.x - tl.width / 2 + plan.textOffset.x;
   const oy = center.y + plan.innerCenter.y - tl.height / 2 + plan.textOffset.y;
   const color = parseColor(plan.textColor) ?? BLACK;
-  const glyphs = tl.glyphs.map((g) => g.path.map((c) => (c[0] === "Z" ? c : (c.map((v, i) => (i === 0 ? v : (i % 2 === 1 ? (v as number) + ox : (v as number) + oy))) as typeof c))));
+  const shift = (path: PathData): PathData => path.map((c) => (c[0] === "Z" ? c : (c.map((v, i) => (i === 0 ? v : i % 2 === 1 ? (v as number) + ox : (v as number) + oy)) as typeof c)));
+  const glyphs = tl.glyphs.map((g) => shift(g.path));
   const textNode: Node = { kind: "path", path: glyphs.flat(), fillRule: "nonzero", paint: { type: "solid", color }, tag: tag(el, "text", "text") };
   const nodes: Node[] = [];
   const outlines = Array.isArray(p.textOutline) ? (p.textOutline as Obj[]) : [];
   const ow = outlines.map((o) => ({ w: toMm(o.width as string, u), c: parseColor((o.color as string) ?? "white") ?? WHITE })).sort((a, b) => b.w - a.w);
   for (const o of ow) nodes.push({ kind: "path", path: textNode.path, fillRule: "nonzero", paint: null, stroke: { width: o.w * 2, paint: { type: "solid", color: o.c }, join: "round" }, tag: tag(el, "text", "text") });
-  if (tl.glyphs.some((g) => g.bold)) (textNode as { stroke?: unknown }).stroke = { width: tl.fontSize * 0.04, paint: { type: "solid", color }, join: "round" };
-  nodes.push(textNode);
+  nodes.push(...glyphNodes(tl.glyphs, shift, { type: "solid", color }, tl.fontSize, tag(el, "text", "text")));
   return nodes;
 }
 
