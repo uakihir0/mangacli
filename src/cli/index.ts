@@ -255,9 +255,11 @@ async function cmdInit(dir: string | undefined, o: Obj): Promise<number> {
   if (!body) throw new UsageError(`--template: ${t("次のいずれかを指定してください", "expected one of")} ${Object.keys(TEMPLATES).join(", ")}`);
   mkdirSync(join(root, "assets"), { recursive: true });
   mkdirSync(join(root, "fonts"), { recursive: true });
+  // .ts is only loaded as ESM inside "type": "module" packages; use .mts elsewhere
+  const configName = isEsmPackage(root) ? "mangacli.config.ts" : "mangacli.config.mts";
   const files: [string, string][] = [
     ["manga.yaml", body],
-    ["mangacli.config.ts", CONFIG_TEMPLATE],
+    [configName, CONFIG_TEMPLATE],
     ["assets/README.md", ASSETS_README],
     ["fonts/README.md", FONTS_README],
   ];
@@ -284,6 +286,23 @@ async function cmdInit(dir: string | undefined, o: Obj): Promise<number> {
   }
   log("info", `\n  npx mangacli render ${relative(process.cwd(), join(root, "manga.yaml")) || "manga.yaml"} --draft`);
   return 0;
+}
+
+function isEsmPackage(dir: string): boolean {
+  let d = resolve(dir);
+  for (;;) {
+    const pj = join(d, "package.json");
+    if (existsSync(pj)) {
+      try {
+        return (JSON.parse(readFileSync(pj, "utf8")) as { type?: string }).type === "module";
+      } catch {
+        return false;
+      }
+    }
+    const up = dirname(d);
+    if (up === d) return false;
+    d = up;
+  }
 }
 
 async function cmdWatch(file: string, o: Obj): Promise<number> {

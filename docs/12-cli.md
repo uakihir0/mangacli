@@ -100,7 +100,7 @@ mangacli init [dir] [--template <basic|b5-mono|sns-color|yonkoma>] [--no-fonts] 
 | ファイル | 内容 |
 |---|---|
 | `manga.yaml` | テンプレートのドキュメント。`yaml-language-server` の `$schema` の指定と、現在の `engine` の番号、ID を付けたページを含む |
-| `mangacli.config.ts` | 設定ファイルの雛形 |
+| `mangacli.config.ts` | 設定ファイルの雛形。`"type": "module"` でないパッケージの中では `mangacli.config.mts` にする（Node.js が ES モジュールとして読み込めるように） |
 | `assets/` | 素材の置き場所（説明の README を含む） |
 | `fonts/README.md` | フォントの扱いの説明（カタログのフォントの自動取得、`fonts install --dir` でプロジェクトに置く方法、独自のフォントの登録、ライセンスの注意） |
 | `.gitignore` | `out/` を追加する |

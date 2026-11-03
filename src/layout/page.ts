@@ -106,8 +106,10 @@ export function computePageGeom(page: RPage, physicalIndex: number, book: Obj, b
     const right = side === "left" ? inner : side === "right" ? outer : outer;
     baseFrame = { x: left, y: top, w: trimW - left - right, h: trimH - top - bottom };
   } else {
-    let bw = sz.unit === "px" ? singleW : singleW * (150 / 182);
-    let bh = sz.unit === "px" ? trimH : trimH * (220 / 257);
+    // px pages (screens): an even margin of 4 % of the short side
+    const pxMargin = 0.04 * Math.min(singleW, trimH);
+    let bw = sz.unit === "px" ? singleW - 2 * pxMargin : singleW * (150 / 182);
+    let bh = sz.unit === "px" ? trimH - 2 * pxMargin : trimH * (220 / 257);
     if (isObj(bf) && Array.isArray(bf.size)) {
       bw = toMm((bf.size as string[])[0], pctx(singleW));
       bh = toMm((bf.size as string[])[1], pctx(trimH));
