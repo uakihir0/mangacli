@@ -448,7 +448,7 @@ function dotted(d: Dense, line: LineStyle, rng: Rng): InkPoly[] {
 }
 
 /** Ink a single open line (effects, marks). */
-export function inkLine(pts: Vec[], line: LineStyle, hand: HandSpec, rng: Rng, opts: { ruler?: boolean; taperIn?: boolean; taperOut?: boolean; taperInLen?: number; taperOutLen?: number; wobble?: boolean; profile?: (t: number) => number; resolution?: number; inkPool?: boolean } = {}): InkPoly[] {
+export function inkLine(pts: Vec[], line: LineStyle, hand: HandSpec, rng: Rng, opts: { ruler?: boolean; taperIn?: boolean; taperOut?: boolean; taperInLen?: number; taperOutLen?: number; wobble?: boolean; profile?: (t: number) => number; resolution?: number; inkPool?: boolean; noPull?: boolean } = {}): InkPoly[] {
   let p = pts;
   if (opts.wobble !== false && !opts.ruler && hand.wobbleAmp > 0) {
     const d = densify(pts, false, Math.max(0.1, hand.resolution));
@@ -468,5 +468,6 @@ export function inkLine(pts: Vec[], line: LineStyle, hand: HandSpec, rng: Rng, o
     profile: opts.profile,
     resolution: opts.resolution,
     inkPool: opts.inkPool,
+    noPull: opts.noPull,
   });
 }

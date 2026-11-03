@@ -396,7 +396,7 @@ function borderNodes(pg: PanelGeom, poly: Vec[], shaped: boolean, geom: PageGeom
     }
     const p0 = { x: a.x - dir.x * e0, y: a.y - dir.y * e0 };
     const p1 = { x: c.x + dir.x * e1, y: c.y + dir.y * e1 };
-    inks.push(...inkLine([p0, p1], { width: st.width, pen: st.pen, style: "solid" }, hand, rng.fork(`b${i}`), { ruler, taperIn: false, taperOut: false, resolution: 0.5, inkPool: false }));
+    inks.push(...inkLine([p0, p1], { width: st.width, pen: st.pen, style: "solid" }, hand, rng.fork(`b${i}`), { ruler, taperIn: false, taperOut: false, resolution: 0.5, inkPool: false, noPull: true }));
   }
   return inksToNodes(inks, st.color, t);
 }
