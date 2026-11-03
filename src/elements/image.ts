@@ -170,7 +170,7 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect):
     tag: tag(el, "art"),
   };
   const outline = Array.isArray(p.outline) ? (p.outline as Obj[]) : [];
-  const ows = outline.map((o) => ({ w: toMm(o.width as string, ctx.u), color: parseColor((o.color as string) ?? "white") ?? { r: 1, g: 1, b: 1, a: 1 } })).sort((a, b) => b.w - a.w);
+  const ows = outline.map((o) => ({ w: toMm(o.width as string, ctx.u), color: parseColor((o.color as string) ?? "white") ?? { r: 1, g: 1, b: 1, a: 1 }, threshold: typeof o.threshold === "number" ? o.threshold : undefined, join: o.join as "round" | "miter" | undefined })).sort((a, b) => b.w - a.w);
   const clipPath = fit === "cover" || dx < 0 || dy < 0 || dx + dw > bw || dy + dh > bh ? polyPath([applyMat(pl.matrix, { x: 0, y: 0 }), applyMat(pl.matrix, { x: bw, y: 0 }), applyMat(pl.matrix, { x: bw, y: bh }), applyMat(pl.matrix, { x: 0, y: bh })], true) : undefined;
   const group: Node = { kind: "group", opacity: typeof p.opacity === "number" ? p.opacity : undefined, blend: blend as "normal", clip: hasSize ? clipPath : undefined, children: [], tag: tag(el, "art") };
   if (ows.length) (img as { outline?: unknown }).outline = ows;

@@ -633,8 +633,11 @@ export class RasterBackend {
       mctx.drawImage(tmp, 0, 0);
       const md = mctx.getImageData(0, 0, rr.w, rr.h).data;
       const mask = new Uint8Array(rr.w * rr.h);
-      for (let i = 0; i < mask.length; i++) mask[i] = md[i * 4 + 3] > 127 ? 1 : 0;
+      const thr = Math.round((n.outline[0].threshold ?? 0.5) * 255);
+      for (let i = 0; i < mask.length; i++) mask[i] = md[i * 4 + 3] > thr ? 1 : 0;
       const dist = distanceSquared(mask, rr.w, rr.h);
+      // miter: square corners by measuring the Chebyshev distance instead of the Euclidean one
+      const cheb = n.outline.some((o) => o.join === "miter") ? chebyshev(mask, rr.w, rr.h) : null;
       for (const o of n.outline) {
         const rad = o.w * dev.scale;
         const oc = createCanvas(rr.w, rr.h);
@@ -645,7 +648,7 @@ export class RasterBackend {
         const G8 = Math.round(c.g * 255);
         const B8 = Math.round(c.b * 255);
         for (let i = 0; i < mask.length; i++) {
-          const dd = Math.sqrt(dist[i]);
+          const dd = o.join === "miter" && cheb ? cheb[i] : Math.sqrt(dist[i]);
           const a = mono ? (dd <= rad ? 1 : 0) : Math.max(0, Math.min(1, rad + 0.5 - dd));
           if (a <= 0) continue;
           od.data[i * 4] = R8;
@@ -743,3 +746,35 @@ function invert(m: Matrix): Matrix {
   return [a, b, c, d, -(a * m[4] + c * m[5]), -(b * m[4] + d * m[5])];
 }
 
+
+/** chessboard distance to the nearest set pixel (two-pass), for square outline corners */
+function chebyshev(mask: Uint8Array, w: number, h: number): Float32Array {
+  const INF = 1e9;
+  const d = new Float32Array(w * h);
+  for (let i = 0; i < d.length; i++) d[i] = mask[i] ? 0 : INF;
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      let v = d[i];
+      if (x > 0) v = Math.min(v, d[i - 1] + 1);
+      if (y > 0) {
+        v = Math.min(v, d[i - w] + 1);
+        if (x > 0) v = Math.min(v, d[i - w - 1] + 1);
+        if (x + 1 < w) v = Math.min(v, d[i - w + 1] + 1);
+      }
+      d[i] = v;
+    }
+  for (let y = h - 1; y >= 0; y--)
+    for (let x = w - 1; x >= 0; x--) {
+      const i = y * w + x;
+      let v = d[i];
+      if (x + 1 < w) v = Math.min(v, d[i + 1] + 1);
+      if (y + 1 < h) {
+        v = Math.min(v, d[i + w] + 1);
+        if (x + 1 < w) v = Math.min(v, d[i + w + 1] + 1);
+        if (x > 0) v = Math.min(v, d[i + w - 1] + 1);
+      }
+      d[i] = v;
+    }
+  return d;
+}

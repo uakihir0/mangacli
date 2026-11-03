@@ -94,7 +94,7 @@ export interface ImageNode {
   flipX?: boolean;
   flipY?: boolean;
   /** silhouette outlines (largest first): width mm */
-  outline?: { w: number; color: RGBA }[];
+  outline?: { w: number; color: RGBA; threshold?: number; join?: "round" | "miter" }[];
   /** drop shadow of the silhouette (mm) */
   shadow?: { dx: number; dy: number; blur: number; color: RGBA };
   tag?: NodeTag;
