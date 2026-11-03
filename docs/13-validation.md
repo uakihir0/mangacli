@@ -157,6 +157,7 @@ diagnostics:
 | `TEXT_MISSING_TRANSLATION` | W | 指定した言語の本文がない | ○ |
 | `BALLOON_TOO_LARGE` | W | 吹き出しが `maxSize` を超えた | ○ |
 | `BALLOON_NO_SPACE` | W | 自動配置で適切な位置がない | ○ |
+| `BALLOON_SHIFTED` | I | 位置を指定した吹き出しが仕上がりの外にはみ出すため、内側へ移動した | ○ |
 | `BALLOON_TAIL_TARGET_INSIDE` | W | しっぽの向き先が本体の内側にある | ○ |
 | `BALLOON_TAIL_CROSSES` | W | しっぽが他の吹き出しと交わる | ○ |
 | `BALLOON_TAIL_UNSUPPORTED` | W | 形状が対応しないしっぽの種類 | ○ |

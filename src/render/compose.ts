@@ -879,7 +879,14 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const pc = { u, coordsBox: ctx.coordsBox, refs, panelId: pid, bag: ctx.bag, path: pl.el.path, safeBox: u.units !== "px" ? geom.safe : undefined };
     // rotation is applied around the body centre when drawing, not to the placement box
     const r = place({ ...pl.props, rotate: undefined }, pl.outer.w, pl.outer.h, pc);
-    const tl = r.bbox;
+    const tl = { ...r.bbox };
+    // a balloon must not run off the trimmed page (it may cross gutters and panel borders)
+    const lim = rectInset(geom.trim, 1 * u.k);
+    if (!isOffscreen(pl.el) && (tl.x < lim.x - 0.01 || tl.y < lim.y - 0.01 || tl.x + tl.w > lim.x + lim.w + 0.01 || tl.y + tl.h > lim.y + lim.h + 0.01)) {
+      tl.x = Math.min(Math.max(tl.x, lim.x), Math.max(lim.x, lim.x + lim.w - tl.w));
+      tl.y = Math.min(Math.max(tl.y, lim.y), Math.max(lim.y, lim.y + lim.h - tl.h));
+      ctx.bag.info("BALLOON_SHIFTED", `balloon ${pl.el.id} was moved inside the page`, { path: pl.el.path, elementId: pl.el.id });
+    }
     setCenter(pl, { x: tl.x - pl.outer.x, y: tl.y - pl.outer.y });
   }
   const apOf = (pl: BalloonPlan) => (isObj(pl.props.autoPlace) ? (pl.props.autoPlace as Obj) : {});
@@ -926,6 +933,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   const BEAM = 6;
   let beam: BeamState[] = [{ rects: placedRects.slice(), prevS: null, prevRect: null, centers: new Map(), costs: new Map(), total: 0, flowX: rtl ? area.x + area.w : area.x, flowY: area.y, rowH: 0 }];
   const step = Math.max(1.5 * u.k, Math.min(area.w, area.h) / 28);
+  const air = 2 * u.k;
   for (const pl of plans) {
     const w = pl.outer.w;
     const h = pl.outer.h;
@@ -972,7 +980,8 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         const rect = { x: x - w / 2, y: y - h / 2, w, h };
         const A = w * h;
         let cost = 0;
-        for (const ob of obstacles) cost += (ob.w === 60 ? W.avoid : ob.w) * (ob.ellipse ? ellipseOverlap(rect, ob.r) : rectOverlapArea(rect, ob.r) / A);
+        // lettering keeps a little air around it: text and SFX boxes count with a margin
+        for (const ob of obstacles) cost += (ob.w === 60 ? W.avoid : ob.w) * (ob.ellipse ? ellipseOverlap(rect, ob.r) : rectOverlapArea(rect, rectInset(ob.r, -air)) / A);
         for (const hr of hard) if (rectOverlapArea(rect, hr) > 0) cost += 1000;
         if (sils.length) cost += W.figure * silhouetteCover(rect, sils);
         if (speaker) cost += W.speaker * Math.abs(Math.hypot(x - speaker.x, y - speaker.y) / R - 1.6);
@@ -1005,7 +1014,8 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
           cost += W.flow * Math.min(d1, d2) / Math.max(1, Math.hypot(area.w, area.h));
         }
         const A = w * h;
-        for (const pr of st.rects) cost += W.overlap * (rectOverlapArea(cell.rect, pr) / A);
+        // balloons that touch read as one shape: keep about 2 mm between them
+        for (const pr of st.rects) cost += W.overlap * (rectOverlapArea(cell.rect, pr) / A) + W.overlap * 0.3 * (rectOverlapArea(cell.rect, rectInset(pr, -air)) / A);
         // tail path crossing other balloons
         if (speaker) for (const pr of st.rects) if (segRect(cell.c, speaker, pr)) cost += W.tail;
         return { cell, cost };
