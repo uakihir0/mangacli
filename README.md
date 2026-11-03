@@ -75,6 +75,10 @@ mangacli init [dir] [--template basic|b5-mono|sns-color|yonkoma]
 mangacli fonts install [--set manga-basic] [--for manga.yaml] [--dir ./fonts]
 mangacli fonts list [--catalog]
 mangacli schema [--out schema.json]
+mangacli transcript <file> [--format md|json|txt]
+mangacli inspect <file> [--layout] [--resolved] [--page p1]
+mangacli fonts verify | fonts licenses [file]
+mangacli cache info | cache clean
 ```
 
 Run `mangacli <command> --help` for all options. `--json` prints machine-readable NDJSON.

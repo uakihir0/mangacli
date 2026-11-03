@@ -418,7 +418,40 @@ async function cmdFonts(sub: string | undefined, args: string[], o: Obj): Promis
     }
     return 0;
   }
-  throw new UsageError(t("fonts のサブコマンドは install または list です", "fonts subcommand must be install or list"));
+  if (sub === "verify") {
+    const { createHash } = await import("node:crypto");
+    const config = await configFor(o);
+    let bad = 0;
+    for (const f of loadCatalog().fonts) {
+      const path = findLocalCatalogFont(f, { fontDir: o.dir ? resolve(String(o.dir)) : config?.fontDir, fontCacheDir: config?.fontCacheDir });
+      if (!path) continue;
+      const ok = createHash("sha256").update(readFileSync(path)).digest("hex") === f.sha256;
+      if (!ok) bad++;
+      emitJson({ type: "font", id: f.id, weight: f.weight, path, ok });
+      if (!out.json) process.stdout.write(`${ok ? paint("32", "✔") : paint("31", "✖")} ${`${f.id}@${f.weight}`.padEnd(30)} ${path}\n`);
+    }
+    return bad ? 2 : 0;
+  }
+  if (sub === "licenses") {
+    const refs = args[0] ? await documentFontRefs(args[0], o) : loadCatalog().fonts.map((f) => `catalog:${f.id}@${f.weight}`);
+    const seen = new Set<string>();
+    const lines: string[] = [];
+    for (const ref of refs) {
+      const [fid] = ref.replace(/^catalog:/, "").split("@");
+      if (seen.has(fid)) continue;
+      seen.add(fid);
+      const f = loadCatalog().fonts.find((x) => x.id === fid);
+      if (!f) continue;
+      lines.push(`## ${f.family}\n\n${f.license.copyright}\nLicense: ${f.license.id} (${f.license.url})\n`);
+      const lic = join(dirname(findLocalCatalogFont(f) ?? join(defaultFontCacheDir(), "x")), `${f.id}-OFL.txt`);
+      if (existsSync(lic)) lines.push(readFileSync(lic, "utf8").trim() + "\n");
+    }
+    const text = lines.join("\n");
+    if (o.out) writeFileSync(resolve(String(o.out)), text);
+    else process.stdout.write(text);
+    return 0;
+  }
+  throw new UsageError(t("fonts のサブコマンドは install・list・verify・licenses です", "fonts subcommand must be install, list, verify or licenses"));
 }
 
 /** catalog refs a document uses: its catalog font definitions plus the font set */
@@ -439,6 +472,70 @@ async function documentFontRefs(file: string, o: Obj): Promise<string[]> {
   const set = (p.doc.fontSet as string) ?? "manga-basic";
   if (set !== "none") for (const r of setFontRefs(set)) refs.add(`catalog:${r}`);
   return [...refs];
+}
+
+async function cmdTranscript(file: string, o: Obj): Promise<number> {
+  const opts = await renderOptions(o, file);
+  const { validate: v, load } = await import("../api.js");
+  const project = load(readInput(file, o), opts);
+  const r = await v(project, opts);
+  for (const d of r.diagnostics.filter((x) => x.severity === "error")) reportDiagnostic(d, process.cwd());
+  const chars = (project.doc.characters ?? {}) as Record<string, { name?: string }>;
+  const pages = r.layout.map((l) => {
+    const order = new Map(l.panels.map((p) => [p.id, p.order]));
+    const items = l.transcript.map((t, i) => ({ ...t, i })).sort((a, b) => (order.get(a.panel ?? "") ?? 1e9) - (order.get(b.panel ?? "") ?? 1e9) || a.i - b.i);
+    return { id: l.geom.id, items: items.map(({ i: _i, ...t }) => t) };
+  });
+  const fmt = oneOf(o.format, "--format", ["md", "json", "txt"] as const) ?? "md";
+  const name = (who?: string) => (who ? (chars[who]?.name ?? who) : "");
+  let text: string;
+  if (fmt === "json") text = JSON.stringify({ pages }, null, 2) + "\n";
+  else if (fmt === "txt") text = pages.map((pg) => pg.items.map((i) => `${i.who ? `${name(i.who)}「${i.text.replace(/\n/g, "")}」` : i.text.replace(/\n/g, "")}`).join("\n")).join("\n\n") + "\n";
+  else text = pages.map((pg) => `## ${pg.id}\n\n` + pg.items.map((i) => `- ${i.who ? `**${name(i.who)}**: ` : ""}${i.text.replace(/\n/g, " ")}`).join("\n")).join("\n\n") + "\n";
+  if (o.out) writeFileSync(resolve(String(o.out)), text);
+  else process.stdout.write(text);
+  return r.diagnostics.some((d) => d.severity === "error") ? 1 : 0;
+}
+
+async function cmdInspect(file: string, o: Obj): Promise<number> {
+  const opts = await renderOptions(o, file);
+  const { validate: v, load } = await import("../api.js");
+  const { resolveDocument } = await import("../model/resolve.js");
+  const project = load(readInput(file, o), opts);
+  const out: Obj = {};
+  if (o.resolved) {
+    const resolved = resolveDocument(project.doc, project.bag.fork(), { lang: opts.lang });
+    const pick = (els: { id: string; type: string; props: Obj; children?: unknown[] }[]): unknown[] => els.map((e) => ({ id: e.id, type: e.type, props: e.props }));
+    out.resolved = resolved.pages
+      .filter((p) => !o.page || p.id === o.page)
+      .map((p) => ({ id: p.id, panels: p.panels.map((pn) => ({ id: pn.id, props: pn.props, elements: pick(pn.elements as never) })), layers: pick(p.layers as never) }));
+  }
+  if (o.layout || !o.resolved) {
+    const r = await v(project, opts);
+    out.layout = r.layout
+      .filter((l) => !o.page || l.geom.id === o.page)
+      .map((l) => ({ id: l.geom.id, trim: [l.geom.trimW, l.geom.trimH], panels: l.panels, elements: o.element ? l.elements.filter((e) => e.id === o.element) : l.elements }));
+    for (const d of r.diagnostics) reportDiagnostic(d, process.cwd());
+  }
+  process.stdout.write(JSON.stringify(out, (_, x) => (typeof x === "number" ? Math.round(x * 100) / 100 : x), 2) + "\n");
+  return 0;
+}
+
+async function cmdCache(sub: string | undefined): Promise<number> {
+  const { readdirSync, statSync, rmSync } = await import("node:fs");
+  const dir = defaultFontCacheDir();
+  const files = existsSync(dir) ? readdirSync(dir) : [];
+  if (sub === "info" || !sub) {
+    const bytes = files.reduce((a, f) => a + statSync(join(dir, f)).size, 0);
+    process.stdout.write(`${dir}\n  ${files.filter((f) => f.endsWith(".ttf")).length} font(s), ${(bytes / 1e6).toFixed(1)} MB\n`);
+    return 0;
+  }
+  if (sub === "clean") {
+    rmSync(dir, { recursive: true, force: true });
+    log("info", `${paint("32", "✔")} ${t("キャッシュを削除しました", "cache removed")}: ${dir}`);
+    return 0;
+  }
+  throw new UsageError(t("cache のサブコマンドは info または clean です", "cache subcommand must be info or clean"));
 }
 
 function reportError(e: unknown): number {
@@ -543,7 +640,21 @@ renderOpts(cli.command("watch <file>", "Re-render on changes")).action(wrap((fil
 common(cli.command("schema", "Print the JSON Schema"))
   .option("--out <file>", "Write to a file")
   .action(wrap((o: Obj) => cmdSchema(o)));
-common(cli.command("fonts <sub> [...args]", "Catalog fonts: install [ids...] | list [file]"))
+common(cli.command("transcript <file>", "Print the dialogue list"))
+  .option("--format <fmt>", "md | json | txt")
+  .option("--lang <tag>", "Text language")
+  .option("-o, --out <file>", "Write to a file")
+  .action(wrap((file: string, o: Obj) => cmdTranscript(file, o)));
+common(cli.command("inspect <file>", "Show resolved values and layout"))
+  .option("--page <id>", "Page ID")
+  .option("--element <id>", "Element ID")
+  .option("--resolved", "Resolved values")
+  .option("--layout", "Panel polygons, reading order, element boxes")
+  .option("--lang <tag>", "Text language")
+  .action(wrap((file: string, o: Obj) => cmdInspect(file, o)));
+common(cli.command("cache [sub]", "Font cache: info | clean")).action(wrap((sub: string | undefined, _o: Obj) => cmdCache(sub)));
+common(cli.command("fonts <sub> [...args]", "Catalog fonts: install [ids...] | list [file] | verify | licenses [file]"))
+  .option("-o, --out <file>", "Write licenses to a file")
   .option("--set <name>", "Font set")
   .option("--for <file>", "Fonts used by a document")
   .option("--all", "All catalog fonts")

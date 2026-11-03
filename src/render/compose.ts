@@ -24,6 +24,7 @@ import type { RElement, RPage, ResolvedDoc } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolveStroke } from "../model/values.js";
 import { BODY_GENERATORS } from "../shapes/balloon.js";
 import { defaultTextStyle, layoutText } from "../text/layout.js";
+import { parseMarkup, plainText } from "../text/markup.js";
 import type { AssetRegistry } from "./assets.js";
 import type { DisplayList, GroupNode, Node } from "./ir.js";
 
@@ -220,6 +221,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   for (const pg of drawOrder) {
     const clipped: Item[] = [];
     for (const el of pg.panel.elements) {
+      collectTranscript(el, pg.panel.id, info, o);
       const it = processed.get(el.id);
       if (!it) continue;
       if (it.free) {
@@ -227,19 +229,18 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
         items.push(it);
       } else clipped.push(it);
       info.elements.push({ id: el.id, type: el.type, bbox: it.bbox, panel: pg.panel.id });
-      collectTranscript(el, pg.panel.id, info, o);
     }
     clipped.sort((a, b) => a.z - b.z || a.listIdx - b.listIdx);
     panelNodes.push({ pg, clipped });
   }
   for (const el of page.layers) {
+    collectTranscript(el, undefined, info, o);
     const it = processed.get(el.id);
     if (!it) continue;
     it.free = true;
     it.stackUnder = el.props.stack === "under";
     items.push(it);
     info.elements.push({ id: el.id, type: el.type, bbox: it.bbox });
-    collectTranscript(el, undefined, info, o);
   }
 
   // build tree
@@ -834,7 +835,10 @@ function nombreNodes(doc: ResolvedDoc, page: RPage, geom: PageGeom, o: ComposeOp
 
 function collectTranscript(el: RElement, panel: string | undefined, info: PageLayoutInfo, o: ComposeOptions) {
   if (el.type === "balloon" || el.type === "text" || el.type === "sfx") {
-    info.transcript.push({ panel, id: el.id, type: el.type, who: el.props.who as string | undefined, as: el.props.as as string | undefined, text: textValue(el.props.text, o.lang, o.defaultLang) });
+    const raw = textValue(el.props.text, o.lang, o.defaultLang);
+    // plain text without markup (ruby, emphasis, tags)
+    const text = plainText(parseMarkup(raw, { vertical: false, normalize: { dash: true, ellipsis: true } }));
+    info.transcript.push({ panel, id: el.id, type: el.type, who: el.props.who as string | undefined, as: el.props.as as string | undefined, text });
   }
 }
 
