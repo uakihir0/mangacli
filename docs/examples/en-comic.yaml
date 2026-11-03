@@ -1,0 +1,41 @@
+mangacli: 1
+meta: { title: Homework, lang: en }
+book: { binding: left }
+page: { size: B5, color: mono }
+assets:
+  taro: { src: ./assets/taro/normal.png, character: taro, anchors: { mouth: [500, 535] }, regions: { face: [285, 155, 430, 490] } }
+  hanako: { src: ./assets/hanako/normal.png, character: hanako, anchors: { mouth: [500, 535] }, regions: { face: [285, 155, 430, 490] } }
+pages:
+  - layout:
+      rows:
+        - { cols: [1], height: 1 }
+        - { cols: [1, 1], height: 1 }
+        - { cols: [2, 1], height: 1 }
+    panels:
+      - layers:
+          - { image: taro, size: [auto, 95%], at: [70%, 100%], anchor: bottom }
+          - { image: hanako, size: [auto, 95%], at: [28%, 100%], anchor: bottom }
+          - { balloon: "That morning...", as: narration }
+        dialogue:
+          - hanako: Morning! You're early today.
+          - taro: "Yeah... I still haven't finished the homework."
+          - hanako: Again?
+      - layers:
+          - { image: taro, size: [auto, 120%], at: [50%, 115%], anchor: bottom }
+        dialogue:
+          - taro: Please! Just let me take a quick look!
+          - taro: I'll buy you lunch.
+      - layers:
+          - { image: hanako, size: [auto, 120%], at: [50%, 115%], anchor: bottom }
+        dialogue:
+          - hanako: Fine, fine.
+      - layers:
+          - { effect: speed-lines, angle: 0deg }
+          - { image: taro, size: [auto, 110%], at: [40%, 110%], anchor: bottom }
+          - { sfx: WHOOSH, at: [80%, 70%], fontSize: 12mm, path: { kind: arc } }
+        dialogue:
+          - { taro: THANK YOU!!, as: shout }
+      - layers:
+          - { image: hanako, size: [auto, 110%], at: [50%, 110%], anchor: bottom }
+        dialogue:
+          - { hanako: Unbelievable..., as: think }
