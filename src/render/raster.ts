@@ -15,6 +15,7 @@ export interface RasterOptions {
   dpi: number;
   crop: "trim" | "bleed" | "marks";
   marks?: { margin?: number; length?: number; width?: number };
+  maxPixels?: number;
   colorMode: ColorMode;
   toneRendering: ToneRendering;
   monoLpi: number;
@@ -210,7 +211,7 @@ export class RasterBackend {
     const bleedPx = bleedOnly + markPx;
     const W = trimPxW + 2 * bleedPx;
     const H = trimPxH + 2 * bleedPx;
-    if (W * H > 200_000_000) throw new Error(`OUTPUT_TOO_LARGE: ${W}x${H}`);
+    if (W * H > (o.maxPixels ?? 200_000_000)) throw new Error(`OUTPUT_TOO_LARGE: ${W}x${H} exceeds maxOutputPixels`);
     const sx = trimPxW / trimW;
     const sy = trimPxH / trimH;
     // display list coords are bleed-origin mm: px = (x - bleed) * sx + bleedPx

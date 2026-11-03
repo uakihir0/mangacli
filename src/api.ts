@@ -1,5 +1,5 @@
 // Public API (spec 11).
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type Diagnostic, DiagnosticBag, MangaError, MangaValidationError, suggest } from "./core/diagnostics.js";
@@ -14,7 +14,7 @@ import { type Finish, applyFinish } from "./output/finish.js";
 import { AssetRegistry } from "./render/assets.js";
 import { type PageLayoutInfo, composePage } from "./render/compose.js";
 import type { DisplayList } from "./render/ir.js";
-import type { RPage } from "./model/resolve.js";
+import type { RElement, RPage } from "./model/resolve.js";
 import { RasterBackend } from "./render/raster.js";
 import { renderSvg } from "./render/svg.js";
 import { type MangaPlugin, PluginSet, withPlugins } from "./plugin.js";
@@ -72,6 +72,8 @@ export interface RenderOptions {
   onDiagnostic?: (d: Diagnostic) => void;
   signal?: AbortSignal;
   finish?: Finish | false;
+  /** input and workload limits (spec 2.13) */
+  limits?: Limits;
   /** plugins (spec 11.8); config plugins are added after these */
   plugins?: MangaPlugin[];
   /** internal: compose only (validate / layout) */
@@ -117,6 +119,21 @@ export interface Project {
   name: string;
 }
 
+export interface Limits {
+  maxSourceBytes?: number;
+  maxPages?: number;
+  maxElementsPerPage?: number;
+  maxTextLength?: number;
+  maxOutputPixels?: number;
+  maxDpi?: number;
+}
+
+const DEFAULT_LIMITS: Required<Limits> = { maxSourceBytes: 10e6, maxPages: 1000, maxElementsPerPage: 5000, maxTextLength: 2000, maxOutputPixels: 200e6, maxDpi: 2400 };
+
+function limitsOf(o: RenderOptions): Required<Limits> {
+  return { ...DEFAULT_LIMITS, ...((o.config?.limits as Limits | undefined) ?? {}), ...(o.limits ?? {}) };
+}
+
 const BUILTIN_EFFECTS = new Set(["focus-lines", "beta-flash", "uni-flash", "speed-lines", "gloom-lines", "rain", "swirl-lines", "hatching", "impact", "vignette"]);
 const BUILTIN_TEMPLATES = new Set(["single", "grid", "tiers", "yonkoma", "hero-top", "hero-bottom"]);
 
@@ -145,12 +162,19 @@ export function load(input: MangaInput, options: RenderOptions = {}): Project {
   const bag = new DiagnosticBag(undefined, options.diagnostics ?? (options.config?.diagnostics as Record<string, "off">) ?? {});
   let loaded: LoadedDocument;
   let name = "manga";
+  const lim = limitsOf(options);
   if (typeof input === "string" || input instanceof URL) {
     const p = input instanceof URL ? fileURLToPath(input) : input;
+    try {
+      if (statSync(p).size > lim.maxSourceBytes) throw new MangaError("SECURITY_LIMIT_EXCEEDED", `${p} is larger than maxSourceBytes (${lim.maxSourceBytes})`);
+    } catch (e) {
+      if (e instanceof MangaError) throw e;
+    }
     loaded = loadDocumentFile(p, bag, options.root);
     name = basename(p, extname(p));
   } else if (isLoaded(input)) loaded = input;
   else if (isObj(input) && typeof input.yaml === "string") {
+    if (Buffer.byteLength(input.yaml as string) > lim.maxSourceBytes) throw new MangaError("SECURITY_LIMIT_EXCEEDED", `document is larger than maxSourceBytes (${lim.maxSourceBytes})`);
     const base = (input.baseDir as string) ?? options.baseDir ?? options.root ?? process.cwd();
     loaded = loadDocumentFromString(input.yaml as string, (input.filename as string) ?? join(base, "<input>.yaml"), bag, options.root);
   } else loaded = loadDocumentFromObject(input as Obj, options.baseDir ?? options.root ?? process.cwd());
@@ -308,6 +332,21 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   let resolved = resolveDocument(p.doc, bag, { seedOverride: options.seed, lang, configDefaults: options.config?.defaults as Obj, configStyles });
   if (plugins) resolved = plugins.hook("afterResolve", resolved) as typeof resolved;
   p.resolved = resolved;
+  const lim = limitsOf(options);
+  if (resolved.pages.length > lim.maxPages) bag.error("SECURITY_LIMIT_EXCEEDED", `${resolved.pages.length} pages exceed maxPages (${lim.maxPages})`);
+  for (const pg of resolved.pages) {
+    let n = 0;
+    const visit = (el: RElement) => {
+      n++;
+      const t = el.props.text;
+      const len = typeof t === "string" ? t.length : isObj(t) ? Math.max(0, ...Object.values(t).map((v) => String(v).length)) : 0;
+      if (len > lim.maxTextLength) bag.error("SECURITY_LIMIT_EXCEEDED", `text of ${el.id} is longer than maxTextLength (${lim.maxTextLength})`, { path: el.path, elementId: el.id });
+      el.children?.forEach(visit);
+    };
+    pg.panels.forEach((pn) => pn.elements.forEach(visit));
+    pg.layers.forEach(visit);
+    if (n > lim.maxElementsPerPage) bag.error("SECURITY_LIMIT_EXCEEDED", `page ${pg.id} has ${n} elements (maxElementsPerPage ${lim.maxElementsPerPage})`, { pageId: pg.id });
+  }
   if (bag.hasErrors) return fail();
   const fonts = buildFonts(p, options);
   const assets = new AssetRegistry((p.doc.assets ?? {}) as Record<string, Obj>, options.assets ?? {}, bag, 350, draft ? "placeholder" : (options.missingAssets ?? (options.config?.missingAssets as "error") ?? "error"));
@@ -422,9 +461,10 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const intent = geom.color;
       const colorMode = options.colorMode ?? (prof.colorMode === "intent" ? (intent === "mono" ? "gray" : "color") : prof.colorMode);
       const dpi = dpiFor(geom);
+      if (dpi > lim.maxDpi) throw new Error(`SECURITY_LIMIT_EXCEEDED: ${Math.round(dpi)} dpi exceeds maxDpi (${lim.maxDpi})`);
       const runs: { name?: string; list?: string[] }[] = seps0 ? seps0 : [{}];
       for (const run of runs) {
-        const backend = new RasterBackend({ dpi, crop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
+        const backend = new RasterBackend({ maxPixels: lim.maxOutputPixels, dpi, crop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
         const needRaster = formats.some((f) => f !== "svg");
         let full = needRaster ? await backend.render(list) : { data: new Uint8ClampedArray(0), width: 0, height: 0, dpi };
         if (plugins && needRaster) full = { ...full, ...(plugins.hook("afterRender", { data: full.data, width: full.width, height: full.height }) as object) };
