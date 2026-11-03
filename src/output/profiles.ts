@@ -12,6 +12,7 @@ export interface Profile {
   crop: "trim" | "bleed" | "marks";
   marks?: { margin?: number; length?: number; width?: number };
   spread?: "joined" | "split";
+  finish?: import("./finish.js").Finish;
   toneRendering: "dots" | "flat" | "auto";
   print: boolean;
   draft?: boolean;

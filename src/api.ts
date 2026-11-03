@@ -9,6 +9,7 @@ import { type ResolvedDoc, resolveDocument } from "./model/resolve.js";
 import { type EncodeOptions, EXT, MIME, type OutputFormat, encode } from "./output/encode.js";
 import { type Profile, resolveProfile } from "./output/profiles.js";
 import { PdfWriter } from "./output/pdf.js";
+import { type Finish, applyFinish } from "./output/finish.js";
 import { AssetRegistry } from "./render/assets.js";
 import { type PageLayoutInfo, composePage } from "./render/compose.js";
 import type { DisplayList } from "./render/ir.js";
@@ -68,6 +69,7 @@ export interface RenderOptions {
   onProgress?: (e: { phase: string; pageId?: string; done: number; total: number }) => void;
   onDiagnostic?: (d: Diagnostic) => void;
   signal?: AbortSignal;
+  finish?: Finish | false;
   /** plugins (spec 11.8); config plugins are added after these */
   plugins?: MangaPlugin[];
   /** internal: compose only (validate / layout) */
@@ -385,6 +387,9 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         const needRaster = formats.some((f) => f !== "svg");
         let full = needRaster ? await backend.render(list) : { data: new Uint8ClampedArray(0), width: 0, height: 0, dpi };
         if (plugins && needRaster) full = { ...full, ...(plugins.hook("afterRender", { data: full.data, width: full.width, height: full.height }) as object) };
+        // finishing passes: off for print profiles unless the profile itself asks for them
+        const finish = options.finish === false ? undefined : (options.finish ?? (prof as { finish?: Finish }).finish ?? (prof.print ? undefined : (docOutput.finish as Finish | undefined)));
+        if (finish && needRaster && !run.list) full = { ...full, ...(await applyFinish(full, finish, { dpi, colorMode: colorMode as "color", seed: resolved.seed, bag })) };
         if (options.debug) drawDebug(full, list, info, dpi, crop, options.debug);
         // spreads: one joined image, or two pages each with bleed on all sides (spec 10.9)
         const spreadMode = options.spread ?? (docOutput.spread as "joined" | "split" | undefined) ?? prof.spread ?? "joined";
