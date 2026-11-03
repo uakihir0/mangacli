@@ -562,7 +562,7 @@ ruby:
 |---|---|---|---|
 | `text` | 文字列 | 必須 | 文字（マークアップは `<size>`、`<color>`、`<font>`、`<space>` のみ有効） |
 | `fontSize` | Length | 12 mm | 基準の文字サイズ |
-| `writing` | `vertical` \| `horizontal` | `vertical` | 並べる向き |
+| `writing` | `vertical` \| `horizontal` | 本文と同じ（言語が `ja` なら `vertical`、それ以外は `horizontal`） | 並べる向き |
 | `letterSpacing` | Length（`em`） | `-0.05em` | 字間（描き文字は詰め気味にする） |
 | `path` | SfxPath | - | 文字を並べる経路（下表） |
 | `grow` | 数値 | `0` | 文字ごとの大きさの増分。n 文字目の倍率は 1 + `grow` × (n − 1)。だんだん大きくなる擬音に使う（負で小さくなる） |
