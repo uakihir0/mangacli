@@ -48,6 +48,9 @@ const RENYOU = /^[一-鿿㐀-䶿々][きりちしいみひびけえぎじ]$/u;
 const PUNCT_START = /^[、。，．！？!?」』）】〉》…―ーっゃゅょぁぃぅぇぉッャュョァィゥェォ〜]/u;
 const PARTICLES = new Set(["は", "が", "を", "に", "で", "と", "も", "の", "へ", "や", "か", "ね", "よ", "な", "わ", "さ", "ぞ", "ぜ", "て", "た", "だ", "です", "ます", "でし", "まし", "から", "まで", "より", "けど", "って", "ので", "のに", "だけ", "しか", "ばかり", "など", "くらい", "ぐらい", "でも", "じゃ"]);
 
+/** auxiliaries that never start a phrase (いる|ない, 行き|ます) */
+const AUX = new Set(["ない", "なかっ", "なく", "なけれ", "ます", "まし", "ませ", "ません", "たい", "たかっ", "たく", "られ", "られる", "れる", "れ", "せる", "させ", "させる", "よう", "だろう", "でしょう", "らしい", "ちゃ", "じゃう", "ちゃう"]);
+
 /** Phrase (bunsetsu-like) units via Intl.Segmenter (spec 7.6.2). Returns break-allowed boundaries as char indices. */
 export function phraseBoundaries(text: string, lang = "ja"): Set<number> {
   const seg = new Intl.Segmenter(lang, { granularity: "word" });
@@ -66,6 +69,7 @@ export function phraseBoundaries(text: string, lang = "ja"): Set<number> {
         (HIRA.test(w.s) && w.s.length <= 3 && HAS_KANJI.test(lastWord) && ENDS_HIRA.test(lastWord)) ||
         // particles in hiragana-only text (これ|は)
         (HIRA.test(w.s) && HIRA.test(prev.s) && (PARTICLES.has(w.s) || w.s.length === 1)) ||
+        (AUX.has(w.s) && !/\s$/.test(prev.s)) ||
         // sentence-final and case particles never start a phrase (です|ね)
         (PARTICLES.has(w.s) && w.s.length <= 2 && !/\s$/.test(prev.s)) ||
         // auxiliaries after the te-form (残って|る, て|しまった, て|みた)
