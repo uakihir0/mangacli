@@ -581,6 +581,48 @@ export class RasterBackend {
     const r = b ? clampRect(b, dev.W, dev.H) : null;
     if (!r) return;
     // outlines: exact dilation of the alpha silhouette (distance transform)
+    if (n.shadow) {
+      // the silhouette in the shadow colour, offset and blurred; screened in 1-bit output
+      const sh = n.shadow;
+      const pad = Math.ceil((Math.abs(sh.dx) + Math.abs(sh.dy) + sh.blur * 2) * dev.scale) + 4;
+      const rr = clampRect({ x: r.x - pad, y: r.y - pad, w: r.w + 2 * pad, h: r.h + 2 * pad }, dev.W, dev.H);
+      if (rr) {
+        const sc = createCanvas(rr.w, rr.h);
+        const sctx = sc.getContext("2d");
+        if (sh.blur > 0) sctx.filter = `blur(${(sh.blur * dev.scale) / 2}px)`;
+        const offPx = applyMat(dev.base, { x: sh.dx, y: sh.dy });
+        const o0 = applyMat(dev.base, { x: 0, y: 0 });
+        setM(sctx, matMul([1, 0, 0, 1, -rr.x + offPx.x - o0.x, -rr.y + offPx.y - o0.y], k));
+        sctx.drawImage(tmp, 0, 0);
+        sctx.filter = "none";
+        sctx.setTransform(1, 0, 0, 1, 0, 0);
+        sctx.globalCompositeOperation = "source-in";
+        const c = grayize(sh.color, dev.opts.colorMode);
+        sctx.fillStyle = cssColor({ ...c, a: 1 });
+        sctx.fillRect(0, 0, rr.w, rr.h);
+        if (mono) {
+          const id = sctx.getImageData(0, 0, rr.w, rr.h);
+          const dd = id.data;
+          const dens = (1 - (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b)) * c.a;
+          const sampler = makeToneSampler({ density: 0, lpi: dev.opts.monoLpi, angle: Math.PI / 4, dot: "round", grain: 0.08, invert: false, offset: [0, 0], seed: 9 }, this.target(dev, rr), (xm, ym) => {
+            const q = applyMat(matMul([1, 0, 0, 1, -rr.x, -rr.y], dev.base), { x: xm, y: ym });
+            const i = (Math.min(rr.h - 1, Math.max(0, Math.floor(q.y))) * rr.w + Math.min(rr.w - 1, Math.max(0, Math.floor(q.x)))) * 4 + 3;
+            return (dd[i] / 255) * dens;
+          });
+          for (let y = 0; y < rr.h; y++) for (let x = 0; x < rr.w; x++) {
+            const i = (y * rr.w + x) * 4;
+            dd[i] = dd[i + 1] = dd[i + 2] = 0;
+            dd[i + 3] = dd[i + 3] > 0 && sampler(x, y) ? 255 : 0;
+          }
+          sctx.putImageData(id, 0, 0);
+        }
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = mono ? 1 : c.a;
+        ctx.drawImage(sc, rr.x, rr.y);
+        ctx.restore();
+      }
+    }
     if (n.outline?.length) {
       const maxR = Math.max(...n.outline.map((o) => o.w)) * dev.scale;
       const pad = Math.ceil(maxR) + 2;

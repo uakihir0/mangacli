@@ -1,5 +1,6 @@
 // Image elements (spec 5.5).
 import { FILTER_NAMES, parseFilter } from "../render/filters.js";
+import { isObj } from "../load/normalize.js";
 import { parseColor } from "../core/color.js";
 import { toMm } from "../core/units.js";
 import { polyPath, smoothPath, transformPath } from "../geom/path.js";
@@ -171,6 +172,11 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect):
   const clipPath = fit === "cover" || dx < 0 || dy < 0 || dx + dw > bw || dy + dh > bh ? polyPath([applyMat(pl.matrix, { x: 0, y: 0 }), applyMat(pl.matrix, { x: bw, y: 0 }), applyMat(pl.matrix, { x: bw, y: bh }), applyMat(pl.matrix, { x: 0, y: bh })], true) : undefined;
   const group: Node = { kind: "group", opacity: typeof p.opacity === "number" ? p.opacity : undefined, blend: blend as "normal", clip: hasSize ? clipPath : undefined, children: [], tag: tag(el, "art") };
   if (ows.length) (img as { outline?: unknown }).outline = ows;
+  if (isObj(p.shadow) || p.shadow === true) {
+    const sh = (isObj(p.shadow) ? p.shadow : {}) as Obj;
+    const off = Array.isArray(sh.offset) ? sh.offset : ["0.5mm", "0.5mm"];
+    img.shadow = { dx: toMm(off[0] as string, ctx.u), dy: toMm(off[1] as string, ctx.u), blur: sh.blur !== undefined ? toMm(sh.blur as string, ctx.u) : 0, color: parseColor((sh.color as string) ?? "rgba(0,0,0,0.5)") ?? { r: 0, g: 0, b: 0, a: 0.5 } };
+  }
   group.children.push(img);
   nodes.push(group);
   return { nodes, bbox: pl.bbox };

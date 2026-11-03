@@ -95,6 +95,8 @@ export interface ImageNode {
   flipY?: boolean;
   /** silhouette outlines (largest first): width mm */
   outline?: { w: number; color: RGBA }[];
+  /** drop shadow of the silhouette (mm) */
+  shadow?: { dx: number; dy: number; blur: number; color: RGBA };
   tag?: NodeTag;
 }
 
