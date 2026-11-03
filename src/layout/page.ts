@@ -233,7 +233,8 @@ function distribute(total: number, sizes: (number | string)[], gaps: number, u: 
 export function layoutPanels(page: RPage, geom: PageGeom, bag: DiagnosticBag): PanelGeom[] {
   const u = geom.units;
   const L = (isObj(page.layout) ? page.layout : page.layout === "free" ? { free: true } : {}) as Obj;
-  const gutterSpec = L.gutter ?? page.settings.gutter;
+  // in a split tree, `gutter` on a node belongs to that node only; the page gutter applies elsewhere
+  const gutterSpec = L.split ? page.settings.gutter : (L.gutter ?? page.settings.gutter);
   let gCol = 2.5 * geom.k;
   let gRow = 5 * geom.k;
   if (gutterSpec !== undefined) {

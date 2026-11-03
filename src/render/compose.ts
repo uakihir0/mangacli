@@ -234,7 +234,13 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       if (it.free) {
         if (isObj(el.props.clip)) it.openClip = openClipPath(pg, el.props.clip as Obj, geom, u);
         items.push(it);
-      } else clipped.push(it);
+      } else {
+        clipped.push(it);
+        // text cut by the panel clip
+        const pb = pg.box;
+        const b = it.bbox;
+        if ((el.type === "balloon" || el.type === "text") && (b.x < pb.x - 0.3 || b.y < pb.y - 0.3 || b.x + b.w > pb.x + pb.w + 0.3 || b.y + b.h > pb.y + pb.h + 0.3)) bag.warn("TEXT_CLIPPED", `${el.id} is cut by the panel frame`, { path: el.path, elementId: el.id, pageId: page.id });
+      }
       info.elements.push({ id: el.id, type: el.type, bbox: it.bbox, panel: pg.panel.id });
     }
     clipped.sort((a, b) => a.z - b.z || a.listIdx - b.listIdx);
