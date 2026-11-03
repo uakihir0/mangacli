@@ -307,7 +307,7 @@ tail: none
 | `overflow` | 処理 |
 |---|---|
 | `grow` | 本体を大きくする。`maxSize` を超える場合は、`shrink` と同じ処理を行い、それでも収まらなければ `maxSize` を超えて大きくし、警告（`BALLOON_TOO_LARGE`）を出す |
-| `shrink` | 文字サイズを `minFontScale` まで段階的（0.5 pt ずつ）に縮める。縮めて収まった場合は情報（`TEXT_SHRUNK`）を出す。それでも収まらなければ `clip` と同じ処理を行う |
+| `shrink` | 文字サイズを `minFontScale` まで段階的（元の大きさの 5 % ずつ）に縮める。縮めて収まった場合は情報（`TEXT_SHRUNK`）を出す。それでも収まらなければ `clip` と同じ処理を行う |
 | `clip` | はみ出した本文を本体の形で切り、警告（`TEXT_OVERFLOW`）を出す |
 | `error` | エラー（`TEXT_OVERFLOW`）にする |
 
