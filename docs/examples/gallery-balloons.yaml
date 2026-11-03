@@ -1,0 +1,66 @@
+# yaml-language-server: $schema=../../node_modules/mangacli/schema.json
+#
+# 吹き出しの種類の一覧（組み込みのスタイル `as` と形状 `shape`）。
+#
+#   npx mangacli render docs/examples/gallery-balloons.yaml
+
+mangacli: 1
+engine: 1
+
+meta:
+  title: 吹き出しの一覧
+  lang: ja
+
+page:
+  size: B5
+  color: mono
+
+defaults:
+  text:
+    font: ui
+    fontSize: 7pt
+    writing: horizontal
+    place: bottom
+    inset: 1.5mm
+
+pages:
+  - layout: { template: grid, params: { cols: 3, rows: 4 } }
+    panels:
+      - layers:
+          - { balloon: ふつうの吹き出し, at: [50%, 42%], tail: { direction: 110deg } }
+          - text: "say (ellipse)"
+      - layers:
+          - { balloon: 考えごと, as: think, at: [50%, 40%], tail: { direction: 100deg } }
+          - text: "think (cloud)"
+      - layers:
+          - { balloon: うおおお！, as: shout, at: [50%, 42%], tail: { direction: 80deg } }
+          - text: "shout (spike)"
+      - layers:
+          - { balloon: ぎゃああ！！, as: scream, at: [50%, 42%], tail: { direction: 100deg } }
+          - text: "scream (burst)"
+      - layers:
+          - { balloon: ひそひそ, as: whisper, at: [50%, 42%], tail: { direction: 110deg } }
+          - text: whisper
+      - layers:
+          - { balloon: ふるえる声, as: tremble, at: [50%, 42%], tail: { direction: 70deg } }
+          - text: "tremble (wavy)"
+      - layers:
+          - { balloon: 電話の声, as: electronic, at: [50%, 40%], tail: { direction: 120deg } }
+          - text: electronic
+      - layers:
+          - { balloon: その日の放課後, as: narration, at: [50%, 45%] }
+          - text: narration
+      - layers:
+          - { balloon: 反転, as: inverted, at: [50%, 42%], tail: { direction: 90deg } }
+          - text: inverted
+      - background: black
+        layers:
+          - { balloon: ガーン, as: shock, at: [50%, 45%] }
+          - { text: shock, color: white, outline: none }
+      - layers:
+          - { balloon: そうか, id: c1, at: [62%, 26%], tail: { direction: 60deg } }
+          - { balloon: やっぱり君だったのか, at: [36%, 58%], connect: { to: c1 } }
+          - text: connect
+      - layers:
+          - { balloon: 心の声, as: monologue, at: [50%, 45%] }
+          - text: monologue

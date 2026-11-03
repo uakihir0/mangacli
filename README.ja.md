@@ -11,6 +11,8 @@ mangacli は、漫画の構造を記述したデータから、日本の漫画�
   <img src="docs/images/sns-color-yonkoma.jpg" width="40%" alt="mangacli で描画した SNS 向けのカラーの 4 コマ">
 </p>
 
+ほかの作例: [吹き出しの一覧](docs/images/gallery-balloons.png)、[効果と描き文字の一覧](docs/images/gallery-effects.png)、[B5 の作例の 2 ページ目](docs/images/b5-mono-2.png)。
+
 作例の絵はスクリプトで生成した仮の絵です。それ以外（コマ、吹き出し、写植、効果、トーン）はすべて mangacli が描いています。元のファイルは [docs/examples](docs/examples/README.ja.md) にあります。
 
 ## 機能

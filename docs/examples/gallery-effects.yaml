@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=../../node_modules/mangacli/schema.json
+#
+# 効果・トーン・漫符・描き文字の一覧。
+#
+#   npx mangacli render docs/examples/gallery-effects.yaml
+
+mangacli: 1
+engine: 1
+
+meta:
+  title: 効果の一覧
+  lang: ja
+
+page:
+  size: B5
+  color: mono
+
+defaults:
+  text:
+    font: ui
+    fontSize: 7pt
+    writing: horizontal
+    place: bottom
+    inset: 1.5mm
+    background: paper
+
+pages:
+  - layout: { template: grid, params: { cols: 3, rows: 4 } }
+    panels:
+      - layers: [{ effect: focus-lines }, { text: focus-lines }]
+      - layers: [{ effect: beta-flash }, { text: beta-flash, color: white, background: black, outline: none }]
+      - layers: [{ effect: uni-flash }, { text: uni-flash }]
+      - layers: [{ effect: speed-lines, angle: 0deg }, { text: speed-lines }]
+      - layers: [{ effect: gloom-lines, tone: tone(20%) }, { text: gloom-lines }]
+      - layers: [{ effect: swirl-lines }, { text: swirl-lines }]
+      - layers: [{ effect: hatching, pattern: kakeami }, { text: "hatching (kakeami)" }]
+      - layers: [{ effect: impact }, { text: impact }]
+      - background: "tone-gradient(70%, 0%, 180deg)"
+        layers: [{ text: tone-gradient }]
+      - layers:
+          - { mark: anger, at: [30%, 30%], size: 8mm }
+          - { mark: sparkle, at: [70%, 30%], size: 8mm }
+          - { mark: heart, at: [30%, 65%], size: 8mm }
+          - { mark: sweat, at: [70%, 62%], size: 8mm, count: 2 }
+          - text: marks
+      - layers:
+          - { sfx: ドドド, fontSize: 12mm, at: [50%, 45%] }
+          - text: sfx
+      - layers:
+          - { sfx: シーン, fontSize: 11mm, hollow: true, at: [50%, 45%] }
+          - text: "sfx (hollow)"
