@@ -3,10 +3,11 @@ import { BLACK, WHITE, parseColor } from "../core/color.js";
 import { Rng, noise1, noise2 } from "../core/random.js";
 import { parseAngle, toMm, toRange } from "../core/units.js";
 import { type PathData, flattenPath, polyPath, smoothPath, transformPath } from "../geom/path.js";
-import { type Rect, type Vec, applyMat, matMul, matRotate, matScale, matTranslate } from "../geom/vec.js";
+import { type Rect, type Vec, applyMat, boundsOf, matMul, matRotate, matScale, matTranslate } from "../geom/vec.js";
 import { place, sizeValue } from "../layout/place.js";
 import type { RElement } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolveStroke } from "../model/values.js";
+import { isObj } from "../load/normalize.js";
 import { inkShape } from "../ink/shape.js";
 import { inksToNodes } from "./inkir.js";
 import { glyphNodes } from "./glyphs.js";
@@ -142,10 +143,14 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const roughen = typeof dist.roughen === "number" ? dist.roughen : 0.25;
   const warp = typeof dist.warp === "number" ? dist.warp : 0.15;
   const skew = dist.skew !== undefined ? parseAngle(dist.skew as string) : 0;
+  const persp = Array.isArray(dist.perspective) ? (dist.perspective as number[]).map(Number) : null;
+  const bulge = typeof dist.bulge === "number" ? dist.bulge : 0;
   const seedW = rng.nextU32();
   const seedR = rng.nextU32();
   const totalW = vertical ? tl.width : tl.width + acc;
   const totalH = vertical ? tl.height + acc : tl.height;
+  let boxW = totalW;
+  let boxH = totalH;
   const perCharT = units.map((uu, i) => {
     const ov = chars.find((c) => c.index === i);
     const r = ov?.rotate !== undefined ? parseAngle(ov.rotate as string) : rng.range(rotR.min, rotR.max);
@@ -153,8 +158,53 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     const jx = rng.range(-jitter, jitter) + (Array.isArray(ov?.offset) ? toMm(ov!.offset[0] as string, u) : 0);
     const jy = rng.range(-jitter, jitter) + (Array.isArray(ov?.offset) ? toMm(ov!.offset[1] as string, u) : 0);
     void uu;
-    return { r, s, jx, jy, color: ov?.color as string | undefined };
+    return { r, s, jx, jy, color: (ov?.color as string | undefined) };
   });
+  // the path the letters follow (spec 7.14): along-axis position -> point and tangent turn
+  const pathSpec = isObj(p.path) ? (p.path as Obj) : null;
+  const along = (g: { cx: number; cy: number }, i: number) => (vertical ? g.cy + (shift[i] ?? 0) : g.cx + (shift[i] ?? 0));
+  const Ltot = vertical ? totalH : totalW;
+  const curveAt = (sPos: number): { dx: number; dy: number; ang: number } => {
+    if (!pathSpec) return { dx: 0, dy: 0, ang: 0 };
+    const kind = String(pathSpec.kind ?? "line");
+    const tt = Ltot > 0 ? sPos / Ltot : 0;
+    // offsets are expressed as (along, across); across points away from the reading start side
+    let a = sPos;
+    let n = 0;
+    let ang = 0;
+    if (kind === "line") {
+      ang = parseAngle((pathSpec.angle as string) ?? "0deg");
+      a = sPos * Math.cos(ang);
+      n = sPos * Math.sin(ang);
+    } else if (kind === "arc") {
+      const A = parseAngle((pathSpec.angle as string) ?? "40deg");
+      const r = pathSpec.radius !== undefined ? toMm(pathSpec.radius as string, u) : Ltot / Math.max(1e-3, A);
+      const phi = (tt - 0.5) * (Ltot / r);
+      a = Ltot / 2 + r * Math.sin(phi);
+      n = r * (1 - Math.cos(phi));
+      ang = phi;
+    } else if (kind === "wave") {
+      const amp = pathSpec.amplitude !== undefined ? toMm(pathSpec.amplitude as string, u) : em * 0.3;
+      const wl = pathSpec.wavelength !== undefined ? toMm(pathSpec.wavelength as string, u) : em * 3;
+      n = amp * Math.sin((sPos / wl) * Math.PI * 2);
+      ang = Math.atan(((amp * Math.PI * 2) / wl) * Math.cos((sPos / wl) * Math.PI * 2));
+    } else if (kind === "points" && Array.isArray(pathSpec.points) && pathSpec.points.length > 1) {
+      const pts = (pathSpec.points as unknown[][]).map((q) => ({ x: toMm(q[0] as string, u), y: toMm(q[1] as string, u) }));
+      const segL: number[] = [0];
+      for (let k = 1; k < pts.length; k++) segL.push(segL[k - 1] + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y));
+      const target = tt * segL[segL.length - 1];
+      let k = 1;
+      while (k < pts.length - 1 && segL[k] < target) k++;
+      const f0 = (target - segL[k - 1]) / Math.max(1e-6, segL[k] - segL[k - 1]);
+      const q = { x: pts[k - 1].x + (pts[k].x - pts[k - 1].x) * f0, y: pts[k - 1].y + (pts[k].y - pts[k - 1].y) * f0 };
+      const dir = Math.atan2(pts[k].y - pts[k - 1].y, pts[k].x - pts[k - 1].x);
+      // points are in page-like (x, y); map onto the writing axis
+      a = vertical ? q.y : q.x;
+      n = vertical ? -q.x : q.y;
+      ang = vertical ? dir - Math.PI / 2 : dir;
+    }
+    return vertical ? { dx: -n, dy: a - sPos, ang } : { dx: a - sPos, dy: n, ang };
+  };
   const paths: PathData[] = [];
   const colorsPer: (string | undefined)[] = [];
   for (const g of tl.glyphs) {
@@ -163,10 +213,11 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     const sh = shift[i] ?? 0;
     const cx = g.cx;
     const cy = g.cy;
-    const m = matMul(matTranslate(cx + t.jx + (vertical ? 0 : sh), cy + t.jy + (vertical ? sh : 0)), matMul(matRotate(t.r), matMul(matScale(t.s), matTranslate(-cx, -cy))));
+    const cv = curveAt(along(g, i));
+    const m = matMul(matTranslate(cx + t.jx + (vertical ? 0 : sh) + cv.dx, cy + t.jy + (vertical ? sh : 0) + cv.dy), matMul(matRotate(t.r + cv.ang), matMul(matScale(t.s), matTranslate(-cx, -cy))));
     let path = transformPath(g.path, m);
     // distort: flatten -> displace -> smooth
-    if (warp > 0 || roughen > 0 || skew) {
+    if (warp > 0 || roughen > 0 || skew || persp || bulge) {
       const polys = flattenPath(path, 0.05 * u.k);
       const out: PathData = [];
       for (const pl of polys) {
@@ -177,25 +228,61 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
           const wy = warp * em * 0.12 * noise2(seedW + 7, q.x / (em * 1.6), q.y / (em * 1.6));
           const rr = roughen * em * 0.02 * noise1(seedR + i, s / (em * 0.25));
           const sk = skew ? Math.tan(skew) * (q.y - totalH / 2) : 0;
-          return { x: q.x + wx + rr + sk, y: q.y + wy + rr };
+          // perspective: horizontal scale changes from top to bottom; bulge swells the middle
+          let x = q.x + wx + rr + sk;
+          let y = q.y + wy + rr;
+          if (persp) {
+            const ty = Math.max(0, Math.min(1, y / Math.max(1e-6, totalH)));
+            const k = persp[0] + (persp[1] - persp[0]) * ty;
+            x = totalW / 2 + (x - totalW / 2) * k;
+          }
+          if (bulge) {
+            const nx = (x - totalW / 2) / Math.max(1e-6, totalW / 2);
+            const ny = (y - totalH / 2) / Math.max(1e-6, totalH / 2);
+            const f = 1 + bulge * 0.35 * Math.max(0, 1 - (nx * nx + ny * ny) * 0.5);
+            x = totalW / 2 + (x - totalW / 2) * f;
+            y = totalH / 2 + (y - totalH / 2) * f;
+          }
+          return { x, y };
         });
         out.push(...(pts.length > 3 ? smoothPath(pts, true) : polyPath(pts, true)));
       }
       path = out;
     }
     paths.push(path);
-    colorsPer.push(t.color);
+    colorsPer.push(t.color ?? g.color);
+  }
+  // letters set on a path: measure the real extent and move it to the origin
+  if (pathSpec) {
+    const pts = flattenPath(paths.flat(), 0.2).flatMap((c) => c.pts);
+    if (pts.length) {
+      const bb = boundsOf(pts);
+      for (let k = 0; k < paths.length; k++) paths[k] = transformPath(paths[k], [1, 0, 0, 1, -bb.x, -bb.y]);
+      boxW = bb.w;
+      boxH = bb.h;
+    }
   }
   const allPath = paths.flat();
   const pc = placeCtx(ctx, el);
-  const pl = place(p, totalW, totalH, pc);
+  const pl = place(p, boxW, boxH, pc);
   const placed = transformPath(allPath, pl.matrix);
   const nodes: Node[] = [];
   nodes.push(...outlineNodes(placed, p.outline, ctx, el));
   const paint = textPaint(p.color, ctx, el, pl.bbox);
   // hollow letters keep only the traced outline (black by default)
   const edge = (p.edge as Obj | undefined) ?? (p.hollow ? { width: "0.35bmm", color: (p.color as string) ?? "black" } : undefined);
-  if (!p.hollow) nodes.push({ kind: "path", path: placed, fillRule: "nonzero", paint, tag: tag(el, "text", "sfx") });
+  if (!p.hollow) {
+    // per-character colours (chars[].color, <color>) split the fill into runs
+    const runs = new Map<string, PathData>();
+    paths.forEach((pd, k) => {
+      const key = colorsPer[k] ?? "";
+      runs.set(key, [...(runs.get(key) ?? []), ...transformPath(pd, pl.matrix)]);
+    });
+    for (const [key, pd] of runs) {
+      const c = key ? parseColor(key) : null;
+      nodes.push({ kind: "path", path: pd, fillRule: "nonzero", paint: c ? { type: "solid", color: c } : paint, tag: tag(el, "text", "sfx") });
+    }
+  }
   else nodes.push({ kind: "path", path: placed, fillRule: "nonzero", paint: { type: "solid", color: WHITE }, tag: tag(el, "text", "sfx") });
   if (edge && edge.style !== "none") {
     // trace the glyph contours with a hand-drawn pen line
@@ -205,7 +292,6 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     const inks = flattenPath(placed, 0.05).filter((c) => c.pts.length > 2).flatMap((c, i) => inkShape({ pts: c.pts, closed: true }, { line, hand: { ...hand, wobbleAmp: hand.wobbleAmp * 0.3 }, rng: rng.fork(`c${i}`), strokes: 1, sizeHint: 4 * u.k }).inks);
     nodes.push(...inksToNodes(inks, line.color, tag(el, "ink")));
   }
-  void colorsPer;
   void sizeValue;
   return { nodes, bbox: pl.bbox };
 }
