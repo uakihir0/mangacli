@@ -538,7 +538,7 @@ ruby:
 | `who` | キャラクター ID | - | 発話者（吹き出しのないセリフの場合）。セリフ一覧に使う |
 | `size` | Size \| `auto` | `auto` | 箱の大きさ。固定した場合は箱の中で改行する |
 | `background` | Paint | `none` | 文字の背後に敷く板の塗り |
-| `padding` | Length \| `[縦, 横]` | `0.3em` | 板の余白 |
+| `padding` | Length \| `[縦, 横]` | `[0.45em, 0.6em]` | 板の余白（`background` の板が線や絵に触れないよう、文字の周りに地を空ける） |
 | `stroke` | Stroke | `none` | 板の輪郭線 |
 | `overflow` | `shrink` \| `clip` \| `error` | `shrink` | 固定サイズの箱に収まらない場合の処理（[6.7.4](06-balloons.md#674-収まらない場合) と同じ） |
 | `outline` | Outline[] | `[{ width: 0.8bmm, color: paper }]` | 縁取り。絵や効果線の上でも読めるよう、既定で白フチを付ける（小さい文字では字間までつながって地の白になる）。`none` で付けない |

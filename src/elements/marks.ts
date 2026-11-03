@@ -164,7 +164,15 @@ export function renderMark(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
       for (let q = 0; q < 4; q++) {
         const a = rotA + (q * Math.PI) / 2;
         if (v === "vein") m.line(T([{ x: 0.08 * s, y: -0.5 * s }, { x: 0.2 * s, y: -0.25 * s }, { x: 0.12 * s, y: -0.05 * s }], c, a), { w: W(1.6) });
-        else m.line(T([{ x: 0.1 * s, y: -0.46 * s }, { x: 0.1 * s, y: -0.16 * s }, { x: 0.16 * s, y: -0.1 * s }, { x: 0.46 * s, y: -0.1 * s }], c, a), { w: W(1.7) });
+        else {
+          // the classic 💢: four curved corners around an empty centre, ends flaring outward
+          const pts: { x: number; y: number }[] = [];
+          const q = (A: number[], C: number[], B: number[], t: number) => ({ x: s * ((1 - t) * (1 - t) * A[0] + 2 * t * (1 - t) * C[0] + t * t * B[0]), y: s * ((1 - t) * (1 - t) * A[1] + 2 * t * (1 - t) * C[1] + t * t * B[1]) });
+          // two arms meeting at a corner that points at the centre, each bowing outward like a vein
+          for (let i = 0; i <= 8; i++) pts.push(q([0.06, -0.5], [0.24, -0.3], [0.13, -0.13], i / 8));
+          for (let i = 1; i <= 8; i++) pts.push(q([0.13, -0.13], [0.3, -0.24], [0.5, -0.06], i / 8));
+          m.line(T(pts, c, a), { w: W(1.7) });
+        }
       }
       break;
     }
