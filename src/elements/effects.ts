@@ -32,6 +32,21 @@ interface FxCtx {
   k: number;
 }
 
+/** the burst centre: explicit, else the face of the panel's main character, else the region centre */
+function autoCenter(f: FxCtx, p: Obj, pc: ReturnType<typeof placeCtx>): Vec | null {
+  if (p.center !== undefined && p.center !== "auto") return resolvePoint(p.center, pc);
+  const b = f.region.bbox;
+  let best: { c: Vec; a: number } | null = null;
+  for (const t of f.ctx.refs.all()) {
+    const face = t.regions.face?.bbox;
+    if (t.type !== "image" || !t.character || !face || (f.ctx.panel && t.panelId !== f.ctx.panel.panel.id)) continue;
+    const c = { x: face.x + face.w / 2, y: face.y + face.h / 2 };
+    if (c.x < b.x || c.y < b.y || c.x > b.x + b.w || c.y > b.y + b.h) continue;
+    if (!best || face.w * face.h > best.a) best = { c, a: face.w * face.h };
+  }
+  return best ? best.c : resolvePoint("center", pc);
+}
+
 const L = (f: FxCtx, v: unknown, base?: number) => toMm(v as string, { ...f.ctx.u, base });
 const R = (f: FxCtx, v: unknown, fb: Range, base?: number): Range => toRange(v as never, (x) => L(f, x, base), fb);
 
@@ -121,7 +136,7 @@ function focusLines(f: FxCtx, over: Obj = {}): InkPoly[] {
   const p = { ...f.p, ...over };
   const b = f.region.bbox;
   const pc = { ...placeCtx(f.ctx, f.el), coordsBox: f.ctx.coordsBox };
-  const c = resolvePoint(p.center ?? "center", pc) ?? { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+  const c = autoCenter(f, p, pc) ?? { x: b.x + b.w / 2, y: b.y + b.h / 2 };
   const inner = (p.inner as unknown[]) ?? ["32%", "26%"];
   const rx = L(f, inner[0], b.w);
   const ry = L(f, inner[1], b.h);
@@ -195,7 +210,7 @@ function betaFlash(f: FxCtx): Node[] {
   const p = f.p;
   const b = f.region.bbox;
   const pc = placeCtx(f.ctx, f.el);
-  const c = resolvePoint(p.center ?? "center", pc) ?? { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+  const c = autoCenter(f, p, pc) ?? { x: b.x + b.w / 2, y: b.y + b.h / 2 };
   const inner = (p.inner as unknown[]) ?? ["24%", "20%"];
   const outer = (p.outer as unknown[]) ?? ["44%", "38%"];
   const rx = L(f, inner[0], b.w);
@@ -262,7 +277,7 @@ function uniFlash(f: FxCtx): Node[] {
   const p = f.p;
   const b = f.region.bbox;
   const pc = placeCtx(f.ctx, f.el);
-  const c = resolvePoint(p.center ?? "center", pc) ?? { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+  const c = autoCenter(f, p, pc) ?? { x: b.x + b.w / 2, y: b.y + b.h / 2 };
   const inner = (p.inner as unknown[]) ?? ["18%", "15%"];
   const outer = (p.outer as unknown[]) ?? ["36%", "30%"];
   const rx = L(f, inner[0], b.w);
