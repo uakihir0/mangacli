@@ -1,6 +1,6 @@
 // Lengths, angles and ranges (spec 3.4, 3.5, 16.2).
 
-export type LengthUnit = "mm" | "cm" | "in" | "pt" | "px" | "Q" | "H" | "em" | "%" | "bmm" | "";
+export type LengthUnit = "mm" | "cm" | "in" | "pt" | "px" | "Q" | "H" | "em" | "%" | "bmm" | "bQ" | "";
 
 export interface Quantity {
   value: number;
@@ -9,7 +9,7 @@ export interface Quantity {
 
 export type LengthInput = number | string;
 
-const LEN_RE = /^([-+]?(?:\d+(?:\.\d+)?|\.\d+))\s*(mm|cm|in|pt|px|Q|H|em|%|bmm)?$/;
+const LEN_RE = /^([-+]?(?:\d+(?:\.\d+)?|\.\d+))\s*(mm|cm|in|pt|px|Q|H|em|%|bmm|bQ)?$/;
 
 export function parseLength(input: LengthInput): Quantity | null {
   if (typeof input === "number") return isFinite(input) ? { value: input, unit: "" } : null;
@@ -58,6 +58,8 @@ export function quantityToMm(q: Quantity, ctx: UnitContext): number {
       return (q.value / 100) * ctx.base;
     case "bmm":
       return q.value * ctx.k;
+    case "bQ":
+      return Math.max(2, q.value * 0.25 * ctx.k);
     case "":
       return quantityToMm({ value: q.value, unit: ctx.units }, ctx);
   }

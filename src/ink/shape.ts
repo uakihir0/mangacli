@@ -371,10 +371,9 @@ function solid(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, r
         const eKind = reverse ? startKind : endKind;
         const sharpStart = sKind === "concave" || sKind === "valley" || (sKind === "convex" && join !== "overshoot");
         const sharpEnd = eKind === "concave" || eKind === "valley" || (eKind === "convex" && join !== "overshoot");
-        const tinLen = sharpStart ? Math.min(0.3, line.width) : undefined;
-        const toutLen = sharpEnd ? Math.min(0.3, line.width) : undefined;
         if (!firstPart || !lastPart) pts = shiftNormal(pts, rng.normal() * hand.misalign * 0.3);
-        draw(pts, true, true, tinLen, toutLen);
+        // corners where strokes meet are drawn with pressure (no taper) so joints stay clean
+        draw(pts, !sharpStart, !sharpEnd);
       }
     }
     return inks;
@@ -449,7 +448,7 @@ function dotted(d: Dense, line: LineStyle, rng: Rng): InkPoly[] {
 }
 
 /** Ink a single open line (effects, marks). */
-export function inkLine(pts: Vec[], line: LineStyle, hand: HandSpec, rng: Rng, opts: { ruler?: boolean; taperIn?: boolean; taperOut?: boolean; taperInLen?: number; taperOutLen?: number; wobble?: boolean; profile?: (t: number) => number } = {}): InkPoly[] {
+export function inkLine(pts: Vec[], line: LineStyle, hand: HandSpec, rng: Rng, opts: { ruler?: boolean; taperIn?: boolean; taperOut?: boolean; taperInLen?: number; taperOutLen?: number; wobble?: boolean; profile?: (t: number) => number; resolution?: number; inkPool?: boolean } = {}): InkPoly[] {
   let p = pts;
   if (opts.wobble !== false && !opts.ruler && hand.wobbleAmp > 0) {
     const d = densify(pts, false, Math.max(0.1, hand.resolution));
@@ -467,5 +466,7 @@ export function inkLine(pts: Vec[], line: LineStyle, hand: HandSpec, rng: Rng, o
     taperInLen: opts.taperInLen,
     taperOutLen: opts.taperOutLen,
     profile: opts.profile,
+    resolution: opts.resolution,
+    inkPool: opts.inkPool,
   });
 }

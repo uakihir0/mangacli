@@ -2,8 +2,8 @@
 import * as hb from "harfbuzzjs";
 import { Rng } from "../core/random.js";
 import type { FontPick, FontRegistry, LoadedFont } from "../fonts/registry.js";
-import { type PathData, pathFromJson } from "../geom/path.js";
-import { type Matrix, type Rect, matMul, matRotate, matScale, matTranslate } from "../geom/vec.js";
+import { type PathData, flattenPath, pathFromJson } from "../geom/path.js";
+import { type Matrix, type Rect, boundsOf, matMul, matRotate, matScale, matTranslate } from "../geom/vec.js";
 import { type KinsokuLevel, inseparable, isClosingPunct, isOpeningPunct, noEnd, noStart, phraseBoundaries } from "./linebreak.js";
 import { type InlineStyle, type NormalizeOptions, type ParsedText, type Unit, assignTcy, parseMarkup } from "./markup.js";
 
@@ -403,7 +403,7 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
     const pen: number[] = new Array(seg.length).fill(0);
     for (const gl of g) {
       const k = charOfCluster(gl.cluster);
-      const m: Matrix = [s * gx, 0, 0, -s * gy, gl.xOffset * s * gx + bshift, -gl.yOffset * s - pen[k] + (1 - gy) * 0];
+      const m: Matrix = [s * gx, 0, 0, -s * gy, gl.xOffset * s * gx + bshift, -(gl.yOffset + f.vOriginFix) * s - pen[k]];
       per[k].glyphs.push({ gid: gl.gid, font: f, m });
       const adv = -gl.yAdvance * s;
       per[k].adv += adv;
@@ -597,7 +597,7 @@ function placeRuby(parsed: ParsedText, boxes: Box[], glyphs: GlyphOut[], style: 
             const s = rsize / pk.font.upem;
             let pen = 0;
             for (const gl of g) {
-              const m: Matrix = [s, 0, 0, -s, x + gl.xOffset * s, y - gl.yOffset * s + pen];
+              const m: Matrix = [s, 0, 0, -s, x + gl.xOffset * s, y - (gl.yOffset + pk.font.vOriginFix) * s + pen];
               glyphs.push({ path: pathFromJson(glyphJson(pk.font, gl.gid), m), unit: sg.boxes[0].units[0], cx: x, cy: y });
               pen += -gl.yAdvance * s;
             }
@@ -632,17 +632,18 @@ function placeEmphasis(boxes: Box[], glyphs: GlyphOut[], style: TextStyle, reg: 
     if (!b.emph || !b._pos || b.space || /^[、。，．「」『』（）！？!?…ー\s]$/.test(b.chars)) continue;
     const pk = reg.pick(style.font, ch.codePointAt(0)!);
     if (!pk) continue;
-    const g = shape(pk.font, ch, vertical ? "ttb" : "ltr", style.lang)[0];
+    const g = shape(pk.font, ch, "ltr", style.lang)[0];
     const s = size / pk.font.upem;
-    if (vertical) {
-      const x = b._pos[0] + b.size / 2 + size * 0.55;
-      const y = b._pos[1] + b.adv / 2 - size / 2;
-      glyphs.push({ path: pathFromJson(glyphJson(pk.font, g.gid), [s, 0, 0, -s, x + g.xOffset * s, y - g.yOffset * s]), unit: b.units[0], cx: x, cy: y });
-    } else {
-      const x = b._pos[0] + b.adv / 2 - (g.xAdvance * s) / 2;
-      const y = b._pos[1] - b.size * 0.95;
-      glyphs.push({ path: pathFromJson(glyphJson(pk.font, g.gid), [s, 0, 0, -s, x, y]), unit: b.units[0], cx: x, cy: y });
-    }
+    // center the mark's ink box on the target point (glyph metrics of ﹅ vary by font)
+    const raw = pathFromJson(glyphJson(pk.font, g.gid), [s, 0, 0, -s, 0, 0]);
+    const pts = flattenPath(raw).flatMap((q) => q.pts);
+    if (!pts.length) continue;
+    const bb = boundsOf(pts);
+    const tx = vertical ? b._pos[0] + b.size / 2 + size * 0.6 : b._pos[0] + b.adv / 2;
+    const ty = vertical ? b._pos[1] + b.adv / 2 : b._pos[1] - b.size * 0.88 - size * 0.5;
+    const dx = tx - (bb.x + bb.w / 2);
+    const dy = ty - (bb.y + bb.h / 2);
+    glyphs.push({ path: pathFromJson(glyphJson(pk.font, g.gid), [s, 0, 0, -s, dx, dy]), unit: b.units[0], cx: tx, cy: ty });
   }
 }
 

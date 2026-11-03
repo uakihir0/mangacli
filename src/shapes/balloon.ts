@@ -81,7 +81,7 @@ function harmonic(h: Harmonics, th: number): number {
 
 /** organic ellipse: polar radius function */
 function organicEllipse(a: number, b: number, p: ShapeParams, rng: Rng): (th: number) => number {
-  const sq = p.squareness ?? 0.12;
+  const sq = p.squareness ?? 0.2;
   const n = 2 + 3 * sq;
   const egg = p.egg ?? 0.06;
   const h = harmonics(rng, p.irregularity);

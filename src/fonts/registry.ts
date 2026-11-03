@@ -29,6 +29,8 @@ export interface LoadedFont {
   ascender: number;
   descender: number;
   hasVert: boolean;
+  /** correction (font units) added to HarfBuzz TTB yOffset so the ideographic em box top sits at the pen (fonts without VORG) */
+  vOriginFix: number;
   has(cp: number): boolean;
 }
 
@@ -275,6 +277,21 @@ function makeLoaded(p: Phys, data: Uint8Array): LoadedFont {
   } catch {
     hasVert = false;
   }
+  // Without VORG HarfBuzz uses hhea ascender as the vertical origin, which pushes glyphs down
+  // in fonts with tall line metrics. Use the OS/2 typo ascender (ideographic em box) instead.
+  let vOriginFix = 0;
+  const vorg = face.referenceTable("VORG");
+  if (!vorg?.length) {
+    const os2 = face.referenceTable("OS/2");
+    let top = face.upem * 0.88;
+    if (os2 && os2.byteLength >= 72) {
+      const dv = new DataView(os2.buffer, os2.byteOffset, os2.byteLength);
+      const ta = dv.getInt16(68);
+      const td = dv.getInt16(70);
+      if (Math.abs(ta - td - face.upem) <= face.upem * 0.1) top = ta;
+    }
+    vOriginFix = ext.ascender - top;
+  }
   return {
     key: p.key,
     label: p.label,
@@ -284,6 +301,7 @@ function makeLoaded(p: Phys, data: Uint8Array): LoadedFont {
     ascender: ext.ascender,
     descender: ext.descender,
     hasVert,
+    vOriginFix,
     has: (cp) => cps.has(cp),
   };
 }

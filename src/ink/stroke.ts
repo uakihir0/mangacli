@@ -19,6 +19,8 @@ export interface StrokeOptions {
   profile?: (t: number) => number;
   noPull?: boolean;
   inkPool?: boolean;
+  /** sampling step override (mm) for long straight strokes */
+  resolution?: number;
 }
 
 export interface InkPoly {
@@ -36,7 +38,7 @@ function norm2(x: number, y: number): Vec {
 
 /** Build the filled outline polygon(s) for one stroke along `center`. */
 export function strokeOutline(center: readonly Vec[], o: StrokeOptions): InkPoly[] {
-  const res = Math.max(0.05, Math.min(o.hand.resolution, o.width * 0.6 + 0.05));
+  const res = o.resolution ?? Math.max(0.05, Math.min(o.hand.resolution, o.width * 0.6 + 0.05));
   const pts = resample(center, res, false);
   const n = pts.length;
   const w0 = o.width;

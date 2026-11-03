@@ -1,0 +1,774 @@
+// Page composition: layout all elements and build the display list (spec 4.12).
+import { BLACK, WHITE, parseColor } from "../core/color.js";
+import type { DiagnosticBag } from "../core/diagnostics.js";
+import { Rng } from "../core/random.js";
+import { toMm } from "../core/units.js";
+import { type ElemCtx, tag } from "../elements/context.js";
+import { type BalloonPlan, planBalloon, renderBalloon, renderConnected } from "../elements/balloon.js";
+import { renderEffect } from "../elements/effects.js";
+import { layoutImage } from "../elements/image.js";
+import { inksToNodes } from "../elements/inkir.js";
+import { renderMark } from "../elements/marks.js";
+import { resolveRegion } from "../elements/region.js";
+import { renderSfx, renderText } from "../elements/textel.js";
+import { textValue } from "../elements/textstyle.js";
+import type { FontRegistry } from "../fonts/registry.js";
+import { polyPath, smoothPath } from "../geom/path.js";
+import { type Rect, type Vec, boundsOf, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
+import { inkLine, inkShape } from "../ink/shape.js";
+import type { InkPoly } from "../ink/stroke.js";
+import { isObj } from "../load/normalize.js";
+import { type PageGeom, type PanelGeom, computePageGeom, layoutPanels } from "../layout/page.js";
+import { RefRegistry, center, place } from "../layout/place.js";
+import type { RElement, RPage, ResolvedDoc } from "../model/resolve.js";
+import { parsePaint, resolveHand, resolveStroke } from "../model/values.js";
+import { BODY_GENERATORS } from "../shapes/balloon.js";
+import { defaultTextStyle, layoutText } from "../text/layout.js";
+import type { AssetRegistry } from "./assets.js";
+import type { DisplayList, GroupNode, Node } from "./ir.js";
+
+type Obj = Record<string, unknown>;
+
+export interface ComposeOptions {
+  bag: DiagnosticBag;
+  fonts: FontRegistry;
+  assets: AssetRegistry;
+  lang: string;
+  defaultLang: string;
+  draft: boolean;
+  print: boolean;
+  /** physical page number (1-based) & nombre */
+  physical: number;
+  nombre: number | null;
+  outputDpi: (geom: PageGeom) => number;
+}
+
+export interface PageLayoutInfo {
+  geom: PageGeom;
+  panels: { id: string; polygon: Vec[]; order: number; box: Rect }[];
+  elements: { id: string; type: string; bbox: Rect; panel?: string }[];
+  transcript: { panel?: string; id: string; type: string; who?: string; as?: string; text: string }[];
+}
+
+interface Item {
+  el: RElement;
+  nodes: Node[];
+  bbox: Rect;
+  z: number;
+  layer: number; // 0 normal, 1 balloon, 2 text/sfx
+  source: number; // 0 panel 1 page
+  panelIdx: number;
+  listIdx: number;
+  free: boolean;
+  openClip?: Node["kind"] extends never ? never : import("../geom/path.js").PathData;
+  stackUnder?: boolean;
+}
+
+function elementTexts(el: RElement, lang: string, def: string): string[] {
+  const out: string[] = [];
+  if (el.props.text !== undefined) out.push(textValue(el.props.text, lang, def));
+  if (el.children) for (const c of el.children) out.push(...elementTexts(c, lang, def));
+  return out;
+}
+
+async function prepareFonts(page: RPage, o: ComposeOptions) {
+  const jobs: [string, string][] = [];
+  const add = (el: RElement) => {
+    const font = (el.props.font as string) ?? (el.type === "sfx" ? "sfx" : el.type === "text" ? "narration" : "dialogue");
+    for (const t of elementTexts(el, o.lang, o.defaultLang)) {
+      jobs.push([font, t + "﹅・…"]);
+      const fonts = [...t.matchAll(/<font=([^>\s]+)>/g)].map((m) => m[1]);
+      for (const f of fonts) jobs.push([f, t]);
+      if (isObj(el.props.ruby) && (el.props.ruby as Obj).font) jobs.push([(el.props.ruby as Obj).font as string, t]);
+      const bold = o.fonts.boldName(font);
+      if (bold && /<b>/.test(t)) jobs.push([bold, t]);
+    }
+    if (el.children) el.children.forEach(add);
+  };
+  for (const pn of page.panels) pn.elements.forEach(add);
+  page.layers.forEach(add);
+  for (const [f, t] of jobs) await o.fonts.prepare(f, t);
+  await o.fonts.prepare("ui", "0123456789-");
+}
+
+export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: number, o: ComposeOptions): Promise<{ list: DisplayList; info: PageLayoutInfo }> {
+  const bag = o.bag;
+  const book = (doc.doc.book ?? {}) as Obj;
+  const geom = computePageGeom(page, physicalIndex, book, bag);
+  const u = geom.units;
+  const panels = page.type === "blank" ? [] : layoutPanels(page, geom, bag);
+  await prepareFonts(page, o);
+  const refs = new RefRegistry((ch) => ((doc.characters[ch]?.anchorPriority as string[]) ?? ["mouth", "face"]));
+  const items: Item[] = [];
+  const panelNodes: { pg: PanelGeom; clipped: Item[] }[] = [];
+  const info: PageLayoutInfo = { geom, panels: panels.map((p) => ({ id: p.panel.id, polygon: p.polygon, order: p.order, box: p.box })), elements: [], transcript: [] };
+  const baseCtx = (pg?: PanelGeom): ElemCtx => ({
+    u,
+    geom,
+    refs,
+    bag,
+    fonts: o.fonts,
+    assets: o.assets,
+    lang: o.lang,
+    defaultLang: o.defaultLang,
+    draft: o.draft,
+    panel: pg,
+    coordsBox: pg ? pg.box : geom.trim,
+    panelPoly: pg ? panelShapePoly(pg, geom) : undefined,
+    characters: doc.characters,
+    outputDpi: o.outputDpi(geom),
+  });
+  const drawOrder = panels.slice().sort((a, b) => ((a.panel.props.z as number) ?? 0) - ((b.panel.props.z as number) ?? 0) || a.order - b.order);
+
+  // phase A: images (refs)
+  const processed = new Map<string, Item>();
+  const layoutGroup = async (els: RElement[], ctx: ElemCtx, panelIdx: number, source: number) => {
+    for (const [i, el] of els.entries()) {
+      if (el.type !== "image") continue;
+      const coords = coordsFor(el, ctx, geom);
+      const c2 = { ...ctx, coordsBox: coords };
+      const defaultBox = ctx.panel ? ctx.panel.fullBox : geom.bleedBox;
+      const r = await layoutImage(el, c2, defaultBox);
+      processed.set(el.id, mkItem(el, r.nodes, r.bbox, panelIdx, i, source, ctx));
+    }
+  };
+  for (const pg of drawOrder) await layoutGroup(pg.panel.elements, baseCtx(pg), drawOrder.indexOf(pg), 0);
+  await layoutGroup(page.layers, baseCtx(), 0, 1);
+
+  // phase B: balloons plans, text, sfx, effects, fills, marks, draw
+  const renderOthers = async (els: RElement[], ctx: ElemCtx, panelIdx: number, source: number) => {
+    const plans: { plan: BalloonPlan; idx: number }[] = [];
+    for (const [i, el] of els.entries()) {
+      if (el.type === "image") continue;
+      if (el.props.visible === false) continue;
+      const c2 = { ...ctx, coordsBox: coordsFor(el, ctx, geom) };
+      try {
+        switch (el.type) {
+          case "balloon":
+            plans.push({ plan: planBalloon(el, c2), idx: i });
+            break;
+          case "text": {
+            const r = renderText(el, c2);
+            processed.set(el.id, mkItem(el, r.nodes, r.bbox, panelIdx, i, source, ctx));
+            refs.add({ id: el.id, type: "text", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id });
+            break;
+          }
+          case "sfx": {
+            const r = renderSfx(el, c2);
+            processed.set(el.id, mkItem(el, r.nodes, r.bbox, panelIdx, i, source, ctx));
+            refs.add({ id: el.id, type: "sfx", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id });
+            break;
+          }
+          default:
+            break;
+        }
+      } catch (e) {
+        bag.error("RENDER_FAILED", `${el.id}: ${(e as Error).message}`, { path: el.path, elementId: el.id });
+      }
+    }
+    // place balloons
+    placeBalloons(plans.map((p) => p.plan), ctx, refs, processed);
+    const consumed = new Set<string>();
+    const byId = new Map(plans.map((x) => [x.plan.el.id, x]));
+    for (const { plan, idx } of plans) {
+      const cn = plan.props.connect;
+      const list = Array.isArray(cn) ? cn : cn ? [cn] : [];
+      for (const c of list as Obj[]) {
+        const other = byId.get(String(c.to));
+        if (!other) {
+          bag.error("REF_NOT_FOUND", `connect target "${c.to}" not found in the same panel`, { path: [...plan.el.path, "connect"] });
+          continue;
+        }
+        try {
+          const r = renderConnected(other.plan, plan, (c.style as string) ?? "neck", c.width, { ...ctx, coordsBox: coordsFor(plan.el, ctx, geom) });
+          processed.set(other.plan.el.id, mkItem(other.plan.el, r.nodes, r.bbox, panelIdx, Math.min(idx, other.idx), source, ctx));
+          refs.add({ id: plan.el.id, type: "balloon", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id, shape: r.contour });
+          refs.add({ id: other.plan.el.id, type: "balloon", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id, shape: r.contour });
+          consumed.add(plan.el.id);
+          consumed.add(other.plan.el.id);
+        } catch (e) {
+          bag.error("RENDER_FAILED", `${plan.el.id}: ${(e as Error).message}`, { path: plan.el.path, elementId: plan.el.id });
+        }
+      }
+    }
+    for (const { plan, idx } of plans) {
+      if (consumed.has(plan.el.id)) continue;
+      try {
+        const r = renderBalloon(plan, { ...ctx, coordsBox: coordsFor(plan.el, ctx, geom) });
+        processed.set(plan.el.id, mkItem(plan.el, r.nodes, r.bbox, panelIdx, idx, source, ctx));
+        refs.add({ id: plan.el.id, type: "balloon", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id, shape: r.contour });
+      } catch (e) {
+        bag.error("RENDER_FAILED", `${plan.el.id}: ${(e as Error).message}`, { path: plan.el.path, elementId: plan.el.id });
+      }
+    }
+    // effects etc (after refs exist)
+    for (const [i, el] of els.entries()) {
+      if (["image", "balloon", "text", "sfx"].includes(el.type) || el.props.visible === false) continue;
+      const c2 = { ...ctx, coordsBox: coordsFor(el, ctx, geom) };
+      try {
+        const nodes = renderMisc(el, c2);
+        processed.set(el.id, mkItem(el, nodes.nodes, nodes.bbox, panelIdx, i, source, ctx));
+      } catch (e) {
+        bag.error("RENDER_FAILED", `${el.id}: ${(e as Error).message}`, { path: el.path, elementId: el.id });
+      }
+    }
+  };
+  for (const pg of drawOrder) await renderOthers(pg.panel.elements, baseCtx(pg), drawOrder.indexOf(pg), 0);
+  await renderOthers(page.layers, baseCtx(), 0, 1);
+
+  // collect items
+  for (const pg of drawOrder) {
+    const clipped: Item[] = [];
+    for (const el of pg.panel.elements) {
+      const it = processed.get(el.id);
+      if (!it) continue;
+      if (it.free) {
+        if (isObj(el.props.clip)) it.openClip = openClipPath(pg, el.props.clip as Obj, geom, u);
+        items.push(it);
+      } else clipped.push(it);
+      info.elements.push({ id: el.id, type: el.type, bbox: it.bbox, panel: pg.panel.id });
+      collectTranscript(el, pg.panel.id, info, o);
+    }
+    clipped.sort((a, b) => a.z - b.z || a.listIdx - b.listIdx);
+    panelNodes.push({ pg, clipped });
+  }
+  for (const el of page.layers) {
+    const it = processed.get(el.id);
+    if (!it) continue;
+    it.free = true;
+    it.stackUnder = el.props.stack === "under";
+    items.push(it);
+    info.elements.push({ id: el.id, type: el.type, bbox: it.bbox });
+    collectTranscript(el, undefined, info, o);
+  }
+
+  // build tree
+  const root: GroupNode = { kind: "group", children: [] };
+  const bgPaint = parsePaint(page.settings.background ?? "paper", { u, box: geom.bleedBox, seed: page.seed, bag, path: [...page.path, "background"] });
+  for (const it of items.filter((i) => i.stackUnder)) root.children.push(...it.nodes);
+  for (const { pg, clipped } of panelNodes) {
+    if (pg.panel.props.visible === false) continue;
+    root.children.push(...panelTree(pg, clipped, geom, bgPaint, bag));
+  }
+  const free = items.filter((i) => !i.stackUnder);
+  free.sort((a, b) => a.z - b.z || a.layer - b.layer || a.source - b.source || a.panelIdx - b.panelIdx || (a.layer === 1 && b.layer === 1 ? b.listIdx - a.listIdx : a.listIdx - b.listIdx));
+  for (const it of free) {
+    if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, children: it.nodes });
+    else root.children.push(...it.nodes);
+  }
+  // page numbers
+  if (o.nombre !== null) root.children.push(...nombreNodes(doc, page, geom, o));
+  const list: DisplayList = {
+    version: 1,
+    page: { id: page.id, index: page.index },
+    size: { width: geom.bleedBox.w, height: geom.bleedBox.h },
+    boxes: { bleed: geom.bleedBox, trim: geom.trim, baseFrame: geom.baseFrame, safe: geom.safe },
+    background: bgPaint,
+    root: { kind: "group", transform: [1, 0, 0, 1, geom.bleed, geom.bleed], children: [...(bgPaint ? [{ kind: "path" as const, path: polyPath(rectPts(geom.bleedBox), true), fillRule: "nonzero" as const, paint: bgPaint, tag: { elementId: page.id, elementType: "page", role: "background" as const, separation: "background" } }] : []), root] },
+  };
+  // safe area / fold checks
+  checkTextSafety(items.concat(panelNodes.flatMap((p) => p.clipped)), geom, bag, page);
+  return { list, info };
+}
+
+function rectPts(r: Rect): Vec[] {
+  return [{ x: r.x, y: r.y }, { x: r.x + r.w, y: r.y }, { x: r.x + r.w, y: r.y + r.h }, { x: r.x, y: r.y + r.h }];
+}
+
+function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listIdx: number, source: number, ctx: ElemCtx): Item {
+  const clip = el.props.clip;
+  const free = source === 1 || clip === "none" || clip === "trim" || isObj(clip) || (el.type === "balloon" && clip !== "panel" && !isOffscreen(el));
+  const layer = el.type === "balloon" ? 1 : el.type === "text" || el.type === "sfx" ? 2 : 0;
+  const op = typeof el.props.opacity === "number" && el.type !== "image" && el.type !== "effect" ? el.props.opacity : undefined;
+  const blend = el.type !== "image" && typeof el.props.blend === "string" && el.props.blend !== "normal" ? (el.props.blend as GroupNode["blend"]) : undefined;
+  const wrapped: Node[] = op !== undefined || blend ? [{ kind: "group", opacity: op, blend, children: nodes }] : nodes;
+  void ctx;
+  return { el, nodes: wrapped, bbox, z: (el.props.z as number) ?? 0, layer, source, panelIdx, listIdx, free };
+}
+
+function isOffscreen(el: RElement): boolean {
+  const t = el.props.tail;
+  return isObj(t) && !!(t as Obj).offscreen;
+}
+
+function coordsFor(el: RElement, ctx: ElemCtx, geom: PageGeom): Rect {
+  const c = el.props.coords;
+  if (c === "page") return geom.trim;
+  if (c === "baseFrame") return geom.baseFrame;
+  if (c === "panel" || c === undefined) return ctx.panel ? ctx.panel.box : geom.trim;
+  if (typeof c === "string") {
+    const t = ctx.refs.get(c);
+    if (t) return t.bbox;
+    ctx.bag.error("REF_NOT_FOUND", `coords reference "${c}" not found`, { path: [...el.path, "coords"] });
+  }
+  return ctx.panel ? ctx.panel.box : geom.trim;
+}
+
+function panelShapePoly(pg: PanelGeom, geom: PageGeom): Vec[] {
+  const sh = pg.panel.props.shape as Obj | undefined;
+  if (!isObj(sh) || sh.kind === "rect") return pg.polygon;
+  const b = pg.fullBox;
+  if (sh.kind === "ellipse") {
+    const n = 160;
+    return Array.from({ length: n }, (_, i) => ({ x: b.x + b.w / 2 + Math.cos((i / n) * Math.PI * 2) * b.w / 2, y: b.y + b.h / 2 + Math.sin((i / n) * Math.PI * 2) * b.h / 2 }));
+  }
+  if (sh.kind === "rounded") {
+    const r = sh.radius !== undefined ? toMm(sh.radius as string, geom.units) : 3 * geom.k;
+    const g = BODY_GENERATORS["round-rect"](b.w, b.h, { kind: "round-rect", irregularity: 0, tilt: 0, radius: r }, 1);
+    return g.contour.pts.map((p) => ({ x: p.x + b.x + b.w / 2, y: p.y + b.y + b.h / 2 }));
+  }
+  if (sh.kind === "cloud") {
+    const g = BODY_GENERATORS.cloud(b.w * 0.86, b.h * 0.86, { kind: "cloud", irregularity: 0.5, tilt: 0 }, pg.panel.seed);
+    return g.contour.pts.map((p) => ({ x: p.x + b.x + b.w / 2, y: p.y + b.y + b.h / 2 }));
+  }
+  return pg.polygon;
+}
+
+function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: ReturnType<typeof parsePaint>, bag: DiagnosticBag): Node[] {
+  const u = geom.units;
+  const p = pg.panel.props;
+  const out: Node[] = [];
+  const poly = panelShapePoly(pg, geom);
+  const isShaped = poly !== pg.polygon;
+  if (p.knockout !== undefined) {
+    const kw = toMm(p.knockout as string, u);
+    const ext = offsetConvex(poly, kw);
+    out.push({ kind: "path", path: polyPath(ext, true), fillRule: "nonzero", paint: pageBg ?? { type: "solid", color: WHITE } });
+  }
+  const bg = parsePaint(p.background ?? "paper", { u, box: pg.fullBox, seed: pg.panel.seed, bag, path: [...pg.panel.path, "background"] });
+  const inner: Node[] = [];
+  if (bg) inner.push({ kind: "path", path: polyPath(poly, true), fillRule: "nonzero", paint: bg, tag: { elementId: pg.panel.id, elementType: "panel", role: "background", separation: "background" } });
+  for (const it of clipped) inner.push(...it.nodes);
+  out.push({ kind: "group", clip: isShaped ? smoothPath(poly, true) : polyPath(poly, true), children: inner, tag: { elementId: pg.panel.id, elementType: "panel", role: "art", separation: "art" } });
+  out.push(...borderNodes(pg, poly, isShaped, geom, bag));
+  return out;
+}
+
+function offsetConvex(poly: Vec[], d: number): Vec[] {
+  const c = poly.reduce((a, p) => ({ x: a.x + p.x / poly.length, y: a.y + p.y / poly.length }), { x: 0, y: 0 });
+  return poly.map((p) => {
+    const v = { x: p.x - c.x, y: p.y - c.y };
+    const l = Math.hypot(v.x, v.y) || 1;
+    return { x: p.x + (v.x / l) * d * 1.42, y: p.y + (v.y / l) * d * 1.42 };
+  });
+}
+
+function borderNodes(pg: PanelGeom, poly: Vec[], shaped: boolean, geom: PageGeom, bag: DiagnosticBag): Node[] {
+  const u = geom.units;
+  const p = pg.panel.props;
+  const b = (p.border ?? {}) as Obj;
+  if (b.style === "none") return [];
+  const hand = resolveHand(p.hand, u);
+  const st = resolveStroke(b, hand, u, bag, [...pg.panel.path, "border"]);
+  if (st.style === "none" || st.width <= 0) return [];
+  st.pen = { ...st.pen, cap: "flat" };
+  const rng = new Rng(pg.panel.seed);
+  const t = { elementId: pg.panel.id, elementType: "panel", role: "frame" as const, separation: "frame" };
+  const ruler = b.ruler !== false;
+  if (shaped) {
+    const res = inkShape({ pts: poly, closed: true, smooth: true }, { line: st, hand, rng, ruler: false });
+    return inksToNodes(res.inks, st.color, t);
+  }
+  const join = (b.join as string) ?? "clean";
+  const inks: InkPoly[] = [];
+  const n = pg.polygon.length;
+  const allDrawn = pg.bledSides.length === 0;
+  if (allDrawn && st.style !== "solid") {
+    const res = inkShape({ pts: pg.polygon, closed: true, corners: pg.polygon.map((_, i) => ({ index: i, kind: "convex" as const })) }, { line: st, hand, rng, ruler, join: join as "clean" });
+    return inksToNodes(res.inks, st.color, t);
+  }
+  for (let i = 0; i < n; i++) {
+    const a = pg.polygon[i];
+    const c = pg.polygon[(i + 1) % n];
+    // skip edges lying on bled sides (outside trim)
+    if (isBledEdge(a, c, geom, pg)) continue;
+    const d = { x: c.x - a.x, y: c.y - a.y };
+    const l = Math.hypot(d.x, d.y) || 1;
+    const dir = { x: d.x / l, y: d.y / l };
+    let e0 = st.width / 2;
+    let e1 = st.width / 2;
+    if (join === "overshoot") {
+      e0 += rng.range(hand.overshoot[0], hand.overshoot[1]);
+      e1 += rng.range(hand.overshoot[0], hand.overshoot[1]);
+    } else if (join === "gap") {
+      e0 = -rng.range(hand.gap[0], hand.gap[1]);
+      e1 = -rng.range(hand.gap[0], hand.gap[1]);
+    }
+    const p0 = { x: a.x - dir.x * e0, y: a.y - dir.y * e0 };
+    const p1 = { x: c.x + dir.x * e1, y: c.y + dir.y * e1 };
+    inks.push(...inkLine([p0, p1], { width: st.width, pen: st.pen, style: "solid" }, hand, rng.fork(`b${i}`), { ruler, taperIn: false, taperOut: false, resolution: 0.5, inkPool: false }));
+  }
+  return inksToNodes(inks, st.color, t);
+}
+
+function isBledEdge(a: Vec, c: Vec, geom: PageGeom, pg: PanelGeom): boolean {
+  const bb = geom.bleedBox;
+  const eps = 0.01;
+  for (const s of pg.bledSides) {
+    if (s === "top" && Math.abs(a.y - bb.y) < eps && Math.abs(c.y - bb.y) < eps) return true;
+    if (s === "bottom" && Math.abs(a.y - (bb.y + bb.h)) < eps && Math.abs(c.y - (bb.y + bb.h)) < eps) return true;
+    if (s === "left" && Math.abs(a.x - bb.x) < eps && Math.abs(c.x - bb.x) < eps) return true;
+    if (s === "right" && Math.abs(a.x - (bb.x + bb.w)) < eps && Math.abs(c.x - (bb.x + bb.w)) < eps) return true;
+  }
+  return false;
+}
+
+function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["units"]) {
+  const open = new Set((clip.open as string[]) ?? []);
+  const bw = toMm(((pg.panel.props.border as Obj)?.width as string) ?? `${0.5 * geom.k}mm`, u);
+  const poly = pg.polygon;
+  const n = poly.length;
+  const lines: { p: Vec; d: Vec }[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % n];
+    const d = { x: b.x - a.x, y: b.y - a.y };
+    const l = Math.hypot(d.x, d.y) || 1;
+    const nrm = { x: d.y / l, y: -d.x / l }; // outward for CW polygon (y-down)
+    const side = nrm.y < -0.7 ? "top" : nrm.y > 0.7 ? "bottom" : nrm.x < -0.7 ? "left" : nrm.x > 0.7 ? "right" : "";
+    const off = open.has(side) ? 500 : -bw / 2;
+    lines.push({ p: { x: a.x + nrm.x * off, y: a.y + nrm.y * off }, d: { x: d.x / l, y: d.y / l } });
+  }
+  const pts: Vec[] = [];
+  for (let i = 0; i < n; i++) {
+    const L1 = lines[(i - 1 + n) % n];
+    const L2 = lines[i];
+    const den = L1.d.x * L2.d.y - L1.d.y * L2.d.x;
+    if (Math.abs(den) < 1e-9) {
+      pts.push(L2.p);
+      continue;
+    }
+    const t = ((L2.p.x - L1.p.x) * L2.d.y - (L2.p.y - L1.p.y) * L2.d.x) / den;
+    pts.push({ x: L1.p.x + L1.d.x * t, y: L1.p.y + L1.d.y * t });
+  }
+  return polyPath(pts, true);
+}
+
+// ---- misc elements ---------------------------------------------------------------
+
+function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
+  const p = el.props;
+  switch (el.type) {
+    case "effect": {
+      const nodes = renderEffect(el, ctx);
+      return { nodes, bbox: ctx.panel?.box ?? ctx.geom.trim };
+    }
+    case "fill": {
+      const reg = resolveRegion(p.region, ctx, ctx.panel ? "panel" : "page", [...el.path, "region"]);
+      const paint = parsePaint(p.paint ?? "black", { u: ctx.u, box: reg.bbox, seed: el.seed, bag: ctx.bag, path: [...el.path, "paint"] });
+      if (!paint) return { nodes: [], bbox: reg.bbox };
+      if (paint.type === "tone" && p.edge === "soft") paint.tone.softEdge = p.edgeWidth !== undefined ? toMm(p.edgeWidth as string, ctx.u) : 3 * ctx.u.k;
+      let pathNode: Node = { kind: "path", path: reg.path, fillRule: reg.fillRule, paint, tag: tag(el, paint.type === "tone" ? "tone" : "fill") };
+      if (p.edge === "cut") {
+        const rng = new Rng(el.seed);
+        const polys = reg.polys.map((pl) => inkShape({ pts: pl, closed: true, smooth: true }, { hand: { ...resolveHand(undefined, ctx.u), wobbleAmp: 0.1 * ctx.u.k, wobbleLen: 4 * ctx.u.k }, rng }).fill);
+        pathNode = { ...pathNode, path: polys.flatMap((q) => polyPath(q, true)) } as Node;
+      }
+      if (reg.alphaOf) {
+        const t = ctx.refs.get(reg.alphaOf);
+        return { nodes: [{ kind: "group", children: [pathNode], alphaMaskOf: t?.imagePx, tag: tag(el, "tone") } as Node], bbox: reg.bbox };
+      }
+      return { nodes: [pathNode], bbox: reg.bbox };
+    }
+    case "mark":
+      return renderMark(el, ctx);
+    case "draw":
+      return renderDraw(el, ctx);
+    case "scatter":
+      return renderScatter(el, ctx);
+    case "group": {
+      const nodes: Node[] = [];
+      for (const c of el.children ?? []) {
+        const r = c.type === "text" ? renderText(c, ctx) : c.type === "sfx" ? renderSfx(c, ctx) : renderMisc(c, ctx);
+        nodes.push(...r.nodes);
+      }
+      return { nodes: [{ kind: "group", children: nodes }], bbox: ctx.coordsBox };
+    }
+  }
+  return { nodes: [], bbox: ctx.coordsBox };
+}
+
+function renderDraw(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
+  const p = el.props;
+  const u = ctx.u;
+  const hand = resolveHand(p.hand, u, ctx.draft);
+  const st = resolveStroke(p.stroke, hand, u, ctx.bag, [...el.path, "stroke"]);
+  const rng = new Rng(el.seed);
+  const kind = String(p.kind);
+  const pc = { u, coordsBox: ctx.coordsBox, refs: ctx.refs, panelId: ctx.panel?.panel.id, bag: ctx.bag, path: el.path };
+  let pts: Vec[] = [];
+  let closed = false;
+  if (kind === "rect" || kind === "ellipse") {
+    const sz = (p.size as unknown[]) ?? ["10mm", "10mm"];
+    const w = toMm(sz[0] as string, { ...u, base: ctx.coordsBox.w });
+    const h = toMm(sz[1] as string, { ...u, base: ctx.coordsBox.h });
+    const pl = place(p, w, h, pc);
+    const c0 = center(pl.bbox);
+    if (kind === "rect") pts = rectPts({ x: c0.x - w / 2, y: c0.y - h / 2, w, h });
+    else pts = Array.from({ length: 72 }, (_, i) => ({ x: c0.x + Math.cos((i / 72) * Math.PI * 2) * w / 2, y: c0.y + Math.sin((i / 72) * Math.PI * 2) * h / 2 }));
+    closed = true;
+  } else {
+    const raw = (p.points as unknown[]) ?? [];
+    pts = raw.map((q) => (Array.isArray(q) ? { x: ctx.coordsBox.x + toMm(q[0] as string, { ...u, base: ctx.coordsBox.w }), y: ctx.coordsBox.y + toMm(q[1] as string, { ...u, base: ctx.coordsBox.h }) } : (ctx.refs.point(String(q), ctx.panel?.panel.id) ?? { x: 0, y: 0 })));
+    closed = kind === "polygon" || p.closed === true;
+    if (kind === "curve" && pts.length > 2) {
+      const sm: Vec[] = [];
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[Math.max(0, i - 1)];
+        const p1 = pts[i];
+        const p2 = pts[i + 1];
+        const p3 = pts[Math.min(pts.length - 1, i + 2)];
+        for (let k = 0; k < 10; k++) {
+          const t = k / 10;
+          const t2 = t * t;
+          const t3 = t2 * t;
+          sm.push({
+            x: 0.5 * (2 * p1.x + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+            y: 0.5 * (2 * p1.y + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
+          });
+        }
+      }
+      sm.push(pts[pts.length - 1]);
+      pts = sm;
+    }
+  }
+  const nodes: Node[] = [];
+  if (pts.length < 2) return { nodes, bbox: ctx.coordsBox };
+  const res = inkShape({ pts, closed, smooth: kind === "ellipse" || kind === "curve" }, { line: st, hand, rng, ruler: p.ruler === true, join: "overshoot" });
+  const fill = parsePaint(p.fill ?? "none", { u, box: boundsOf(pts), seed: el.seed });
+  if (fill && closed) nodes.push({ kind: "path", path: smoothPath(res.fill, true), fillRule: "nonzero", paint: fill, tag: tag(el, "fill") });
+  nodes.push(...inksToNodes(res.inks, st.color, tag(el, "ink")));
+  if (kind === "arrow") {
+    const head = (p.head ?? { end: "arrow" }) as Obj;
+    const size = head.size !== undefined ? toMm(head.size as string, u) : st.width * 10;
+    const mk = (tip: Vec, from: Vec, style: string) => {
+      if (!style || style === "none") return;
+      const d = { x: tip.x - from.x, y: tip.y - from.y };
+      const l = Math.hypot(d.x, d.y) || 1;
+      const dir = { x: d.x / l, y: d.y / l };
+      const nrm = { x: -dir.y, y: dir.x };
+      const a = { x: tip.x - dir.x * size + nrm.x * size * 0.5, y: tip.y - dir.y * size + nrm.y * size * 0.5 };
+      const b = { x: tip.x - dir.x * size - nrm.x * size * 0.5, y: tip.y - dir.y * size - nrm.y * size * 0.5 };
+      if (style === "triangle") nodes.push({ kind: "path", path: polyPath([tip, a, b], true), fillRule: "nonzero", paint: { type: "solid", color: st.color }, tag: tag(el, "ink") });
+      else nodes.push(...inksToNodes([...inkLine([a, tip], st, hand, rng.fork("ha"), { taperIn: true, taperOut: false }), ...inkLine([b, tip], st, hand, rng.fork("hb"), { taperIn: true, taperOut: false })], st.color, tag(el, "ink")));
+    };
+    mk(pts[pts.length - 1], pts[Math.max(0, pts.length - 3)], (head.end as string) ?? "arrow");
+    mk(pts[0], pts[Math.min(pts.length - 1, 2)], (head.start as string) ?? "none");
+  }
+  return { nodes, bbox: boundsOf(pts) };
+}
+
+function renderScatter(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
+  const p = el.props;
+  const u = ctx.u;
+  const reg = resolveRegion(p.region, ctx, ctx.panel ? "panel" : "page", [...el.path, "region"]);
+  const rng = new Rng(el.seed);
+  const b = reg.bbox;
+  const count = typeof p.count === "number" ? p.count : Math.round(((b.w * b.h) / 1000) * ((p.rate as number) ?? 0.3));
+  const avoid = Array.isArray(p.avoid) ? (p.avoid as unknown[]).map((a, i) => resolveRegion(a, ctx, "panel", [...el.path, "avoid", i])) : [];
+  const minD = p.minDistance !== undefined ? toMm(p.minDistance as string, u) : 0;
+  const items = (p.items as Obj[]) ?? [];
+  const weights = items.map((i) => (typeof i.weight === "number" ? i.weight : 1));
+  const wsum = weights.reduce((a, c) => a + c, 0) || 1;
+  const sc = (Array.isArray(p.itemScale) ? p.itemScale : [0.7, 1.3]) as number[];
+  const placed: Vec[] = [];
+  const nodes: Node[] = [];
+  let tries = 0;
+  while (placed.length < count && tries++ < count * 40) {
+    const q = { x: b.x + rng.next() * b.w, y: b.y + rng.next() * b.h };
+    if (!reg.contains(q) || avoid.some((a) => a.contains(q))) continue;
+    if (minD > 0 && placed.some((o) => Math.hypot(o.x - q.x, o.y - q.y) < minD)) continue;
+    placed.push(q);
+    let r = rng.next() * wsum;
+    let item = items[0];
+    for (let i = 0; i < items.length; i++) {
+      r -= weights[i];
+      if (r <= 0) {
+        item = items[i];
+        break;
+      }
+    }
+    if (!item) break;
+    const s = rng.range(sc[0], sc[1]);
+    if (item.mark) {
+      const base = (item.size as string) ?? undefined;
+      const sub: RElement = { id: `${el.id}-s${placed.length}`, type: "mark", path: el.path, seed: rng.nextU32(), props: { ...item, kind: item.mark, at: [`${q.x - ctx.coordsBox.x}mm`, `${q.y - ctx.coordsBox.y}mm`], ...(base ? {} : {}), size: `${(4 * u.k) * s}mm`, stroke: { width: `${0.2 * u.k}mm` } } };
+      nodes.push(...renderMark(sub, ctx).nodes);
+    }
+  }
+  return { nodes: [{ kind: "group", clip: reg.path, children: nodes, tag: tag(el, "ink") }], bbox: b };
+}
+
+// ---- balloon placement ------------------------------------------------------------
+
+function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, processed: Map<string, { bbox: Rect }>) {
+  const u = ctx.u;
+  const geom = ctx.geom;
+  const rtl = geom.rtl;
+  const panelBox = ctx.panel ? ctx.panel.box : geom.baseFrame;
+  const obstacles: { r: Rect; w: number }[] = [];
+  for (const it of processed.values()) {
+    const el = (it as { el?: RElement }).el;
+    if (el && (el.type === "text" || el.type === "sfx") && rectIntersect(it.bbox, panelBox)) obstacles.push({ r: it.bbox, w: 50 });
+  }
+  const pid = ctx.panel?.panel.id;
+  const hard: Rect[] = [];
+  for (const t of refs.all()) {
+    if (t.type !== "image" || (pid && t.panelId !== pid)) continue;
+    for (const [k, rg] of Object.entries(t.regions)) if (k === "face" || k === "avoid") obstacles.push({ r: rg.bbox, w: 60 });
+    if (t.anchors.mouth) hard.push({ x: t.anchors.mouth.x - 2 * u.k, y: t.anchors.mouth.y - 2 * u.k, w: 4 * u.k, h: 4 * u.k });
+  }
+  const placedRects: Rect[] = [];
+  const setCenter = (pl: BalloonPlan, c: Vec) => {
+    pl.center = c;
+    placedRects.push({ x: c.x + pl.outer.x, y: c.y + pl.outer.y, w: pl.outer.w, h: pl.outer.h });
+  };
+  // explicit first
+  for (const pl of plans) {
+    if (!pl.explicit) continue;
+    const pc = { u, coordsBox: ctx.coordsBox, refs, panelId: pid, bag: ctx.bag, path: pl.el.path, safeBox: u.units !== "px" ? geom.safe : undefined };
+    const r = place(pl.props, pl.outer.w, pl.outer.h, pc);
+    const tl = r.bbox;
+    setCenter(pl, { x: tl.x - pl.outer.x, y: tl.y - pl.outer.y });
+  }
+  const inset = 1.5 * u.k;
+  const area = rectInset(panelBox, inset);
+  let prevS: number | null = null;
+  const sOf = (c: Vec) => {
+    const xn = (c.x - area.x) / Math.max(1, area.w);
+    const yn = (c.y - area.y) / Math.max(1, area.h);
+    return 0.55 * yn + (rtl ? -0.45 : 0.45) * xn;
+  };
+  // flow cursor
+  let flowX = rtl ? area.x + area.w : area.x;
+  let flowY = area.y;
+  let rowH = 0;
+  for (const pl of plans) {
+    if (pl.explicit) {
+      prevS = sOf(pl.center!);
+      continue;
+    }
+    const mode = isObj(pl.props.autoPlace) ? ((pl.props.autoPlace as Obj).mode as string) ?? "auto" : (pl.props.autoPlace as string) ?? "auto";
+    const w = pl.outer.w;
+    const h = pl.outer.h;
+    if (mode === "flow") {
+      if ((rtl ? flowX - w < area.x : flowX + w > area.x + area.w) && rowH > 0) {
+        flowX = rtl ? area.x + area.w : area.x;
+        flowY += rowH + 1 * u.k;
+        rowH = 0;
+      }
+      const cx = rtl ? flowX - w / 2 : flowX + w / 2;
+      const cy = flowY + h / 2;
+      setCenter(pl, { x: cx - (pl.outer.x + w / 2), y: cy - (pl.outer.y + h / 2) });
+      flowX += rtl ? -(w + 1 * u.k) : w + 1 * u.k;
+      rowH = Math.max(rowH, h);
+      prevS = sOf({ x: cx, y: cy });
+      continue;
+    }
+    const who = pl.props.who as string | undefined;
+    const offSide = isObj(pl.props.tail) ? ((pl.props.tail as Obj).offscreen as string | undefined) : undefined;
+    const speaker = who && !offSide ? refs.point(who, pid) : null;
+    const step = Math.max(1.5 * u.k, Math.min(area.w, area.h) / 28);
+    let best: { c: Vec; cost: number } | null = null;
+    const R = (w + h) / 4;
+    for (let y = area.y + h / 2; y <= area.y + area.h - h / 2 + 0.01 || (area.h < h && y <= area.y + h / 2 + 0.01); y += step) {
+      for (let x = area.x + w / 2; x <= area.x + area.w - w / 2 + 0.01 || (area.w < w && x <= area.x + w / 2 + 0.01); x += step) {
+        const c = { x, y };
+        const rect = { x: x - w / 2, y: y - h / 2, w, h };
+        const A = w * h;
+        let cost = 0;
+        const s = sOf(c);
+        if (prevS === null) {
+          const cornerX = rtl ? area.x + area.w : area.x;
+          cost += 4 * (Math.hypot((x - cornerX) / area.w, (y - area.y) / area.h));
+        } else cost += 4 * 10 * Math.max(0, prevS + 0.04 - s);
+        for (const pr of placedRects) cost += 50 * (rectOverlapArea(rect, pr) / A);
+        for (const ob of obstacles) cost += ob.w * (rectOverlapArea(rect, ob.r) / A);
+        for (const hr of hard) if (rectOverlapArea(rect, hr) > 0) cost += 1000;
+        if (speaker) {
+          const d = Math.hypot(x - speaker.x, y - speaker.y);
+          cost += 1.5 * Math.abs(d / R - 1.6);
+          // tail path crossing other balloons
+          for (const pr of placedRects) if (segRect(c, speaker, pr)) cost += 4;
+        }
+        cost += 1.0 * ((y - area.y) / Math.max(1, area.h));
+        if (offSide) {
+          const dEdge = offSide === "right" ? area.x + area.w - (x + w / 2) : offSide === "left" ? x - w / 2 - area.x : offSide === "top" ? y - h / 2 - area.y : area.y + area.h - (y + h / 2);
+          cost += 8 * Math.max(0, dEdge) / Math.max(1, offSide === "left" || offSide === "right" ? area.w : area.h);
+        }
+        const inside = rectIntersect(rect, area);
+        cost += 30 * (1 - (inside ? inside.w * inside.h : 0) / A);
+        if (!best || cost < best.cost - 1e-9) best = { c, cost };
+      }
+    }
+    if (!best) best = { c: center(area), cost: 999 };
+    if (best.cost > 25) ctx.bag.warn("BALLOON_NO_SPACE", `no good position for balloon ${pl.el.id}`, { path: pl.el.path, elementId: pl.el.id });
+    setCenter(pl, { x: best.c.x - (pl.outer.x + w / 2), y: best.c.y - (pl.outer.y + h / 2) });
+    prevS = sOf(best.c);
+  }
+}
+
+function segRect(a: Vec, b: Vec, r: Rect): boolean {
+  for (let t = 0.15; t <= 0.85; t += 0.1) {
+    const x = a.x + (b.x - a.x) * t;
+    const y = a.y + (b.y - a.y) * t;
+    if (x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h) return true;
+  }
+  return false;
+}
+
+// ---- page numbers -----------------------------------------------------------------
+
+function nombreNodes(doc: ResolvedDoc, page: RPage, geom: PageGeom, o: ComposeOptions): Node[] {
+  const book = (doc.doc.book ?? {}) as Obj;
+  const pn = (book.pageNumbers ?? {}) as Obj;
+  if (pn.enabled === false || o.nombre === null) return [];
+  const show = (pn.show as string) ?? "print";
+  if (show === "never" || (show === "print" && !o.print)) return [];
+  if (page.number === false) return [];
+  if (Array.isArray(pn.skip) && (pn.skip as string[]).includes(page.id)) return [];
+  const u = geom.units;
+  const hidden = (isObj(page.number) && (page.number as Obj).hidden === true) || pn.hidden === true;
+  const size = hidden ? toMm("5pt", u) : toMm((pn.fontSize as string) ?? "8pt", u);
+  const fmt = (pn.format as string) ?? "{n}";
+  const text = fmt.replace("{n}", String(o.nombre));
+  const tl = layoutText(text, defaultTextStyle({ font: (pn.font as string) ?? "ui", fontSize: size, writing: "horizontal", markup: false, tcy: null }), o.fonts);
+  const margin = (pn.margin as unknown[]) ?? ["8mm", "12mm"];
+  const mv = toMm(margin[0] as string, u);
+  const mh = hidden ? 1.5 : toMm(margin[1] as string, u);
+  const pos = (pn.position as string) ?? "bottom-outer";
+  const outerLeft = geom.side === "left";
+  let x: number;
+  const inner = pos.includes("inner") || hidden;
+  if (pos.includes("center")) x = geom.trimW / 2 - tl.width / 2;
+  else if ((outerLeft && !inner) || (!outerLeft && inner)) x = mh;
+  else x = geom.trimW - mh - tl.width;
+  const y = pos.startsWith("top") ? mv : hidden ? geom.trimH - 3 - tl.height : geom.trimH - mv - tl.height;
+  const color = parseColor((pn.color as string) ?? "black") ?? BLACK;
+  return [{ kind: "path", stroke: { width: size * 0.25, paint: { type: "solid", color: WHITE }, join: "round" }, path: tl.glyphs.flatMap((g) => g.path.map((c) => (c[0] === "Z" ? c : (c.map((v, i) => (i === 0 ? v : i % 2 === 1 ? (v as number) + x : (v as number) + y)) as typeof c)))), fillRule: "nonzero", paint: { type: "solid", color }, tag: { elementId: `${page.id}-nombre`, elementType: "nombre", role: "furniture", separation: "furniture" } }];
+}
+
+function collectTranscript(el: RElement, panel: string | undefined, info: PageLayoutInfo, o: ComposeOptions) {
+  if (el.type === "balloon" || el.type === "text" || el.type === "sfx") {
+    info.transcript.push({ panel, id: el.id, type: el.type, who: el.props.who as string | undefined, as: el.props.as as string | undefined, text: textValue(el.props.text, o.lang, o.defaultLang) });
+  }
+}
+
+function checkTextSafety(items: Item[], geom: PageGeom, bag: DiagnosticBag, page: RPage) {
+  if (geom.units.units === "px") return;
+  for (const it of items) {
+    if (!["balloon", "text"].includes(it.el.type)) continue;
+    const b = it.bbox;
+    const s = geom.safe;
+    if (b.x < s.x - 0.5 || b.y < s.y - 0.5 || b.x + b.w > s.x + s.w + 0.5 || b.y + b.h > s.y + s.h + 0.5) {
+      bag.warn("TEXT_OUTSIDE_SAFE_AREA", `${it.el.id} extends outside the safe area`, { path: it.el.path, elementId: it.el.id, pageId: page.id });
+    }
+    if (geom.type === "spread") {
+      const fm = page.settings.foldMargin !== undefined ? toMm(page.settings.foldMargin as string, geom.units) : 10;
+      const cx = geom.trimW / 2;
+      if (b.x < cx + fm && b.x + b.w > cx - fm) bag.warn("TEXT_NEAR_FOLD", `${it.el.id} is near the spread fold`, { path: it.el.path, elementId: it.el.id });
+    }
+  }
+}
+
+export type { InkPoly };

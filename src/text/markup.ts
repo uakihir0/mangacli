@@ -58,7 +58,7 @@ export function normalizeChunk(s: string, o: NormalizeOptions, vertical: boolean
   let t = s;
   if (o.ellipsis !== false) t = t.replace(/\.{3,}|・{3,}|。{3,}/g, (m) => "…".repeat(Math.max(1, Math.round(m.length / 3))));
   if (o.ellipsisPair) t = t.replace(/(?<!…)…(?!…)/g, "……");
-  if (o.dash !== false) t = t.replace(/--+/g, "――").replace(/(?<!―)―(?!―)/g, "――");
+  if (o.dash !== false) t = t.replace(/[—―]{2,}/g, (m) => "―".repeat(m.length)).replace(/--+/g, "――").replace(/(?<![―—])[―—](?![―—])/g, "――");
   if (o.waveDash !== false) t = t.replace(/~/g, "〜");
   if ((o.fullwidthMarks ?? vertical) !== false && vertical) {
     // keep 2-3 char runs of !? for tcy; convert lone marks

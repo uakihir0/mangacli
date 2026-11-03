@@ -16,7 +16,7 @@ export function noStart(ch: string, level: KinsokuLevel): boolean {
   if (CLOSING.has(ch) || MARKS.has(ch)) return true;
   if (level === "loose") return false;
   if (MIDDLE.has(ch) || ITER.has(ch) || HYPHEN.has(ch)) return true;
-  if (level === "strict" && SMALL.has(ch)) return true;
+  if (level === "strict" && (SMALL.has(ch) || ch === "―" || ch === "…" || ch === "‥")) return true;
   return false;
 }
 

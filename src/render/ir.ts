@@ -59,7 +59,8 @@ export interface GroupNode {
   opacity?: number;
   blend?: BlendMode;
   clip?: PathData;
-  /** screen alpha in mono (opacity / soft masks) */
+  /** multiply children by the alpha of an image (region mode: alpha) */
+  alphaMaskOf?: { matrix: Matrix; assetKey: string; w: number; h: number };
   children: Node[];
   tag?: NodeTag;
 }
@@ -87,6 +88,8 @@ export interface ImageNode {
   filters: ImageFilter[];
   flipX?: boolean;
   flipY?: boolean;
+  /** silhouette outlines (largest first): width mm */
+  outline?: { w: number; color: RGBA }[];
   tag?: NodeTag;
 }
 
