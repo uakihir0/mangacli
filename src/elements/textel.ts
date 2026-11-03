@@ -6,7 +6,9 @@ import { type PathData, flattenPath, polyPath, smoothPath, transformPath } from 
 import { type Rect, type Vec, applyMat, matMul, matRotate, matScale, matTranslate } from "../geom/vec.js";
 import { place, sizeValue } from "../layout/place.js";
 import type { RElement } from "../model/resolve.js";
-import { parsePaint } from "../model/values.js";
+import { parsePaint, resolveHand, resolveStroke } from "../model/values.js";
+import { inkShape } from "../ink/shape.js";
+import { inksToNodes } from "./inkir.js";
 import type { Node, Paint } from "../render/ir.js";
 import { type TextLayout, layoutText } from "../text/layout.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
@@ -164,14 +166,18 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const nodes: Node[] = [];
   nodes.push(...outlineNodes(placed, p.outline, ctx, el));
   const paint = textPaint(p.color, ctx, el, pl.bbox);
-  const edge = p.edge as Obj | undefined;
-  if (edge && edge.style !== "none") {
-    const ew = edge.width !== undefined ? toMm(edge.width as string, u) : 0.3 * u.k;
-    const ec = parseColor((edge.color as string) ?? "black") ?? BLACK;
-    nodes.push({ kind: "path", path: placed, fillRule: "nonzero", paint: null, stroke: { width: ew * 2, paint: { type: "solid", color: ec }, join: "round" }, tag: tag(el, "ink") });
-  }
+  // hollow letters keep only the traced outline (black by default)
+  const edge = (p.edge as Obj | undefined) ?? (p.hollow ? { width: "0.35bmm", color: (p.color as string) ?? "black" } : undefined);
   if (!p.hollow) nodes.push({ kind: "path", path: placed, fillRule: "nonzero", paint, tag: tag(el, "text", "sfx") });
   else nodes.push({ kind: "path", path: placed, fillRule: "nonzero", paint: { type: "solid", color: WHITE }, tag: tag(el, "text", "sfx") });
+  if (edge && edge.style !== "none") {
+    // trace the glyph contours with a hand-drawn pen line
+    const hand = resolveHand(p.hand, u, ctx.draft);
+    const line = resolveStroke({ pen: { preset: "g-pen" }, ...edge, width: edge.width ?? "0.3bmm" }, hand, u, ctx.bag, [...el.path, "edge"]);
+    const rng = new Rng(el.seed ^ 0x2f6b);
+    const inks = flattenPath(placed, 0.05).filter((c) => c.pts.length > 2).flatMap((c, i) => inkShape({ pts: c.pts, closed: true }, { line, hand: { ...hand, wobbleAmp: hand.wobbleAmp * 0.3 }, rng: rng.fork(`c${i}`), strokes: 1, sizeHint: 4 * u.k }).inks);
+    nodes.push(...inksToNodes(inks, line.color, tag(el, "ink")));
+  }
   void colorsPer;
   void sizeValue;
   return { nodes, bbox: pl.bbox };
