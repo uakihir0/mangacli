@@ -13,6 +13,10 @@ export interface EncodeOptions {
   lossless?: boolean;
   transparent?: boolean;
   metadata?: Record<string, string>;
+  /** png zlib level (0-9) */
+  compression?: number;
+  chroma?: "4:4:4" | "4:2:2" | "4:2:0";
+  tiffCompression?: "lzw" | "deflate" | "ccitt4" | "none" | "jpeg";
 }
 
 const CRC_TABLE = (() => {
@@ -41,7 +45,7 @@ function chunk(type: string, data: Uint8Array): Buffer {
 }
 
 /** PNG for 1-bit (mono) or 8-bit gray/gray+alpha from RGBA data */
-export function encodeGrayPng(rgba: Uint8ClampedArray, w: number, h: number, mode: "mono" | "gray", dpi: number, alpha: boolean, meta: Record<string, string> = {}): Buffer {
+export function encodeGrayPng(rgba: Uint8ClampedArray, w: number, h: number, mode: "mono" | "gray", dpi: number, alpha: boolean, meta: Record<string, string> = {}, level = 6): Buffer {
   const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(w, 0);
@@ -92,40 +96,70 @@ export function encodeGrayPng(rgba: Uint8ClampedArray, w: number, h: number, mod
     // iTXt: keyword\0 compression(0) method(0) lang\0 translated\0 text
     return chunk("iTXt", Buffer.concat([keyword, Buffer.from([0, 0, 0, 0, 0]), val]));
   });
-  return Buffer.concat([sig, chunk("IHDR", ihdr), chunk("pHYs", phys), ...texts, chunk("IDAT", deflateSync(raw, { level: 6 })), chunk("IEND", Buffer.alloc(0))]);
+  return Buffer.concat([sig, chunk("IHDR", ihdr), chunk("pHYs", phys), ...texts, chunk("IDAT", deflateSync(raw, { level: Math.max(0, Math.min(9, level)) })), chunk("IEND", Buffer.alloc(0))]);
 }
 
 export async function encode(rgba: Uint8ClampedArray, w: number, h: number, o: EncodeOptions): Promise<Buffer> {
-  if (o.format === "png" && (o.colorMode === "mono" || o.colorMode === "gray")) return encodeGrayPng(rgba, w, h, o.colorMode, o.dpi, !!o.transparent, o.metadata);
-  const ch = o.transparent ? 4 : 3;
-  let buf: Buffer;
-  if (ch === 3) {
-    buf = Buffer.alloc(w * h * 3);
-    for (let i = 0, j = 0; i < rgba.length; i += 4, j += 3) {
+  if (o.format === "png" && (o.colorMode === "mono" || o.colorMode === "gray")) return encodeGrayPng(rgba, w, h, o.colorMode, o.dpi, !!o.transparent, o.metadata, o.compression);
+  if (o.colorMode === "mono" && (o.format === "jpeg" || o.format === "webp" || o.format === "avif")) throw new Error(`OUTPUT_MODE_UNSUPPORTED: ${o.format} cannot store 1-bit images`);
+  if (o.transparent && (o.format === "jpeg" || (o.format === "tiff" && o.colorMode === "mono"))) throw new Error(`OUTPUT_MODE_UNSUPPORTED: ${o.format} cannot store a transparent background`);
+  // grey and 1-bit images are written single-channel (with alpha when transparent)
+  const grey = o.colorMode === "gray" || o.colorMode === "mono";
+  const ch = grey ? (o.transparent ? 2 : 1) : o.transparent ? 4 : 3;
+  const buf = Buffer.alloc(w * h * ch);
+  for (let i = 0, j = 0; i < rgba.length; i += 4, j += ch) {
+    if (grey) {
+      buf[j] = o.colorMode === "mono" ? (rgba[i] >= 128 ? 255 : 0) : rgba[i];
+      if (ch === 2) buf[j + 1] = rgba[i + 3];
+    } else {
       buf[j] = rgba[i];
       buf[j + 1] = rgba[i + 1];
       buf[j + 2] = rgba[i + 2];
+      if (ch === 4) buf[j + 3] = rgba[i + 3];
     }
-  } else buf = Buffer.from(rgba.buffer, rgba.byteOffset, rgba.byteLength);
-  let img = sharp(buf, { raw: { width: w, height: h, channels: ch as 3 | 4 }, limitInputPixels: false }).withMetadata({ density: o.dpi });
-  if (o.colorMode === "gray" && o.format !== "webp") img = img.toColourspace("b-w");
+  }
+  // (withMetadata would convert grey back to sRGB; grey density is written by the encoders below)
+  let img = sharp(buf, { raw: { width: w, height: h, channels: ch as 1 | 2 | 3 | 4 }, limitInputPixels: false });
+  img = grey ? img.toColourspace("b-w") : img.withMetadata({ density: o.dpi });
   switch (o.format) {
     case "png":
-      return img.png({ compressionLevel: 6 }).toBuffer();
+      return img.png({ compressionLevel: o.compression ?? 6 }).toBuffer();
     case "jpeg":
-      if (o.colorMode === "mono") throw new Error("OUTPUT_MODE_UNSUPPORTED: jpeg cannot store 1-bit images");
-      return img.jpeg({ quality: o.quality ?? 92, chromaSubsampling: "4:4:4", mozjpeg: false }).toBuffer();
+      return jfifDensity(await img.jpeg({ quality: o.quality ?? 92, chromaSubsampling: o.chroma ?? "4:4:4", mozjpeg: false }).toBuffer(), o.dpi);
     case "webp":
       return img.webp({ quality: o.quality ?? 92, lossless: !!o.lossless }).toBuffer();
     case "avif":
-      return img.avif({ quality: o.quality ?? 80 }).toBuffer();
+      return img.avif({ quality: o.quality ?? 92 }).toBuffer();
     case "pdf":
     case "svg":
       throw new Error(`${o.format} is produced by its own backend`);
-    case "tiff":
-      if (o.colorMode === "mono") return img.toColourspace("b-w").tiff({ compression: "ccittfax4", bitdepth: 1, xres: o.dpi / 25.4, yres: o.dpi / 25.4 }).toBuffer();
-      return img.tiff({ compression: "lzw", xres: o.dpi / 25.4, yres: o.dpi / 25.4 }).toBuffer();
+    case "tiff": {
+      const res = { xres: o.dpi / 25.4, yres: o.dpi / 25.4 };
+      if (o.colorMode === "mono") {
+        const comp = o.tiffCompression ?? "ccitt4";
+        return img.tiff({ compression: comp === "ccitt4" ? "ccittfax4" : comp === "none" ? "none" : comp === "deflate" ? "deflate" : "lzw", bitdepth: 1, ...res }).toBuffer();
+      }
+      const comp = o.tiffCompression ?? "lzw";
+      return img.tiff({ compression: comp === "deflate" ? "deflate" : comp === "none" ? "none" : comp === "jpeg" ? "jpeg" : "lzw", ...res }).toBuffer();
+    }
   }
+}
+
+/** set the JFIF APP0 density (dots per inch) of a JPEG */
+function jfifDensity(b: Buffer, dpi: number): Buffer {
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff && b[3] === 0xe0 && b.toString("latin1", 6, 10) === "JFIF") {
+    b[13] = 1;
+    b.writeUInt16BE(Math.round(dpi), 14);
+    b.writeUInt16BE(Math.round(dpi), 16);
+    return b;
+  }
+  if (b[0] === 0xff && b[1] === 0xd8) {
+    const app0 = Buffer.from([0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0]);
+    app0.writeUInt16BE(Math.round(dpi), 12);
+    app0.writeUInt16BE(Math.round(dpi), 14);
+    return Buffer.concat([b.subarray(0, 2), app0, b.subarray(2)]);
+  }
+  return b;
 }
 
 export const MIME: Record<OutputFormat, string> = { png: "image/png", jpeg: "image/jpeg", webp: "image/webp", avif: "image/avif", tiff: "image/tiff", pdf: "application/pdf", svg: "image/svg+xml" };

@@ -17,6 +17,9 @@ export interface RasterOptions {
   crop: "trim" | "bleed" | "marks";
   marks?: { margin?: number; length?: number; width?: number };
   maxPixels?: number;
+  /** 1-bit: screen ruling for images (overrides the element's) and dither mode */
+  imageLpi?: number;
+  monoImages?: "screen" | "dither";
   colorMode: ColorMode;
   toneRendering: ToneRendering;
   monoLpi: number;
@@ -690,7 +693,10 @@ export class RasterBackend {
       const lin0 = 0.2126 * srgbToLinear(dd[i * 4] / 255) + 0.7152 * srgbToLinear(dd[i * 4 + 1] / 255) + 0.0722 * srgbToLinear(dd[i * 4 + 2] / 255);
       dens[i] = 1 - (dev.opts.toneCurve === "perceptual" ? linearToSrgb(lin0) : lin0);
     }
-    const sampler = mono ? makeToneSampler({ density: 0, lpi: n.monoLpi || dev.opts.monoLpi, angle: Math.PI / 4, dot: "round", grain: 0.08, invert: false, offset: [0, 0], seed: 11 }, this.target(dev, r), () => curDensity) : null;
+    // error diffusion instead of a dot screen (output.mono.images: dither)
+    const dither = mono && dev.opts.monoImages === "dither" && !n.lineart ? new Float32Array(r.w * r.h) : null;
+    if (dither) for (let i = 0; i < r.w * r.h; i++) dither[i] = dens[i];
+    const sampler = mono ? makeToneSampler({ density: 0, lpi: dev.opts.imageLpi ?? (n.monoLpi || dev.opts.monoLpi), angle: Math.PI / 4, dot: "round", grain: 0.08, invert: false, offset: [0, 0], seed: 11 }, this.target(dev, r), () => curDensity) : null;
     for (let y = 0; y < r.h; y++) {
       for (let x = 0; x < r.w; x++) {
         const i = (y * r.w + x) * 4;
@@ -703,7 +709,18 @@ export class RasterBackend {
           continue;
         }
         let ink: boolean;
-        if (n.lineart) ink = linearToSrgb(lin) < 0.5;
+        if (dither) {
+          const i0 = y * r.w + x;
+          const v = dither[i0];
+          ink = v >= 0.5;
+          const e = v - (ink ? 1 : 0);
+          if (x + 1 < r.w) dither[i0 + 1] += (e * 7) / 16;
+          if (y + 1 < r.h) {
+            if (x > 0) dither[i0 + r.w - 1] += (e * 3) / 16;
+            dither[i0 + r.w] += (e * 5) / 16;
+            if (x + 1 < r.w) dither[i0 + r.w + 1] += e / 16;
+          }
+        } else if (n.lineart) ink = linearToSrgb(lin) < 0.5;
         else {
           const de = dens[y * r.w + x];
           let lo = de;

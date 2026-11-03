@@ -24,6 +24,34 @@ export interface Profile {
   toneCurve?: "linear" | "perceptual";
   transparent?: boolean;
   separate?: string[] | Record<string, string[]> | "all" | false;
+  imageLpi?: number;
+  monoImages?: "screen" | "dither";
+  compression?: number;
+  chroma?: "4:4:4" | "4:2:2" | "4:2:0";
+  tiffCompression?: "lzw" | "deflate" | "ccitt4" | "none" | "jpeg";
+  metadata?: boolean;
+}
+
+/** apply `output` settings (config, then document) over a profile (spec 10.7) */
+export function applyOutput(prof: Profile, o: Record<string, unknown> | undefined): Profile {
+  if (!o) return prof;
+  const out: Profile = { ...prof };
+  const keys = ["format", "colorMode", "crop", "marks", "spread", "finish", "toneRendering", "quality", "lossless", "compression", "chroma", "tiffCompression", "name", "transparent", "separate", "metadata"] as const;
+  for (const k of keys) if (o[k] !== undefined) (out as unknown as Record<string, unknown>)[k] = o[k];
+  // an explicit resolution replaces the profile's long-side sizing
+  for (const k of ["dpi", "scale", "width", "height"] as const)
+    if (o[k] !== undefined) {
+      out[k] = Number(o[k]);
+      delete out.longSide;
+    }
+  if (o.background === "transparent") out.transparent = true;
+  const mono = (o.mono ?? {}) as Record<string, unknown>;
+  if (mono.toneCurve !== undefined) out.toneCurve = mono.toneCurve as Profile["toneCurve"];
+  if (o.toneCurve !== undefined) out.toneCurve = o.toneCurve as Profile["toneCurve"];
+  if (mono.lpi !== undefined) out.monoLpi = Number(mono.lpi);
+  if (mono.imageLpi !== undefined) out.imageLpi = Number(mono.imageLpi);
+  if (mono.images !== undefined) out.monoImages = mono.images as Profile["monoImages"];
+  return out;
 }
 
 export const PROFILES: Record<string, Profile> = {
@@ -40,9 +68,7 @@ export function resolveProfile(name: string, custom: Record<string, Record<strin
   const c = custom[name];
   if (c) {
     const base = resolveProfile((c.extends as string) ?? "web", { ...custom, [name]: undefined as never });
-    const out = { ...base, ...(c as Partial<Profile>) } as Profile & { extends?: string };
-    delete out.extends;
-    return out;
+    return applyOutput(base, c);
   }
   const p = PROFILES[name];
   if (!p) throw new Error(`unknown profile "${name}"`);

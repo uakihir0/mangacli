@@ -8,7 +8,7 @@ import { type LoadedDocument, loadDocumentFile, loadDocumentFromObject, loadDocu
 import { isObj, normalizeDocument } from "./load/normalize.js";
 import { type ResolvedDoc, resolveDocument } from "./model/resolve.js";
 import { type EncodeOptions, EXT, MIME, type OutputFormat, encode } from "./output/encode.js";
-import { type Profile, resolveProfile } from "./output/profiles.js";
+import { PROFILES, type Profile, applyOutput, resolveProfile } from "./output/profiles.js";
 import { PdfWriter } from "./output/pdf.js";
 import { type Finish, applyFinish } from "./output/finish.js";
 import { AssetRegistry } from "./render/assets.js";
@@ -330,6 +330,9 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   let prof: Profile;
   try {
     prof = resolveProfile(profName, { ...(((options.config?.output as Obj)?.profiles ?? {}) as Record<string, Obj>), ...((docOutput.profiles ?? {}) as Record<string, Obj>) });
+    // precedence: profile < config output < document output < render options
+    const strip = (o: Obj | undefined) => (o ? Object.fromEntries(Object.entries(o).filter(([k]) => !["profile", "profiles", "dir"].includes(k))) : undefined);
+    prof = applyOutput(applyOutput(prof, strip(options.config?.output as Obj | undefined)), strip(docOutput));
   } catch (e) {
     bag.error("SCHEMA_ENUM", (e as Error).message);
     return fail();
@@ -389,7 +392,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   const nameTpl = options.name ?? (docOutput.name as string) ?? prof.name ?? "{name}-{page:03}";
   const emitted = new Set<string>();
   const seps0 = normalizeSeparations(options.separate ?? prof.separate);
-  const spreadMode = options.spread ?? (docOutput.spread as "joined" | "split" | undefined) ?? prof.spread ?? "joined";
+  // print profiles hand spreads to the printer as two pages
+  const spreadMode = options.spread ?? prof.spread ?? (prof.print ? "split" : "joined");
   const title = String((p.doc.meta as Obj | undefined)?.title ?? p.name);
   const outName = (page: RPage, idx: number, side: string, nombre: number | null, spreadJoined: boolean, split: boolean, runName: string | undefined, ext: string) => {
     const splitSuffix = split && !/\{(page|side)/.test(nameTpl) ? `-${side}` : "";
@@ -439,11 +443,14 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         const cropW = crop === "bleed" || crop === "marks" ? geom.bleedBox.w + markW : geom.trimW;
         const cropH = crop === "bleed" || crop === "marks" ? geom.bleedBox.h + markW : geom.trimH;
         let d: number;
-        if (options.width || options.height) {
-          const ws = options.width ? (options.width / cropW) * 25.4 : Infinity;
-          const hs = options.height ? (options.height / cropH) * 25.4 : Infinity;
+        const W0 = options.width ?? (options.dpi || options.scale ? undefined : prof.width);
+        const H0 = options.height ?? (options.dpi || options.scale ? undefined : prof.height);
+        const S0 = options.scale ?? (options.dpi ? undefined : prof.scale);
+        if (W0 || H0) {
+          const ws = W0 ? (W0 / cropW) * 25.4 : Infinity;
+          const hs = H0 ? (H0 / cropH) * 25.4 : Infinity;
           d = Math.min(ws, hs);
-        } else if (options.scale) d = geom.dpi * options.scale;
+        } else if (S0) d = geom.dpi * S0;
         else if (options.dpi) d = options.dpi;
         else if (sz.unit === "px" && (prof.longSide || prof.dpi === 96)) d = geom.dpi;
         else if (prof.longSide) d = (prof.longSide / Math.max(cropW, cropH)) * 25.4;
@@ -454,7 +461,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const { list: list0, info } = await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor });
       let list = plugins ? (plugins.hook("beforeRender", list0) as DisplayList) : list0;
       // transparent output: no page ground (panel grounds stay; spec 10.15)
-      const transparentOut = options.transparent ?? (docOutput.background === "transparent" ? true : undefined) ?? prof.transparent ?? false;
+      const transparentOut = options.transparent ?? prof.transparent ?? false;
+      if (transparentOut && (options.colorMode ?? prof.colorMode) === "mono") bag.error("OUTPUT_MODE_UNSUPPORTED", "1-bit output cannot have a transparent background", { pageId: page.id });
       if (transparentOut && formats.some((f) => f === "jpeg")) bag.error("OUTPUT_MODE_UNSUPPORTED", "jpeg cannot store a transparent background", { pageId: page.id });
       if (transparentOut) list = { ...list, background: null, root: { ...list.root, children: list.root.children.filter((c) => !(c.kind === "path" && c.tag?.elementType === "page" && c.tag.role === "background")) } };
       result.layout.push(info);
@@ -473,12 +481,15 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       if (dpi > lim.maxDpi) throw new Error(`SECURITY_LIMIT_EXCEEDED: ${Math.round(dpi)} dpi exceeds maxDpi (${lim.maxDpi})`);
       const runs: { name?: string; list?: string[] }[] = seps0 ? seps0 : [{}];
       for (const run of runs) {
-        const backend = new RasterBackend({ maxPixels: lim.maxOutputPixels, dpi, crop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
+        const backend = new RasterBackend({ maxPixels: lim.maxOutputPixels, dpi, crop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
         const needRaster = formats.some((f) => f !== "svg");
         let full = needRaster ? await backend.render(list) : { data: new Uint8ClampedArray(0), width: 0, height: 0, dpi };
         if (plugins && needRaster) full = { ...full, ...(plugins.hook("afterRender", { data: full.data, width: full.width, height: full.height }) as object) };
         // finishing passes: off for print profiles unless the profile itself asks for them
-        const finish = options.finish === false ? undefined : (options.finish ?? (prof as { finish?: Finish }).finish ?? (prof.print ? undefined : (docOutput.finish as Finish | undefined)));
+        // finishing: never for print/preview/draft unless the profile itself (not the document) asks for it
+        const profOwn = (PROFILES as Record<string, Profile>)[profName] ? undefined : (resolveProfile(profName, { ...(((options.config?.output as Obj)?.profiles ?? {}) as Record<string, Obj>), ...((docOutput.profiles ?? {}) as Record<string, Obj>) }) as { finish?: Finish }).finish;
+        const quiet = prof.print || profName === "preview" || profName === "draft" || draft;
+        const finish = options.finish === false ? undefined : (options.finish ?? profOwn ?? (quiet ? undefined : (prof.finish as Finish | undefined)));
         if (finish && needRaster && !run.list) full = { ...full, ...(await applyFinish(full, finish, { dpi, colorMode: colorMode as "color", seed: resolved.seed, bag })) };
         if (options.debug) drawDebug(full, list, info, dpi, crop, options.debug, prof.marks?.margin ?? 10);
         // spreads: one joined image, or two pages each with bleed on all sides (spec 10.9)
@@ -520,7 +531,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
             continue;
           }
           if (fmt === "svg" && part !== parts[0]) continue;
-          const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, transparent: transparentOut || !!run.list, metadata: { Software: "mangacli", Title: String((p.doc.meta as Obj | undefined)?.title ?? ""), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed) } };
+          const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, compression: prof.compression, chroma: prof.chroma, tiffCompression: prof.tiffCompression, transparent: transparentOut || !!run.list, metadata: { Software: "mangacli", Title: String((p.doc.meta as Obj | undefined)?.title ?? ""), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed) } };
           const data = fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: Math.min(dpi, 300) })) : await encode(raster.data, raster.width, raster.height, enc);
           const svgSize = () => {
             const bw = crop === "trim" ? geom.trimW : geom.bleedBox.w;

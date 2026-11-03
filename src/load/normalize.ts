@@ -33,11 +33,15 @@ export function isObj(x: unknown): x is Obj {
   return !!x && typeof x === "object" && !Array.isArray(x);
 }
 
-function stripExt(o: unknown): unknown {
-  if (Array.isArray(o)) return o.map(stripExt);
+/** maps whose keys are user-chosen names, not schema keys: `x-` is a valid name there */
+const NAME_MAPS = new Set(["profiles", "styles", "assets", "characters", "fonts", "locales", "anchors", "regions", "diagnostics", "weights"]);
+
+function stripExt(o: unknown, parent = ""): unknown {
+  if (Array.isArray(o)) return o.map((x) => stripExt(x));
   if (!isObj(o)) return o;
   const out: Obj = {};
-  for (const [k, v] of Object.entries(o)) if (!k.startsWith("x-")) out[k] = stripExt(v);
+  const names = NAME_MAPS.has(parent);
+  for (const [k, v] of Object.entries(o)) if (names || !k.startsWith("x-")) out[k] = stripExt(v, names ? "" : k);
   return out;
 }
 
