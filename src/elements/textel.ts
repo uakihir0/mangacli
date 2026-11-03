@@ -50,7 +50,12 @@ export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
         tl = layoutText(text, { ...style, fontSize: style.fontSize * s }, ctx.fonts, boxLimit);
       }
     }
-    if (tl.width > fixed[0] + 0.01 || tl.height > fixed[1] + 0.01) ctx.bag.warn("TEXT_OVERFLOW", `text ${el.id} does not fit its box`, { path: el.path, elementId: el.id });
+    if (tl.width > fixed[0] + 0.01 || tl.height > fixed[1] + 0.01) {
+      const mode = (p.overflow as string) ?? "shrink";
+      if (mode === "error") ctx.bag.error("TEXT_OVERFLOW", `text ${el.id} does not fit its box`, { path: el.path, elementId: el.id });
+      else if (mode === "clip") ctx.bag.warn("TEXT_CLIPPED", `text ${el.id} is clipped by its box`, { path: el.path, elementId: el.id });
+      else ctx.bag.warn("TEXT_OVERFLOW", `text ${el.id} does not fit its box`, { path: el.path, elementId: el.id });
+    }
   }
   reportText(tl, el, ctx);
   const emCtx = { ...u, em: style.fontSize };
@@ -60,8 +65,17 @@ export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
   const bw = fixed ? fixed[0] : tl.width + padH * 2;
   const bh = fixed ? fixed[1] : tl.height + padV * 2;
   const pl = place(p, bw, bh, pc);
-  const ox = (bw - tl.width) / 2;
-  const oy = (bh - tl.height) / 2;
+  // fixed boxes: align along the line, blockAlign across lines (vertical text starts at the right)
+  const vert = style.writing === "vertical";
+  // overflowing text keeps its beginning visible
+  const pos = (free: number, a0: string, reverse = false) => {
+    const a = free < 0 ? "start" : a0;
+    return a === "start" ? (reverse ? free : 0) : a === "end" ? (reverse ? 0 : free) : free / 2;
+  };
+  const inl = (p.align as string) ?? "center";
+  const blk = (p.blockAlign as string) ?? "center";
+  const ox = fixed ? (vert ? pos(bw - tl.width, blk, true) : pos(bw - tl.width, inl === "justify" ? "start" : inl)) : (bw - tl.width) / 2;
+  const oy = fixed ? (vert ? pos(bh - tl.height, inl === "justify" ? "start" : inl) : pos(bh - tl.height, blk)) : (bh - tl.height) / 2;
   const m = matMul(pl.matrix, matTranslate(ox, oy));
   const glyphPath = tl.glyphs.flatMap((g) => transformPath(g.path, m));
   const nodes: Node[] = [];
@@ -70,9 +84,21 @@ export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
     const corners = [applyMat(pl.matrix, { x: 0, y: 0 }), applyMat(pl.matrix, { x: bw, y: 0 }), applyMat(pl.matrix, { x: bw, y: bh }), applyMat(pl.matrix, { x: 0, y: bh })];
     nodes.push({ kind: "path", path: polyPath(corners, true), fillRule: "nonzero", paint: bg, tag: tag(el, "fill") });
   }
-  nodes.push(...outlineNodes(glyphPath, p.outline, ctx, el));
+  const corners = [applyMat(pl.matrix, { x: 0, y: 0 }), applyMat(pl.matrix, { x: bw, y: 0 }), applyMat(pl.matrix, { x: bw, y: bh }), applyMat(pl.matrix, { x: 0, y: bh })];
+  const textNodes: Node[] = [...outlineNodes(glyphPath, p.outline, ctx, el)];
   const color = textPaint(p.color, ctx, el, pl.bbox);
-  nodes.push(...glyphNodes(tl.glyphs, (g) => transformPath(g, m), color, tl.fontSize, tag(el, "text")));
+  textNodes.push(...glyphNodes(tl.glyphs, (g) => transformPath(g, m), color, tl.fontSize, tag(el, "text")));
+  if (fixed && p.overflow === "clip") nodes.push({ kind: "group", clip: polyPath(corners, true), children: textNodes });
+  else nodes.push(...textNodes);
+  // the plate's outline
+  if (p.stroke !== undefined && (p.stroke as Obj | undefined)?.style !== "none") {
+    const hand = resolveHand(p.hand, u, ctx.draft);
+    const st = resolveStroke(p.stroke, hand, u, ctx.bag, [...el.path, "stroke"]);
+    if (st.width > 0 && st.style !== "none") {
+      const res = inkShape({ pts: corners, closed: true, corners: corners.map((_, i) => ({ index: i, kind: "convex" as const })) }, { line: st, hand, rng: new Rng(el.seed ^ 0x77), ruler: true, join: "clean" });
+      nodes.push(...inksToNodes(res.inks, st.color, tag(el, "ink")));
+    }
+  }
   return { nodes, bbox: pl.bbox };
 }
 
