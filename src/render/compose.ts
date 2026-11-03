@@ -676,7 +676,9 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     setCenter(pl, { x: tl.x - pl.outer.x, y: tl.y - pl.outer.y });
   }
   const inset = 1.5 * u.k;
-  const area = rectInset(panelBox, inset);
+  let area = rectInset(panelBox, inset);
+  // text must stay inside the safe area even in bled panels
+  if (u.units !== "px") area = rectIntersect(area, geom.safe) ?? area;
   let prevS: number | null = null;
   const sOf = (c: Vec) => {
     const xn = (c.x - area.x) / Math.max(1, area.w);
@@ -776,21 +778,38 @@ function nombreNodes(doc: ResolvedDoc, page: RPage, geom: PageGeom, o: ComposeOp
   const hidden = (isObj(page.number) && (page.number as Obj).hidden === true) || pn.hidden === true;
   const size = hidden ? toMm("5pt", u) : toMm((pn.fontSize as string) ?? "8pt", u);
   const fmt = (pn.format as string) ?? "{n}";
-  const text = fmt.replace("{n}", String(o.nombre));
-  const tl = layoutText(text, defaultTextStyle({ font: (pn.font as string) ?? "ui", fontSize: size, writing: "horizontal", markup: false, tcy: null }), o.fonts);
   const margin = (pn.margin as unknown[]) ?? ["8mm", "12mm"];
   const mv = toMm(margin[0] as string, u);
   const mh = hidden ? 1.5 : toMm(margin[1] as string, u);
   const pos = (pn.position as string) ?? "bottom-outer";
-  const outerLeft = geom.side === "left";
-  let x: number;
   const inner = pos.includes("inner") || hidden;
-  if (pos.includes("center")) x = geom.trimW / 2 - tl.width / 2;
-  else if ((outerLeft && !inner) || (!outerLeft && inner)) x = mh;
-  else x = geom.trimW - mh - tl.width;
-  const y = pos.startsWith("top") ? mv : hidden ? geom.trimH - 3 - tl.height : geom.trimH - mv - tl.height;
   const color = parseColor((pn.color as string) ?? "black") ?? BLACK;
-  return [{ kind: "path", stroke: { width: size * 0.25, paint: { type: "solid", color: WHITE }, join: "round" }, path: tl.glyphs.flatMap((g) => g.path.map((c) => (c[0] === "Z" ? c : (c.map((v, i) => (i === 0 ? v : i % 2 === 1 ? (v as number) + x : (v as number) + y)) as typeof c)))), fillRule: "nonzero", paint: { type: "solid", color }, tag: { elementId: `${page.id}-nombre`, elementType: "nombre", role: "furniture", separation: "furniture" } }];
+  // one number per physical page; a spread carries two (spec 4.15)
+  const halves: { n: number; side: "left" | "right"; x0: number; w: number }[] =
+    geom.type === "spread"
+      ? [
+          { n: o.nombre!, side: geom.rtl ? "right" : "left", x0: geom.rtl ? geom.trimW / 2 : 0, w: geom.trimW / 2 },
+          { n: o.nombre! + 1, side: geom.rtl ? "left" : "right", x0: geom.rtl ? 0 : geom.trimW / 2, w: geom.trimW / 2 },
+        ]
+      : [{ n: o.nombre!, side: geom.side === "left" ? "left" : "right", x0: 0, w: geom.trimW }];
+  return halves.map((h) => {
+    const text = fmt.replace("{n}", String(h.n));
+    const tl = layoutText(text, defaultTextStyle({ font: (pn.font as string) ?? "ui", fontSize: size, writing: "horizontal", markup: false, tcy: null }), o.fonts);
+    const outerLeft = h.side === "left";
+    let x: number;
+    if (pos.includes("center")) x = h.x0 + h.w / 2 - tl.width / 2;
+    else if ((outerLeft && !inner) || (!outerLeft && inner)) x = h.x0 + mh;
+    else x = h.x0 + h.w - mh - tl.width;
+    const y = pos.startsWith("top") ? mv : hidden ? geom.trimH - 3 - tl.height : geom.trimH - mv - tl.height;
+    return {
+      kind: "path" as const,
+      stroke: { width: size * 0.25, paint: { type: "solid" as const, color: WHITE }, join: "round" as const },
+      path: tl.glyphs.flatMap((g) => g.path.map((c) => (c[0] === "Z" ? c : (c.map((v, i) => (i === 0 ? v : i % 2 === 1 ? (v as number) + x : (v as number) + y)) as typeof c)))),
+      fillRule: "nonzero" as const,
+      paint: { type: "solid" as const, color },
+      tag: { elementId: `${page.id}-nombre`, elementType: "nombre", role: "furniture" as const, separation: "furniture" },
+    };
+  });
 }
 
 function collectTranscript(el: RElement, panel: string | undefined, info: PageLayoutInfo, o: ComposeOptions) {

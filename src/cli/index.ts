@@ -148,7 +148,8 @@ async function renderOptions(o: Obj, entry: string): Promise<RenderOptions> {
     scale: parsePositiveNumber(o.scale, "--scale"),
     width: parsePositiveNumber(o.width, "--width"),
     height: parsePositiveNumber(o.height, "--height"),
-    crop: oneOf(o.crop, "--crop", ["trim", "bleed"] as const),
+    crop: oneOf(o.crop, "--crop", ["trim", "bleed", "marks"] as const),
+    spread: oneOf(o.spread, "--spread", ["joined", "split"] as const),
     toneRendering: oneOf(o.tone, "--tone", ["dots", "flat", "auto"] as const),
     pages: o.pages !== undefined ? String(o.pages) : undefined,
     lang: o.lang as string | undefined,
@@ -493,7 +494,8 @@ const renderOpts = (c: ReturnType<typeof cli.command>) =>
     .option("--scale <n>", "Scale factor on the design resolution")
     .option("--width <px>", "Output width")
     .option("--height <px>", "Output height")
-    .option("--crop <area>", "trim | bleed")
+    .option("--crop <area>", "trim | bleed | marks")
+    .option("--spread <mode>", "joined | split")
     .option("--pages <range>", "Pages to render, e.g. 1-3,5 or p7")
     .option("--lang <tag>", "Text language")
     .option("--seed <n>", "Override the document seed")

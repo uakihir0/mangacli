@@ -11,6 +11,7 @@ export interface Profile {
   scale?: number;
   crop: "trim" | "bleed" | "marks";
   marks?: { margin?: number; length?: number; width?: number };
+  spread?: "joined" | "split";
   toneRendering: "dots" | "flat" | "auto";
   print: boolean;
   draft?: boolean;

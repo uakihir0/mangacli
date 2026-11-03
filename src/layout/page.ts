@@ -459,6 +459,8 @@ function makePanelGeom(p: RPanel, poly0: Vec[], geom: PageGeom, area: Rect, bag:
   const bled: string[] = [];
   for (const s of bleedReq) {
     if (!edgeSides.includes(s)) {
+      // `bleed: all` (all four sides) quietly bleeds only the sides on the edge
+      if (bleedReq.length >= 4) continue;
       bag.warn("LAYOUT_BLEED_NOT_ON_EDGE", `panel ${p.id}: side "${s}" is not on the layout edge`, { path: [...p.path, "bleed"] });
       continue;
     }

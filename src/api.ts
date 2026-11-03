@@ -29,6 +29,7 @@ export interface RenderOptions {
   width?: number;
   height?: number;
   crop?: "trim" | "bleed" | "marks";
+  spread?: "joined" | "split";
   toneRendering?: "dots" | "flat" | "auto";
   transparent?: boolean;
   separate?: string[] | Record<string, string[]> | "all" | false;
@@ -329,14 +330,36 @@ export async function render(input: MangaInput | Project, options: RenderOptions
       const runs: { name?: string; list?: string[] }[] = seps ? seps : [{}];
       for (const run of runs) {
         const backend = new RasterBackend({ dpi, crop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, toneCurve: prof.toneCurve ?? "linear", transparent: options.transparent ?? prof.transparent ?? !!run.list, separations: run.list, assets });
-        const raster = await backend.render(list);
-        if (options.debug) drawDebug(raster, list, info, dpi, crop, options.debug);
+        const full = await backend.render(list);
+        if (options.debug) drawDebug(full, list, info, dpi, crop, options.debug);
+        // spreads: one joined image, or two pages each with bleed on all sides (spec 10.9)
+        const spreadMode = options.spread ?? (docOutput.spread as "joined" | "split" | undefined) ?? prof.spread ?? "joined";
+        const parts: { raster: { data: Uint8ClampedArray; width: number; height: number }; side: string; nombre: number | null }[] = [];
+        if (geom.type === "spread" && spreadMode === "split") {
+          const trimPx = Math.round((geom.trimW * dpi) / 25.4 + 1e-6);
+          const edge = Math.round((full.width - trimPx) / 2);
+          const half = Math.round(trimPx / 2);
+          const leftW = edge + half + edge;
+          const slice = (x0: number, w: number) => {
+            const out = new Uint8ClampedArray(w * full.height * 4);
+            for (let y = 0; y < full.height; y++) out.set(full.data.subarray((y * full.width + x0) * 4, (y * full.width + x0 + w) * 4), y * w * 4);
+            return { data: out, width: w, height: full.height };
+          };
+          const left = { raster: slice(0, leftW), side: "left" };
+          const right = { raster: slice(full.width - (trimPx - half + 2 * edge), trimPx - half + 2 * edge), side: "right" };
+          const first = geom.rtl ? right : left;
+          const second = geom.rtl ? left : right;
+          parts.push({ ...first, nombre: pl.nombre }, { ...second, nombre: pl.nombre === null ? null : pl.nombre + 1 });
+        } else parts.push({ raster: full, side: geom.side, nombre: pl.nombre });
+        for (const part of parts)
         for (const fmt of formats) {
+          const raster = part.raster;
           const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, transparent: options.transparent ?? !!run.list, metadata: { Software: "mangacli", Title: String((p.doc.meta as Obj | undefined)?.title ?? ""), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed) } };
           const data = await encode(raster.data, raster.width, raster.height, enc);
-          const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: pl.nombre, side: geom.side, format: fmt, mimeType: MIME[fmt], colorMode, width: raster.width, height: raster.height, dpi, separation: run.name, data };
+          const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: raster.width, height: raster.height, dpi, separation: run.name, data };
           if (outDir) {
-            const base = fillName(nameTpl, { name: p.name, title: String((p.doc.meta as Obj | undefined)?.title ?? p.name), page: pl.nombre ?? `i${pl.idx + 1}`, index: pl.idx + 1, id: page.id, side: geom.side, profile: profName, lang, sep: run.name ?? "" }) + (run.name && !nameTpl.includes("{sep}") ? `-${run.name}` : "");
+            const splitSuffix = parts.length > 1 && !/\{(page|side)/.test(nameTpl) ? `-${part.side}` : "";
+            const base = fillName(nameTpl, { name: p.name, title: String((p.doc.meta as Obj | undefined)?.title ?? p.name), page: part.nombre ?? `i${pl.idx + 1}`, index: pl.idx + 1, id: page.id, side: part.side, profile: profName, lang, sep: run.name ?? "" }) + splitSuffix + (run.name && !nameTpl.includes("{sep}") ? `-${run.name}` : "");
             const file = join(outDir, `${base}.${EXT[fmt]}`);
             if (emitted.has(file)) {
               bag.error("OUTPUT_NAME_COLLISION", `two outputs map to ${file}`);
