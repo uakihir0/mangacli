@@ -23,7 +23,8 @@ mangacli は、漫画の構造を記述したデータから、日本の漫画�
 - 決定的: 同じ入力からは常に同じ出力になる。シードを変えると「描き直した」別の線になる。
 - 和文フォントは、同梱のカタログ（SIL OFL のフォント。版を固定し、ハッシュで検証する）から必要なときに取得するため、フォントを用意しなくても描画できる。
 - 診断は YAML の行と列を示し、ヒントを添える。
-- CLI と TypeScript API の両方を提供する。
+- プラグインで拡張できる（吹き出しの形状、効果、漫符、ペン、コマ割りのテンプレート、判型、スタイル、処理のフック）。
+- CLI（ライブプレビューのサーバー付き）と TypeScript API の両方を提供する。
 
 ## はじめかた
 
@@ -71,6 +72,7 @@ pages:
 mangacli render <file> [-p print-mono|print-gray|print-color|web|sns|preview|draft] [-o out] [--pages 1-3]
 mangacli validate <file> [--strict] [--reporter text|json|github]
 mangacli watch <file>                  # 保存のたびに描き直す
+mangacli preview <file> [--open]       # ブラウザでライブプレビュー（127.0.0.1:4173）
 mangacli init [dir] [--template basic|b5-mono|sns-color|yonkoma]
 mangacli fonts install [--set manga-basic] [--for manga.yaml] [--dir ./fonts]
 mangacli fonts list [--catalog]
