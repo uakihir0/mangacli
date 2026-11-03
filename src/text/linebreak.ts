@@ -39,7 +39,14 @@ export function isOpeningPunct(ch: string): boolean {
 
 const HIRA = /^[ぁ-ゟー]+$/u;
 const ENDS_KANJI_KATA = /[一-鿿㐀-䶿々゠-ヿー]$/u;
+const HAS_KANJI = /[一-鿿㐀-䶿々]/u;
+const ENDS_HIRA = /[ぁ-ゟ]$/u;
+const KANJI_ONLY = /^[一-鿿㐀-䶿々]+$/u;
+const STARTS_KANJI = /^[一-鿿㐀-䶿々]/u;
+/** 連用形 of a single-kanji verb (吹き, 折り, 引き, 取り…) that forms compound verbs/nouns */
+const RENYOU = /^[一-鿿㐀-䶿々][きりちしいみひびけえぎじ]$/u;
 const PUNCT_START = /^[、。，．！？!?」』）】〉》…―ーっゃゅょぁぃぅぇぉッャュョァィゥェォ〜]/u;
+const PARTICLES = new Set(["は", "が", "を", "に", "で", "と", "も", "の", "へ", "や", "か", "ね", "よ", "な", "わ", "さ", "ぞ", "ぜ", "て", "た", "だ", "です", "ます", "でし", "まし", "から", "まで", "より", "けど", "って", "ので", "のに", "だけ", "しか", "ばかり", "など", "くらい", "ぐらい", "でも", "じゃ"]);
 
 /** Phrase (bunsetsu-like) units via Intl.Segmenter (spec 7.6.2). Returns break-allowed boundaries as char indices. */
 export function phraseBoundaries(text: string, lang = "ja"): Set<number> {
@@ -47,23 +54,49 @@ export function phraseBoundaries(text: string, lang = "ja"): Set<number> {
   const words: { s: string; i: number }[] = [];
   for (const w of seg.segment(text)) words.push({ s: w.segment, i: w.index });
   const phrases: { s: string; i: number }[] = [];
+  let lastWord = "";
   for (const w of words) {
     const prev = phrases[phrases.length - 1];
     if (prev) {
       const attach =
-        (HIRA.test(w.s) && ENDS_KANJI_KATA.test(prev.s)) ||
         PUNCT_START.test(w.s) ||
+        // okurigana / particles after a kanji or katakana word
+        (HIRA.test(w.s) && ENDS_KANJI_KATA.test(prev.s)) ||
+        // inflection and auxiliaries after an inflected word (入れる|と, 整え|ます, 返し|て)
+        (HIRA.test(w.s) && w.s.length <= 3 && HAS_KANJI.test(lastWord) && ENDS_HIRA.test(lastWord)) ||
+        // particles in hiragana-only text (これ|は)
+        (HIRA.test(w.s) && HIRA.test(prev.s) && (PARTICLES.has(w.s) || w.s.length === 1)) ||
+        // sentence-final and case particles never start a phrase (です|ね)
+        (PARTICLES.has(w.s) && w.s.length <= 2 && !/\s$/.test(prev.s)) ||
+        // auxiliaries after the te-form (残って|る, て|しまった, て|みた)
+        (HIRA.test(w.s) && w.s.length <= 3 && isTe(lastWord)) ||
+        // compound verbs / nouns: 吹き|出し, 引き|寄せ
+        (STARTS_KANJI.test(w.s) && RENYOU.test(lastWord)) ||
+        // split single kanji (角|丸)
+        (KANJI_ONLY.test(w.s) && KANJI_ONLY.test(lastWord) && (w.s.length === 1 || lastWord.length === 1) && KANJI_ONLY.test(prev.s)) ||
         (/^[゠-ヿ]+$/u.test(w.s) && /[゠-ヿ]$/u.test(prev.s)) ||
-        (HIRA.test(w.s) && HIRA.test(prev.s) && w.s.length <= 2) ||
-        /^\s+$/.test(prev.s) === false && /^[0-9,.]+$/.test(w.s) && /[0-9]$/.test(prev.s);
+        (!/^\s+$/.test(prev.s) && /^[0-9,.]+$/.test(w.s) && /[0-9]$/.test(prev.s));
       if (attach) {
+        const teChain = isTe(lastWord) && HIRA.test(w.s) && w.s.length <= 3;
         prev.s += w.s;
+        lastWord = teChain ? "TE" : joinLast(lastWord, w.s);
         continue;
       }
     }
     phrases.push({ ...w });
+    lastWord = w.s;
   }
   const out = new Set<number>();
   for (const p of phrases) out.add(p.i);
   return out;
+}
+
+/** track the last lexical word, keeping okurigana with its kanji (吹 + き -> 吹き) */
+function joinLast(last: string, w: string): string {
+  if (HIRA.test(w) && !PARTICLES.has(w) && /[一-鿿㐀-䶿々]/u.test(last)) return last + w;
+  return w;
+}
+
+function isTe(w: string): boolean {
+  return w === "TE" || /^(?:っ?て|っ?で)$/.test(w);
 }

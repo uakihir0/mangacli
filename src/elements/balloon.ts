@@ -431,7 +431,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         if (tf !== null && tf > 0) avail = Math.min(avail, tf - gap * 0.5);
       }
       length = Math.min(maxLen, Math.max(2.5 * u.k, avail));
-    } else length = 5 * u.k;
+    } else length = (kind === "zigzag" ? 7 : 5) * u.k;
     if (t.offscreen && target) length = Math.min(maxLen * 1.5, Math.hypot(target.x - R.x, target.y - R.y));
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     const bw = (t.width !== undefined ? toMm(t.width as string, u) : Math.min(7 * u.k, Math.max(2.6 * u.k, minSide * 0.3))) * widthScale;
@@ -486,15 +486,31 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     const sideB: Vec[] = [];
     const N = Math.max(12, Math.ceil(length / (0.3 * u.k)));
     const zig = kind === "zigzag";
-    const segs = typeof t.segments === "number" ? t.segments : 3;
-    for (let i = 0; i <= N; i++) {
-      const tt = i / N;
+    const segs = Math.max(2, typeof t.segments === "number" ? Math.round(t.segments) : 3);
+    // lightning bolt: straight segments between alternating offsets, sharp joints
+    const zigV: Vec[] = [];
+    if (zig) {
+      // amplitude bounded by the segment length so the band never folds over itself
+      const amp = Math.min(bw * 0.55, (length / segs) * 0.42);
+      for (let k = 0; k <= segs; k++) {
+        const tt = k / segs;
+        const o = k === 0 || k === segs ? 0 : (k % 2 ? 1 : -1) * amp * (1 - tt * 0.4);
+        zigV.push({ x: R.x + (tip.x - R.x) * tt + perp.x * o, y: R.y + (tip.y - R.y) * tt + perp.y * o });
+      }
+    }
+    const NN = zig ? segs * Math.max(4, Math.ceil(N / segs)) : N;
+    const zigCorners: number[] = [];
+    for (let i = 0; i <= NN; i++) {
+      const tt = i / NN;
       let cl = quad(R, ctrl, tipBent, tt);
       if (zig) {
-        const z = Math.sin(tt * Math.PI * segs) * bw * 0.5 * (1 - tt);
-        cl = { x: cl.x + perp.x * z, y: cl.y + perp.y * z };
+        const pos = tt * segs;
+        const k = Math.min(segs - 1, Math.floor(pos));
+        const u = pos - k;
+        cl = { x: zigV[k].x + (zigV[k + 1].x - zigV[k].x) * u, y: zigV[k].y + (zigV[k + 1].y - zigV[k].y) * u };
+        if (i > 0 && i < NN && Math.abs(u) < 1e-9) zigCorners.push(i);
       }
-      const f = Math.pow(1 - tt, 1 + sideCurve * 1.6);
+      const f = zig ? Math.max(0, 1 - tt) ** 1.15 : Math.pow(1 - tt, 1 + sideCurve * 1.6);
       sideA.push({ x: cl.x + (A.p.x - R.x) * f, y: cl.y + (A.p.y - R.y) * f });
       sideB.push({ x: cl.x + (B.p.x - R.x) * f, y: cl.y + (B.p.y - R.y) * f });
     }
@@ -514,9 +530,14 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     out.push(A.p);
     for (let k = 1; k < sideA.length; k++) out.push(sideA[k]);
     const tipIndex = out.length - 1;
+    const bStart = out.length;
     for (let k = sideB.length - 2; k >= 1; k--) out.push(sideB[k]);
     const corners = (cur.corners ?? []).filter((c) => idxMap.has(c.index)).map((c) => ({ index: idxMap.get(c.index)!, kind: c.kind }));
     corners.push({ index: 0, kind: "concave" }, { index: aIndex, kind: "concave" }, { index: tipIndex, kind: "tip" });
+    for (const zc of zigCorners) {
+      corners.push({ index: aIndex + zc, kind: "convex" });
+      corners.push({ index: bStart + (sideB.length - 2 - zc), kind: "convex" });
+    }
     const smoothBody = cur.smooth || !cur.corners;
     cur = { pts: out, closed: true, corners, smooth: false };
     void smoothBody;

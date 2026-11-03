@@ -348,6 +348,7 @@ export class RasterBackend {
     let spec: ToneSpec;
     let color: RGBA = { r: 0, g: 0, b: 0, a: 1 };
     let densityFn: ((x: number, y: number) => number) | undefined;
+    let alphaFn: ((x: number, y: number) => number) | undefined;
     if (p.type === "tone") {
       spec = p.tone;
       color = p.color;
@@ -372,6 +373,19 @@ export class RasterBackend {
         const y2 = dev.opts.toneCurve === "perceptual" ? linearToSrgb(lin) : lin;
         return 1 - y2;
       };
+      // translucent fills (gradients fading to transparent): coverage is screened separately
+      let translucent = false;
+      for (let i = 3; i < lumData.length; i += 4 * 7) if (lumData[i] < 250) {
+        translucent = true;
+        break;
+      }
+      if (translucent)
+        alphaFn = (x, y) => {
+          const q = applyMat(fwd, { x, y });
+          const px = Math.min(r.w - 1, Math.max(0, Math.floor(q.x - r.x)));
+          const py = Math.min(r.h - 1, Math.max(0, Math.floor(q.y - r.y)));
+          return lumData[(py * r.w + px) * 4 + 3] / 255;
+        };
       void inv;
     }
     const cellPx = (25.4 / Math.max(1, spec.lpi)) * dev.scale;
@@ -402,6 +416,7 @@ export class RasterBackend {
     const target = this.target(dev, r);
     const gradDensity = flat && spec.gradient ? true : false;
     const sampler = makeToneSampler(spec, target, densityFn);
+    const alphaSampler = alphaFn ? makeToneSampler({ ...spec, angle: 0, seed: 11, grain: 0.15 }, target, alphaFn) : null;
     const ss = mode === "mono" ? 1 : 2;
     const tc = grayize(color, mode);
     const off = createCanvas(r.w, r.h);
@@ -427,9 +442,9 @@ export class RasterBackend {
         if (soft) cov *= Math.max(0, Math.min(1, (soft[(y * r.w + x) * 4 + 3] / 255 - 0.5) * 2.2 + 0.5));
         const i = (y * r.w + x) * 4;
         if (isScreenFill) {
-          // opaque: ink where covered, paper otherwise
+          // opaque: ink where covered, paper otherwise (translucent areas keep what is below)
           d[i] = d[i + 1] = d[i + 2] = cov > 0.5 ? 0 : 255;
-          d[i + 3] = 255;
+          d[i + 3] = alphaSampler && alphaSampler(x, y) <= 0.5 ? 0 : 255;
         } else {
           d[i] = R8;
           d[i + 1] = G8;

@@ -39,6 +39,18 @@ describe("line breaking", () => {
     expect(noStart("っ", "loose")).toBe(false);
     expect(noEnd("「", "strict")).toBe(true);
   });
+  it("keeps bunsetsu together", () => {
+    const show = (t: string) => {
+      const b = phraseBoundaries(t);
+      let s = "";
+      for (let i = 0; i < t.length; i++) s += (b.has(i) && i ? "|" : "") + t[i];
+      return s;
+    };
+    expect(show("角丸の吹き出し")).toBe("角丸の|吹き出し");
+    expect(show("自動で折り返して形を整えます")).toBe("自動で|折り返して|形を|整えます");
+    expect(show("まだ残ってるのか！")).toBe("まだ|残ってるのか！");
+    expect(show("今日はいい天気ですね")).toBe("今日は|いい|天気ですね");
+  });
   it("finds phrase boundaries", () => {
     const b = phraseBoundaries("今日はいい天気ですね");
     expect(b.has(0)).toBe(true);
