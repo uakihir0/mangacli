@@ -415,8 +415,52 @@ let shapeFeatures: InstanceType<typeof hb.Feature>[] = [];
 /** tate-chu-yoko runs squeezed below ~60 %, collected per layout call */
 let tcyWarn: string[] = [];
 
-const VERT_TURN = new Set(Array.from("〜～ー－―‐…‥（）「」『』【】〔〕〈〉《》［］｛｝＝＜＞→←"));
+const VERT_TURN = new Set(Array.from("〜～ー－―—–‐…‥（）「」『』【】〔〕〈〉《》［］｛｝＝＜＞→←"));
 const vertCache = new Map<string, boolean>();
+
+/** dashes are drawn cell to cell so a run (――) is one continuous line; some fonts overhang the cell */
+const DASHES = new Set(["―", "—", "─", "━"]);
+const inkCache = new Map<string, [number, number, number, number]>();
+function inkBox(f: LoadedFont, gid: number): [number, number, number, number] {
+  const key = `${f.key}:${gid}`;
+  let r = inkCache.get(key);
+  if (!r) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const c of glyphJson(f, gid) as { values: number[] }[])
+      for (let i = 0; i + 1 < c.values.length; i += 2) {
+        x0 = Math.min(x0, c.values[i]);
+        x1 = Math.max(x1, c.values[i]);
+        y0 = Math.min(y0, c.values[i + 1]);
+        y1 = Math.max(y1, c.values[i + 1]);
+      }
+    r = [x0, y0, x1, y1];
+    inkCache.set(key, r);
+  }
+  return r;
+}
+function fitDashes(per: Box[], vertical: boolean) {
+  for (let i = 0; i < per.length; i++) {
+    if (!DASHES.has(per[i].chars)) continue;
+    // a font may set a dash pair as one ligature glyph on the first character
+    let span = per[i].adv;
+    for (let j = i + 1; j < per.length && DASHES.has(per[j].chars) && !per[j].glyphs.length; j++) span += per[j].adv;
+    fitDash(per[i], vertical, span);
+  }
+}
+function fitDash(b: Box, vertical: boolean, span: number) {
+  if (b.glyphs.length !== 1) return;
+  const g = b.glyphs[0];
+  const [x0, y0, x1, y1] = inkBox(g.font, g.gid);
+  if (!isFinite(x0)) return;
+  const m = g.m;
+  // extent along the line in box coordinates
+  const p0 = vertical ? Math.min(m[3] * y0, m[3] * y1) + m[5] : Math.min(m[0] * x0, m[0] * x1) + m[4];
+  const p1 = vertical ? Math.max(m[3] * y0, m[3] * y1) + m[5] : Math.max(m[0] * x0, m[0] * x1) + m[4];
+  const len = p1 - p0;
+  if (len <= 0 || (p0 >= -0.02 * b.adv && p1 <= span * 1.02)) return;
+  const k = span / len;
+  g.m = vertical ? [m[0], m[1], m[2], m[3] * k, m[4], (m[5] - p0) * k] : [m[0] * k, m[1], m[2], m[3], (m[4] - p0) * k, m[5]];
+}
 /** whether the font substitutes a vertical form for ch (vert / vrt2) */
 function hasVertForm(f: LoadedFont, ch: string, lang: string): boolean {
   const key = `${f.key}|${ch}`;
@@ -472,6 +516,7 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
       pen[k] -= adv;
     }
     for (const b of per) if (b.adv === 0) b.adv = size;
+    fitDashes(per, true);
     boxes.push(...per);
     return;
   }
@@ -536,6 +581,7 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
     per[k].glyphs.push({ gid: gl.gid, font: f, m });
     per[k].adv += gl.xAdvance * s * gx;
   });
+  fitDashes(per, false);
   // latin words should not break inside
   boxes.push(...per);
 }
