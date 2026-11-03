@@ -141,7 +141,7 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
     if (g.blend && g.blend !== "normal") attrs.push(`style="mix-blend-mode:${g.blend}"`);
     if (g.clip) {
       const cid = id("c");
-      defs.push(`<clipPath id="${cid}"><path d="${d(g.clip)}"/></clipPath>`);
+      defs.push(`<clipPath id="${cid}"><path d="${d(g.clip)}"${g.clipRule === "evenodd" ? ' clip-rule="evenodd"' : ""}/></clipPath>`);
       attrs.push(`clip-path="url(#${cid})"`);
     }
     const inner: string[] = [];

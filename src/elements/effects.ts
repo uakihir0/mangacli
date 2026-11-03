@@ -98,7 +98,7 @@ function wrap(f: FxCtx, inner: Node[], pre: Node[] = []): Node[] {
   const p = f.p;
   const g: Node = {
     kind: "group",
-    clip: f.region.path,
+    ...(f.region.feather > 0 ? { softClip: { path: f.region.path, fillRule: f.region.fillRule, feather: f.region.feather } } : { clip: f.region.path, clipRule: f.region.fillRule }),
     opacity: typeof p.opacity === "number" && p.opacity < 1 ? p.opacity : undefined,
     children: [...pre, ...inner],
     tag: tag(f.el, "ink"),

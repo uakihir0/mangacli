@@ -274,12 +274,12 @@ export class RasterBackend {
     const ctx = dev.ctx;
     const mm = g.transform ? matMul(m, g.transform) : m;
     if (this.opts.separations && g.tag && g.tag.role === "background" && !this.opts.separations.includes("background")) return;
-    const needOff = (g.opacity !== undefined && g.opacity < 0.999) || (g.blend && g.blend !== "normal") || !!g.alphaMaskOf;
+    const needOff = (g.opacity !== undefined && g.opacity < 0.999) || (g.blend && g.blend !== "normal") || !!g.alphaMaskOf || !!g.softClip;
     if (!needOff) {
       if (g.clip) {
         ctx.save();
         setM(ctx, mm);
-        ctx.clip(buildPath(g.clip), "nonzero");
+        ctx.clip(buildPath(g.clip), g.clipRule ?? "nonzero");
         for (const c of g.children) await this.drawNode(dev, c, mm, canvas);
         ctx.restore();
       } else for (const c of g.children) await this.drawNode(dev, c, mm, canvas);
@@ -296,21 +296,50 @@ export class RasterBackend {
     if (g.clip) {
       octx.save();
       setM(octx, subM);
-      octx.clip(buildPath(g.clip), "nonzero");
+      octx.clip(buildPath(g.clip), g.clipRule ?? "nonzero");
     }
     for (const c of g.children) await this.drawNode(sub, c, subM, off);
     if (g.clip) octx.restore();
     if (g.alphaMaskOf) await this.applyAlphaMask(sub, g.alphaMaskOf, matMul(shift, m), off);
+    let maskData: Uint8ClampedArray | null = null;
+    if (g.softClip) {
+      const mc = createCanvas(r.w, r.h);
+      const mctx = mc.getContext("2d");
+      const blurPx = Math.max(0.5, g.softClip.feather * dev.scale);
+      mctx.filter = `blur(${blurPx / 2}px)`;
+      setM(mctx, matMul(shift, m));
+      mctx.fillStyle = "#fff";
+      mctx.fill(buildPath(g.softClip.path), g.softClip.fillRule);
+      if (dev.opts.colorMode === "mono") maskData = mctx.getImageData(0, 0, r.w, r.h).data;
+      else {
+        octx.save();
+        octx.setTransform(1, 0, 0, 1, 0, 0);
+        octx.globalCompositeOperation = "destination-in";
+        octx.drawImage(mc, 0, 0);
+        octx.restore();
+      }
+    }
     let op = g.opacity ?? 1;
-    if (dev.opts.colorMode === "mono" && op < 0.999) {
-      // screen alpha into dots
+    if (dev.opts.colorMode === "mono" && (op < 0.999 || g.softClip)) {
+      // screen the (partial) coverage into dots instead of grey edges
       const id = octx.getImageData(0, 0, r.w, r.h);
-      const sampler = makeToneSampler({ density: op, lpi: dev.opts.monoLpi, angle: Math.PI / 4, dot: "round", grain: 0.08, invert: false, offset: [0, 0], seed: 7 }, this.target(dev, r));
+      const data = id.data;
+      const fwd = matMul(shift, dev.base);
+      // coverage to screen: the soft mask (× opacity); line art inside stays solid
+      const alphaAt = (xmm: number, ymm: number) => {
+        const q = applyMat(fwd, { x: xmm, y: ymm });
+        const px = Math.min(r.w - 1, Math.max(0, Math.floor(q.x)));
+        const py = Math.min(r.h - 1, Math.max(0, Math.floor(q.y)));
+        const i = (py * r.w + px) * 4 + 3;
+        return (maskData ? maskData[i] / 255 : 1) * op;
+      };
+      const sampler = makeToneSampler({ density: op, lpi: dev.opts.monoLpi, angle: Math.PI / 4, dot: "round", grain: 0.08, invert: false, offset: [0, 0], seed: 7 }, this.target(dev, r), alphaAt);
       for (let y = 0; y < r.h; y++)
         for (let x = 0; x < r.w; x++) {
           const i = (y * r.w + x) * 4;
-          if (id.data[i + 3] === 0) continue;
-          if (!sampler(x, y)) id.data[i + 3] = 0;
+          if (data[i + 3] === 0) continue;
+          const full = maskData ? maskData[i + 3] >= 250 && op >= 0.999 : false;
+          data[i + 3] = data[i + 3] >= 96 && (full || sampler(x, y)) ? 255 : 0;
         }
       octx.putImageData(id, 0, 0);
       op = 1;

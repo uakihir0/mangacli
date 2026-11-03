@@ -126,9 +126,9 @@ const RegionBase: z.ZodType = z.lazy(() =>
     z.object({ path: z.string(), feather: Length.optional() }).strict(),
     z.object({ band: z.object({ side: z.enum(["top", "right", "bottom", "left"]), size: Length }).strict(), feather: Length.optional() }).strict(),
     z.object({ element: z.string(), mode: z.enum(["bbox", "shape", "alpha"]).optional(), feather: Length.optional() }).strict(),
-    z.object({ union: z.array(RegionBase) }).strict(),
-    z.object({ subtract: z.tuple([RegionBase, RegionBase]) }).strict(),
-    z.object({ invert: RegionBase }).strict(),
+    z.object({ union: z.array(RegionBase), feather: Length.optional() }).strict(),
+    z.object({ subtract: z.tuple([RegionBase, RegionBase]), feather: Length.optional() }).strict(),
+    z.object({ invert: RegionBase, feather: Length.optional() }).strict(),
   ]),
 );
 export const Region = RegionBase;

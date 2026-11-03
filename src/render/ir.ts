@@ -59,6 +59,9 @@ export interface GroupNode {
   opacity?: number;
   blend?: BlendMode;
   clip?: PathData;
+  clipRule?: "nonzero" | "evenodd";
+  /** soft-edged clip: the outline blurred by `feather` mm (feathered regions, masks) */
+  softClip?: { path: PathData; fillRule: "nonzero" | "evenodd"; feather: number };
   /** multiply children by the alpha of an image (region mode: alpha) */
   alphaMaskOf?: { matrix: Matrix; assetKey: string; w: number; h: number };
   children: Node[];

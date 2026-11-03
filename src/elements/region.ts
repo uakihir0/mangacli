@@ -1,6 +1,7 @@
 // Region resolution (spec 3.4.11).
 import { toMm } from "../core/units.js";
-import { type PathData, parseSvgPath, polyPath, transformPath } from "../geom/path.js";
+import polygonClipping from "polygon-clipping";
+import { type PathData, flattenPath, parseSvgPath, polyPath, transformPath } from "../geom/path.js";
 import { type Rect, type Vec, boundsOf } from "../geom/vec.js";
 import { isObj } from "../load/normalize.js";
 import type { ElemCtx } from "./context.js";
@@ -92,8 +93,7 @@ export function resolveRegion(spec: unknown, ctx: ElemCtx, fallback: "panel" | "
     if (Array.isArray(o.polygon)) return mk([(o.polygon as unknown[][]).map((q) => ({ x: X(q[0]), y: Y(q[1]) }))], feather);
     if (typeof o.path === "string") {
       const pd = transformPath(parseSvgPath(o.path), [1, 0, 0, 1, base.x, base.y]);
-      const r = mk([rectP(base)], feather);
-      return { ...r, path: pd, bbox: base };
+      return mk(flattenPath(pd, 0.05).filter((c) => c.pts.length > 2).map((c) => c.pts), feather, "evenodd");
     }
     if (isObj(o.band)) {
       const b = o.band as Obj;
@@ -114,23 +114,37 @@ export function resolveRegion(spec: unknown, ctx: ElemCtx, fallback: "panel" | "
       if (o.mode === "alpha" && t.imagePx) r.alphaOf = t.id;
       return r;
     }
-    if (Array.isArray(o.union)) {
-      const parts = (o.union as unknown[]).map((x, i) => resolveRegion(x, ctx, fallback, [...path, "union", i]));
-      return mk(parts.flatMap((p) => p.polys), feather);
-    }
-    if (Array.isArray(o.subtract)) {
-      const a = resolveRegion(o.subtract[0], ctx, fallback, [...path, "subtract", 0]);
-      const b = resolveRegion(o.subtract[1], ctx, fallback, [...path, "subtract", 1]);
-      const r = mk([...a.polys, ...b.polys], feather, "evenodd");
-      r.contains = (p) => a.contains(p) && !b.contains(p);
-      return r;
-    }
+    // boolean operations on the outlines (spec 3.4.11)
+    const toMP = (r: ResolvedRegion): [number, number][][][] => {
+      // evenodd regions are re-normalised by an xor of their rings; nonzero ones by a union
+      const rings = r.polys.filter((q) => q.length > 2).map((q) => [[...q.map((v) => [v.x, v.y] as [number, number]), [q[0].x, q[0].y] as [number, number]]]);
+      if (!rings.length) return [];
+      return r.fillRule === "evenodd" ? polygonClipping.xor(rings[0], ...rings.slice(1)) : polygonClipping.union(rings[0], ...rings.slice(1));
+    };
+    const fromMP = (mp: [number, number][][][], f: number): ResolvedRegion => mk(mp.flatMap((poly) => poly.map((ring) => ring.slice(0, -1).map(([x, y]) => ({ x, y })))), f, "evenodd");
+    const op = (kind: "union" | "subtract" | "intersect", list: unknown[]): ResolvedRegion => {
+      const parts = list.map((x, i) => toMP(resolveRegion(x, ctx, fallback, [...path, kind, i])));
+      if (!parts.length) return mk([rectP(base)]);
+      try {
+        const [first, ...rest] = parts;
+        const res = kind === "union" ? polygonClipping.union(first, ...rest) : kind === "subtract" ? polygonClipping.difference(first, ...rest) : polygonClipping.intersection(first, ...rest);
+        return fromMP(res, feather);
+      } catch (e) {
+        ctx.bag.error("REGION_INVALID", `region ${kind} failed: ${(e as Error).message}`, { path });
+        return mk([rectP(base)]);
+      }
+    };
+    if (Array.isArray(o.union)) return op("union", o.union as unknown[]);
+    if (Array.isArray(o.subtract)) return op("subtract", o.subtract as unknown[]);
+    if (Array.isArray(o.intersect)) return op("intersect", o.intersect as unknown[]);
     if (o.invert !== undefined) {
-      const a = resolveRegion(o.invert, ctx, fallback, [...path, "invert"]);
       const outer = ctx.panelPoly ?? rectP(ctx.geom.bleedBox);
-      const r = mk([outer, ...a.polys], feather, "evenodd");
-      r.contains = (p) => inPoly(p, outer) && !a.contains(p);
-      return r;
+      const a = toMP(resolveRegion(o.invert, ctx, fallback, [...path, "invert"]));
+      try {
+        return fromMP(polygonClipping.difference([[...outer.map((v) => [v.x, v.y] as [number, number]), [outer[0].x, outer[0].y] as [number, number]]], ...(a.length ? [a] : [])), feather);
+      } catch {
+        return mk([outer], feather);
+      }
     }
   }
   ctx.bag.error("REGION_INVALID", "invalid region", { path });

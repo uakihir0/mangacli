@@ -282,8 +282,16 @@ function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listI
   const layer = el.type === "balloon" ? 1 : el.type === "text" || el.type === "sfx" ? 2 : 0;
   const op = typeof el.props.opacity === "number" && el.type !== "image" && el.type !== "effect" ? el.props.opacity : undefined;
   const blend = el.type !== "image" && typeof el.props.blend === "string" && el.props.blend !== "normal" ? (el.props.blend as GroupNode["blend"]) : undefined;
-  const wrapped: Node[] = op !== undefined || blend ? [{ kind: "group", opacity: op, blend, children: nodes }] : nodes;
-  void ctx;
+  let inner = nodes;
+  if (el.props.visible === false) inner = [];
+  // mask: show the element only inside a region (spec 5.11); feathered masks fade out
+  if (el.props.mask !== undefined && inner.length) {
+    const mspec = isObj(el.props.mask) && "region" in (el.props.mask as Obj) ? (el.props.mask as Obj).region : el.props.mask;
+    const reg = resolveRegion(mspec, ctx, ctx.panel ? "panel" : "page", [...el.path, "mask"]);
+    const fe = isObj(el.props.mask) && (el.props.mask as Obj).feather !== undefined ? toMm((el.props.mask as Obj).feather as string, ctx.u) : reg.feather;
+    inner = [fe > 0 ? { kind: "group", softClip: { path: reg.path, fillRule: reg.fillRule, feather: fe }, children: inner } : { kind: "group", clip: reg.path, clipRule: reg.fillRule, children: inner }];
+  }
+  const wrapped: Node[] = op !== undefined || blend ? [{ kind: "group", opacity: op, blend, children: inner }] : inner;
   return { el, nodes: wrapped, bbox, z: (el.props.z as number) ?? 0, layer, source, panelIdx, listIdx, free };
 }
 
@@ -527,6 +535,8 @@ function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
         const polys = reg.polys.map((pl) => inkShape({ pts: pl, closed: true, smooth: true }, { hand: { ...resolveHand(undefined, ctx.u), wobbleAmp: 0.1 * ctx.u.k, wobbleLen: 4 * ctx.u.k }, rng }).fill);
         pathNode = { ...pathNode, path: polys.flatMap((q) => polyPath(q, true)) } as Node;
       }
+      const fe = reg.feather > 0 ? reg.feather : p.edge === "soft" && paint.type !== "tone" ? (p.edgeWidth !== undefined ? toMm(p.edgeWidth as string, ctx.u) : 3 * ctx.u.k) : 0;
+      if (fe > 0) pathNode = { kind: "group", softClip: { path: reg.path, fillRule: reg.fillRule, feather: fe }, children: [pathNode], tag: tag(el, "fill") };
       if (reg.alphaOf) {
         const t = ctx.refs.get(reg.alphaOf);
         return { nodes: [{ kind: "group", children: [pathNode], alphaMaskOf: t?.imagePx, tag: tag(el, "tone") } as Node], bbox: reg.bbox };
