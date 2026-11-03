@@ -3,7 +3,7 @@ import { mkdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, rmSync } from "node:fs";
 import { relative as relativePath } from "node:path";
 import { PACKAGE_ROOT } from "./fonts/catalog.js";
 
@@ -79,6 +79,11 @@ export interface RenderOptions {
   onDiagnostic?: (d: Diagnostic) => void;
   signal?: AbortSignal;
   finish?: Finish | false;
+  /** URL assets (spec 2.13): true, or limits */
+  allowNetwork?: boolean | { hosts?: string[]; timeoutMs?: number; maxBytes?: number; allowPrivate?: boolean };
+  allowOutsideRoot?: boolean;
+  /** remove earlier outputs that match the file name template before writing */
+  clean?: boolean;
   /** input and workload limits (spec 2.13) */
   limits?: Limits;
   /** plugins (spec 11.8); config plugins are added after these */
@@ -373,7 +378,12 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   }
   if (bag.hasErrors) return fail();
   const fonts = buildFonts(p, options);
-  const assets = new AssetRegistry((p.doc.assets ?? {}) as Record<string, Obj>, options.assets ?? {}, bag, 350, draft ? "placeholder" : (options.missingAssets ?? (options.config?.missingAssets as "error") ?? "error"));
+  const allowNet = options.allowNetwork ?? (options.config?.allowNetwork as RenderOptions["allowNetwork"]) ?? false;
+  const assets = new AssetRegistry((p.doc.assets ?? {}) as Record<string, Obj>, options.assets ?? {}, bag, 350, draft ? "placeholder" : (options.missingAssets ?? (options.config?.missingAssets as "error") ?? "error"), {
+    root: options.root ?? (options.config?.root as string | undefined) ?? p.loaded.baseDir,
+    allowOutsideRoot: options.allowOutsideRoot ?? (options.config?.allowOutsideRoot as boolean | undefined) ?? false,
+    network: allowNet === true ? {} : allowNet || false,
+  });
   const ids = resolved.pages.map((pg) => pg.id);
   let selected: Set<number>;
   try {
@@ -414,6 +424,15 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
     const base = fillName(nameTpl, { name: p.name, title, page: pageVar, index: idx + 1, id: page.id, side, profile: profName, lang, sep: runName ?? "" }) + splitSuffix + (runName && !nameTpl.includes("{sep}") ? `-${runName}` : "");
     return join(outDir!, `${base}.${ext}`);
   };
+  if (outDir && options.clean && !options.layoutOnly) {
+    // the template with its placeholders as wildcards
+    const rx = new RegExp("^" + String(nameTpl).replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\{\w+(?::\d+)?\}/g, ".+") + "(-[a-z]+)?\\.(png|jpg|webp|avif|tif|svg|pdf)$");
+    try {
+      for (const f of readdirSync(outDir)) if (rx.test(f)) rmSync(join(outDir, f), { force: true });
+    } catch {
+      /* no directory yet */
+    }
+  }
   // every output name is known before rendering: refuse to write anything on a collision (spec 10.8)
   if (outDir && !options.layoutOnly) {
     const seen = new Map<string, string>();

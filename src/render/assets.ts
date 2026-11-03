@@ -1,6 +1,7 @@
 // Asset registry: metadata at prepare time, decoded pixels at render time (spec 3.14, 2.8).
 import { existsSync, readFileSync } from "node:fs";
 import sharp from "sharp";
+import { relative, resolve } from "node:path";
 import type { DiagnosticBag } from "../core/diagnostics.js";
 import { isObj, looksLikePath } from "../load/normalize.js";
 
@@ -35,7 +36,54 @@ export class AssetRegistry {
     private bag: DiagnosticBag,
     private defaultPpi: number,
     private missingMode: "error" | "placeholder",
+    private access: { root?: string; allowOutsideRoot?: boolean; network?: false | { hosts?: string[]; timeoutMs?: number; maxBytes?: number; allowPrivate?: boolean } } = {},
   ) {}
+
+  /** fetch a URL asset under the network policy (spec 2.13): hosts, private addresses, size, timeout, redirects */
+  private async fetchUrl(url: string, path?: (string | number)[]): Promise<Uint8Array | null> {
+    const net = this.access.network;
+    if (!net) {
+      this.bag.error("SECURITY_NETWORK_DENIED", `network assets are disabled: ${url}`, { path, hint: "enable allowNetwork in the config or pass --allow-network" });
+      return null;
+    }
+    const { lookup } = await import("node:dns/promises");
+    const isPrivate = (ip: string) => /^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.|::1$|fc|fd|fe80)/i.test(ip);
+    let cur = url;
+    for (let hop = 0; hop < 4; hop++) {
+      const u = new URL(cur);
+      if (u.protocol !== "https:" && u.protocol !== "http:") break;
+      if (net.hosts && !net.hosts.includes(u.hostname)) {
+        this.bag.error("SECURITY_NETWORK_DENIED", `host ${u.hostname} is not allowed: ${url}`, { path });
+        return null;
+      }
+      if (!net.allowPrivate) {
+        const addrs = await lookup(u.hostname, { all: true }).catch(() => []);
+        if (addrs.some((a) => isPrivate(a.address))) {
+          this.bag.error("SECURITY_NETWORK_DENIED", `private address refused: ${u.hostname}`, { path });
+          return null;
+        }
+      }
+      try {
+        const res = await fetch(cur, { redirect: "manual", signal: AbortSignal.timeout(net.timeoutMs ?? 15000) });
+        if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
+          cur = new URL(res.headers.get("location")!, cur).href;
+          continue;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const buf = new Uint8Array(await res.arrayBuffer());
+        if (buf.byteLength > (net.maxBytes ?? 50e6)) {
+          this.bag.error("ASSET_TOO_LARGE", `asset ${url} is larger than ${net.maxBytes ?? 50e6} bytes`, { path });
+          return null;
+        }
+        return buf;
+      } catch (e) {
+        this.bag.error("ASSET_NOT_FOUND", `cannot fetch ${url}: ${(e as Error).message}`, { path });
+        return null;
+      }
+    }
+    this.bag.error("SECURITY_NETWORK_DENIED", `too many redirects: ${url}`, { path });
+    return null;
+  }
 
   /** `soft`: a placeholder is drawn on purpose, so a missing file is only informational */
   async info(ref: string, path?: (string | number)[], soft = false): Promise<AssetInfo | null> {
@@ -59,7 +107,11 @@ export class AssetRegistry {
         const m = src.match(/^data:[^;]+;base64,(.*)$/);
         if (m) data = Buffer.from(m[1], "base64");
       } else if (/^https?:/.test(src)) {
-        this.bag.error("SECURITY_NETWORK_DENIED", `network assets are disabled: ${src}`, { path });
+        const got = await this.fetchUrl(src, path);
+        if (!got) return this.missing(ref);
+        data = got;
+      } else if (this.access.root && !this.access.allowOutsideRoot && !src.startsWith("inline:") && relative(this.access.root, resolve(src)).startsWith("..")) {
+        this.bag.error("SECURITY_PATH_OUTSIDE_ROOT", `asset outside the project root: ${src}`, { path, hint: "set allowOutsideRoot or move the file under the root" });
         return this.missing(ref);
       } else if (!existsSync(src)) {
         this.report(`asset file not found: ${src}`, path, soft);

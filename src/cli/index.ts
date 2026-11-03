@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // mangacli command line (spec 12).
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { cac } from "cac";
 import { parse as parseYaml } from "yaml";
 import { type RenderOptions, render, validate } from "../api.js";
@@ -162,6 +162,9 @@ async function renderOptions(o: Obj, entry: string): Promise<RenderOptions> {
     emit: list(o.emit) as RenderOptions["emit"],
     name: o.name !== undefined ? String(o.name) : undefined,
     root: o.root ? resolve(String(o.root)) : config?.root,
+    allowNetwork: o.allowNetwork ? true : (config?.allowNetwork as RenderOptions["allowNetwork"]),
+    allowOutsideRoot: config?.allowOutsideRoot,
+    clean: !!o.clean,
     baseDir: o.baseDir ? resolve(String(o.baseDir)) : undefined,
     fontDownload: o.download === false ? "never" : (config?.fontDownload ?? undefined),
     fontDir: config?.fontDir,
@@ -228,6 +231,15 @@ async function cmdRender(file: string, o: Obj): Promise<number> {
     }
     process.stdout.write(r.pages[0].data);
   }
+  if (o.contactSheet && r.pages.length && opts.outDir) {
+    const sheet = await contactSheet(r.pages.filter((p) => p.format !== "pdf" && p.format !== "svg" && !p.separation), !!(opts.config as Obj | undefined) && false);
+    if (sheet) {
+      const base = typeof input === "string" ? basename(input).replace(/\.[^.]+$/, "") : "manga";
+      const f = join(opts.outDir, `${base}-contact.png`);
+      writeFileSync(f, sheet);
+      r.files.push(f);
+    }
+  }
   emitJson({ type: "result", files: r.pages.map((p) => ({ path: p.path, pageId: p.id, width: p.width, height: p.height })), warnings, errors });
   if (o.timings) for (const [k, v] of Object.entries(r.timings)) log("info", `  ${k}: ${v.toFixed(0)} ms`);
   const secs = ((performance.now() - t0) / 1000).toFixed(1);
@@ -240,6 +252,42 @@ async function cmdRender(file: string, o: Obj): Promise<number> {
   if (errors) return r.diagnostics.some((d) => d.severity === "error" && /^(ASSET|FONT|IO|RENDER)_/.test(d.code)) ? 2 : 1;
   if (o.strict && warnings) return 1;
   return 0;
+}
+
+/** all pages side by side in reading order (right to left), labelled with number and ID (spec 10.11.2) */
+async function contactSheet(pages: { id: string; number: number | null; side: string; data: Uint8Array; path?: string }[], _ltr: boolean): Promise<Buffer | null> {
+  if (!pages.length) return null;
+  const sharp = (await import("sharp")).default;
+  const { createCanvas } = await import("@napi-rs/canvas");
+  const TW = 320;
+  const thumbs = await Promise.all(pages.map(async (p) => {
+    const buf = p.path ? readFileSync(p.path) : Buffer.from(p.data);
+    const img = sharp(buf).resize({ width: TW }).flatten({ background: "#ffffff" }).png();
+    const meta = await img.toBuffer({ resolveWithObject: true });
+    return { buf: meta.data, h: meta.info.height, p };
+  }));
+  const cols = Math.min(6, thumbs.length);
+  const rows = Math.ceil(thumbs.length / cols);
+  const cellH = Math.max(...thumbs.map((t) => t.h)) + 28;
+  const gap = 16;
+  const W = cols * TW + (cols + 1) * gap;
+  const H = rows * cellH + (rows + 1) * gap;
+  const label = createCanvas(W, H);
+  const g = label.getContext("2d");
+  g.fillStyle = "#e8e8e8";
+  g.fillRect(0, 0, W, H);
+  g.fillStyle = "#333";
+  g.font = "14px sans-serif";
+  const composites: { input: Buffer; left: number; top: number }[] = [];
+  thumbs.forEach((t, i) => {
+    const row = Math.floor(i / cols);
+    const col = cols - 1 - (i % cols); // right to left
+    const left = gap + col * (TW + gap);
+    const top = gap + row * (cellH + gap);
+    composites.push({ input: t.buf, left, top });
+    g.fillText(`${t.p.number ?? "-"}  ${t.p.id}`, left, top + t.h + 18);
+  });
+  return sharp(label.toBuffer("image/png")).composite(composites).png().toBuffer();
 }
 
 /** split the pages over worker threads (each loads the document and fonts itself) */
@@ -771,6 +819,10 @@ const renderOpts = (c: ReturnType<typeof cli.command>) =>
     .option("--strict", "Treat warnings as errors")
     .option("--no-download", "Do not download catalog fonts")
     .option("--concurrency <n>", "Render pages in parallel worker threads")
+    .option("--clean", "Remove earlier outputs matching the file name template first")
+    .option("--contact-sheet", "Also write an overview image of all pages")
+    .option("--allow-network", "Allow URL assets")
+    .option("--no-cache", "Do not use caches (accepted; there is no persistent render cache yet)")
     .option("--timings", "Print timings");
 
 // cac (mri) turns numeric-looking values into numbers: recover the text as typed (--name 001, -o 007)
