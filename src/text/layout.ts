@@ -65,7 +65,7 @@ export interface TextLayout {
   fontSize: number;
   missing: string[];
   errors: { code: string; message: string }[];
-  infos: { code: string; message: string }[];
+  infos: { code: string; message: string; severity?: "warning" | "info" }[];
   autoBreaks: number;
   plain: string;
 }
@@ -131,7 +131,9 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
   const vertical = style.writing === "vertical";
   const em = style.fontSize;
   const missing: string[] = [];
+  tcyWarn = [];
   const boxes = buildBoxes(parsed, style, reg, missing);
+  for (const t of tcyWarn) parsed.infos.push({ code: "TEXT_TCY_TOO_LONG", message: `tate-chu-yoko "${t}" does not fit in 1 em`, severity: "warning" });
 
   // phrase boundaries
   const plain = boxes.map((b) => b.chars).join("");
@@ -383,6 +385,9 @@ function unitMatrix(f: LoadedFont, size: number, xOff: number, yOff: number, ver
   return [s, 0, 0, -s, xOff * s, -yOff * s];
 }
 
+/** tate-chu-yoko runs squeezed below ~60 %, collected per layout call */
+let tcyWarn: string[] = [];
+
 function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: number, o: Orient, vertical: boolean, style: TextStyle, boxes: Box[]) {
   const f = pk.font;
   const size = size0 * pk.scale;
@@ -432,6 +437,7 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
   if (vertical && o === "tcy") {
     const W = px;
     const sx = W > size0 ? Math.max(0.5, size0 / W) : 1;
+    if (W > size0 * 1.6) tcyWarn.push(text);
     const box: Box = { chars: text, units: segUnits.slice(), adv: size0, size: size0, orient: o, glyphs: [], firstChar: seg[0], lastChar: seg[seg.length - 1] };
     g.forEach((gl, k) => {
       // horizontal local: x along, y baseline -> place centered in column (x=0) and em cell

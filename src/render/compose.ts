@@ -756,6 +756,23 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     setCenter(pl, { x: best.c.x - (pl.outer.x + w / 2), y: best.c.y - (pl.outer.y + h / 2) });
     prevS = sOf(best.c, h);
   }
+  // reading-order and overlap checks over the final positions
+  const rects = plans.filter((pl) => pl.center).map((pl) => ({ pl, r: { x: pl.center!.x + pl.outer.x, y: pl.center!.y + pl.outer.y, w: pl.outer.w, h: pl.outer.h } }));
+  for (let i = 1; i < rects.length; i++) {
+    const a = rects[i - 1];
+    const b = rects[i];
+    const sa = sOf({ x: a.r.x + a.r.w / 2, y: a.r.y + a.r.h / 2 }, a.r.h);
+    const sb = sOf({ x: b.r.x + b.r.w / 2, y: b.r.y + b.r.h / 2 }, b.r.h);
+    if (sb < sa - 0.08) ctx.bag.info("BALLOON_ORDER_MISMATCH", `balloon ${b.pl.el.id} reads before ${a.pl.el.id} by its position`, { path: b.pl.el.path, elementId: b.pl.el.id });
+  }
+  for (let i = 0; i < rects.length; i++)
+    for (let j = i + 1; j < rects.length; j++) {
+      const a = rects[i].r;
+      const b = rects[j].r;
+      const ov = rectOverlapArea(a, b);
+      // earlier balloons are drawn on top: a large overlap hides the later one's text
+      if (ov > 0.2 * Math.min(a.w * a.h, b.w * b.h) && !rects[j].pl.props.connect && !rects[i].pl.props.connect) ctx.bag.warn("BALLOON_TEXT_HIDDEN", `balloon ${rects[j].pl.el.id} is largely covered by ${rects[i].pl.el.id}`, { path: rects[j].pl.el.path, elementId: rects[j].pl.el.id });
+    }
 }
 
 /** fraction of rect `r` covered by the ellipse inscribed in `e` (sampled) */

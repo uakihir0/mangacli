@@ -82,7 +82,7 @@ function textPaint(c: unknown, ctx: ElemCtx, el: RElement, box: Rect): Paint {
 function reportText(tl: TextLayout, el: RElement, ctx: ElemCtx) {
   if (tl.missing.length) ctx.bag.warn("FONT_MISSING_GLYPH", `missing glyphs: ${[...new Set(tl.missing)].join("")}`, { path: el.path, elementId: el.id });
   for (const e of tl.errors) ctx.bag.error(e.code, e.message, { path: [...el.path, "text"], elementId: el.id });
-  for (const e of tl.infos) ctx.bag.info(e.code, e.message, { path: [...el.path, "text"], elementId: el.id });
+  for (const e of tl.infos) ctx.bag.add({ code: e.code, message: e.message, severity: e.severity ?? "info", path: [...el.path, "text"], elementId: el.id });
 }
 
 export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {

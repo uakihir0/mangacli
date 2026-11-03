@@ -33,7 +33,7 @@ export interface ParsedText {
   units: Unit[];
   rubies: RubyDef[];
   errors: { code: string; message: string }[];
-  infos: { code: string; message: string }[];
+  infos: { code: string; message: string; severity?: "warning" | "info" }[];
 }
 
 export interface NormalizeOptions {
