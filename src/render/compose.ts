@@ -18,7 +18,7 @@ import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, rectIn
 import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
-import { type PageGeom, type PanelGeom, bookOf, computePageGeom, layoutPanels, xyCutOrder } from "../layout/page.js";
+import { type PageGeom, type PanelGeom, bookOf, computePageGeom, layoutPanels } from "../layout/page.js";
 import { RefRegistry, center, place, resolvePoint, sizeValue } from "../layout/place.js";
 import type { RElement, RPage, ResolvedDoc } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolvePen, resolveStroke } from "../model/values.js";
@@ -895,13 +895,27 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const yt = c.y - h / 2 - area.y;
     return (yt + xr) / Math.max(1, area.w + area.h);
   };
+  // reading order against the previous balloon, as a reader scans rows (spec 6.12.2):
+  // a balloon clearly below the previous one starts a new row (any x); one sharing its row must
+  // lie further along the reading direction; one above it reads out of order
+  const orderCost = (P: Rect, Rr: Rect, W0: number, Wr: number) => {
+    const tolY = Math.min(P.h, Rr.h) * 0.15;
+    if (Rr.y >= P.y + P.h - tolY) return 0;
+    const vov = Math.min(Rr.y + Rr.h, P.y + P.h) - Math.max(Rr.y, P.y);
+    if (vov <= 0) return W0 * (1 + (P.y - (Rr.y + Rr.h)) / Math.max(1, area.h));
+    const along = rtl ? P.x - (Rr.x + Rr.w) : Rr.x - (P.x + P.w);
+    const tolX = 1.5 * u.k;
+    // rising within the row also reads ambiguously
+    const rise = Math.max(0, P.y - Rr.y - area.h * 0.04) / Math.max(1, area.h);
+    return (along >= -tolX ? 0 : W0 * Math.min(1, 0.15 + -along / Math.max(1, Math.min(P.w, Rr.w)))) + Wr * rise;
+  };
   // the balloons are placed in list order, keeping several partial layouts (a beam): a greedy
   // choice for one balloon must not leave the later ones without a place in reading order
   interface BeamState {
     rects: Rect[];
     prevS: number | null;
-    /** top edge of the previous balloon: a later balloon set clearly higher reads ambiguously */
-    prevTop: number | null;
+    /** the previous balloon's box: the reading-order cost compares against it */
+    prevRect: Rect | null;
     centers: Map<BalloonPlan, Vec>;
     costs: Map<BalloonPlan, number>;
     total: number;
@@ -910,7 +924,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     rowH: number;
   }
   const BEAM = 6;
-  let beam: BeamState[] = [{ rects: placedRects.slice(), prevS: null, prevTop: null, centers: new Map(), costs: new Map(), total: 0, flowX: rtl ? area.x + area.w : area.x, flowY: area.y, rowH: 0 }];
+  let beam: BeamState[] = [{ rects: placedRects.slice(), prevS: null, prevRect: null, centers: new Map(), costs: new Map(), total: 0, flowX: rtl ? area.x + area.w : area.x, flowY: area.y, rowH: 0 }];
   const step = Math.max(1.5 * u.k, Math.min(area.w, area.h) / 28);
   for (const pl of plans) {
     const w = pl.outer.w;
@@ -918,7 +932,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const next: BeamState[] = [];
     if (pl.explicit) {
       const ps = sOf({ x: pl.center!.x + pl.outer.x + w / 2, y: pl.center!.y + pl.outer.y + h / 2 }, h);
-      for (const st of beam) next.push({ ...st, prevS: ps, prevTop: pl.center!.y + pl.outer.y });
+      for (const st of beam) next.push({ ...st, prevS: ps, prevRect: { x: pl.center!.x + pl.outer.x, y: pl.center!.y + pl.outer.y, w, h } });
       beam = next;
       continue;
     }
@@ -938,7 +952,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         st.flowX += rtl ? -(w + 1 * u.k) : w + 1 * u.k;
         st.rowH = Math.max(st.rowH, h);
         st.prevS = sOf({ x: cx, y: cy }, h);
-        st.prevTop = cy - h / 2;
+        st.prevRect = { x: cx - w / 2, y: cy - h / 2, w, h };
         next.push(st);
       }
       beam = next;
@@ -949,7 +963,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const speaker = who && !offSide ? refs.point(who, pid) : null;
     const R = (w + h) / 4;
     // cost weights (spec 6.12.2), overridable per balloon with autoPlace.weights
-    const W = { order: 120, rise: 30, start: 4, overlap: 50, avoid: 60, figure: 12, speaker: 1.5, tail: 4, top: 1, outside: 30, offscreen: 8, ...((apOf(pl).weights as Record<string, number> | undefined) ?? {}) };
+    const W = { order: 120, rise: 30, flow: 3, start: 4, overlap: 50, avoid: 60, figure: 12, speaker: 1.5, tail: 4, top: 1, outside: 30, offscreen: 8, ...((apOf(pl).weights as Record<string, number> | undefined) ?? {}) };
     // the parts of the cost that do not depend on the other balloons are computed once
     const cells: { c: Vec; rect: Rect; base: number; s: number }[] = [];
     for (let y = area.y + h / 2; y <= area.y + area.h - h / 2 + 0.01 || (area.h < h && y <= area.y + h / 2 + 0.01); y += step) {
@@ -979,8 +993,17 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         if (st.prevS === null) {
           const cornerX = rtl ? area.x + area.w : area.x;
           cost += W.start * Math.hypot((cell.c.x - cornerX) / area.w, (cell.c.y - area.y) / area.h);
-        } else cost += W.order * Math.max(0, st.prevS + 0.02 - cell.s);
-        if (st.prevTop !== null) cost += W.rise * Math.max(0, st.prevTop - cell.rect.y - area.h * 0.04) / Math.max(1, area.h);
+        } else if (st.prevRect) {
+          cost += orderCost(st.prevRect, cell.rect, W.order, W.rise);
+          // letterers set the next balloon right after the previous one, or at the start of the next row
+          const P = st.prevRect;
+          const g = 1.5 * u.k;
+          const nextX = rtl ? P.x - g - w / 2 : P.x + P.w + g + w / 2;
+          const rowX = rtl ? area.x + area.w - w / 2 : area.x + w / 2;
+          const d1 = Math.hypot(cell.c.x - nextX, cell.rect.y - P.y);
+          const d2 = Math.hypot(cell.c.x - rowX, cell.rect.y - (P.y + P.h + g));
+          cost += W.flow * Math.min(d1, d2) / Math.max(1, Math.hypot(area.w, area.h));
+        }
         const A = w * h;
         for (const pr of st.rects) cost += W.overlap * (rectOverlapArea(cell.rect, pr) / A);
         // tail path crossing other balloons
@@ -1000,7 +1023,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         centers.set(pl, pk.cell.c);
         const costs = new Map(st.costs);
         costs.set(pl, pk.cost);
-        next.push({ ...st, rects: [...st.rects, pk.cell.rect], prevS: pk.cell.s, prevTop: pk.cell.rect.y, centers, costs, total: st.total + pk.cost });
+        next.push({ ...st, rects: [...st.rects, pk.cell.rect], prevS: pk.cell.s, prevRect: pk.cell.rect, centers, costs, total: st.total + pk.cost });
       }
     }
     next.sort((p, q) => p.total - q.total);
@@ -1016,14 +1039,11 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   }
   // reading-order and overlap checks over the final positions
   const rects = plans.filter((pl) => pl.center).map((pl) => ({ pl, r: { x: pl.center!.x + pl.outer.x, y: pl.center!.y + pl.outer.y, w: pl.outer.w, h: pl.outer.h } }));
-  // the order a reader infers from the positions (XY-cut, spec 6.12.3) against the list order
+  // each balloon must read after the one before it, by the same row rule the placement uses (spec 6.12.3)
   const unlinked = rects.filter((r) => !r.pl.props.connect);
-  const seen = xyCutOrder(unlinked, (r) => r.r, rtl);
-  for (let i = 1; i < seen.length; i++) {
-    const a = unlinked.indexOf(seen[i - 1]);
-    const b = unlinked.indexOf(seen[i]);
-    if (b < a) {
-      ctx.bag.info("BALLOON_ORDER_MISMATCH", `balloon ${seen[i].pl.el.id} reads after ${seen[i - 1].pl.el.id} by its position`, { path: seen[i].pl.el.path, elementId: seen[i].pl.el.id });
+  for (let i = 1; i < unlinked.length; i++) {
+    if (orderCost(unlinked[i - 1].r, unlinked[i].r, 1, 0) > 0.3) {
+      ctx.bag.info("BALLOON_ORDER_MISMATCH", `balloon ${unlinked[i].pl.el.id} reads before ${unlinked[i - 1].pl.el.id} by its position`, { path: unlinked[i].pl.el.path, elementId: unlinked[i].pl.el.id });
       break;
     }
   }
