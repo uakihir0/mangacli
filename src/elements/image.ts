@@ -106,13 +106,15 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect):
     dx = (bw - dw) / 2;
     dy = (bh - dh) / 2;
   } else if (fit === "width") {
-    dw = bw;
-    dh = (bw * ch) / cw;
+    dw = bw * zoom;
+    dh = (dw * ch) / cw;
+    dx = (bw - dw) / 2;
     dy = (bh - dh) / 2;
   } else if (fit === "height") {
-    dh = bh;
-    dw = (bh * cw) / ch;
+    dh = bh * zoom;
+    dw = (dh * cw) / ch;
     dx = (bw - dw) / 2;
+    dy = (bh - dh) / 2;
   }
   const flip = (p.flip as string) ?? "none";
   const flipX = flip === "x" || flip === "xy";
