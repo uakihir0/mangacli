@@ -663,6 +663,14 @@ function vignette(f: FxCtx): Node[] {
 /** clear: keep the effect off a region for every kind (focus/speed lines also shorten their lines) */
 function applyClear(f: FxCtx, nodes: Node[], kind: string): Node[] {
   const clear = f.p.clear;
+  // radial lines stop just short of the characters instead of running into their outline
+  if ((clear === undefined || clear === null) && (kind === "focus-lines" || kind === "uni-flash") && f.p.clearFigures !== false && nodes.length) {
+    let out = nodes;
+    for (const t of f.ctx.refs.all())
+      if (t.type === "image" && t.character && t.imagePx && (!f.ctx.panel || t.panelId === f.ctx.panel.panel.id))
+        out = [{ kind: "group", alphaMaskOf: { ...t.imagePx, invert: true, dilate: 1.6 * f.k }, children: out }];
+    return out;
+  }
   if (clear === undefined || clear === null || !nodes.length) return nodes;
   const reg = resolveRegion(clear, f.ctx, "panel", [...f.el.path, "clear"]);
   if (reg.alphaOf) {
