@@ -65,7 +65,9 @@ export async function installFonts(o: InstallFontsOptions = {}): Promise<Install
   let done = 0;
   for (const f of fonts) {
     o.signal?.throwIfAborted();
-    const fetchOpts: FontFetchOptions = { ...o, fontDownload: "auto" };
+    // per-font progress is reported here; byte-level progress is not forwarded
+    const { onProgress: _p, ...rest } = o;
+    const fetchOpts: FontFetchOptions = { ...rest, fontDownload: "auto" };
     const where: FontFetchOptions = o.dir ? { fontDir: o.dir, fontCacheDir: o.dir } : fetchOpts;
     let local = findLocalCatalogFont(f, where);
     if (local && o.force) {

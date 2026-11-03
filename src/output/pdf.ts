@@ -11,6 +11,8 @@ export interface PdfPageImage {
   /** trim and bleed rectangles in pixels (origin top-left) */
   trim: { x: number; y: number; w: number; h: number };
   bleed: { x: number; y: number; w: number; h: number };
+  /** keep transparency as a soft mask (otherwise composite onto white) */
+  transparent?: boolean;
 }
 
 function pdfString(s: string): string {
@@ -37,8 +39,35 @@ export class PdfWriter {
     return this.add(Buffer.concat([Buffer.from(`<< ${dict} /Length ${data.length} >>\nstream\n`, "latin1"), data, Buffer.from("\nendstream", "latin1")]));
   }
 
-  addPage(p: PdfPageImage) {
-    const { width: w, height: h } = p;
+  addPage(p0: PdfPageImage) {
+    const { width: w, height: h } = p0;
+    // alpha: a soft mask when asked for (gray/color), else composite onto paper white
+    let hasAlpha = false;
+    for (let i = 3; i < p0.rgba.length; i += 4)
+      if (p0.rgba[i] < 255) {
+        hasAlpha = true;
+        break;
+      }
+    const keepAlpha = hasAlpha && !!p0.transparent && p0.colorMode !== "mono";
+    let rgba = p0.rgba;
+    if (hasAlpha && !keepAlpha) {
+      rgba = new Uint8ClampedArray(p0.rgba);
+      for (let i = 0; i < rgba.length; i += 4) {
+        const a = rgba[i + 3] / 255;
+        rgba[i] = rgba[i] * a + 255 * (1 - a);
+        rgba[i + 1] = rgba[i + 1] * a + 255 * (1 - a);
+        rgba[i + 2] = rgba[i + 2] * a + 255 * (1 - a);
+        rgba[i + 3] = 255;
+      }
+    }
+    const p = { ...p0, rgba };
+    let smask = "";
+    if (keepAlpha) {
+      const a = Buffer.alloc(w * h);
+      for (let i = 0; i < w * h; i++) a[i] = p.rgba[i * 4 + 3];
+      const sm = this.stream(`/Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode`, deflateSync(a, { level: 6 }));
+      smask = ` /SMask ${sm} 0 R`;
+    }
     let img: number;
     if (p.colorMode === "mono") {
       const rowBytes = Math.ceil(w / 8);
@@ -48,7 +77,7 @@ export class PdfWriter {
     } else if (p.colorMode === "gray") {
       const raw = Buffer.alloc(w * h);
       for (let i = 0; i < w * h; i++) raw[i] = p.rgba[i * 4];
-      img = this.stream(`/Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode`, deflateSync(raw, { level: 6 }));
+      img = this.stream(`/Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode${smask}`, deflateSync(raw, { level: 6 }));
     } else {
       const raw = Buffer.alloc(w * h * 3);
       for (let i = 0, j = 0; i < w * h * 4; i += 4, j += 3) {
@@ -56,7 +85,7 @@ export class PdfWriter {
         raw[j + 1] = p.rgba[i + 1];
         raw[j + 2] = p.rgba[i + 2];
       }
-      img = this.stream(`/Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode`, deflateSync(raw, { level: 6 }));
+      img = this.stream(`/Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode${smask}`, deflateSync(raw, { level: 6 }));
     }
     const k = 72 / p.dpi;
     const W = w * k;

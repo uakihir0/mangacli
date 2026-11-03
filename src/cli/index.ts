@@ -3,6 +3,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { cac } from "cac";
+import { parse as parseYaml } from "yaml";
 import { type RenderOptions, render, validate } from "../api.js";
 import { type MangaConfig, findConfig, loadConfig } from "../config.js";
 import { type Diagnostic, MangaError, MangaValidationError } from "../core/diagnostics.js";
@@ -159,14 +160,13 @@ async function renderOptions(o: Obj, entry: string): Promise<RenderOptions> {
     strict: !!o.strict,
     separate: o.separate === undefined ? undefined : o.separate === true ? "all" : list(o.separate),
     emit: list(o.emit) as RenderOptions["emit"],
-    name: o.name as string | undefined,
+    name: o.name !== undefined ? String(o.name) : undefined,
     root: o.root ? resolve(String(o.root)) : config?.root,
     baseDir: o.baseDir ? resolve(String(o.baseDir)) : undefined,
     fontDownload: o.download === false ? "never" : (config?.fontDownload ?? undefined),
     fontDir: config?.fontDir,
     fontCacheDir: config?.fontCacheDir,
     fontMirror: config?.fontMirror,
-    fontSet: config?.fontSet,
     missingAssets: config?.missingAssets,
     diagnostics: config?.diagnostics,
     throwOnError: false,
@@ -196,12 +196,19 @@ async function cmdRender(file: string, o: Obj): Promise<number> {
   const opts = await renderOptions(o, file);
   const cfgOut = (opts.config?.output ?? {}) as Obj;
   const toStdout = !!o.stdout;
-  if (!toStdout) opts.outDir = resolve(String(o.out ?? cfgOut.dir ?? "./out"));
-  if (o.out === undefined && !toStdout && typeof input === "string") {
-    // document output.dir is relative to the document
-    const raw = readFileSync(input, "utf8");
-    const m = raw.match(/^output:\s*\n(?:[ \t]+.*\n)*?[ \t]+dir:\s*(\S+)/m);
-    if (m && !cfgOut.dir) opts.outDir = resolve(dirname(input), m[1].replace(/^["']|["']$/g, ""));
+  if (!toStdout) {
+    // precedence: -o, the document's output.dir (relative to the document), the config's, ./out
+    let docDir: string | undefined;
+    if (o.out === undefined && typeof input === "string") {
+      try {
+        const d = (parseYaml(readFileSync(input, "utf8")) ?? {}) as Obj;
+        const od = (d.output ?? {}) as Obj;
+        if (typeof od.dir === "string") docDir = resolve(dirname(input), od.dir);
+      } catch {
+        /* reported by the loader */
+      }
+    }
+    opts.outDir = o.out !== undefined ? resolve(String(o.out)) : (docDir ?? resolve(String(cfgOut.dir ?? "./out")));
   }
   const t0 = performance.now();
   opts.onProgress = (e) => {
@@ -699,10 +706,36 @@ const renderOpts = (c: ReturnType<typeof cli.command>) =>
     .option("--no-download", "Do not download catalog fonts")
     .option("--timings", "Print timings");
 
+// cac (mri) turns numeric-looking values into numbers: recover the text as typed (--name 001, -o 007)
+const STRING_OPTS: [string, string[]][] = [
+  ["name", ["--name"]], ["out", ["--out", "-o"]], ["profile", ["--profile", "-p"]], ["lang", ["--lang"]], ["pages", ["--pages"]],
+  ["template", ["--template"]], ["dir", ["--dir"]], ["set", ["--set"]], ["for", ["--for"]], ["host", ["--host"]], ["page", ["--page"]],
+  ["element", ["--element"]], ["format", ["--format", "-f"]], ["emit", ["--emit"]], ["root", ["--root"]], ["cwd", ["--cwd"]],
+  ["baseDir", ["--base-dir"]], ["config", ["--config"]], ["separate", ["--separate"]],
+];
+
+function rawStrings(o: Obj) {
+  const argv = process.argv;
+  for (const [key, flags] of STRING_OPTS) {
+    if (typeof o[key] !== "number") continue;
+    for (let i = 0; i < argv.length; i++) {
+      const a = argv[i];
+      const eq = flags.find((f) => a.startsWith(f + "="));
+      if (eq) o[key] = a.slice(eq.length + 1);
+      else if (flags.includes(a) && i + 1 < argv.length) o[key] = argv[i + 1];
+    }
+  }
+}
+
+/** a bare `-` (stdin) is dropped by the parser: it is swapped for this token before parsing */
+const STDIN_TOKEN = "__mangacli_stdin__";
+
 const wrap =
   <A extends unknown[]>(fn: (...a: A) => Promise<number>) =>
   async (...a: A) => {
     const o = a[a.length - 1] as Obj;
+    rawStrings(o);
+    for (let i = 0; i < a.length - 1; i++) if (a[i] === STDIN_TOKEN) (a as unknown[])[i] = "-";
     setupOutput(o);
     if (typeof o.cwd === "string") process.chdir(resolve(o.cwd));
     let code: number;
@@ -768,7 +801,7 @@ cli.version(VERSION);
 process.on("SIGINT", () => process.exit(130));
 
 try {
-  cli.parse(process.argv, { run: false });
+  cli.parse(process.argv.map((x, i) => (i > 1 && x === "-" ? STDIN_TOKEN : x)), { run: false });
   if (!cli.matchedCommand && cli.args.length) {
     process.stderr.write(`unknown command: ${cli.args[0]}\n`);
     process.exitCode = 3;

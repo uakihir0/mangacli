@@ -1,6 +1,7 @@
 // Public API (spec 11).
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
 import { type Diagnostic, DiagnosticBag, MangaError, MangaValidationError, suggest } from "./core/diagnostics.js";
 import { FontRegistry, type FontDef } from "./fonts/registry.js";
 import { type LoadedDocument, loadDocumentFile, loadDocumentFromObject, loadDocumentFromString } from "./load/document.js";
@@ -13,6 +14,7 @@ import { type Finish, applyFinish } from "./output/finish.js";
 import { AssetRegistry } from "./render/assets.js";
 import { type PageLayoutInfo, composePage } from "./render/compose.js";
 import type { DisplayList } from "./render/ir.js";
+import type { RPage } from "./model/resolve.js";
 import { RasterBackend } from "./render/raster.js";
 import { renderSvg } from "./render/svg.js";
 import { type MangaPlugin, PluginSet, withPlugins } from "./plugin.js";
@@ -144,7 +146,7 @@ export function load(input: MangaInput, options: RenderOptions = {}): Project {
   let loaded: LoadedDocument;
   let name = "manga";
   if (typeof input === "string" || input instanceof URL) {
-    const p = input instanceof URL ? input.pathname : input;
+    const p = input instanceof URL ? fileURLToPath(input) : input;
     loaded = loadDocumentFile(p, bag, options.root);
     name = basename(p, extname(p));
   } else if (isLoaded(input)) loaded = input;
@@ -251,15 +253,19 @@ function selectPages(sel: RenderOptions["pages"], ids: string[]): Set<number> {
   return out;
 }
 
-function fillName(tpl: string, vars: Record<string, string | number>): string {
-  return tpl
+function fillName(tpl: string, vars: Record<string, string | number | number[]>): string {
+  return String(tpl)
     .replace(/\{\{/g, "\u0001")
     .replace(/\}\}/g, "\u0002")
     .replace(/\{(\w+)(?::(\d+))?\}/g, (_, k: string, w?: string) => {
       const v = vars[k];
       if (v === undefined) throw new MangaError("SCHEMA_ENUM", `unknown file name placeholder {${k}}`);
-      const s = String(v);
-      return w && /^\d+$/.test(s) ? s.padStart(Number(w), "0") : s;
+      // a joined spread carries two page numbers: {page:03} -> 002-003
+      const pad = (x: string | number) => {
+        const t = String(x);
+        return w && /^\d+$/.test(t) ? t.padStart(Number(w), "0") : t;
+      };
+      return Array.isArray(v) ? v.map(pad).join("-") : pad(v);
     })
     .replace(/\u0001/g, "{")
     .replace(/\u0002/g, "}")
@@ -333,6 +339,37 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   const outDir = options.outDir ? resolvePath(options.outDir) : undefined;
   const nameTpl = options.name ?? (docOutput.name as string) ?? prof.name ?? "{name}-{page:03}";
   const emitted = new Set<string>();
+  const seps0 = normalizeSeparations(options.separate ?? prof.separate);
+  const spreadMode = options.spread ?? (docOutput.spread as "joined" | "split" | undefined) ?? prof.spread ?? "joined";
+  const title = String((p.doc.meta as Obj | undefined)?.title ?? p.name);
+  const outName = (page: RPage, idx: number, side: string, nombre: number | null, spreadJoined: boolean, split: boolean, runName: string | undefined, ext: string) => {
+    const splitSuffix = split && !/\{(page|side)/.test(nameTpl) ? `-${side}` : "";
+    const pageVar: string | number | number[] = nombre === null ? `i${idx + 1}` : spreadJoined ? [nombre, nombre + 1] : nombre;
+    const base = fillName(nameTpl, { name: p.name, title, page: pageVar, index: idx + 1, id: page.id, side, profile: profName, lang, sep: runName ?? "" }) + splitSuffix + (runName && !nameTpl.includes("{sep}") ? `-${runName}` : "");
+    return join(outDir!, `${base}.${ext}`);
+  };
+  // every output name is known before rendering: refuse to write anything on a collision (spec 10.8)
+  if (outDir && !options.layoutOnly) {
+    const seen = new Map<string, string>();
+    const probe = bag.fork();
+    for (const pl of plan) {
+      if (!selected.has(pl.idx)) continue;
+      const page = resolved.pages[pl.idx];
+      const g = computePageGeom(page, pl.physical, (p.doc.book ?? {}) as Obj, probe);
+      const split = g.type === "spread" && spreadMode === "split";
+      const halves = split ? [{ side: g.rtl ? "right" : "left", n: pl.nombre }, { side: g.rtl ? "left" : "right", n: pl.nombre === null ? null : pl.nombre + 1 }] : [{ side: g.side, n: pl.nombre }];
+      for (const run of seps0 ?? [{ name: undefined }])
+        for (const h of halves)
+          for (const fmt of formats) {
+            if (fmt === "pdf") continue;
+            const f = outName(page, pl.idx, h.side, h.n, g.type === "spread" && !split, split, run.name, EXT[fmt]);
+            const prev = seen.get(f);
+            if (prev) bag.error("OUTPUT_NAME_COLLISION", `pages ${prev} and ${page.id} both map to ${f}`, { pageId: page.id, hint: "use {page}, {index} or {id} in the file name template" });
+            seen.set(f, page.id);
+          }
+    }
+    if (bag.hasErrors) return fail();
+  }
   // pdf: all pages of a run go into one document
   const pdfs = new Map<string, { writer: PdfWriter; colorMode: string; dpi: number }>();
   const meta = (p.doc.meta ?? {}) as Obj;
@@ -384,8 +421,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const intent = geom.color;
       const colorMode = options.colorMode ?? (prof.colorMode === "intent" ? (intent === "mono" ? "gray" : "color") : prof.colorMode);
       const dpi = dpiFor(geom);
-      const seps = normalizeSeparations(options.separate ?? prof.separate);
-      const runs: { name?: string; list?: string[] }[] = seps ? seps : [{}];
+      const runs: { name?: string; list?: string[] }[] = seps0 ? seps0 : [{}];
       for (const run of runs) {
         const backend = new RasterBackend({ dpi, crop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
         const needRaster = formats.some((f) => f !== "svg");
@@ -394,22 +430,24 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         // finishing passes: off for print profiles unless the profile itself asks for them
         const finish = options.finish === false ? undefined : (options.finish ?? (prof as { finish?: Finish }).finish ?? (prof.print ? undefined : (docOutput.finish as Finish | undefined)));
         if (finish && needRaster && !run.list) full = { ...full, ...(await applyFinish(full, finish, { dpi, colorMode: colorMode as "color", seed: resolved.seed, bag })) };
-        if (options.debug) drawDebug(full, list, info, dpi, crop, options.debug);
+        if (options.debug) drawDebug(full, list, info, dpi, crop, options.debug, prof.marks?.margin ?? 10);
         // spreads: one joined image, or two pages each with bleed on all sides (spec 10.9)
-        const spreadMode = options.spread ?? (docOutput.spread as "joined" | "split" | undefined) ?? prof.spread ?? "joined";
         const parts: { raster: { data: Uint8ClampedArray; width: number; height: number }; side: string; nombre: number | null }[] = [];
         if (geom.type === "spread" && spreadMode === "split" && needRaster) {
           const trimPx = Math.round((geom.trimW * dpi) / 25.4 + 1e-6);
           const edge = Math.round((full.width - trimPx) / 2);
           const half = Math.round(trimPx / 2);
-          const leftW = edge + half + edge;
+          // the fold gets bleed only (crop marks stay on the outer edges)
+          const inner = crop === "trim" ? 0 : Math.round((geom.bleed * dpi) / 25.4 + 1e-6);
+          const leftW = edge + half + inner;
           const slice = (x0: number, w: number) => {
             const out = new Uint8ClampedArray(w * full.height * 4);
             for (let y = 0; y < full.height; y++) out.set(full.data.subarray((y * full.width + x0) * 4, (y * full.width + x0 + w) * 4), y * w * 4);
             return { data: out, width: w, height: full.height };
           };
           const left = { raster: slice(0, leftW), side: "left" };
-          const right = { raster: slice(full.width - (trimPx - half + 2 * edge), trimPx - half + 2 * edge), side: "right" };
+          const rightW = inner + (trimPx - half) + edge;
+          const right = { raster: slice(full.width - rightW, rightW), side: "right" };
           const first = geom.rtl ? right : left;
           const second = geom.rtl ? left : right;
           parts.push({ ...first, nombre: pl.nombre }, { ...second, nombre: pl.nombre === null ? null : pl.nombre + 1 });
@@ -428,17 +466,21 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
             const edge = Math.round((raster.height - trimH) / 2);
             const bleedPx = crop === "trim" ? 0 : Math.round((geom.bleed * dpi) / 25.4 + 1e-6);
             const trim = { x: edge, y: edge, w: raster.width - 2 * edge, h: raster.height - 2 * edge };
-            pw.writer.addPage({ rgba: raster.data, width: raster.width, height: raster.height, dpi, colorMode: (options.debug ? "color" : colorMode) as "color", trim, bleed: { x: trim.x - bleedPx, y: trim.y - bleedPx, w: trim.w + 2 * bleedPx, h: trim.h + 2 * bleedPx } });
+            pw.writer.addPage({ rgba: raster.data, width: raster.width, height: raster.height, dpi, colorMode: (options.debug ? "color" : colorMode) as "color", transparent: transparentOut || !!run.list, trim, bleed: { x: trim.x - bleedPx, y: trim.y - bleedPx, w: trim.w + 2 * bleedPx, h: trim.h + 2 * bleedPx } });
             continue;
           }
           if (fmt === "svg" && part !== parts[0]) continue;
           const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, transparent: transparentOut || !!run.list, metadata: { Software: "mangacli", Title: String((p.doc.meta as Obj | undefined)?.title ?? ""), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed) } };
           const data = fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: Math.min(dpi, 300) })) : await encode(raster.data, raster.width, raster.height, enc);
-          const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: raster.width, height: raster.height, dpi, separation: run.name, data };
+          const svgSize = () => {
+            const bw = crop === "trim" ? geom.trimW : geom.bleedBox.w;
+            const bh = crop === "trim" ? geom.trimH : geom.bleedBox.h;
+            return { w: Math.round((bw * dpi) / 25.4), h: Math.round((bh * dpi) / 25.4) };
+          };
+          const size = fmt === "svg" ? svgSize() : { w: raster.width, h: raster.height };
+          const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: size.w, height: size.h, dpi, separation: run.name, data };
           if (outDir) {
-            const splitSuffix = parts.length > 1 && !/\{(page|side)/.test(nameTpl) ? `-${part.side}` : "";
-            const base = fillName(nameTpl, { name: p.name, title: String((p.doc.meta as Obj | undefined)?.title ?? p.name), page: part.nombre ?? `i${pl.idx + 1}`, index: pl.idx + 1, id: page.id, side: part.side, profile: profName, lang, sep: run.name ?? "" }) + splitSuffix + (run.name && !nameTpl.includes("{sep}") ? `-${run.name}` : "");
-            const file = join(outDir, `${base}.${EXT[fmt]}`);
+            const file = outName(page, pl.idx, part.side, part.nombre, geom.type === "spread" && parts.length === 1, parts.length > 1, run.name, EXT[fmt]);
             if (emitted.has(file)) {
               bag.error("OUTPUT_NAME_COLLISION", `two outputs map to ${file}`);
               continue;
@@ -454,7 +496,11 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           result.pages.push(rp);
         }
       }
-      if (outDir && options.emit?.includes("ir")) writeFileSync(join(outDir, `${p.name}-${page.id}.ir.json`), JSON.stringify(roundList(list)));
+      if (outDir && options.emit?.includes("ir")) {
+        const f = outName(page, pl.idx, geom.side, pl.nombre, geom.type === "spread", false, undefined, "ir.json");
+        mkdirSync(dirname(f), { recursive: true });
+        writeFileSync(f, JSON.stringify(roundList(list)));
+      }
     } catch (e) {
       if (e instanceof MangaValidationError) throw e;
       result.failures.push({ pageId: page.id, index: pl.idx + 1, error: e as Error });
@@ -479,6 +525,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
     }
     result.pages.push(rp);
   }
+  if (outDir && options.emit?.length) mkdirSync(outDir, { recursive: true });
   if (outDir && options.emit?.includes("transcript")) {
     const tr = result.layout.map((l) => ({ id: l.geom.id, items: l.transcript }));
     writeFileSync(join(outDir, `${p.name}.transcript.json`), JSON.stringify({ pages: tr }, null, 2));
@@ -506,9 +553,9 @@ function roundList(list: DisplayList): unknown {
   return JSON.parse(JSON.stringify(list, (_, v) => (typeof v === "number" ? Math.round(v * 1000) / 1000 : v)));
 }
 
-function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: number }, list: DisplayList, info: PageLayoutInfo, dpi: number, crop: string, layers: boolean | string[]) {
+function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: number }, list: DisplayList, info: PageLayoutInfo, dpi: number, crop: string, layers: boolean | string[], markMargin = 10) {
   const s = dpi / 25.4;
-  const off = crop === "bleed" ? list.boxes.bleed.x : crop === "marks" ? list.boxes.bleed.x - 10 : 0;
+  const off = crop === "bleed" ? list.boxes.bleed.x : crop === "marks" ? list.boxes.bleed.x - markMargin : 0;
   const want = (k: string) => layers === true || (Array.isArray(layers) && layers.includes(k));
   const put = (x: number, y: number, r: number, g: number, b: number) => {
     const px = Math.round((x - off) * s);
