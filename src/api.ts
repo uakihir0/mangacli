@@ -45,7 +45,7 @@ export interface RenderOptions {
   separate?: string[] | Record<string, string[]> | "all" | false;
   outDir?: string;
   name?: string;
-  pages?: string | (number | string)[];
+  pages?: string | (number | string)[] | ((page: { id: string; index: number }) => boolean);
   lang?: string;
   seed?: number;
   draft?: boolean;
@@ -271,12 +271,17 @@ function selectPages(sel: RenderOptions["pages"], ids: string[]): Set<number> {
   const all = new Set(ids.map((_, i) => i));
   if (!sel) return all;
   const out = new Set<number>();
+  if (typeof sel === "function") {
+    ids.forEach((id, i) => sel({ id, index: i + 1 }) && out.add(i));
+    return out;
+  }
   const items = typeof sel === "string" ? sel.split(",").map((s) => s.trim()).filter(Boolean) : sel.map(String);
   for (const it of items) {
     const m = it.match(/^(\d+)(?:-(\d*))?$/);
     if (m) {
       const a = Number(m[1]);
       const b = m[2] === undefined ? a : m[2] === "" ? ids.length : Number(m[2]);
+      if (a > ids.length) throw new MangaError("REF_NOT_FOUND", `page ${a} is out of range (the document has ${ids.length} page(s))`);
       for (let i = a; i <= b; i++) if (i >= 1 && i <= ids.length) out.add(i - 1);
       continue;
     }

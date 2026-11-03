@@ -80,6 +80,18 @@ export function merge(a: Obj, b: Obj | undefined, base?: Obj): Obj {
   return out;
 }
 
+/** like merge, but keeps `null` so that it can still reset a value when the style is applied */
+function overlay(a: Obj, b: Obj | undefined): Obj {
+  if (!b) return a;
+  const out: Obj = { ...a };
+  for (const [k, v] of Object.entries(b)) {
+    if (v === undefined) continue;
+    if (isObj(v) && isObj(out[k]) && !(k === "hand" && ("preset" in v || "roughness" in v))) out[k] = overlay(out[k] as Obj, v);
+    else out[k] = v === null ? null : deepClone(v);
+  }
+  return out;
+}
+
 export interface ResolveOptions {
   configDefaults?: Obj;
   configStyles?: Record<string, Obj>;
@@ -96,7 +108,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
   // styles: builtin <- config <- doc <- locale
   const rawStyles: Record<string, Obj> = {};
   for (const src of [BUILTIN_STYLES, opts.configStyles ?? {}, (doc.styles ?? {}) as Record<string, Obj>, ((locale?.styles ?? {}) as Record<string, Obj>)]) {
-    for (const [k, v] of Object.entries(src)) rawStyles[k] = rawStyles[k] ? merge(rawStyles[k], v) : deepClone(v);
+    for (const [k, v] of Object.entries(src)) rawStyles[k] = rawStyles[k] ? overlay(rawStyles[k], v) : deepClone(v);
   }
   const styles: Record<string, Obj> = {};
   const resolving = new Set<string>();
@@ -114,11 +126,11 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
     for (const e of Array.isArray(ext) ? ext : ext ? [ext] : []) {
       const s = resolveStyle(String(e), path);
       if (!s) bag.error("REF_NOT_FOUND", `unknown style "${e}"`, { path, hint: suggestHint(String(e), Object.keys(rawStyles)) });
-      else acc = merge(acc, s);
+      else acc = overlay(acc, s);
     }
     const own = { ...raw };
     delete own.extends;
-    acc = merge(acc, own);
+    acc = overlay(acc, own);
     resolving.delete(name);
     styles[name] = acc;
     return acc;

@@ -42,7 +42,14 @@ function stripExt(o: unknown, parent = ""): unknown {
   const out: Obj = {};
   const names = NAME_MAPS.has(parent);
   for (const [k, v] of Object.entries(o)) if (names || !k.startsWith("x-")) out[k] = stripExt(v, names ? "" : k);
+  keepInclude(o, out);
   return out;
+}
+
+/** pages from an include carry its `defaults` as a hidden property; keep it through copies */
+function keepInclude(from: Obj, to: Obj) {
+  const inc = (from as { __includeDefaults?: Obj }).__includeDefaults;
+  if (inc) Object.defineProperty(to, "__includeDefaults", { value: inc, enumerable: false });
 }
 
 export function normStroke(v: unknown, path: Path, bag: DiagnosticBag): unknown {
@@ -315,6 +322,8 @@ export function normalizeDocument(input: unknown, bag: DiagnosticBag): Obj {
       if (Array.isArray(p.layers)) p.layers = p.layers.map((e, i) => normElement(e, [...path, "layers", i], bag));
       if (isObj(p.defaults)) p.defaults = normDefaults(p.defaults, [...path, "defaults"], bag);
       if ("hand" in p) p.hand = normHand(p.hand);
+      const inc = (pg as { __includeDefaults?: Obj }).__includeDefaults;
+      if (inc) Object.defineProperty(p, "__includeDefaults", { value: normDefaults(inc, [...path, "defaults"], bag), enumerable: false });
       return p;
     });
   }

@@ -37,7 +37,7 @@ function setupOutput(o: Obj) {
   if (o.quiet) level = "error";
   if (o.verbose) level = "debug";
   const locale = (o.locale as string) ?? process.env.MANGACLI_LOCALE ?? process.env.LANG ?? "";
-  out = { level, json: !!o.json, color: o.color !== false && !process.env.NO_COLOR && !!process.stderr.isTTY, ja: locale.startsWith("ja") };
+  out = { level, json: !!o.json, color: o.ansi !== false && !process.env.NO_COLOR && !!process.stderr.isTTY, ja: locale.startsWith("ja") };
 }
 
 const at = (l: Level) => LEVELS.indexOf(out.level) >= LEVELS.indexOf(l);
@@ -144,7 +144,7 @@ async function renderOptions(o: Obj, entry: string): Promise<RenderOptions> {
     config: config as Obj | undefined,
     profile: o.profile as string | undefined,
     format: format && format.length === 1 ? format[0] : format,
-    colorMode: oneOf(o.color === true || o.color === false ? undefined : o.color, "--color", ["color", "gray", "mono"] as const),
+    colorMode: oneOf(o.color === true ? undefined : o.color, "--color", ["color", "gray", "mono"] as const),
     dpi: parsePositiveNumber(o.dpi, "--dpi"),
     scale: parsePositiveNumber(o.scale, "--scale"),
     width: parsePositiveNumber(o.width, "--width"),
@@ -742,7 +742,7 @@ const common = (c: ReturnType<typeof cli.command>) =>
     .option("-q, --quiet", "Same as --log-level error")
     .option("-v, --verbose", "Same as --log-level debug")
     .option("--json", "NDJSON diagnostics and results on stdout")
-    .option("--no-color", "Disable colored output")
+    .option("--no-ansi", "Disable colored output (also --no-color, NO_COLOR)")
     .option("--locale <ja|en>", "Message language");
 
 const renderOpts = (c: ReturnType<typeof cli.command>) =>
@@ -750,7 +750,7 @@ const renderOpts = (c: ReturnType<typeof cli.command>) =>
     .option("-o, --out <dir>", "Output directory")
     .option("-p, --profile <name>", "Output profile (print-mono, print-gray, print-color, web, sns, preview, draft)")
     .option("-f, --format <fmt>", "png, jpeg, webp, avif, tiff, pdf, svg (comma separated)")
-    .option("--color [mode]", "color | gray | mono")
+    .option("--color <mode>", "color | gray | mono")
     .option("--dpi <n>", "Resolution")
     .option("--scale <n>", "Scale factor on the design resolution")
     .option("--width <px>", "Output width")
@@ -868,7 +868,8 @@ cli.version(VERSION);
 process.on("SIGINT", () => process.exit(130));
 
 try {
-  cli.parse(process.argv.map((x, i) => (i > 1 && x === "-" ? STDIN_TOKEN : x)), { run: false });
+  // `--no-color` (terminal colours) would clash with `--color <mode>` (output colour mode) in the parser
+  cli.parse(process.argv.map((x, i) => (i > 1 && x === "-" ? STDIN_TOKEN : i > 1 && x === "--no-color" ? "--no-ansi" : x)), { run: false });
   if (!cli.matchedCommand && cli.args.length) {
     process.stderr.write(`unknown command: ${cli.args[0]}\n`);
     process.exitCode = 3;
