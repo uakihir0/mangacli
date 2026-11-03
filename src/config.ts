@@ -1,6 +1,6 @@
 // Config file discovery and loading (spec 12.5).
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { MangaError } from "./core/diagnostics.js";
@@ -61,7 +61,23 @@ export async function loadConfig(path: string): Promise<MangaConfig & { __file: 
     if (abs.endsWith(".json")) cfg = JSON.parse(readFileSync(abs, "utf8"));
     else if (abs.endsWith(".yaml") || abs.endsWith(".yml")) cfg = parseYaml(readFileSync(abs, "utf8"));
     else {
-      const mod = (await import(pathToFileURL(abs).href)) as { default?: unknown };
+      let mod: { default?: unknown };
+      try {
+        mod = (await import(pathToFileURL(abs).href)) as { default?: unknown };
+      } catch (e) {
+        // `npx mangacli` without a local install: the config's `import ... from "mangacli"`
+        // cannot resolve, so load a copy that points at this running copy of mangacli
+        if ((e as { code?: string }).code !== "ERR_MODULE_NOT_FOUND" || !/['"]mangacli['"]/.test((e as Error).message)) throw e;
+        const self = new URL(import.meta.url.endsWith(".ts") ? "./index.ts" : "./index.js", import.meta.url).href;
+        const src = readFileSync(abs, "utf8").replace(/(from\s*|import\s*\(\s*)(["'])mangacli\2/g, (_m, a: string, q: string) => `${a}${q}${self}${q}`);
+        const tmp = join(dirname(abs), `.${basename(abs).replace(/\.(\w+)$/, `.${process.pid}.$1`)}`);
+        writeFileSync(tmp, src);
+        try {
+          mod = (await import(pathToFileURL(tmp).href)) as { default?: unknown };
+        } finally {
+          rmSync(tmp, { force: true });
+        }
+      }
       cfg = mod.default ?? mod;
     }
   } catch (e) {
