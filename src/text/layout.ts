@@ -145,7 +145,12 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
     }
   }
   const limits: number[] = [];
-  if (style.maxChars) limits.push(style.maxChars * em * (1 + style.letterSpacing) + 1e-6);
+  if (style.maxChars) {
+    // maxChars counts characters: proportional latin text averages about half an em per character
+    const latinShare = plain.length ? Array.from(plain).filter((c) => isLatinChar(c) || c === " ").length / Array.from(plain).length : 0;
+    const perChar = style.writing === "horizontal" ? 1 - latinShare * 0.45 : 1;
+    limits.push(style.maxChars * em * perChar * (1 + style.letterSpacing) + 1e-6);
+  }
   if (style.maxExtent) limits.push(style.maxExtent);
   if (boxLimit) limits.push(boxLimit);
   const Lmax = limits.length && wrap !== "none" ? Math.min(...limits) : Infinity;

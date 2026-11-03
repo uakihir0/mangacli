@@ -252,6 +252,21 @@ export function normalizeDocument(input: unknown, bag: DiagnosticBag): Obj {
     for (const [k, v] of Object.entries(doc.fonts)) f[k] = normFontDef(v);
     out.fonts = f;
   }
+  if (isObj(doc.locales)) {
+    const l: Obj = {};
+    for (const [lang, v] of Object.entries(doc.locales)) {
+      if (!isObj(v)) {
+        l[lang] = v;
+        continue;
+      }
+      const o: Obj = { ...v };
+      if (isObj(v.fonts)) o.fonts = Object.fromEntries(Object.entries(v.fonts).map(([k, fv]) => [k, normFontDef(fv)]));
+      if (isObj(v.defaults)) o.defaults = normDefaults(v.defaults, ["locales", lang, "defaults"], bag);
+      if (isObj(v.styles)) o.styles = Object.fromEntries(Object.entries(v.styles).map(([k, sv]) => [k, isObj(sv) ? normElementProps(sv, ["locales", lang, "styles", k], bag) : sv]));
+      l[lang] = o;
+    }
+    out.locales = l;
+  }
   if ("hand" in doc) out.hand = normHand(doc.hand);
   if (isObj(doc.defaults)) out.defaults = normDefaults(doc.defaults, ["defaults"], bag);
   if (isObj(doc.styles)) {

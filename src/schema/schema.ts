@@ -336,7 +336,7 @@ const fillProps = {
   erase: z.array(z.record(z.string(), z.unknown())).optional(),
 };
 
-const markProps = z.object({ ...common, type: z.literal("mark"), kind: z.string() }).catchall(z.unknown());
+const markProps = z.object({ ...common, type: z.literal("mark"), kind: z.string(), size: z.union([Length, Size]).optional() }).catchall(z.unknown());
 
 const drawProps = {
   ...common,

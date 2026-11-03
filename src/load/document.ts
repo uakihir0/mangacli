@@ -25,12 +25,15 @@ function absolutize(data: Obj, baseDir: string) {
       else if (isObj(v) && typeof v.src === "string") v.src = abs(v.src);
     }
   }
-  if (isObj(data.fonts)) {
-    for (const [k, v] of Object.entries(data.fonts)) {
-      if (typeof v === "string" && /\.(ttf|otf|ttc|otc|woff2?)$/i.test(v)) data.fonts[k] = abs(v);
+  const absFonts = (fonts: unknown) => {
+    if (!isObj(fonts)) return;
+    for (const [k, v] of Object.entries(fonts)) {
+      if (typeof v === "string" && /\.(ttf|otf|ttc|otc|woff2?)$/i.test(v)) fonts[k] = abs(v);
       else if (isObj(v) && typeof v.src === "string") v.src = abs(v.src);
     }
-  }
+  };
+  absFonts(data.fonts);
+  if (isObj(data.locales)) for (const l of Object.values(data.locales)) if (isObj(l)) absFonts(l.fonts);
   const walkEls = (els: unknown) => {
     if (!Array.isArray(els)) return;
     for (const e of els) {
