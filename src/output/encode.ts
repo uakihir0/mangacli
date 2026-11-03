@@ -121,6 +121,7 @@ export async function encode(rgba: Uint8ClampedArray, w: number, h: number, o: E
   // (withMetadata would convert grey back to sRGB; grey density is written by the encoders below)
   let img = sharp(buf, { raw: { width: w, height: h, channels: ch as 1 | 2 | 3 | 4 }, limitInputPixels: false });
   img = grey ? img.toColourspace("b-w") : img.withMetadata({ density: o.dpi });
+  if (o.metadata && Object.keys(o.metadata).length && o.format !== "png") img = img.withXmp(xmpPacket(o.metadata));
   switch (o.format) {
     case "png":
       return img.png({ compressionLevel: o.compression ?? 6 }).toBuffer();
@@ -143,6 +144,13 @@ export async function encode(rgba: Uint8ClampedArray, w: number, h: number, o: E
       return img.tiff({ compression: comp === "deflate" ? "deflate" : comp === "none" ? "none" : comp === "jpeg" ? "jpeg" : "lzw", ...res }).toBuffer();
     }
   }
+}
+
+function xmpPacket(m: Record<string, string>): string {
+  const e = (v: string) => v.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+  const alt = (v: string) => `<rdf:Alt><rdf:li xml:lang="x-default">${e(v)}</rdf:li></rdf:Alt>`;
+  const custom = Object.entries(m).filter(([k]) => k.startsWith("mangacli:")).map(([k, v]) => ` mangacli:${e(k.slice(9))}="${e(v)}"`).join("");
+  return `<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:mangacli="https://github.com/mangacli/ns/1.0/"${custom}>${m.Title ? `<dc:title>${alt(m.Title)}</dc:title>` : ""}${m.Author ? `<dc:creator><rdf:Seq><rdf:li>${e(m.Author)}</rdf:li></rdf:Seq></dc:creator>` : ""}${m.Copyright ? `<dc:rights>${alt(m.Copyright)}</dc:rights>` : ""}${m.Software ? `<xmp:CreatorTool>${e(m.Software)}</xmp:CreatorTool>` : ""}</rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="w"?>`;
 }
 
 /** set the JFIF APP0 density (dots per inch) of a JPEG */

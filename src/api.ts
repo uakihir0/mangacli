@@ -2,6 +2,12 @@
 import { mkdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { relative as relativePath } from "node:path";
+import { PACKAGE_ROOT } from "./fonts/catalog.js";
+
+const PKG_VERSION = (JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8")) as { version: string }).version;
 import { type Diagnostic, DiagnosticBag, MangaAbortError, MangaError, MangaRenderError, MangaResourceError, MangaSecurityError, MangaValidationError, suggest } from "./core/diagnostics.js";
 import { FontRegistry, type FontDef } from "./fonts/registry.js";
 import { type LoadedDocument, loadDocumentFile, loadDocumentFromObject, loadDocumentFromString } from "./load/document.js";
@@ -386,7 +392,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   const plan: { idx: number; physical: number; nombre: number | null }[] = [];
   for (const [i, pg] of resolved.pages.entries()) {
     const isBlank = pg.type === "blank";
-    const nb = isBlank && !countBlank ? null : nombre;
+    const nb = pn.enabled === false || (isBlank && !countBlank) ? null : nombre;
     plan.push({ idx: i, physical, nombre: nb });
     const span = pg.type === "spread" ? 2 : 1;
     physical += span;
@@ -432,6 +438,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   const pdfs = new Map<string, { writer: PdfWriter; colorMode: string; dpi: number }>();
   const meta = (p.doc.meta ?? {}) as Obj;
   const sde = process.env.SOURCE_DATE_EPOCH;
+  const sourceHash = createHash("sha256").update(JSON.stringify(p.doc)).digest("hex").slice(0, 16);
   const total = selected.size;
   let done = 0;
   for (const pl of plan) {
@@ -463,7 +470,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         if (draft && !options.dpi) d = Math.min(d, 150);
         return d;
       };
-      const { list: list0, info } = await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor });
+      const { list: list0, info } = await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor, characters: resolved.characters });
+      info.number = pl.nombre;
       let list = plugins ? (plugins.hook("beforeRender", list0) as DisplayList) : list0;
       // transparent output: no page ground (panel grounds stay; spec 10.15)
       const transparentOut = options.transparent ?? prof.transparent ?? false;
@@ -536,7 +544,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
             continue;
           }
           if (fmt === "svg" && part !== parts[0]) continue;
-          const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, compression: prof.compression, chroma: prof.chroma, tiffCompression: prof.tiffCompression, transparent: transparentOut || !!run.list, metadata: { Software: "mangacli", Title: String((p.doc.meta as Obj | undefined)?.title ?? ""), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed) } };
+          const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, compression: prof.compression, chroma: prof.chroma, tiffCompression: prof.tiffCompression, transparent: transparentOut || !!run.list, metadata: prof.metadata === false ? {} : { Software: `mangacli ${PKG_VERSION}`, Title: String(meta.title ?? ""), ...(meta.author ? { Author: String(meta.author) } : {}), ...(meta.copyright ? { Copyright: String(meta.copyright) } : {}), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed), ...(sourceHash ? { "mangacli:source-hash": sourceHash } : {}) } };
           const data = fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: Math.min(dpi, 300) })) : await encode(raster.data, raster.width, raster.height, enc);
           const svgSize = () => {
             const bw = crop === "trim" ? geom.trimW : geom.bleedBox.w;
@@ -563,7 +571,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         }
       }
       if (outDir && options.emit?.includes("ir")) {
-        const f = outName(page, pl.idx, geom.side, pl.nombre, geom.type === "spread", false, undefined, "ir.json");
+        const pv: string | number | number[] = pl.nombre === null ? `i${pl.idx + 1}` : geom.type === "spread" ? [pl.nombre, pl.nombre + 1] : pl.nombre;
+        const f = join(outDir, `${fillName("{name}-{page:03}", { name: p.name, page: pv })}.ir.json`);
         mkdirSync(dirname(f), { recursive: true });
         writeFileSync(f, JSON.stringify(roundList(list)));
       }
@@ -598,12 +607,15 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   }
   if (outDir && options.emit?.length) mkdirSync(outDir, { recursive: true });
   if (outDir && options.emit?.includes("transcript")) {
-    const tr = result.layout.map((l) => ({ id: l.geom.id, items: l.transcript }));
+    const tr = result.layout.map((l) => ({ id: l.geom.id, number: l.number ?? null, items: l.transcript }));
     writeFileSync(join(outDir, `${p.name}.transcript.json`), JSON.stringify({ pages: tr }, null, 2));
     writeFileSync(join(outDir, `${p.name}.transcript.md`), tr.map((pg) => `## ${pg.id}\n\n` + pg.items.map((i) => `- ${i.who ? `**${(resolved.characters[i.who]?.name as string) ?? i.who}**: ` : ""}${i.text.replace(/\n/g, " ")}`).join("\n")).join("\n\n"));
   }
   if (outDir && options.emit?.includes("layout")) writeFileSync(join(outDir, `${p.name}.layout.json`), JSON.stringify(result.layout.map((l) => ({ ...l, geom: { ...l.geom, units: undefined } }))));
-  if (outDir && options.emit?.includes("manifest")) writeFileSync(join(outDir, "manifest.json"), JSON.stringify({ files: result.pages.map((r) => ({ path: r.path, page: r.id, width: r.width, height: r.height, format: r.format })) }, null, 2));
+  if (outDir && options.emit?.includes("manifest")) {
+    const sha = (d: Uint8Array) => createHash("sha256").update(d).digest("hex");
+    writeFileSync(join(outDir, "manifest.json"), JSON.stringify({ generator: `mangacli ${PKG_VERSION}`, source: p.loaded.entry ?? null, seed: resolved.seed, files: result.pages.map((r) => ({ path: r.path ? relativePath(outDir, r.path) : null, page: r.id, number: r.number, side: r.side, width: r.width, height: r.height, dpi: Math.round(r.dpi), format: r.format, separation: r.separation ?? null, sha256: sha(r.data) })) }, null, 2));
+  }
   timings.total = performance.now() - t0;
   if (options.strict && bag.items.some((d) => d.severity === "warning")) {
     // strict: warnings count as errors, also in the returned diagnostics

@@ -24,7 +24,7 @@ import type { RElement, RPage, ResolvedDoc } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolvePen, resolveStroke } from "../model/values.js";
 import { BODY_GENERATORS } from "../shapes/balloon.js";
 import { defaultTextStyle, layoutText } from "../text/layout.js";
-import { parseMarkup, plainText } from "../text/markup.js";
+import { parseMarkup } from "../text/markup.js";
 import type { AssetRegistry } from "./assets.js";
 import type { DisplayList, GroupNode, Node } from "./ir.js";
 
@@ -42,13 +42,17 @@ export interface ComposeOptions {
   physical: number;
   nombre: number | null;
   outputDpi: (geom: PageGeom) => number;
+  /** characters (names for the transcript) */
+  characters?: Record<string, Record<string, unknown>>;
 }
 
 export interface PageLayoutInfo {
   geom: PageGeom;
   panels: { id: string; polygon: Vec[]; order: number; box: Rect }[];
   elements: { id: string; type: string; bbox: Rect; panel?: string }[];
-  transcript: { panel?: string; id: string; type: string; who?: string; as?: string; text: string }[];
+  transcript: { panel?: string; id: string; type: string; who?: string; name?: string; as?: string; text: string; raw?: string }[];
+  /** the page number(s) printed on the page */
+  number?: number | null;
 }
 
 interface Item {
@@ -1074,9 +1078,18 @@ function nombreNodes(doc: ResolvedDoc, page: RPage, geom: PageGeom, o: ComposeOp
 function collectTranscript(el: RElement, panel: string | undefined, info: PageLayoutInfo, o: ComposeOptions) {
   if (el.type === "balloon" || el.type === "text" || el.type === "sfx") {
     const raw = textValue(el.props.text, o.lang, o.defaultLang);
-    // plain text without markup (ruby, emphasis, tags)
-    const text = plainText(parseMarkup(raw, { vertical: false, normalize: { dash: true, ellipsis: true } }));
-    info.transcript.push({ panel, id: el.id, type: el.type, who: el.props.who as string | undefined, as: el.props.as as string | undefined, text });
+    // plain text without markup; ruby is kept as 東京（とうきょう）
+    const parsed = parseMarkup(raw, { vertical: false, normalize: { dash: true, ellipsis: true } });
+    let text = "";
+    parsed.units.forEach((u, i) => {
+      if (u.kind === "char") text += u.ch;
+      else if (u.kind === "break") text += "\n";
+      else if (u.kind === "space") text += " ";
+      const next = parsed.units[i + 1];
+      if (u.kind === "char" && u.ruby !== undefined && !(next?.kind === "char" && next.ruby === u.ruby)) text += `（${parsed.rubies[u.ruby]?.text ?? ""}）`;
+    });
+    const who = el.props.who as string | undefined;
+    info.transcript.push({ panel, id: el.id, type: el.type, who, name: who ? ((o.characters?.[who]?.name as string | undefined) ?? who) : undefined, as: el.props.as as string | undefined, text, raw });
   }
 }
 
