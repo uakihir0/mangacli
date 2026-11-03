@@ -215,7 +215,10 @@ async function cmdRender(file: string, o: Obj): Promise<number> {
     emitJson({ type: "progress", ...e });
     log("info", `  ${paint("2", `${e.done}/${e.total}`)} ${e.pageId ?? ""}`);
   };
-  const r = await render(input, opts);
+  const conc = Math.max(1, Math.round(Number(o.concurrency ?? process.env.MANGACLI_CONCURRENCY ?? opts.config?.concurrency ?? 1)) || 1);
+  const formats = ([] as unknown[]).concat(opts.format ?? []);
+  const canSplit = conc > 1 && !toStdout && !formats.includes("pdf") && !(opts.emit ?? []).some((k) => k === "transcript" || k === "manifest");
+  const r = canSplit ? await renderParallel(input, opts, conc) : await render(input, opts);
   for (const d of r.diagnostics) reportDiagnostic(d, cwd);
   const { errors, warnings } = summarize(r.diagnostics);
   if (toStdout) {
@@ -237,6 +240,69 @@ async function cmdRender(file: string, o: Obj): Promise<number> {
   if (errors) return r.diagnostics.some((d) => d.severity === "error" && /^(ASSET|FONT|IO|RENDER)_/.test(d.code)) ? 2 : 1;
   if (o.strict && warnings) return 1;
   return 0;
+}
+
+/** split the pages over worker threads (each loads the document and fonts itself) */
+async function renderParallel(input: string | { yaml: string; baseDir: string }, opts: RenderOptions, n: number): Promise<Awaited<ReturnType<typeof render>>> {
+  const { Worker } = await import("node:worker_threads");
+  const { load } = await import("../api.js");
+  const { resolveDocument } = await import("../model/resolve.js");
+  const project = load(input, opts);
+  const all = project.bag.hasErrors ? [] : resolveDocument(project.doc, project.bag.fork(), { lang: opts.lang }).pages.map((pg, i) => ({ id: pg.id, i }));
+  // the --pages selection is applied by each worker; split the candidate ids round-robin
+  const wanted = opts.pages ? all.filter((pg) => selectedBy(opts.pages as string, pg.id, pg.i + 1, all.length)) : all;
+  if (wanted.length < 2) return render(input, opts);
+  const groups: string[][] = Array.from({ length: Math.min(n, wanted.length) }, () => []);
+  wanted.forEach((pg, k) => groups[k % groups.length].push(pg.id));
+  const here = new URL(import.meta.url);
+  const ts = here.pathname.endsWith(".ts");
+  const workerUrl = new URL(ts ? "./render-worker.ts" : "./render-worker.js", here);
+  const { onProgress, config, ...plain } = opts;
+  const configPath = (config as { __file?: string } | undefined)?.__file;
+  let done = 0;
+  const results = await Promise.all(
+    groups.map(
+      (ids) =>
+        new Promise<Obj>((ok, ng) => {
+          const w = new Worker(workerUrl, { workerData: { input, opts: { ...plain, pages: ids }, configPath }, execArgv: ts ? ["--import", "tsx"] : [] });
+          w.on("message", (m: Obj) => {
+            if (m.type === "progress") onProgress?.({ ...(m.e as { phase: string; pageId?: string }), done: ++done, total: wanted.length });
+            else if (m.type === "done") ok(m);
+          });
+          w.on("error", ng);
+        }),
+    ),
+  );
+  const seen = new Set<string>();
+  const diagnostics: Diagnostic[] = [];
+  for (const res of results)
+    for (const d of res.diagnostics as Diagnostic[]) {
+      const k = `${d.code}|${d.message}|${d.location?.line}|${d.pageId}`;
+      if (!seen.has(k)) {
+        seen.add(k);
+        diagnostics.push(d);
+      }
+    }
+  return {
+    pages: results.flatMap((res) => res.pages as never[]),
+    files: results.flatMap((res) => res.files as string[]),
+    diagnostics,
+    failures: results.flatMap((res) => (res.failures as { pageId: string; index: number; message: string }[]).map((f) => ({ pageId: f.pageId, index: f.index, error: new Error(f.message) }))),
+    layout: [],
+    timings: Object.assign({}, ...results.map((res) => res.timings as Record<string, number>)),
+  };
+}
+
+function selectedBy(sel: string, id: string, index: number, total: number): boolean {
+  for (const it of sel.split(",").map((x) => x.trim())) {
+    const m = it.match(/^(\d+)(?:-(\d*))?$/);
+    if (m) {
+      const a = Number(m[1]);
+      const b = m[2] === undefined ? a : m[2] === "" ? total : Number(m[2]);
+      if (index >= a && index <= b) return true;
+    } else if (it === id) return true;
+  }
+  return false;
 }
 
 async function cmdValidate(file: string, o: Obj): Promise<number> {
@@ -704,6 +770,7 @@ const renderOpts = (c: ReturnType<typeof cli.command>) =>
     .option("--base-dir <dir>", "Base directory when reading from stdin")
     .option("--strict", "Treat warnings as errors")
     .option("--no-download", "Do not download catalog fonts")
+    .option("--concurrency <n>", "Render pages in parallel worker threads")
     .option("--timings", "Print timings");
 
 // cac (mri) turns numeric-looking values into numbers: recover the text as typed (--name 001, -o 007)
