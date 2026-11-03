@@ -424,6 +424,8 @@ let tcyWarn: string[] = [];
 
 const VERT_TURN = new Set(Array.from("〜～ー－―—–‐…‥（）「」『』【】〔〕〈〉《》［］｛｝＝＜＞→←"));
 const vertCache = new Map<string, boolean>();
+const SMALL_KANA = new Set(Array.from("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ"));
+const VERT_PUNCT = new Set(Array.from("、。，．"));
 
 /** dashes are drawn cell to cell so a run (――) is one continuous line; some fonts overhang the cell */
 const DASHES = new Set(["―", "—", "─", "━"]);
@@ -524,6 +526,31 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
     }
     for (const b of per) if (b.adv === 0) b.adv = size;
     fitDashes(per, true);
+    // fonts without vertical forms for small kana and 、。 get them moved toward the upper right
+    // (judged from where the glyph's ink actually sits: some fonts map them to centred forms)
+    for (const b of per) {
+      const small = SMALL_KANA.has(b.chars);
+      if ((!small && !VERT_PUNCT.has(b.chars)) || b.glyphs.length !== 1) continue;
+      const g = b.glyphs[0];
+      const [x0, y0, x1, y1] = inkBox(g.font, g.gid);
+      if (!isFinite(x0)) continue;
+      const cx = g.m[0] * (x0 + x1) / 2 + g.m[4];
+      const cy = g.m[3] * (y0 + y1) / 2 + g.m[5] - b.adv / 2;
+      // target: small kana slightly up-right of centre, 、。 in the upper-right quarter
+      const tx = (small ? 0.1 : 0.28) * size;
+      const ty = -(small ? 0.1 : 0.28) * size;
+      const dx = cx < tx * 0.5 ? tx - cx : 0;
+      const dy = cy > ty * 0.5 ? ty - cy : 0;
+      if (dx || dy) g.m = [g.m[0], g.m[1], g.m[2], g.m[3], g.m[4] + dx, g.m[5] + dy];
+      // small kana drawn nearly full size (display faces) are reduced so they read as small
+      const ink = Math.max(Math.abs(g.m[0]) * (x1 - x0), Math.abs(g.m[3]) * (y1 - y0));
+      if (small && ink > 0.66 * size) {
+        const k = (0.6 * size) / ink;
+        const ox = g.m[0] * (x0 + x1) / 2 + g.m[4];
+        const oy = g.m[3] * (y0 + y1) / 2 + g.m[5];
+        g.m = [g.m[0] * k, g.m[1], g.m[2], g.m[3] * k, ox + (g.m[4] - ox) * k, oy + (g.m[5] - oy) * k];
+      }
+    }
     boxes.push(...per);
     return;
   }
