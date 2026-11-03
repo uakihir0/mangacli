@@ -9,7 +9,8 @@ export interface Profile {
   width?: number;
   height?: number;
   scale?: number;
-  crop: "trim" | "bleed";
+  crop: "trim" | "bleed" | "marks";
+  marks?: { margin?: number; length?: number; width?: number };
   toneRendering: "dots" | "flat" | "auto";
   print: boolean;
   draft?: boolean;

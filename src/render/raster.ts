@@ -13,7 +13,8 @@ export type ToneRendering = "dots" | "flat" | "auto";
 
 export interface RasterOptions {
   dpi: number;
-  crop: "trim" | "bleed";
+  crop: "trim" | "bleed" | "marks";
+  marks?: { margin?: number; length?: number; width?: number };
   colorMode: ColorMode;
   toneRendering: ToneRendering;
   monoLpi: number;
@@ -143,6 +144,55 @@ function toneFlatColor(spec: ToneSpec, color: RGBA, mode: ColorMode): string {
   return cssColor({ r: mix(c.r), g: mix(c.g), b: mix(c.b), a: 1 });
 }
 
+/** Japanese-style crop marks (トンボ): double corner marks on the trim and bleed lines, center crosses (spec 10.6) */
+function drawCropMarks(ctx: SKRSContext2D, trim: { x: number; y: number; w: number; h: number }, bleedPx: number, s: number, m?: { length?: number; width?: number }) {
+  const L = (m?.length ?? 9) * s;
+  const lw = Math.max(1, (m?.width ?? 0.1) * s);
+  ctx.save();
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = lw;
+  ctx.lineCap = "butt";
+  const line = (x0: number, y0: number, x1: number, y1: number) => {
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+  };
+  const b = bleedPx;
+  const x0 = trim.x;
+  const y0 = trim.y;
+  const x1 = trim.x + trim.w;
+  const y1 = trim.y + trim.h;
+  for (const [cx, cy, dx, dy] of [
+    [x0, y0, -1, -1],
+    [x1, y0, 1, -1],
+    [x0, y1, -1, 1],
+    [x1, y1, 1, 1],
+  ] as const) {
+    const ox = cx + dx * b;
+    const oy = cy + dy * b;
+    // horizontal: on the trim line and on the bleed line, outside the bleed
+    line(ox, cy, ox + dx * L, cy);
+    line(cx, oy, cx + dx * (b + L), oy);
+    // vertical
+    line(cx, oy, cx, oy + dy * L);
+    line(ox, cy, ox, cy + dy * (b + L));
+  }
+  const mx = (x0 + x1) / 2;
+  const my = (y0 + y1) / 2;
+  const c = L * 0.5;
+  // center marks
+  line(mx, y0 - b, mx, y0 - b - L);
+  line(mx - c, y0 - b - L * 0.5, mx + c, y0 - b - L * 0.5);
+  line(mx, y1 + b, mx, y1 + b + L);
+  line(mx - c, y1 + b + L * 0.5, mx + c, y1 + b + L * 0.5);
+  line(x0 - b, my, x0 - b - L, my);
+  line(x0 - b - L * 0.5, my - c, x0 - b - L * 0.5, my + c);
+  line(x1 + b, my, x1 + b + L, my);
+  line(x1 + b + L * 0.5, my - c, x1 + b + L * 0.5, my + c);
+  ctx.restore();
+}
+
 export class RasterBackend {
   constructor(private opts: RasterOptions) {}
 
@@ -154,7 +204,10 @@ export class RasterBackend {
     const bleed = -list.boxes.bleed.x;
     const trimPxW = Math.round(trimW * s + 1e-6);
     const trimPxH = Math.round(trimH * s + 1e-6);
-    const bleedPx = o.crop === "bleed" ? Math.round(bleed * s + 1e-6) : 0;
+    const bleedOnly = o.crop === "bleed" || o.crop === "marks" ? Math.round(bleed * s + 1e-6) : 0;
+    const markMm = o.marks?.margin ?? 10;
+    const markPx = o.crop === "marks" ? Math.round(markMm * s + 1e-6) : 0;
+    const bleedPx = bleedOnly + markPx;
     const W = trimPxW + 2 * bleedPx;
     const H = trimPxH + 2 * bleedPx;
     if (W * H > 200_000_000) throw new Error(`OUTPUT_TOO_LARGE: ${W}x${H}`);
@@ -169,7 +222,16 @@ export class RasterBackend {
       ctx.fillRect(0, 0, W, H);
     }
     const dev: Dev = { ctx, base, opts: o, scale: (sx + sy) / 2, W, H };
-    await this.drawNode(dev, list.root, base, canvas);
+    if (markPx) {
+      // artwork stops at the bleed line; the margin holds the crop marks
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(markPx, markPx, W - 2 * markPx, H - 2 * markPx);
+      ctx.clip();
+      await this.drawNode(dev, list.root, base, canvas);
+      ctx.restore();
+      drawCropMarks(ctx, { x: bleedPx, y: bleedPx, w: trimPxW, h: trimPxH }, bleedOnly, s, o.marks);
+    } else await this.drawNode(dev, list.root, base, canvas);
     const img = ctx.getImageData(0, 0, W, H);
     const data = img.data;
     if (o.colorMode === "mono") {

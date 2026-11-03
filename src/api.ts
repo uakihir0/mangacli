@@ -28,7 +28,7 @@ export interface RenderOptions {
   scale?: number;
   width?: number;
   height?: number;
-  crop?: "trim" | "bleed";
+  crop?: "trim" | "bleed" | "marks";
   toneRendering?: "dots" | "flat" | "auto";
   transparent?: boolean;
   separate?: string[] | Record<string, string[]> | "all" | false;
@@ -296,8 +296,9 @@ export async function render(input: MangaInput | Project, options: RenderOptions
       const crop = options.crop ?? prof.crop;
       const dpiFor = (geom: import("./layout/page.js").PageGeom) => {
         const sz = pageSize(page.settings, bag, page.path);
-        const cropW = crop === "bleed" ? geom.bleedBox.w : geom.trimW;
-        const cropH = crop === "bleed" ? geom.bleedBox.h : geom.trimH;
+        const markW = crop === "marks" ? 2 * (((prof as { marks?: { margin?: number } }).marks?.margin) ?? 10) : 0;
+        const cropW = crop === "bleed" || crop === "marks" ? geom.bleedBox.w + markW : geom.trimW;
+        const cropH = crop === "bleed" || crop === "marks" ? geom.bleedBox.h + markW : geom.trimH;
         let d: number;
         if (options.width || options.height) {
           const ws = options.width ? (options.width / cropW) * 25.4 : Infinity;
@@ -327,7 +328,7 @@ export async function render(input: MangaInput | Project, options: RenderOptions
       const seps = normalizeSeparations(options.separate ?? prof.separate);
       const runs: { name?: string; list?: string[] }[] = seps ? seps : [{}];
       for (const run of runs) {
-        const backend = new RasterBackend({ dpi, crop, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, toneCurve: prof.toneCurve ?? "linear", transparent: options.transparent ?? prof.transparent ?? !!run.list, separations: run.list, assets });
+        const backend = new RasterBackend({ dpi, crop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, toneCurve: prof.toneCurve ?? "linear", transparent: options.transparent ?? prof.transparent ?? !!run.list, separations: run.list, assets });
         const raster = await backend.render(list);
         if (options.debug) drawDebug(raster, list, info, dpi, crop, options.debug);
         for (const fmt of formats) {
@@ -391,7 +392,7 @@ function roundList(list: DisplayList): unknown {
 
 function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: number }, list: DisplayList, info: PageLayoutInfo, dpi: number, crop: string, layers: boolean | string[]) {
   const s = dpi / 25.4;
-  const off = crop === "bleed" ? list.boxes.bleed.x : 0;
+  const off = crop === "bleed" ? list.boxes.bleed.x : crop === "marks" ? list.boxes.bleed.x - 10 : 0;
   const want = (k: string) => layers === true || (Array.isArray(layers) && layers.includes(k));
   const put = (x: number, y: number, r: number, g: number, b: number) => {
     const px = Math.round((x - off) * s);
