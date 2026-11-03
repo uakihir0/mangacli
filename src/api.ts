@@ -22,6 +22,7 @@ import { type PageLayoutInfo, composePage } from "./render/compose.js";
 import type { DisplayList } from "./render/ir.js";
 import type { RElement, RPage } from "./model/resolve.js";
 import { RasterBackend } from "./render/raster.js";
+import { createCanvas } from "@napi-rs/canvas";
 import { renderSvg } from "./render/svg.js";
 import { type MangaPlugin, PluginSet, withPlugins } from "./plugin.js";
 import { BODY_GENERATORS } from "./shapes/balloon.js";
@@ -398,7 +399,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
     physical += span;
     if (!isBlank || countBlank) nombre += span;
   }
-  const formats = (Array.isArray(options.format ?? prof.format) ? (options.format ?? prof.format) : [options.format ?? prof.format]) as OutputFormat[];
+  // debug output is always colour PNG (the overlay is translucent)
+  const formats = (options.debug ? ["png"] : Array.isArray(options.format ?? prof.format) ? (options.format ?? prof.format) : [options.format ?? prof.format]) as OutputFormat[];
   const outDir = options.outDir ? resolvePath(options.outDir) : undefined;
   const nameTpl = options.name ?? (docOutput.name as string) ?? prof.name ?? "{name}-{page:03}";
   const emitted = new Set<string>();
@@ -653,37 +655,104 @@ function roundList(list: DisplayList): unknown {
   return JSON.parse(JSON.stringify(list, (_, v) => (typeof v === "number" ? Math.round(v * 1000) / 1000 : v)));
 }
 
+/** debug overlay (spec 10.11.1): boxes, panels with reading order, elements, text, balloons, order, grid */
 function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: number }, list: DisplayList, info: PageLayoutInfo, dpi: number, crop: string, layers: boolean | string[], markMargin = 10) {
   const s = dpi / 25.4;
   const off = crop === "bleed" ? list.boxes.bleed.x : crop === "marks" ? list.boxes.bleed.x - markMargin : 0;
   const want = (k: string) => layers === true || (Array.isArray(layers) && layers.includes(k));
-  const put = (x: number, y: number, r: number, g: number, b: number) => {
-    const px = Math.round((x - off) * s);
-    const py = Math.round((y - off) * s);
-    if (px < 0 || py < 0 || px >= raster.width || py >= raster.height) return;
-    const i = (py * raster.width + px) * 4;
-    raster.data[i] = (raster.data[i] + r) >> 1;
-    raster.data[i + 1] = (raster.data[i + 1] + g) >> 1;
-    raster.data[i + 2] = (raster.data[i + 2] + b) >> 1;
+  const cv = createCanvas(raster.width, raster.height);
+  const g = cv.getContext("2d");
+  const id = g.createImageData(raster.width, raster.height);
+  id.data.set(raster.data);
+  g.putImageData(id, 0, 0);
+  g.setTransform(s, 0, 0, s, -off * s, -off * s);
+  const lw = 0.6 / s;
+  const fontPx = Math.max(9, dpi / 12);
+  g.font = `${fontPx / s}px sans-serif`;
+  const rect = (r: { x: number; y: number; w: number; h: number }, c: string, dash?: number[]) => {
+    g.strokeStyle = c;
+    g.lineWidth = lw * 1.5;
+    g.setLineDash(dash ? dash.map((d) => d / s) : []);
+    g.strokeRect(r.x, r.y, r.w, r.h);
+    g.setLineDash([]);
   };
-  const rect = (r: { x: number; y: number; w: number; h: number }, c: [number, number, number]) => {
-    const step = 0.5 / s;
-    for (let x = r.x; x <= r.x + r.w; x += step) {
-      put(x, r.y, ...c);
-      put(x, r.y + r.h, ...c);
-    }
-    for (let y = r.y; y <= r.y + r.h; y += step) {
-      put(r.x, y, ...c);
-      put(r.x + r.w, y, ...c);
-    }
+  const label = (t: string, x: number, y: number, c: string) => {
+    g.fillStyle = "rgba(255,255,255,0.75)";
+    const w = g.measureText(t).width;
+    g.fillRect(x - 1 / s, y - fontPx / s, w + 2 / s, (fontPx * 1.25) / s);
+    g.fillStyle = c;
+    g.fillText(t, x, y);
   };
-  if (want("boxes")) {
-    rect(list.boxes.trim, [255, 0, 0]);
-    rect(list.boxes.baseFrame, [0, 160, 255]);
-    rect(list.boxes.safe, [0, 200, 0]);
+  if (want("grid")) {
+    g.strokeStyle = "rgba(0,120,255,0.25)";
+    g.lineWidth = lw;
+    for (let x = 0; x <= list.boxes.trim.w; x += 10) {
+      g.beginPath();
+      g.moveTo(x, list.boxes.bleed.y);
+      g.lineTo(x, list.boxes.bleed.y + list.boxes.bleed.h);
+      g.stroke();
+    }
+    for (let y = 0; y <= list.boxes.trim.h; y += 10) {
+      g.beginPath();
+      g.moveTo(list.boxes.bleed.x, y);
+      g.lineTo(list.boxes.bleed.x + list.boxes.bleed.w, y);
+      g.stroke();
+    }
   }
-  if (want("elements")) for (const e of info.elements) rect(e.bbox, [255, 0, 255]);
-  void computePageGeom;
+  if (want("boxes")) {
+    rect(list.boxes.bleed, "#ff9900", [4, 2]);
+    rect(list.boxes.trim, "#ff0000");
+    rect(list.boxes.baseFrame, "#00a0ff");
+    rect(list.boxes.safe, "#00c000", [2, 2]);
+  }
+  if (want("panels"))
+    for (const pn of info.panels) {
+      g.strokeStyle = "rgba(0,90,255,0.9)";
+      g.lineWidth = lw * 2;
+      g.beginPath();
+      pn.polygon.forEach((q, i) => (i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
+      g.closePath();
+      g.stroke();
+      label(`${pn.order}  ${pn.id}`, pn.box.x + 1.5, pn.box.y + 4, "#0050ff");
+    }
+  if (want("elements"))
+    for (const e of info.elements) {
+      rect(e.bbox, "rgba(255,0,255,0.8)");
+      label(e.id, e.bbox.x, e.bbox.y + e.bbox.h + 3, "#c000c0");
+    }
+  if (want("text") || want("balloons"))
+    for (const e of info.elements) if (e.type === "text" || e.type === "balloon" || e.type === "sfx") rect(e.bbox, e.type === "balloon" ? "rgba(0,170,0,0.9)" : "rgba(255,120,0,0.9)", [3, 2]);
+  if (want("order")) {
+    // reading order of balloons inside each panel
+    const byPanel = new Map<string, { x: number; y: number }[]>();
+    for (const t of info.transcript) {
+      const e = info.elements.find((x) => x.id === t.id);
+      if (!e || e.type !== "balloon") continue;
+      const k = t.panel ?? "page";
+      byPanel.set(k, [...(byPanel.get(k) ?? []), { x: e.bbox.x + e.bbox.w / 2, y: e.bbox.y + e.bbox.h / 2 }]);
+    }
+    g.strokeStyle = "rgba(255,0,0,0.85)";
+    g.fillStyle = "rgba(255,0,0,0.85)";
+    g.lineWidth = lw * 2;
+    for (const pts of byPanel.values())
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1];
+        const b2 = pts[i];
+        g.beginPath();
+        g.moveTo(a.x, a.y);
+        g.lineTo(b2.x, b2.y);
+        g.stroke();
+        const ang = Math.atan2(b2.y - a.y, b2.x - a.x);
+        const h = 2.2;
+        g.beginPath();
+        g.moveTo(b2.x, b2.y);
+        g.lineTo(b2.x - Math.cos(ang - 0.4) * h, b2.y - Math.sin(ang - 0.4) * h);
+        g.lineTo(b2.x - Math.cos(ang + 0.4) * h, b2.y - Math.sin(ang + 0.4) * h);
+        g.closePath();
+        g.fill();
+      }
+  }
+  raster.data.set(g.getImageData(0, 0, raster.width, raster.height).data);
 }
 
 export { DiagnosticBag };
