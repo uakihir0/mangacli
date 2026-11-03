@@ -6686,6 +6686,9 @@
         "widthScale": {
           "type": "number"
         },
+        "allowVertical": {
+          "type": "boolean"
+        },
         "bend": {
           "type": "number",
           "minimum": -1,

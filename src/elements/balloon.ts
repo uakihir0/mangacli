@@ -452,6 +452,22 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       const a = parseAngle((t.direction as string) ?? "100deg");
       dir = { x: Math.cos(a), y: Math.sin(a) };
     }
+    // manga tails leave the side of the balloon: one aimed (nearly) straight down or up is turned
+    // to the lower/upper left or right, by default toward the left
+    let clamped = false;
+    if (t.allowVertical !== true && !offSide && plan.params.kind !== "cloud") {
+      const a = Math.atan2(dir.y, dir.x);
+      const lim = (40 * Math.PI) / 180;
+      const fromDown = Math.abs(a - Math.PI / 2);
+      const fromUp = Math.abs(a + Math.PI / 2);
+      if (fromDown < lim || fromUp < lim) {
+        const down = fromDown < lim;
+        const left = dir.x <= Math.sin(lim) * 0.25;
+        const na = down ? (left ? Math.PI / 2 + lim : Math.PI / 2 - lim) : left ? -Math.PI / 2 - lim : -Math.PI / 2 + lim;
+        dir = { x: Math.cos(na), y: Math.sin(na) };
+        clamped = true;
+      }
+    }
     // root picks where the tail leaves the body; the tip still heads for the target / direction
     let rootDir = dir;
     if (t.root !== undefined && t.root !== "auto") {
@@ -461,7 +477,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     const hit = rayPolygon(center, rootDir, cur.pts);
     if (!hit) continue;
     const R = { x: center.x + rootDir.x * hit.t, y: center.y + rootDir.y * hit.t };
-    if (rootDir !== dir && target) {
+    if (rootDir !== dir && target && !clamped) {
       const d2 = { x: target.x - R.x, y: target.y - R.y };
       const l2 = Math.hypot(d2.x, d2.y) || 1;
       dir = { x: d2.x / l2, y: d2.y / l2 };
@@ -501,7 +517,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     if (offSide && target) length = Math.hypot(target.x - R.x, target.y - R.y);
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
-    const bw = (t.width !== undefined ? toMm(t.width as string, u) : Math.min(3.4 * u.k, Math.max(1.8 * u.k, minSide * 0.16)) * (kind === "zigzag" ? 1.2 : 1)) * widthScale;
+    const bw = (t.width !== undefined ? toMm(t.width as string, u) : Math.min(2.2 * u.k, Math.max(1.1 * u.k, minSide * 0.1)) * (kind === "zigzag" ? 1.5 : 1)) * widthScale;
     const bend = typeof t.bend === "number" ? t.bend : 0.1;
     const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : 0.12;
     const perp = { x: -dir.y, y: dir.x };

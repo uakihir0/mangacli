@@ -252,6 +252,7 @@ export const Tail = z
     gap: Length.optional(),
     width: Length.optional(),
     widthScale: z.number().optional(),
+    allowVertical: z.boolean().optional(),
     bend: z.number().min(-1).max(1).optional(),
     sideCurve: z.number().min(0).max(1).optional(),
     root: z.union([z.literal("auto"), Angle]).optional(),
