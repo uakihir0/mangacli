@@ -60,6 +60,8 @@ export interface RenderOptions {
   onProgress?: (e: { phase: string; pageId?: string; done: number; total: number }) => void;
   onDiagnostic?: (d: Diagnostic) => void;
   signal?: AbortSignal;
+  /** internal: compose only (validate / layout) */
+  layoutOnly?: boolean;
 }
 
 export interface RenderedPage {
@@ -116,7 +118,7 @@ export function load(input: MangaInput, options: RenderOptions = {}): Project {
   const doc = bag.hasErrors ? {} : normalizeDocument(loaded.data, bag);
   if (!bag.hasErrors) validateSchema(doc, bag);
   const meta = (doc.meta ?? {}) as Obj;
-  if (name === "manga" && typeof meta.title === "string") name = meta.title.replace(/[\\/:*?"<>|\s]+/g, "_");
+  if (typeof input !== "string" && !(input instanceof URL) && typeof meta.title === "string") name = meta.title.replace(/[\\/:*?"<>|\s]+/g, "_");
   return { loaded, doc, resolved: null, bag, name };
 }
 
@@ -173,7 +175,14 @@ function buildFonts(p: Project, o: RenderOptions): FontRegistry {
   addDefs(loc?.fonts as Obj);
   addDefs(o.fonts as Obj);
   const set = o.fontSet ?? (p.doc.fontSet as string) ?? (o.config?.fontSet as string) ?? "manga-basic";
-  return new FontRegistry(defs, set, o.fontFallback ?? (o.config?.fontFallback as string[]) ?? [], {
+  // global fallback entries may be font names or file paths
+  const fallback = (o.fontFallback ?? (o.config?.fontFallback as string[]) ?? []).map((f, i) => {
+    if (defs.has(f) || !/[./\\]/.test(f) || f.startsWith("catalog:")) return f;
+    const name = `__fallback${i}`;
+    defs.set(name, { kind: "file", path: resolvePath(o.baseDir ?? process.cwd(), f) });
+    return name;
+  });
+  return new FontRegistry(defs, set, fallback, {
     fontDownload: o.fontDownload,
     fontDir: o.fontDir,
     fontCacheDir: o.fontCacheDir,
@@ -305,6 +314,11 @@ export async function render(input: MangaInput | Project, options: RenderOptions
       const { list, info } = await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor });
       result.layout.push(info);
       if (bag.hasErrors && throwOnError) throw new MangaValidationError(bag.items);
+      if (options.layoutOnly) {
+        timings[page.id] = performance.now() - tp;
+        options.onProgress?.({ phase: "layout", pageId: page.id, done: ++done, total });
+        continue;
+      }
       const geom = info.geom;
       // resolution
       const intent = geom.color;
@@ -409,3 +423,25 @@ function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: num
 }
 
 export { DiagnosticBag };
+
+export interface ValidateResult {
+  ok: boolean;
+  diagnostics: Diagnostic[];
+  layout: PageLayoutInfo[];
+}
+
+/** schema validation plus layout (no rasterization): overflow, resolution, references (spec 12.3.2) */
+export async function validate(input: MangaInput | Project, options: RenderOptions = {}): Promise<ValidateResult> {
+  const r = await render(input, { ...options, outDir: undefined, emit: undefined, throwOnError: false, layoutOnly: true });
+  const strict = !!options.strict;
+  const ok = !r.diagnostics.some((d) => d.severity === "error" || (strict && d.severity === "warning")) && r.failures.length === 0;
+  return { ok, diagnostics: r.diagnostics, layout: r.layout };
+}
+
+/** render a single page (1-based index or page ID) */
+export async function renderPage(input: MangaInput | Project, page: number | string, options: RenderOptions = {}): Promise<RenderedPage> {
+  const r = await render(input, { ...options, pages: [page] });
+  const out = r.pages[0];
+  if (!out) throw new MangaError("RENDER_FAILED", `page ${page} produced no output`, r.diagnostics);
+  return out;
+}

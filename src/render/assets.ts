@@ -36,7 +36,8 @@ export class AssetRegistry {
     private missingMode: "error" | "placeholder",
   ) {}
 
-  async info(ref: string, path?: (string | number)[]): Promise<AssetInfo | null> {
+  /** `soft`: a placeholder is drawn on purpose, so a missing file is only informational */
+  async info(ref: string, path?: (string | number)[], soft = false): Promise<AssetInfo | null> {
     const hit = this.infos.get(ref);
     if (hit) return hit;
     const def = this.defs[ref];
@@ -48,7 +49,7 @@ export class AssetRegistry {
     } else if (this.inline[ref]) src = `inline:${ref}`;
     else if (looksLikePath(ref)) src = ref;
     else {
-      this.report(`unknown asset "${ref}"`, path);
+      this.report(`unknown asset "${ref}"`, path, soft);
       return this.missing(ref);
     }
     let data: Uint8Array | undefined = this.inline[ref] ?? (def && this.inline[String(def.src)]);
@@ -60,7 +61,7 @@ export class AssetRegistry {
         this.bag.error("SECURITY_NETWORK_DENIED", `network assets are disabled: ${src}`, { path });
         return this.missing(ref);
       } else if (!existsSync(src)) {
-        this.report(`asset file not found: ${src}`, path);
+        this.report(`asset file not found: ${src}`, path, soft);
         return this.missing(ref);
       } else data = readFileSync(src);
     }
@@ -92,8 +93,9 @@ export class AssetRegistry {
     return info;
   }
 
-  private report(msg: string, path?: (string | number)[]) {
-    if (this.missingMode === "placeholder") this.bag.warn("ASSET_NOT_FOUND", msg, { path });
+  private report(msg: string, path?: (string | number)[], soft = false) {
+    if (soft) this.bag.info("ASSET_NOT_FOUND", `${msg} (placeholder drawn)`, { path });
+    else if (this.missingMode === "placeholder") this.bag.warn("ASSET_NOT_FOUND", msg, { path });
     else this.bag.error("ASSET_NOT_FOUND", msg, { path });
   }
 

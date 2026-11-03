@@ -25,7 +25,7 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect):
   const pc = placeCtx(ctx, el);
   const placeholderLabel = typeof p.placeholder === "string" ? p.placeholder : undefined;
   const src = typeof p.src === "string" ? p.src : undefined;
-  let info = src ? await ctx.assets.info(src, [...el.path, "src"]) : null;
+  let info = src ? await ctx.assets.info(src, [...el.path, "src"], !!placeholderLabel) : null;
   if (!src && !placeholderLabel) ctx.bag.error("SCHEMA_REQUIRED", "image needs src or placeholder", { path: el.path });
   const isPlaceholder = !info || info.missing || !!placeholderLabel && !src;
   const iw = info?.width ?? 1000;
