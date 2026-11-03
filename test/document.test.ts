@@ -68,6 +68,18 @@ describe("rendering", () => {
     // IHDR bit depth
     expect(png[24]).toBe(1);
   });
+  it("writes PDF with trim and bleed boxes", async () => {
+    const r = await render(yaml(doc.replace("bleed: 0", "bleed: 3mm")), { profile: "print-mono", dpi: 100, format: "pdf" });
+    const pdf = Buffer.from(r.pages[0].data).toString("latin1");
+    expect(pdf.startsWith("%PDF-")).toBe(true);
+    expect(pdf).toMatch(/\/TrimBox \[8\.64 8\.64/);
+  });
+  it("writes SVG", async () => {
+    const r = await render(yaml(doc), { profile: "preview", format: "svg" });
+    const svg = Buffer.from(r.pages[0].data).toString("utf8");
+    expect(svg).toContain("<svg");
+    expect(svg).toContain('width="60mm"');
+  });
   it("throws on errors by default", async () => {
     await expect(render(yaml("mangacli: 1\npages:\n  - panels:\n      - layers:\n          - balloon: x\n            at: nowhere\n"))).rejects.toThrow();
   });
