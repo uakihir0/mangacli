@@ -384,6 +384,8 @@ export default definePlugin({
 | `backends` | 出力のバックエンド（新しい形式） |
 | `hooks` | 処理の段階ごとのフック（11.8.4） |
 
+現在の実装（engine 1）で使えるのは、`balloonShapes`（`outline`・`textArea`・`ruler`）、`effects`・`marks`（`draw` または `generate`）、`pens`、`handPresets`、`layoutTemplates`、`pageSizes`、`styles`、`hooks`（`afterLoad`・`afterResolve`・`beforeRender`・`afterRender`）である。`tailKinds`、`filters`、`elements`、リゾルバー、`backends`、`afterLayout` のフック、パラメータのスキーマの JSON Schema への取り込みは今後の拡張とする。組み込みの形状を厳密に検証するため、プラグインの形状のパラメータは、組み込みにない `kind` の場合にだけ受け付ける。
+
 ### 11.8.3 文脈（context）
 
 プラグインの関数には、決定性を保つための道具を文脈として渡す。プラグインは `Math.random()` や時刻を使ってはならない。
@@ -404,6 +406,8 @@ export default definePlugin({
 | `page`、`panel` | ページ・コマのレイアウト |
 | `units` | 単位の換算 |
 | `diagnostics.report(...)` | 診断を報告する |
+| `line(points, options)`、`shape(points, fill)`、`push(...nodes)` | 効果・漫符の `draw` で、手描きの線・閉じた図形（塗り付き）・任意のノードを描く（実装での簡便な形） |
+| `marks.draw(kind, { at, size, rotate })` | 漫符を描いたノードを返す（`at` は mm の点） |
 
 ### 11.8.4 フック
 

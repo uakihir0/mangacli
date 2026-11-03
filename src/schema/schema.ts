@@ -200,6 +200,9 @@ const typo = {
   lang: z.string().optional(),
 };
 
+const BUILTIN_SHAPES = new Set(["ellipse", "round-rect", "rect", "cloud", "spike", "burst", "wavy", "flash", "electronic", "polygon", "path", "none"]);
+const SHAPE_KEYS = new Set(["kind", "irregularity", "tilt", "squareness", "egg", "radius", "ruler", "join", "lobes", "lobeSize", "depth", "count", "angleJitter", "curve", "inner", "waves", "amplitude", "waveform", "secondary", "corners", "jag", "points", "d", "textArea", "lineLength", "thickness", "strokes"]);
+
 const ShapeObj = z
   .object({
     kind: z.string(),
@@ -230,7 +233,13 @@ const ShapeObj = z
     thickness: RangeOf(Length).optional(),
     strokes: z.union([z.number(), z.literal("auto")]).optional(),
   })
-  .strict();
+  .catchall(z.unknown())
+  .superRefine((v, ctx) => {
+    // built-in shapes are strict; plugin shapes (any other kind) take their own parameters
+    if (!BUILTIN_SHAPES.has(v.kind)) return;
+    const unknown = Object.keys(v).filter((k) => !SHAPE_KEYS.has(k));
+    if (unknown.length) ctx.addIssue({ code: "unrecognized_keys", keys: unknown, message: `unknown key(s) ${unknown.join(", ")}` } as never);
+  });
 
 export const Tail = z
   .object({

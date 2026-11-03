@@ -9,6 +9,8 @@ import { place, resolvePoint } from "../layout/place.js";
 import type { RElement } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolveStroke } from "../model/values.js";
 import type { Node, Paint } from "../render/ir.js";
+import { activePlugins } from "../plugin.js";
+import { runPluginDrawable } from "./plugindraw.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { fillNode, inksToNodes } from "./inkir.js";
 
@@ -324,8 +326,14 @@ export function renderMark(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
       m.shape(T(circle(0.4 * s, 28), c), { type: "solid", color: { r: 1, g: 1, b: 1, a: 1 } }, true);
       m.line(T([{ x: -0.15 * s, y: -0.12 * s }, { x: -0.05 * s, y: -0.22 * s }], c), { w: W(0.7) });
       break;
-    default:
+    default: {
+      const def = activePlugins()?.marks.get(kind);
+      if (def) {
+        const nodes = runPluginDrawable(def, el, ctx, { rng, hand, stroke, bounds: pl.bbox, center: c, size: s, contains: (q) => q.x >= pl.bbox.x && q.y >= pl.bbox.y && q.x <= pl.bbox.x + pl.bbox.w && q.y <= pl.bbox.y + pl.bbox.h });
+        return { nodes, bbox: pl.bbox };
+      }
       ctx.bag.error("SCHEMA_ENUM", `unknown mark kind "${kind}"`, { path: [...el.path, "kind"] });
+    }
   }
   const t = tag(el, "ink");
   const nodes: Node[] = [];

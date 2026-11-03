@@ -13,6 +13,7 @@ import { paintAvgLuminance, parsePaint, resolveHand, resolveStroke } from "../mo
 import type { Node, Paint } from "../render/ir.js";
 import polygonClipping from "polygon-clipping";
 import { BODY_GENERATORS, type BodyGeom, type ShapeParams } from "../shapes/balloon.js";
+import { Contour, type PluginBalloonShape, activePlugins } from "../plugin.js";
 import { type TextLayout, layoutText } from "../text/layout.js";
 import { type ElemCtx, tag } from "./context.js";
 import { fillNode, inksToNodes, polysToPath } from "./inkir.js";
@@ -70,12 +71,33 @@ function shapeParams(props: Obj, rng: Rng, hand: HandSpec, u: UnitContext): Shap
     strokes: s.strokes as ShapeParams["strokes"],
     join: s.join as ShapeParams["join"],
     ruler: s.ruler as boolean | undefined,
+    raw: s,
   };
 }
 
 function genBody(kind: string, w: number, h: number, p: ShapeParams, seed: number): BodyGeom {
-  const g = BODY_GENERATORS[kind] ?? BODY_GENERATORS.ellipse;
-  return g(w, h, p, seed);
+  const g = BODY_GENERATORS[kind];
+  if (g) return g(w, h, p, seed);
+  const plug = activePlugins()?.shapes.get(kind);
+  if (plug) return pluginBody(kind, plug, w, h, p, seed);
+  return BODY_GENERATORS.ellipse(w, h, p, seed);
+}
+
+/** balloon body from a plugin shape (spec 11.8) */
+function pluginBody(kind: string, def: PluginBalloonShape, w: number, h: number, p: ShapeParams, seed: number): BodyGeom {
+  const raw = (p.raw ?? {}) as Obj;
+  let params: Obj = raw;
+  if (def.params) {
+    const r = def.params.safeParse(raw);
+    if (r.success) params = { ...raw, ...(r.data as Obj) };
+  }
+  const sctx = { rng: new Rng(seed), irregularity: p.irregularity, contour: Contour };
+  const pts = (c: Contour | Vec[]) => (c instanceof Contour ? c.points : c);
+  let outline = pts(def.outline(sctx, params, { width: w, height: h }));
+  if (polygonArea(outline) < 0) outline = outline.slice().reverse();
+  let inner = def.textArea ? pts(def.textArea({ ...sctx, rng: new Rng(seed ^ 0x51) }, params, { width: w, height: h })) : outline.map((q) => ({ x: q.x * 0.7, y: q.y * 0.7 }));
+  if (polygonArea(inner) < 0) inner = inner.slice().reverse();
+  return { contour: { pts: outline, closed: true, smooth: true }, inner, kind, smooth: true, ruler: !!def.ruler };
 }
 
 /** Plan a balloon: layout text & fit body (no position yet). */
@@ -85,7 +107,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
   const rng = new Rng(el.seed);
   const hand = resolveHand(p.hand, u, ctx.draft);
   const params = shapeParams(p, rng, hand, u);
-  if (!BODY_GENERATORS[params.kind]) ctx.bag.error("SCHEMA_ENUM", `unknown balloon shape "${params.kind}"`, { path: [...el.path, "shape"] });
+  if (!BODY_GENERATORS[params.kind] && !activePlugins()?.shapes.has(params.kind)) ctx.bag.error("SCHEMA_ENUM", `unknown balloon shape "${params.kind}"`, { path: [...el.path, "shape"] });
   const shapeSeed = rng.nextU32();
   const text = textValue(p.text, ctx.lang, ctx.defaultLang, () => ctx.bag.warn("TEXT_MISSING_TRANSLATION", `no "${ctx.lang}" text`, { path: el.path, elementId: el.id }));
   const fill = parsePaint(p.fill ?? "paper", { u, box: { x: 0, y: 0, w: 10, h: 10 }, seed: el.seed, bag: ctx.bag, path: [...el.path, "fill"] });

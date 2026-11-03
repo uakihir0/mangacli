@@ -14,6 +14,11 @@ import { type PageLayoutInfo, composePage } from "./render/compose.js";
 import type { DisplayList } from "./render/ir.js";
 import { RasterBackend } from "./render/raster.js";
 import { renderSvg } from "./render/svg.js";
+import { type MangaPlugin, PluginSet, withPlugins } from "./plugin.js";
+import { BODY_GENERATORS } from "./shapes/balloon.js";
+import { HAND_PRESETS, PEN_PRESETS } from "./ink/presets.js";
+import { BUILTIN_STYLES, PAGE_PRESETS } from "./model/defaults.js";
+import { MARK_KINDS } from "./load/normalize.js";
 import { Document } from "./schema/schema.js";
 import { computePageGeom } from "./layout/page.js";
 import { pageSize } from "./layout/page.js";
@@ -63,6 +68,8 @@ export interface RenderOptions {
   onProgress?: (e: { phase: string; pageId?: string; done: number; total: number }) => void;
   onDiagnostic?: (d: Diagnostic) => void;
   signal?: AbortSignal;
+  /** plugins (spec 11.8); config plugins are added after these */
+  plugins?: MangaPlugin[];
   /** internal: compose only (validate / layout) */
   layoutOnly?: boolean;
   /** internal: keep display lists in the result */
@@ -106,6 +113,26 @@ export interface Project {
   name: string;
 }
 
+const BUILTIN_EFFECTS = new Set(["focus-lines", "beta-flash", "uni-flash", "speed-lines", "gloom-lines", "rain", "swirl-lines", "hatching", "impact", "vignette"]);
+const BUILTIN_TEMPLATES = new Set(["single", "grid", "tiers", "yonkoma", "hero-top", "hero-bottom"]);
+
+function pluginSetFor(o: RenderOptions, bag?: DiagnosticBag): PluginSet | undefined {
+  const list = [...(o.plugins ?? []), ...(((o.config?.plugins as MangaPlugin[] | undefined) ?? []).filter((x) => x && typeof x === "object"))];
+  if (!list.length) return undefined;
+  const set = new PluginSet(list, {
+    shapes: new Set(Object.keys(BODY_GENERATORS)),
+    effects: BUILTIN_EFFECTS,
+    marks: MARK_KINDS,
+    pens: new Set(Object.keys(PEN_PRESETS)),
+    hands: new Set(Object.keys(HAND_PRESETS)),
+    templates: BUILTIN_TEMPLATES,
+    pageSizes: new Set(Object.keys(PAGE_PRESETS)),
+    styles: new Set(Object.keys(BUILTIN_STYLES)),
+  });
+  for (const c of set.conflicts) bag?.error("PLUGIN_NAME_CONFLICT", c);
+  return set;
+}
+
 function isLoaded(x: unknown): x is LoadedDocument {
   return isObj(x) && "data" in x && "locate" in x && "files" in x;
 }
@@ -124,7 +151,9 @@ export function load(input: MangaInput, options: RenderOptions = {}): Project {
     loaded = loadDocumentFromString(input.yaml as string, (input.filename as string) ?? join(base, "<input>.yaml"), bag, options.root);
   } else loaded = loadDocumentFromObject(input as Obj, options.baseDir ?? options.root ?? process.cwd());
   bag.setLocator(loaded.locate);
-  const doc = bag.hasErrors ? {} : normalizeDocument(loaded.data, bag);
+  let doc = bag.hasErrors ? {} : normalizeDocument(loaded.data, bag);
+  const plugins = pluginSetFor(options, bag);
+  if (plugins && !bag.hasErrors) doc = plugins.hook("afterLoad", doc) as Obj;
   if (!bag.hasErrors) validateSchema(doc, bag);
   const meta = (doc.meta ?? {}) as Obj;
   if (typeof input !== "string" && !(input instanceof URL) && typeof meta.title === "string") name = meta.title.replace(/[\\/:*?"<>|\s]+/g, "_");
@@ -236,7 +265,12 @@ function fillName(tpl: string, vars: Record<string, string | number>): string {
 }
 
 export async function render(input: MangaInput | Project, options: RenderOptions = {}): Promise<RenderResult> {
+  return withPlugins(pluginSetFor(options), () => renderInner(input, options));
+}
+
+async function renderInner(input: MangaInput | Project, options: RenderOptions): Promise<RenderResult> {
   const t0 = performance.now();
+  const plugins = pluginSetFor(options);
   const given = typeof input === "object" && input !== null && !(input instanceof URL) && "bag" in input && "loaded" in input;
   // a Project can be rendered many times: each run reports into its own copy of the load diagnostics
   const p = given ? { ...(input as Project), bag: (input as Project).bag.fork() } : load(input as MangaInput, options);
@@ -261,7 +295,9 @@ export async function render(input: MangaInput | Project, options: RenderOptions
   const draft = options.draft ?? prof.draft ?? false;
   const lang = options.lang ?? ((p.doc.meta as Obj | undefined)?.lang as string) ?? "ja";
   const defaultLang = ((p.doc.meta as Obj | undefined)?.lang as string) ?? "ja";
-  const resolved = resolveDocument(p.doc, bag, { seedOverride: options.seed, lang, configDefaults: options.config?.defaults as Obj, configStyles: options.config?.styles as Record<string, Obj> });
+  const configStyles = { ...(plugins?.styles ?? {}), ...((options.config?.styles as Record<string, Obj>) ?? {}) };
+  let resolved = resolveDocument(p.doc, bag, { seedOverride: options.seed, lang, configDefaults: options.config?.defaults as Obj, configStyles });
+  if (plugins) resolved = plugins.hook("afterResolve", resolved) as typeof resolved;
   p.resolved = resolved;
   if (bag.hasErrors) return fail();
   const fonts = buildFonts(p, options);
@@ -327,7 +363,8 @@ export async function render(input: MangaInput | Project, options: RenderOptions
         if (draft && !options.dpi) d = Math.min(d, 150);
         return d;
       };
-      const { list, info } = await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor });
+      const { list: list0, info } = await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor });
+      const list = plugins ? (plugins.hook("beforeRender", list0) as DisplayList) : list0;
       result.layout.push(info);
       if (options.keepLists) (result.lists ??= []).push(list);
       if (bag.hasErrors && throwOnError) throw new MangaValidationError(bag.items);
@@ -346,7 +383,8 @@ export async function render(input: MangaInput | Project, options: RenderOptions
       for (const run of runs) {
         const backend = new RasterBackend({ dpi, crop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, toneCurve: prof.toneCurve ?? "linear", transparent: options.transparent ?? prof.transparent ?? !!run.list, separations: run.list, assets });
         const needRaster = formats.some((f) => f !== "svg");
-        const full = needRaster ? await backend.render(list) : { data: new Uint8ClampedArray(0), width: 0, height: 0, dpi };
+        let full = needRaster ? await backend.render(list) : { data: new Uint8ClampedArray(0), width: 0, height: 0, dpi };
+        if (plugins && needRaster) full = { ...full, ...(plugins.hook("afterRender", { data: full.data, width: full.width, height: full.height }) as object) };
         if (options.debug) drawDebug(full, list, info, dpi, crop, options.debug);
         // spreads: one joined image, or two pages each with bleed on all sides (spec 10.9)
         const spreadMode = options.spread ?? (docOutput.spread as "joined" | "split" | undefined) ?? prof.spread ?? "joined";

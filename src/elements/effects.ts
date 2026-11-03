@@ -10,8 +10,10 @@ import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
 import { resolvePoint } from "../layout/place.js";
 import type { RElement } from "../model/resolve.js";
-import { parsePaint, resolveHand, resolvePen } from "../model/values.js";
+import { parsePaint, resolveHand, resolvePen, resolveStroke } from "../model/values.js";
 import type { Node } from "../render/ir.js";
+import { activePlugins } from "../plugin.js";
+import { runPluginDrawable } from "./plugindraw.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { inksToNodes } from "./inkir.js";
 import { type ResolvedRegion, resolveRegion } from "./region.js";
@@ -599,8 +601,16 @@ export function renderEffect(el: RElement, ctx: ElemCtx): Node[] {
       return impact(f);
     case "vignette":
       return vignette(f);
-    default:
+    default: {
+      const def = activePlugins()?.effects.get(kind);
+      if (def) {
+        const stroke = resolveStroke(p.stroke ?? { width: "0.2bmm", color: p.color }, hand, ctx.u, ctx.bag, [...el.path, "stroke"]);
+        const b = region.bbox;
+        const nodes = runPluginDrawable(def, el, ctx, { rng: f.rng, hand, stroke, bounds: b, center: { x: b.x + b.w / 2, y: b.y + b.h / 2 }, size: Math.min(b.w, b.h), contains: (q) => region.contains(q) });
+        return wrap(f, nodes, backgroundNode(f));
+      }
       ctx.bag.error("SCHEMA_ENUM", `unknown effect kind "${kind}"`, { path: [...el.path, "kind"] });
       return [];
+    }
   }
 }

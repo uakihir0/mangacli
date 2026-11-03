@@ -7,6 +7,8 @@ import type { Corner, ShapeContour } from "../ink/shape.js";
 
 export interface ShapeParams {
   kind: string;
+  /** the shape object as written (for plugin shapes) */
+  raw?: Record<string, unknown>;
   irregularity: number;
   tilt: number; // radians (resolved)
   squareness?: number;

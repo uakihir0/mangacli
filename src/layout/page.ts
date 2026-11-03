@@ -1,4 +1,5 @@
 // Page geometry & panel layout (spec 4).
+import { activePlugins } from "../plugin.js";
 import type { DiagnosticBag } from "../core/diagnostics.js";
 import { type UnitContext, parseLength, quantityToMm, toMm } from "../core/units.js";
 import { polygonArea } from "../geom/path.js";
@@ -47,8 +48,10 @@ export function pageSize(settings: Obj, bag: DiagnosticBag, path: (string | numb
   const size = settings.size;
   if (typeof size === "string") {
     const p = PAGE_PRESETS[size];
-    if (!p) bag.error("SCHEMA_ENUM", `unknown page size "${size}"`, { path: [...path, "size"] });
-    else ({ w, h, unit } = p);
+    const plug = p ? undefined : activePlugins()?.pageSizes.get(size);
+    if (p) ({ w, h, unit } = p);
+    else if (plug) ({ width: w, height: h, unit = "mm" } = plug);
+    else bag.error("SCHEMA_ENUM", `unknown page size "${size}"`, { path: [...path, "size"] });
   } else if (Array.isArray(size)) {
     const a = parseLength(size[0] as string);
     const b = parseLength(size[1] as string);
@@ -576,8 +579,18 @@ function expandTemplate(name: string, params: Obj, page: RPage, bag: DiagnosticB
       const above = (params.above as number[]) ?? [1, 1];
       return { rows: [{ cols: above, height: 1 - ratio }, { cols: [1], height: ratio }] };
     }
-    default:
+    default: {
+      const tpl = activePlugins()?.templates.get(name);
+      if (tpl) {
+        try {
+          return tpl(params);
+        } catch (e) {
+          bag.error("PLUGIN_FAILED", `layout template "${name}": ${(e as Error).message}`, { path: [...page.path, "layout", "template"] });
+          return {};
+        }
+      }
       bag.error("SCHEMA_ENUM", `unknown layout template "${name}"`, { path: [...page.path, "layout", "template"] });
       return {};
+    }
   }
 }

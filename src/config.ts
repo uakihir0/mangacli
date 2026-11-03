@@ -88,6 +88,24 @@ export async function loadConfig(path: string): Promise<MangaConfig & { __file: 
     }
     out.fonts = f;
   }
+  if (Array.isArray(c.plugins)) {
+    // module specifiers are resolved relative to the config file
+    const plugins: unknown[] = [];
+    for (const pl of c.plugins) {
+      if (typeof pl !== "string") {
+        plugins.push(pl);
+        continue;
+      }
+      const spec = pl.startsWith(".") || pl.startsWith("/") ? pathToFileURL(resolve(base, pl)).href : pl;
+      try {
+        const mod = (await import(spec)) as { default?: unknown };
+        plugins.push(mod.default ?? mod);
+      } catch (e) {
+        throw new MangaError("PLUGIN_LOAD_FAILED", `cannot load plugin "${pl}": ${(e as Error).message}`);
+      }
+    }
+    out.plugins = plugins;
+  }
   if (c.fontFallback) out.fontFallback = c.fontFallback.map((p) => (/[./\\]/.test(p) && !p.startsWith("catalog:") ? resolve(base, p) : p));
   return out;
 }

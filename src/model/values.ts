@@ -5,6 +5,7 @@ import { type UnitContext, parseAngle, parsePercent, toMm } from "../core/units.
 import type { Rect } from "../geom/vec.js";
 import { HAND_PRESETS, type HandSpec, PEN_PRESETS, type PenSpec, handFromRoughness } from "../ink/presets.js";
 import type { LineStyle } from "../ink/shape.js";
+import { activePlugins } from "../plugin.js";
 import { isObj } from "../load/normalize.js";
 import type { DotShape, Paint, ToneSpec } from "../render/ir.js";
 
@@ -15,7 +16,11 @@ export function resolveHand(h: unknown, u: UnitContext, draft = false): HandSpec
   let base: HandSpec;
   if (draft) base = { ...HAND_PRESETS.sketch };
   else if (typeof o.roughness === "number") base = handFromRoughness(o.roughness);
-  else base = { ...(HAND_PRESETS[(o.preset as string) ?? "ink"] ?? HAND_PRESETS.ink) };
+  else {
+    const name = (o.preset as string) ?? "ink";
+    const custom = HAND_PRESETS[name] ? undefined : activePlugins()?.hands.get(name);
+    base = { ...(HAND_PRESETS[name] ?? HAND_PRESETS.ink), ...(custom ?? {}) } as HandSpec;
+  }
   const k = u.k;
   // scale lengths (B5-based)
   const s: HandSpec = {
@@ -66,7 +71,8 @@ export function resolveHand(h: unknown, u: UnitContext, draft = false): HandSpec
 export function resolvePen(p: unknown, u: UnitContext, handPen?: string): PenSpec {
   const o = (isObj(p) ? p : {}) as Obj;
   const name = handPen ?? (o.preset as string) ?? "g-pen";
-  const base = PEN_PRESETS[name] ?? PEN_PRESETS["g-pen"];
+  const custom = PEN_PRESETS[name] ? undefined : activePlugins()?.pens.get(name);
+  const base = PEN_PRESETS[name] ?? ({ ...PEN_PRESETS["g-pen"], ...(custom ?? {}), preset: name } as PenSpec);
   const k = u.k;
   const s: PenSpec = { ...base, taperIn: base.taperIn * k, taperOut: base.taperOut * k };
   if (handPen) return s;
