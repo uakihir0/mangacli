@@ -750,7 +750,9 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const tl = r.bbox;
     setCenter(pl, { x: tl.x - pl.outer.x, y: tl.y - pl.outer.y });
   }
-  const inset = 1.5 * u.k;
+  const apOf = (pl: BalloonPlan) => (isObj(pl.props.autoPlace) ? (pl.props.autoPlace as Obj) : {});
+  const ap0 = plans.map(apOf).find((a) => a.inset !== undefined);
+  const inset = ap0 ? toMm(ap0.inset as string, u) : 1.5 * u.k;
   let area = rectInset(panelBox, inset);
   // text must stay inside the safe area even in bled panels
   if (u.units !== "px") area = rectIntersect(area, geom.safe) ?? area;
@@ -793,6 +795,9 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const step = Math.max(1.5 * u.k, Math.min(area.w, area.h) / 28);
     let best: { c: Vec; cost: number } | null = null;
     const R = (w + h) / 4;
+    // cost weights (spec 6.12.2), overridable per balloon with autoPlace.weights
+    const W = { order: 120, start: 4, overlap: 50, avoid: 60, figure: 6, speaker: 1.5, tail: 4, top: 1, outside: 30, offscreen: 8, ...((apOf(pl).weights as Record<string, number> | undefined) ?? {}) };
+    const threshold = typeof apOf(pl).threshold === "number" ? (apOf(pl).threshold as number) : 25;
     for (let y = area.y + h / 2; y <= area.y + area.h - h / 2 + 0.01 || (area.h < h && y <= area.y + h / 2 + 0.01); y += step) {
       for (let x = area.x + w / 2; x <= area.x + area.w - w / 2 + 0.01 || (area.w < w && x <= area.x + w / 2 + 0.01); x += step) {
         const c = { x, y };
@@ -802,30 +807,30 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         const s = sOf(c, h);
         if (prevS === null) {
           const cornerX = rtl ? area.x + area.w : area.x;
-          cost += 4 * (Math.hypot((x - cornerX) / area.w, (y - area.y) / area.h));
-        } else cost += 120 * Math.max(0, prevS + 0.02 - s);
-        for (const pr of placedRects) cost += 50 * (rectOverlapArea(rect, pr) / A);
-        for (const ob of obstacles) cost += ob.w * (ob.ellipse ? ellipseOverlap(rect, ob.r) : rectOverlapArea(rect, ob.r) / A);
+          cost += W.start * Math.hypot((x - cornerX) / area.w, (y - area.y) / area.h);
+        } else cost += W.order * Math.max(0, prevS + 0.02 - s);
+        for (const pr of placedRects) cost += W.overlap * (rectOverlapArea(rect, pr) / A);
+        for (const ob of obstacles) cost += (ob.w === 60 ? W.avoid : ob.w) * (ob.ellipse ? ellipseOverlap(rect, ob.r) : rectOverlapArea(rect, ob.r) / A);
         for (const hr of hard) if (rectOverlapArea(rect, hr) > 0) cost += 1000;
-        if (sils.length) cost += 6 * silhouetteCover(rect, sils);
+        if (sils.length) cost += W.figure * silhouetteCover(rect, sils);
         if (speaker) {
           const d = Math.hypot(x - speaker.x, y - speaker.y);
-          cost += 1.5 * Math.abs(d / R - 1.6);
+          cost += W.speaker * Math.abs(d / R - 1.6);
           // tail path crossing other balloons
-          for (const pr of placedRects) if (segRect(c, speaker, pr)) cost += 4;
+          for (const pr of placedRects) if (segRect(c, speaker, pr)) cost += W.tail;
         }
-        cost += 1.0 * ((y - area.y) / Math.max(1, area.h));
+        cost += W.top * ((y - area.y) / Math.max(1, area.h));
         if (offSide) {
           const dEdge = offSide === "right" ? area.x + area.w - (x + w / 2) : offSide === "left" ? x - w / 2 - area.x : offSide === "top" ? y - h / 2 - area.y : area.y + area.h - (y + h / 2);
-          cost += 8 * Math.max(0, dEdge) / Math.max(1, offSide === "left" || offSide === "right" ? area.w : area.h);
+          cost += W.offscreen * Math.max(0, dEdge) / Math.max(1, offSide === "left" || offSide === "right" ? area.w : area.h);
         }
         const inside = rectIntersect(rect, area);
-        cost += 30 * (1 - (inside ? inside.w * inside.h : 0) / A);
+        cost += W.outside * (1 - (inside ? inside.w * inside.h : 0) / A);
         if (!best || cost < best.cost - 1e-9) best = { c, cost };
       }
     }
     if (!best) best = { c: center(area), cost: 999 };
-    if (best.cost > 25) ctx.bag.warn("BALLOON_NO_SPACE", `no good position for balloon ${pl.el.id}`, { path: pl.el.path, elementId: pl.el.id });
+    if (best.cost > threshold) ctx.bag.warn("BALLOON_NO_SPACE", `no good position for balloon ${pl.el.id}`, { path: pl.el.path, elementId: pl.el.id });
     setCenter(pl, { x: best.c.x - (pl.outer.x + w / 2), y: best.c.y - (pl.outer.y + h / 2) });
     prevS = sOf(best.c, h);
   }
