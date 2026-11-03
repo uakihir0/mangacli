@@ -9,9 +9,11 @@
 | [sns-color-yonkoma.yaml](sns-color-yonkoma.yaml) | SNS 投稿用のカラー 4 コマ（1080 × 1350 px）。px 単位、色・グラデーションの塗り、4 コマのテンプレート | P0・P1 |
 
 - フォントはカタログのものを使うため、初回のレンダリング時に自動でダウンロードする。事前に取得する場合は `npx mangacli fonts install --for docs/examples/b5-mono.yaml` を実行する。
-- サンプルが参照する素材のファイルは、リポジトリには含めない。実装時に、再配布できるライセンスの素材を `docs/examples/assets/` に用意する。
-- 素材がない状態でも、ドラフトモードで構成を確認できる。
+- `assets/` の画像は、`scripts/make-sample-assets.ts` で生成した簡単な仮の絵（本プロジェクトと同じ MIT）。自分の絵に差し替えて使う。
+- 描画結果は [../images](../images) にある。
 
 ```bash
-npx mangacli render docs/examples/b5-mono.yaml --draft
+npx mangacli render docs/examples/b5-mono.yaml                 # ドキュメントの output の設定で出力
+npx mangacli render docs/examples/b5-mono.yaml -p print-mono   # 入稿用の 600 dpi・2 値
+npx mangacli render docs/examples/b5-mono.yaml --draft         # 高速な下描き。素材がなければプレースホルダー
 ```

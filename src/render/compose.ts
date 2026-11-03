@@ -14,7 +14,7 @@ import { renderSfx, renderText } from "../elements/textel.js";
 import { textValue } from "../elements/textstyle.js";
 import type { FontRegistry } from "../fonts/registry.js";
 import { polyPath, smoothPath } from "../geom/path.js";
-import { type Rect, type Vec, boundsOf, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
+import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
 import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
@@ -167,7 +167,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       }
     }
     // place balloons
-    placeBalloons(plans.map((p) => p.plan), ctx, refs, processed);
+    placeBalloons(plans.map((p) => p.plan), ctx, refs, processed, await silhouettes(refs, ctx));
     const consumed = new Set<string>();
     const byId = new Map(plans.map((x) => [x.plan.el.id, x]));
     for (const { plan, idx } of plans) {
@@ -601,7 +601,51 @@ function renderScatter(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect 
 
 // ---- balloon placement ------------------------------------------------------------
 
-function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, processed: Map<string, { bbox: Rect }>) {
+interface Silhouette {
+  inv: Matrix;
+  w: number;
+  h: number;
+  gw: number;
+  gh: number;
+  alpha: Uint8Array;
+}
+
+/** coarse alpha maps of the panel's character art: balloons prefer not to cover the figures */
+async function silhouettes(refs: RefRegistry, ctx: ElemCtx): Promise<Silhouette[]> {
+  const out: Silhouette[] = [];
+  const pid = ctx.panel?.panel.id;
+  for (const t of refs.all()) {
+    if (t.type !== "image" || !t.imagePx || (pid && t.panelId !== pid) || !t.character) continue;
+    const { w, h, matrix, assetKey } = t.imagePx;
+    const gh = 64;
+    const gw = Math.max(8, Math.round((gh * w) / h));
+    const px = await ctx.assets.pixels(assetKey, gw, gh, { x: 0, y: 0, w, h });
+    if (!px) continue;
+    const alpha = new Uint8Array(px.width * px.height);
+    for (let i = 0; i < alpha.length; i++) alpha[i] = px.data[i * 4 + 3];
+    out.push({ inv: invertMat(matrix), w, h, gw: px.width, gh: px.height, alpha });
+  }
+  return out;
+}
+
+function silhouetteCover(r: Rect, sils: Silhouette[]): number {
+  let cov = 0;
+  for (const s of sils) {
+    let hit = 0;
+    const N = 5;
+    for (let j = 0; j < N; j++)
+      for (let i = 0; i < N; i++) {
+        const q = applyMat(s.inv, { x: r.x + (r.w * (i + 0.5)) / N, y: r.y + (r.h * (j + 0.5)) / N });
+        const gx = Math.floor((q.x / s.w) * s.gw);
+        const gy = Math.floor((q.y / s.h) * s.gh);
+        if (gx >= 0 && gy >= 0 && gx < s.gw && gy < s.gh && s.alpha[gy * s.gw + gx] > 128) hit++;
+      }
+    cov += hit / (N * N);
+  }
+  return Math.min(1, cov);
+}
+
+function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, processed: Map<string, { bbox: Rect }>, sils: Silhouette[] = []) {
   const u = ctx.u;
   const geom = ctx.geom;
   const rtl = geom.rtl;
@@ -685,6 +729,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         for (const pr of placedRects) cost += 50 * (rectOverlapArea(rect, pr) / A);
         for (const ob of obstacles) cost += ob.w * (rectOverlapArea(rect, ob.r) / A);
         for (const hr of hard) if (rectOverlapArea(rect, hr) > 0) cost += 1000;
+        if (sils.length) cost += 6 * silhouetteCover(rect, sils);
         if (speaker) {
           const d = Math.hypot(x - speaker.x, y - speaker.y);
           cost += 1.5 * Math.abs(d / R - 1.6);
