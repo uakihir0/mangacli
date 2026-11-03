@@ -172,6 +172,7 @@ passes:
 | `thickness` | Range | `{ min: 0.1mm, max: 0.4mm, dist: low }` | 線幅 |
 | `taper` | `both` \| `start` \| `end` \| `none` | `both` | 細くする端 |
 | `align` | `random` \| `start` \| `end` \| `center` | `random` | 線の並び。`start` は進行方向の後ろ側の端をそろえる、`end` は前側の端をそろえる |
+| `fade` | 数値 | 帯の領域（`region: { band }`）で線が帯に沿う場合 `0.45`、それ以外 `0` | 帯の開いた側（コマの内側）の、この割合の幅で線をまばらに・短くし、帯の境目が罫線のように見えないようにする |
 | `cluster` | 0〜1 | `0.4` | 束の強さ |
 | `ruler` | 真偽値 | `true` | 定規で引いた直線 |
 
