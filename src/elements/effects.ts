@@ -240,6 +240,7 @@ function betaFlash(f: FxCtx): Node[] {
 // ---- uni flash ---------------------------------------------------------------
 
 function uniFlash(f: FxCtx): Node[] {
+  const ufTaper = (f.p.taper as string) ?? "both";
   const p = f.p;
   const b = f.region.bbox;
   const pc = placeCtx(f.ctx, f.el);
@@ -268,7 +269,7 @@ function uniFlash(f: FxCtx): Node[] {
       if (ro <= ri + 0.5 * f.k) continue;
       const w = sampleR(f, th);
       const len = ro - ri;
-      inks.push(...inkLine([{ x: c.x + d.x * ro, y: c.y + d.y * ro }, { x: c.x + d.x * ri, y: c.y + d.y * ri }], lineStyle(f, w), f.hand, f.rng.fork("uf"), { ruler: true, taperIn: true, taperOut: true, taperInLen: len * (1 - peak), taperOutLen: len * peak, resolution: Math.max(0.2, w), inkPool: false }));
+      inks.push(...inkLine([{ x: c.x + d.x * ro, y: c.y + d.y * ro }, { x: c.x + d.x * ri, y: c.y + d.y * ri }], lineStyle(f, w), f.hand, f.rng.fork("uf"), { ruler: true, taperIn: ufTaper !== "out" && ufTaper !== "none", taperOut: ufTaper !== "in" && ufTaper !== "none", taperInLen: len * (1 - peak), taperOutLen: len * peak, resolution: Math.max(0.2, w), inkPool: false }));
     }
   }
   const pre: Node[] = [];
@@ -365,7 +366,7 @@ function gloomLines(f: FxCtx): InkPoly[] {
     const len = sampleR(f, lenR);
     const w = sampleR(f, th);
     const y0 = b.y - 1 * f.k;
-    out.push(...inkLine([{ x, y: y0 }, { x: x + f.rng.range(-0.15, 0.15) * f.k, y: y0 + len }], lineStyle(f, w), f.hand, f.rng.fork("gl"), { ruler: true, taperIn: false, taperOut: true, taperOutLen: len * 0.6, resolution: Math.max(0.3, w), inkPool: false }));
+    out.push(...inkLine([{ x, y: y0 }, { x: x + f.rng.range(-0.15, 0.15) * f.k, y: y0 + len }], lineStyle(f, w), f.hand, f.rng.fork("gl"), { ruler: true, taperIn: (p.taper as string) === "both", taperOut: true, taperInLen: len * 0.15, taperOutLen: len * 0.6, resolution: Math.max(0.3, w), inkPool: false }));
     x += sampleR(f, sp);
   }
   return out;
