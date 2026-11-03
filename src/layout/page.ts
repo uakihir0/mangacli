@@ -2,6 +2,7 @@
 import { activePlugins } from "../plugin.js";
 import type { DiagnosticBag } from "../core/diagnostics.js";
 import { type UnitContext, parseLength, quantityToMm, toMm } from "../core/units.js";
+import polygonClipping from "polygon-clipping";
 import { polygonArea } from "../geom/path.js";
 import { type Rect, type Vec, boundsOf, rectIntersect } from "../geom/vec.js";
 import { isObj } from "../load/normalize.js";
@@ -295,6 +296,18 @@ export function layoutPanels(page: RPage, geom: PageGeom, bag: DiagnosticBag): P
     leaves = splitTree(layoutObj, rectPoly(area), gCol, gRow, rtl, u);
   } else if (mode === "free") {
     leaves = slotPanels.map((p) => ({ poly: freePoly(p, geom, area, u) }));
+    // free panels that overlap (overlays are meant to)
+    for (let i = 0; i < leaves.length; i++)
+      for (let j = i + 1; j < leaves.length; j++) {
+        const ring = (q: Vec[]) => [[...q.map((v) => [v.x, v.y] as [number, number]), [q[0].x, q[0].y] as [number, number]]];
+        try {
+          const ov = polygonClipping.intersection(ring(leaves[i].poly), ring(leaves[j].poly));
+          const a = ov.reduce((acc, pl) => acc + Math.abs(polygonArea(pl[0].map(([x, y]) => ({ x, y })))), 0);
+          if (a > 1) bag.warn("LAYOUT_PANELS_OVERLAP", `panels ${slotPanels[i].id} and ${slotPanels[j].id} overlap`, { path: slotPanels[j].path, pageId: page.id });
+        } catch {
+          /* ignore */
+        }
+      }
   } else {
     leaves = [{ poly: rectPoly(area) }];
     if (slotPanels.length > 1) bag.error("LAYOUT_TOO_MANY_PANELS", `${slotPanels.length} panels but layout has 1 slot`, { path: page.path, pageId: page.id });
@@ -460,7 +473,9 @@ function makePanelGeom(p: RPanel, poly0: Vec[], geom: PageGeom, area: Rect, bag:
   let poly = poly0.slice();
   if (polygonArea(poly) < 0) poly.reverse();
   const bb0 = boundsOf(poly);
-  if (poly.length < 3 || bb0.w < 5 * geom.k || bb0.h < 5 * geom.k) bag.error("LAYOUT_DEGENERATE_PANEL", `panel ${p.id} is too small or degenerate`, { path: p.path });
+  // slivers: too small, or too thin for its size (area against the bounding box)
+  const areaP = Math.abs(polygonArea(poly));
+  if (poly.length < 3 || bb0.w < 5 * geom.k || bb0.h < 5 * geom.k || areaP < 25 * geom.k * geom.k || areaP < 0.12 * bb0.w * bb0.h) bag.error("LAYOUT_DEGENERATE_PANEL", `panel ${p.id} is too small or degenerate`, { path: p.path });
   // edge sides
   const eps = 0.01;
   const sideOfEdge = (a: Vec, b: Vec): string | null => {

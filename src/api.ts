@@ -197,6 +197,15 @@ function validateSchema(doc: Obj, bag: DiagnosticBag) {
     bag.error("SCHEMA_UNSUPPORTED_VERSION", `unsupported schema version ${String(doc.mangacli)}`, { path: ["mangacli"] });
     return;
   }
+  // mutually exclusive keys (spec 4.1.1, 6.2)
+  const walk = (v: unknown, path: (string | number)[]) => {
+    if (Array.isArray(v)) return v.forEach((x, i) => walk(x, [...path, i]));
+    if (!isObj(v)) return;
+    if ("tail" in v && "tails" in v) bag.error("SCHEMA_EXCLUSIVE", `"tail" and "tails" cannot be used together`, { path: [...path, "tails"] });
+    if (path[path.length - 1] === "baseFrame" && "size" in v && "margins" in v) bag.error("SCHEMA_EXCLUSIVE", `baseFrame takes either "size" or "margins"`, { path: [...path, "margins"] });
+    for (const [k, x] of Object.entries(v)) walk(x, [...path, k]);
+  };
+  walk(doc, []);
   const r = Document.safeParse(doc);
   if (r.success) return;
   for (const iss of r.error.issues.slice(0, 100)) {
