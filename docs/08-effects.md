@@ -496,6 +496,7 @@ paint: { pattern: { asset: flower-tone, scale: 0.5, rotate: 15deg, offset: [0, 0
 | `itemRotate` | Range | `[-20deg, 20deg]` | 各項目の回転 |
 | `orient` | `random` \| `radial` \| `tangent` | `random` | 向きの決め方（`radial` は範囲の中心から外向き） |
 | `minDistance` | Length | `0` | 最小の間隔（ポアソンディスク分布） |
+| `avoidBalloons` | 真偽値 | `true` | コマの吹き出しの外接矩形（1.5 bmm 広げる）を避ける。散らした要素は領域から全体がはみ出さない位置に置く |
 | `avoid` | Region[] | - | 置かない範囲 |
 | `falloff` | `{ from, to }` | - | 中心からの距離による密度の変化 |
 

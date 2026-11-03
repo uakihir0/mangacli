@@ -791,11 +791,14 @@ function renderScatter(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect 
   let tries = 0;
   // items stay whole inside the region (and clear of avoided areas): test a ring around the point
   const rad = Math.max(0, ...items.map((i) => (i.size !== undefined && !Array.isArray(i.size) ? toMm(i.size as string, u) : 4 * u.k) * (i.asset ? 0.75 : 0.5))) * sc[1];
+  const balloonBoxes = ctx.refs.all().filter((t) => t.type === "balloon" && (!ctx.panel || t.panelId === ctx.panel.panel.id)).map((t) => rectInset(t.bbox, -1.5 * u.k));
   const ring = (q: Vec) => [q, ...Array.from({ length: 8 }, (_, k) => ({ x: q.x + Math.cos((k * Math.PI) / 4) * rad, y: q.y + Math.sin((k * Math.PI) / 4) * rad }))];
   while (placed.length < count && tries++ < count * 40) {
     const q = { x: b.x + rng.next() * b.w, y: b.y + rng.next() * b.h };
     const rq = ring(q);
     if (!rq.every((v) => reg.contains(v)) || avoid.some((a) => rq.some((v) => a.contains(v)))) continue;
+    // scattered marks keep clear of the balloons
+    if (p.avoidBalloons !== false && rq.some((v) => balloonBoxes.some((bb) => v.x > bb.x && v.x < bb.x + bb.w && v.y > bb.y && v.y < bb.y + bb.h))) continue;
     if (isObj(p.falloff)) {
       // density from the centre (from) to the edge (to)
       const fo = p.falloff as Obj;
