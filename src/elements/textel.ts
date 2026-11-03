@@ -118,7 +118,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const u = ctx.u;
   const style = resolveTextStyle({ ...p, wrap: "none", maxChars: undefined, punctCompress: "none", tcy: p.tcy ?? "none" }, u, ctx.lang, false, el.seed);
   const text = textValue(p.text, ctx.lang, ctx.defaultLang).replace(/\n/g, "");
-  const tl = layoutText(text, { ...style, lettering: null }, ctx.fonts);
+  const tl = layoutText(text, { ...style, lettering: null, smallKanaFix: false }, ctx.fonts);
   reportText(tl, el, ctx);
   const em = style.fontSize;
   const rng = new Rng(el.seed);

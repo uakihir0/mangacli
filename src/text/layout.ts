@@ -13,6 +13,8 @@ export interface TextStyle {
   writing: "vertical" | "horizontal";
   /** uppercase: all caps (western comic lettering) */
   textTransform?: "uppercase" | "none";
+  /** move/reduce small kana that a font sets centred and full size (off for SFX lettering) */
+  smallKanaFix?: boolean;
   lineHeight: number; // multiplier
   lineHeightAbs?: number; // mm
   letterSpacing: number; // em
@@ -528,7 +530,7 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
     fitDashes(per, true);
     // fonts without vertical forms for small kana and 、。 get them moved toward the upper right
     // (judged from where the glyph's ink actually sits: some fonts map them to centred forms)
-    for (const b of per) {
+    for (const b of style.smallKanaFix === false ? [] : per) {
       const small = SMALL_KANA.has(b.chars);
       if ((!small && !VERT_PUNCT.has(b.chars)) || b.glyphs.length !== 1) continue;
       const g = b.glyphs[0];
