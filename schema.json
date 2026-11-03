@@ -4425,7 +4425,14 @@
                       "$ref": "#/$defs/__schema37"
                     },
                     "size": {
-                      "$ref": "#/$defs/__schema38"
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/__schema0"
+                        },
+                        {
+                          "$ref": "#/$defs/__schema39"
+                        }
+                      ]
                     },
                     "rotate": {
                       "$ref": "#/$defs/__schema41"
