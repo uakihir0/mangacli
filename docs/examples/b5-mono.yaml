@@ -267,4 +267,4 @@ pages:
         text: あっ
         who: hanako
         at: [30%, 41%]
-        tail: { direction: 120deg, length: 7mm }
+        tail: { direction: 255deg, length: 6mm }

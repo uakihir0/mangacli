@@ -949,7 +949,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const speaker = who && !offSide ? refs.point(who, pid) : null;
     const R = (w + h) / 4;
     // cost weights (spec 6.12.2), overridable per balloon with autoPlace.weights
-    const W = { order: 120, rise: 30, start: 4, overlap: 50, avoid: 60, figure: 6, speaker: 1.5, tail: 4, top: 1, outside: 30, offscreen: 8, ...((apOf(pl).weights as Record<string, number> | undefined) ?? {}) };
+    const W = { order: 120, rise: 30, start: 4, overlap: 50, avoid: 60, figure: 12, speaker: 1.5, tail: 4, top: 1, outside: 30, offscreen: 8, ...((apOf(pl).weights as Record<string, number> | undefined) ?? {}) };
     // the parts of the cost that do not depend on the other balloons are computed once
     const cells: { c: Vec; rect: Rect; base: number; s: number }[] = [];
     for (let y = area.y + h / 2; y <= area.y + area.h - h / 2 + 0.01 || (area.h < h && y <= area.y + h / 2 + 0.01); y += step) {
