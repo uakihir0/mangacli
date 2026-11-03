@@ -18,7 +18,7 @@ import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, rectIn
 import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
-import { type PageGeom, type PanelGeom, bookOf, computePageGeom, layoutPanels } from "../layout/page.js";
+import { type PageGeom, type PanelGeom, bookOf, computePageGeom, layoutPanels, xyCutOrder } from "../layout/page.js";
 import { RefRegistry, center, place, resolvePoint, sizeValue } from "../layout/place.js";
 import type { RElement, RPage, ResolvedDoc } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolvePen, resolveStroke } from "../model/values.js";
@@ -888,69 +888,77 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   let area = rectInset(panelBox, inset);
   // text must stay inside the safe area even in bled panels
   if (u.units !== "px") area = rectIntersect(area, geom.safe) ?? area;
-  let prevS: number | null = null;
   // reading position of a balloon from its top edge: mostly top-to-bottom, then right-to-left (rtl)
+  // (a diagonal flow: 1 mm further along the line counts as 1 mm lower, normalised by the area size)
   const sOf = (c: Vec, h: number) => {
-    const xn = (c.x - area.x) / Math.max(1, area.w);
-    const yn = (c.y - h / 2 - area.y) / Math.max(1, area.h);
-    return 0.8 * yn + (rtl ? -0.2 : 0.2) * xn;
+    const xr = rtl ? area.x + area.w - c.x : c.x - area.x;
+    const yt = c.y - h / 2 - area.y;
+    return (yt + xr) / Math.max(1, area.w + area.h);
   };
-  // flow cursor
-  let flowX = rtl ? area.x + area.w : area.x;
-  let flowY = area.y;
-  let rowH = 0;
+  // the balloons are placed in list order, keeping several partial layouts (a beam): a greedy
+  // choice for one balloon must not leave the later ones without a place in reading order
+  interface BeamState {
+    rects: Rect[];
+    prevS: number | null;
+    centers: Map<BalloonPlan, Vec>;
+    costs: Map<BalloonPlan, number>;
+    total: number;
+    flowX: number;
+    flowY: number;
+    rowH: number;
+  }
+  const BEAM = 6;
+  let beam: BeamState[] = [{ rects: placedRects.slice(), prevS: null, centers: new Map(), costs: new Map(), total: 0, flowX: rtl ? area.x + area.w : area.x, flowY: area.y, rowH: 0 }];
+  const step = Math.max(1.5 * u.k, Math.min(area.w, area.h) / 28);
   for (const pl of plans) {
+    const w = pl.outer.w;
+    const h = pl.outer.h;
+    const next: BeamState[] = [];
     if (pl.explicit) {
-      prevS = sOf({ x: pl.center!.x + pl.outer.x + pl.outer.w / 2, y: pl.center!.y + pl.outer.y + pl.outer.h / 2 }, pl.outer.h);
+      const ps = sOf({ x: pl.center!.x + pl.outer.x + w / 2, y: pl.center!.y + pl.outer.y + h / 2 }, h);
+      for (const st of beam) next.push({ ...st, prevS: ps });
+      beam = next;
       continue;
     }
     const mode = isObj(pl.props.autoPlace) ? ((pl.props.autoPlace as Obj).mode as string) ?? "auto" : (pl.props.autoPlace as string) ?? "auto";
-    const w = pl.outer.w;
-    const h = pl.outer.h;
     if (mode === "flow") {
-      if ((rtl ? flowX - w < area.x : flowX + w > area.x + area.w) && rowH > 0) {
-        flowX = rtl ? area.x + area.w : area.x;
-        flowY += rowH + 1 * u.k;
-        rowH = 0;
+      for (const st0 of beam) {
+        const st = { ...st0, rects: st0.rects.slice(), centers: new Map(st0.centers), costs: new Map(st0.costs) };
+        if ((rtl ? st.flowX - w < area.x : st.flowX + w > area.x + area.w) && st.rowH > 0) {
+          st.flowX = rtl ? area.x + area.w : area.x;
+          st.flowY += st.rowH + 1 * u.k;
+          st.rowH = 0;
+        }
+        const cx = rtl ? st.flowX - w / 2 : st.flowX + w / 2;
+        const cy = st.flowY + h / 2;
+        st.centers.set(pl, { x: cx, y: cy });
+        st.rects.push({ x: cx - w / 2, y: cy - h / 2, w, h });
+        st.flowX += rtl ? -(w + 1 * u.k) : w + 1 * u.k;
+        st.rowH = Math.max(st.rowH, h);
+        st.prevS = sOf({ x: cx, y: cy }, h);
+        next.push(st);
       }
-      const cx = rtl ? flowX - w / 2 : flowX + w / 2;
-      const cy = flowY + h / 2;
-      setCenter(pl, { x: cx - (pl.outer.x + w / 2), y: cy - (pl.outer.y + h / 2) });
-      flowX += rtl ? -(w + 1 * u.k) : w + 1 * u.k;
-      rowH = Math.max(rowH, h);
-      prevS = sOf({ x: cx, y: cy }, h);
+      beam = next;
       continue;
     }
     const who = pl.props.who as string | undefined;
     const offSide = isObj(pl.props.tail) ? ((pl.props.tail as Obj).offscreen as string | undefined) : undefined;
     const speaker = who && !offSide ? refs.point(who, pid) : null;
-    const step = Math.max(1.5 * u.k, Math.min(area.w, area.h) / 28);
-    let best: { c: Vec; cost: number } | null = null;
     const R = (w + h) / 4;
     // cost weights (spec 6.12.2), overridable per balloon with autoPlace.weights
     const W = { order: 120, start: 4, overlap: 50, avoid: 60, figure: 6, speaker: 1.5, tail: 4, top: 1, outside: 30, offscreen: 8, ...((apOf(pl).weights as Record<string, number> | undefined) ?? {}) };
-    const threshold = typeof apOf(pl).threshold === "number" ? (apOf(pl).threshold as number) : 25;
+    // the parts of the cost that do not depend on the other balloons are computed once
+    const cells: { c: Vec; rect: Rect; base: number; s: number }[] = [];
     for (let y = area.y + h / 2; y <= area.y + area.h - h / 2 + 0.01 || (area.h < h && y <= area.y + h / 2 + 0.01); y += step) {
       for (let x = area.x + w / 2; x <= area.x + area.w - w / 2 + 0.01 || (area.w < w && x <= area.x + w / 2 + 0.01); x += step) {
         const c = { x, y };
         const rect = { x: x - w / 2, y: y - h / 2, w, h };
         const A = w * h;
         let cost = 0;
-        const s = sOf(c, h);
-        if (prevS === null) {
-          const cornerX = rtl ? area.x + area.w : area.x;
-          cost += W.start * Math.hypot((x - cornerX) / area.w, (y - area.y) / area.h);
-        } else cost += W.order * Math.max(0, prevS + 0.02 - s);
-        for (const pr of placedRects) cost += W.overlap * (rectOverlapArea(rect, pr) / A);
         for (const ob of obstacles) cost += (ob.w === 60 ? W.avoid : ob.w) * (ob.ellipse ? ellipseOverlap(rect, ob.r) : rectOverlapArea(rect, ob.r) / A);
         for (const hr of hard) if (rectOverlapArea(rect, hr) > 0) cost += 1000;
         if (sils.length) cost += W.figure * silhouetteCover(rect, sils);
-        if (speaker) {
-          const d = Math.hypot(x - speaker.x, y - speaker.y);
-          cost += W.speaker * Math.abs(d / R - 1.6);
-          // tail path crossing other balloons
-          for (const pr of placedRects) if (segRect(c, speaker, pr)) cost += W.tail;
-        }
+        if (speaker) cost += W.speaker * Math.abs(Math.hypot(x - speaker.x, y - speaker.y) / R - 1.6);
         cost += W.top * ((y - area.y) / Math.max(1, area.h));
         if (offSide) {
           const dEdge = offSide === "right" ? area.x + area.w - (x + w / 2) : offSide === "left" ? x - w / 2 - area.x : offSide === "top" ? y - h / 2 - area.y : area.y + area.h - (y + h / 2);
@@ -958,22 +966,62 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         }
         const inside = rectIntersect(rect, area);
         cost += W.outside * (1 - (inside ? inside.w * inside.h : 0) / A);
-        if (!best || cost < best.cost - 1e-9) best = { c, cost };
+        cells.push({ c, rect, base: cost, s: sOf(c, h) });
       }
     }
-    if (!best) best = { c: center(area), cost: 999 };
-    if (best.cost > threshold) ctx.bag.warn("BALLOON_NO_SPACE", `no good position for balloon ${pl.el.id}`, { path: pl.el.path, elementId: pl.el.id });
-    setCenter(pl, { x: best.c.x - (pl.outer.x + w / 2), y: best.c.y - (pl.outer.y + h / 2) });
-    prevS = sOf(best.c, h);
+    if (!cells.length) cells.push({ c: center(area), rect: { x: center(area).x - w / 2, y: center(area).y - h / 2, w, h }, base: 999, s: sOf(center(area), h) });
+    for (const st of beam) {
+      const scored = cells.map((cell) => {
+        let cost = cell.base;
+        if (st.prevS === null) {
+          const cornerX = rtl ? area.x + area.w : area.x;
+          cost += W.start * Math.hypot((cell.c.x - cornerX) / area.w, (cell.c.y - area.y) / area.h);
+        } else cost += W.order * Math.max(0, st.prevS + 0.02 - cell.s);
+        const A = w * h;
+        for (const pr of st.rects) cost += W.overlap * (rectOverlapArea(cell.rect, pr) / A);
+        // tail path crossing other balloons
+        if (speaker) for (const pr of st.rects) if (segRect(cell.c, speaker, pr)) cost += W.tail;
+        return { cell, cost };
+      });
+      scored.sort((p, q) => p.cost - q.cost);
+      // a few good and mutually distinct positions per partial layout
+      const picks: typeof scored = [];
+      for (const sc of scored) {
+        if (picks.length >= BEAM) break;
+        if (picks.some((pk) => Math.hypot(pk.cell.c.x - sc.cell.c.x, pk.cell.c.y - sc.cell.c.y) < step * 2.5)) continue;
+        picks.push(sc);
+      }
+      for (const pk of picks) {
+        const centers = new Map(st.centers);
+        centers.set(pl, pk.cell.c);
+        const costs = new Map(st.costs);
+        costs.set(pl, pk.cost);
+        next.push({ ...st, rects: [...st.rects, pk.cell.rect], prevS: pk.cell.s, centers, costs, total: st.total + pk.cost });
+      }
+    }
+    next.sort((p, q) => p.total - q.total);
+    beam = next.slice(0, BEAM);
+  }
+  const chosen = beam[0];
+  for (const pl of plans) {
+    const c = chosen?.centers.get(pl);
+    if (pl.explicit || !c) continue;
+    const threshold = typeof apOf(pl).threshold === "number" ? (apOf(pl).threshold as number) : 25;
+    if ((chosen.costs.get(pl) ?? 0) > threshold) ctx.bag.warn("BALLOON_NO_SPACE", `no good position for balloon ${pl.el.id}`, { path: pl.el.path, elementId: pl.el.id });
+    pl.center = { x: c.x - (pl.outer.x + pl.outer.w / 2), y: c.y - (pl.outer.y + pl.outer.h / 2) };
   }
   // reading-order and overlap checks over the final positions
   const rects = plans.filter((pl) => pl.center).map((pl) => ({ pl, r: { x: pl.center!.x + pl.outer.x, y: pl.center!.y + pl.outer.y, w: pl.outer.w, h: pl.outer.h } }));
-  for (let i = 1; i < rects.length; i++) {
-    const a = rects[i - 1];
-    const b = rects[i];
-    const sa = sOf({ x: a.r.x + a.r.w / 2, y: a.r.y + a.r.h / 2 }, a.r.h);
-    const sb = sOf({ x: b.r.x + b.r.w / 2, y: b.r.y + b.r.h / 2 }, b.r.h);
-    if (sb < sa - 0.08) ctx.bag.info("BALLOON_ORDER_MISMATCH", `balloon ${b.pl.el.id} reads before ${a.pl.el.id} by its position`, { path: b.pl.el.path, elementId: b.pl.el.id });
+  // the order a reader infers from the positions (XY-cut, spec 6.12.3) against the list order
+  const unlinked = rects.filter((r) => !r.pl.props.connect);
+  const seen = xyCutOrder(unlinked, (r) => r.r, rtl);
+  for (let i = 1; i < seen.length; i++) {
+    const a = unlinked.indexOf(seen[i - 1]);
+    const b = unlinked.indexOf(seen[i]);
+    if (b < a) {
+      ctx.bag.info("BALLOON_ORDER_MISMATCH", `balloon ${seen[i].pl.el.id} reads after ${seen[i - 1].pl.el.id} by its position`, { path: seen[i].pl.el.path, elementId: seen[i].pl.el.id });
+      break;
+    }
   }
   // a tail running to its speaker through another balloon
   const linked = new Set<string>();

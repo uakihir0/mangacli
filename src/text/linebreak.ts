@@ -46,7 +46,12 @@ const STARTS_KANJI = /^[一-鿿㐀-䶿々]/u;
 /** 連用形 of a single-kanji verb (吹き, 折り, 引き, 取り…) that forms compound verbs/nouns */
 const RENYOU = /^[一-鿿㐀-䶿々][きりちしいみひびけえぎじ]$/u;
 const PUNCT_START = /^[、。，．！？!?」』）】〉》…―ーっゃゅょぁぃぅぇぉッャュョァィゥェォ〜]/u;
-const PARTICLES = new Set(["は", "が", "を", "に", "で", "と", "も", "の", "へ", "や", "か", "ね", "よ", "な", "わ", "さ", "ぞ", "ぜ", "て", "た", "だ", "です", "ます", "でし", "まし", "から", "まで", "より", "けど", "って", "ので", "のに", "だけ", "しか", "ばかり", "など", "くらい", "ぐらい", "でも", "じゃ"]);
+const PARTICLES = new Set(["は", "が", "を", "に", "で", "と", "も", "の", "へ", "や", "か", "ね", "よ", "な", "わ", "さ", "ぞ", "ぜ", "て", "た", "だ", "です", "ます", "でし", "まし", "から", "まで", "より", "けど", "って", "ので", "のに", "だけ", "しか", "ばかり", "など", "くらい", "ぐらい", "でも", "じゃ", "なあ", "ねえ", "よね", "かな", "のよ", "わよ", "ん"]);
+
+/** hiragana words that start a phrase even right after a kanji word (今度|なんか, 明日|また) */
+const STANDALONE = new Set(["また", "まだ", "もう", "なんか", "なんて", "ちょっと", "とても", "すごく", "すごい", "いつも", "ずっと", "やっぱり", "やっぱ", "たぶん", "きっと", "もっと", "こんな", "そんな", "あんな", "どんな", "この", "その", "あの", "どの", "これ", "それ", "あれ", "どれ", "ここ", "そこ", "あそこ", "どこ", "いい", "よく", "みんな", "ほら", "ねえ", "おい", "ほんとに", "ほんと", "ぜんぜん", "なぜ", "どうして", "いま", "さっき", "あと", "まず", "ぜひ", "ただ", "ほぼ", "かなり"]);
+/** a separate hiragana word that reads as a verb in its plain form (おごる, あける) */
+const HIRA_VERB = /^[ぁ-ゟ]{2,}[るうくすつぬむぶぐ]$/u;
 
 /** auxiliaries that never start a phrase (いる|ない, 行き|ます) */
 const AUX = new Set(["ない", "なかっ", "なく", "なけれ", "ます", "まし", "ませ", "ません", "たい", "たかっ", "たく", "られ", "られる", "れる", "れ", "せる", "させ", "させる", "よう", "だろう", "でしょう", "らしい", "ちゃ", "じゃう", "ちゃう"]);
@@ -61,12 +66,17 @@ export function phraseBoundaries(text: string, lang = "ja"): Set<number> {
   for (const w of words) {
     const prev = phrases[phrases.length - 1];
     if (prev) {
+      // a word after punctuation always starts a new phrase; standalone words never attach
+      const afterPunct = /[、。，．！？!?…」』）]$/u.test(prev.s) && !PUNCT_START.test(w.s);
+      const free = STANDALONE.has(w.s) || (HIRA_VERB.test(w.s) && !AUX.has(w.s) && !PARTICLES.has(w.s));
       const attach =
-        PUNCT_START.test(w.s) ||
+        !afterPunct &&
+        (PUNCT_START.test(w.s) || w.s === "ん" ||
         // okurigana / particles after a kanji or katakana word
-        (HIRA.test(w.s) && ENDS_KANJI_KATA.test(prev.s)) ||
+        (HIRA.test(w.s) && ENDS_KANJI_KATA.test(prev.s) && !free) ||
+        // okurigana / particles after a kanji or katakana word
         // inflection and auxiliaries after an inflected word (入れる|と, 整え|ます, 返し|て)
-        (HIRA.test(w.s) && w.s.length <= 3 && HAS_KANJI.test(lastWord) && ENDS_HIRA.test(lastWord)) ||
+        (HIRA.test(w.s) && w.s.length <= 3 && HAS_KANJI.test(lastWord) && ENDS_HIRA.test(lastWord) && !free) ||
         // particles in hiragana-only text (これ|は)
         (HIRA.test(w.s) && HIRA.test(prev.s) && (PARTICLES.has(w.s) || w.s.length === 1)) ||
         (AUX.has(w.s) && !/\s$/.test(prev.s)) ||
@@ -79,7 +89,7 @@ export function phraseBoundaries(text: string, lang = "ja"): Set<number> {
         // split single kanji (角|丸)
         (KANJI_ONLY.test(w.s) && KANJI_ONLY.test(lastWord) && (w.s.length === 1 || lastWord.length === 1) && KANJI_ONLY.test(prev.s)) ||
         (/^[゠-ヿ]+$/u.test(w.s) && /[゠-ヿ]$/u.test(prev.s)) ||
-        (!/^\s+$/.test(prev.s) && /^[0-9,.]+$/.test(w.s) && /[0-9]$/.test(prev.s));
+        (!/^\s+$/.test(prev.s) && /^[0-9,.]+$/.test(w.s) && /[0-9]$/.test(prev.s)));
       if (attach) {
         const teChain = isTe(lastWord) && HIRA.test(w.s) && w.s.length <= 3;
         prev.s += w.s;

@@ -50,6 +50,9 @@ describe("line breaking", () => {
     expect(show("自動で折り返して形を整えます")).toBe("自動で|折り返して|形を|整えます");
     expect(show("まだ残ってるのか！")).toBe("まだ|残ってるのか！");
     expect(show("今日はいい天気ですね")).toBe("今日は|いい|天気ですね");
+    expect(show("今度なんかおごるから")).toBe("今度|なんか|おごるから");
+    expect(show("明日また来るね")).toBe("明日|また|来るね");
+    expect(show("いや、ないない")).toBe("いや、|ないない");
   });
   it("finds phrase boundaries", () => {
     const b = phraseBoundaries("今日はいい天気ですね");

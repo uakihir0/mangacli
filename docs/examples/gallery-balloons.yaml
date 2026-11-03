@@ -36,7 +36,7 @@ pages:
           - { balloon: うおおお！, as: shout, at: [50%, 42%], tail: { direction: 80deg } }
           - text: "shout (spike)"
       - layers:
-          - { balloon: ぎゃああ！！, as: scream, at: [50%, 42%], tail: { direction: 100deg } }
+          - { balloon: ぎゃああ！！, as: scream, at: [50%, 42%], maxSize: [90%, 85%], tail: { direction: 100deg } }
           - text: "scream (burst)"
       - layers:
           - { balloon: ひそひそ, as: whisper, at: [50%, 42%], tail: { direction: 110deg } }

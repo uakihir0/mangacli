@@ -549,9 +549,14 @@ function readingOrder(panels: PanelGeom[], mode: string, rtl: boolean): PanelGeo
 }
 
 function xyCut(ps: PanelGeom[], rtl: boolean): PanelGeom[] {
+  return xyCutOrder(ps, (p) => p.fullBox, rtl);
+}
+
+/** recursive XY-cut reading order of boxes (spec 4.11, 3.) — also used for balloons */
+export function xyCutOrder<T>(ps: T[], boxOf: (t: T) => Rect, rtl: boolean): T[] {
   if (ps.length <= 1) return ps.slice();
-  const tryCut = (horizontal: boolean): PanelGeom[][] | null => {
-    const iv = ps.map((p) => (horizontal ? [p.fullBox.y, p.fullBox.y + p.fullBox.h] : [p.fullBox.x, p.fullBox.x + p.fullBox.w]) as [number, number]).sort((a, b) => a[0] - b[0]);
+  const tryCut = (horizontal: boolean): T[][] | null => {
+    const iv = ps.map((p) => { const r = boxOf(p); return (horizontal ? [r.y, r.y + r.h] : [r.x, r.x + r.w]) as [number, number]; }).sort((a, b) => a[0] - b[0]);
     const cuts: number[] = [];
     let end = iv[0][1];
     for (let i = 1; i < iv.length; i++) {
@@ -559,9 +564,10 @@ function xyCut(ps: PanelGeom[], rtl: boolean): PanelGeom[] {
       end = Math.max(end, iv[i][1]);
     }
     if (!cuts.length) return null;
-    const groups: PanelGeom[][] = Array.from({ length: cuts.length + 1 }, () => []);
+    const groups: T[][] = Array.from({ length: cuts.length + 1 }, () => []);
     for (const p of ps) {
-      const c = horizontal ? p.fullBox.y + p.fullBox.h / 2 : p.fullBox.x + p.fullBox.w / 2;
+      const r = boxOf(p);
+      const c = horizontal ? r.y + r.h / 2 : r.x + r.w / 2;
       let gi = 0;
       while (gi < cuts.length && c > cuts[gi]) gi++;
       groups[gi].push(p);
@@ -569,12 +575,14 @@ function xyCut(ps: PanelGeom[], rtl: boolean): PanelGeom[] {
     return groups;
   };
   const h = tryCut(true);
-  if (h) return h.flatMap((g) => xyCut(g, rtl));
+  if (h) return h.flatMap((g) => xyCutOrder(g, boxOf, rtl));
   const v = tryCut(false);
-  if (v) return (rtl ? v.reverse() : v).flatMap((g) => xyCut(g, rtl));
-  return ps.slice().sort((a, b) => {
-    if (Math.abs(a.fullBox.y - b.fullBox.y) > 2) return a.fullBox.y - b.fullBox.y;
-    return rtl ? b.fullBox.x + b.fullBox.w - (a.fullBox.x + a.fullBox.w) : a.fullBox.x - b.fullBox.x;
+  if (v) return (rtl ? v.reverse() : v).flatMap((g) => xyCutOrder(g, boxOf, rtl));
+  return ps.slice().sort((p, q) => {
+    const a = boxOf(p);
+    const b = boxOf(q);
+    if (Math.abs(a.y - b.y) > 2) return a.y - b.y;
+    return rtl ? b.x + b.w - (a.x + a.w) : a.x - b.x;
   });
 }
 
