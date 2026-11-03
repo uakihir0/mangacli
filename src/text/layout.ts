@@ -24,7 +24,7 @@ export interface TextStyle {
   tcy: { digits: number; marks: boolean; latin: number } | null;
   latin: "auto" | "rotate" | "upright";
   ruby: { size: number; font?: string; position: "auto" | "right" | "left" | "over" | "under"; align?: "center" | "start"; overhang?: number };
-  emphasis: { mark: string; size: number };
+  emphasis: { mark: string; size: number; position?: "auto" | "right" | "left" | "over" | "under"; color?: string };
   lettering: LetteringSpec | null;
   markup: boolean;
   normalize: NormalizeOptions;
@@ -86,7 +86,7 @@ interface Box {
   nobr?: number;
   color?: string;
   bold?: boolean;
-  emph?: boolean;
+  emph?: boolean | string;
   startPhrase?: boolean;
   firstChar: string;
   lastChar: string;
@@ -677,24 +677,33 @@ function placeRuby(parsed: ParsedText, boxes: Box[], glyphs: GlyphOut[], style: 
 
 function placeEmphasis(boxes: Box[], glyphs: GlyphOut[], style: TextStyle, reg: FontRegistry, vertical: boolean) {
   const marks: Record<string, string> = { sesame: "﹅", "open-sesame": "﹆", dot: "・", circle: "○", "filled-circle": "●", triangle: "▲" };
-  const ch = marks[style.emphasis.mark] ?? "﹅";
   const size = style.fontSize * style.emphasis.size;
+  const pos = style.emphasis.position ?? "auto";
   for (const b of boxes as (Box & { _pos?: [number, number] })[]) {
     if (!b.emph || !b._pos || b.space || /^[、。，．「」『』（）！？!?…ー\s]$/.test(b.chars)) continue;
+    const ch = marks[typeof b.emph === "string" ? b.emph : style.emphasis.mark] ?? "﹅";
     const pk = reg.pick(style.font, ch.codePointAt(0)!);
     if (!pk) continue;
     const g = shape(pk.font, ch, "ltr", style.lang)[0];
-    const s = size / pk.font.upem;
+    let s = size / pk.font.upem;
     // center the mark's ink box on the target point (glyph metrics of ﹅ vary by font)
-    const raw = pathFromJson(glyphJson(pk.font, g.gid), [s, 0, 0, -s, 0, 0]);
-    const pts = flattenPath(raw).flatMap((q) => q.pts);
+    let raw = pathFromJson(glyphJson(pk.font, g.gid), [s, 0, 0, -s, 0, 0]);
+    let pts = flattenPath(raw).flatMap((q) => q.pts);
     if (!pts.length) continue;
-    const bb = boundsOf(pts);
-    const tx = vertical ? b._pos[0] + b.size / 2 + size * 0.6 : b._pos[0] + b.adv / 2;
-    const ty = vertical ? b._pos[1] + b.adv / 2 : b._pos[1] - b.size * 0.88 - size * 0.5;
+    let bb = boundsOf(pts);
+    // geometric marks are normalised to a common ink size (fonts draw ● much larger than ・)
+    if (ch !== "﹅" && ch !== "﹆") {
+      const k = (size * 0.42) / Math.max(1e-6, Math.max(bb.w, bb.h));
+      s *= k;
+      raw = pathFromJson(glyphJson(pk.font, g.gid), [s, 0, 0, -s, 0, 0]);
+      pts = flattenPath(raw).flatMap((q) => q.pts);
+      bb = boundsOf(pts);
+    }
+    const tx = vertical ? b._pos[0] + (pos === "left" ? -1 : 1) * (b.size / 2 + size * 0.6) : b._pos[0] + b.adv / 2;
+    const ty = vertical ? b._pos[1] + b.adv / 2 : pos === "under" ? b._pos[1] + b.size * 0.12 + size * 0.6 : b._pos[1] - b.size * 0.88 - size * 0.5;
     const dx = tx - (bb.x + bb.w / 2);
     const dy = ty - (bb.y + bb.h / 2);
-    glyphs.push({ path: pathFromJson(glyphJson(pk.font, g.gid), [s, 0, 0, -s, dx, dy]), unit: b.units[0], cx: tx, cy: ty });
+    glyphs.push({ path: pathFromJson(glyphJson(pk.font, g.gid), [s, 0, 0, -s, dx, dy]), unit: b.units[0], cx: tx, cy: ty, color: style.emphasis.color ?? b.color });
   }
 }
 

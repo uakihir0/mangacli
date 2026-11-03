@@ -18,7 +18,7 @@ export interface InlineStyle {
 }
 
 export type Unit =
-  | { kind: "char"; ch: string; style: InlineStyle; emph?: boolean; ruby?: number; tcyGroup?: number; nobr?: number }
+  | { kind: "char"; ch: string; style: InlineStyle; emph?: boolean | string; ruby?: number; tcyGroup?: number; nobr?: number }
   | { kind: "break" }
   | { kind: "wbr" }
   | { kind: "space"; em: number; style: InlineStyle };
@@ -80,7 +80,7 @@ export function parseMarkup(input: string, opts: { markup?: boolean; normalize?:
   const styleStack: { name: string; style: InlineStyle }[] = [];
   const cur = (): InlineStyle => Object.assign({}, ...styleStack.map((s) => s.style));
   let nobrCounter = 0;
-  let emph = false;
+  let emph: boolean | string = false;
   let i = 0;
   let literal = "";
   const flush = () => {
@@ -241,7 +241,8 @@ export function parseMarkup(input: string, opts: { markup?: boolean; normalize?:
           st.hand = true;
           break;
         case "em":
-          emph = true;
+          // <em mark=dot> chooses the mark for this span
+          emph = val ?? attrs.mark ?? true;
           break;
         case "scale":
           st.scaleX = attrs.x ? parseFloat(attrs.x) : val ? parseFloat(val) : 1;
@@ -262,7 +263,7 @@ export function parseMarkup(input: string, opts: { markup?: boolean; normalize?:
   return finish(out, norm, opts.vertical);
 }
 
-function pushChar(out: ParsedText, g: string, style: InlineStyle, emph = false) {
+function pushChar(out: ParsedText, g: string, style: InlineStyle, emph: boolean | string = false) {
   if (g === "\n") out.units.push({ kind: "break" });
   else out.units.push({ kind: "char", ch: g, style, emph: emph || undefined });
 }
