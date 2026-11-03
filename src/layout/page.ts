@@ -577,8 +577,14 @@ function expandTemplate(name: string, params: Obj, page: RPage, bag: DiagnosticB
     }
     case "yonkoma": {
       const count = Number(params.count ?? 4);
-      const rows: Obj[] = Array.from({ length: count }, () => ({ cols: [1], height: 1 }));
       const tflag = params.title === "false" ? false : !!params.title;
+      if (Number(params.columns ?? 1) === 2) {
+        // two strips side by side, read in the book's direction; the title spans both
+        const strip = { split: "rows", children: Array.from({ length: count }, () => "panel") };
+        const body = { split: "cols", gutter: params.columnGap ?? "8bmm", children: [strip, strip] };
+        return tflag ? { split: "rows", sizes: [Number(params.titleHeight ?? 0.32), count], children: [{ panel: `${page.id}-title` }, body] } : body;
+      }
+      const rows: Obj[] = Array.from({ length: count }, () => ({ cols: [1], height: 1 }));
       if (tflag) rows.unshift({ cols: [1], height: params.titleHeight ?? 0.32, __title: true });
       return { rows, __yonkomaTitle: tflag };
     }
