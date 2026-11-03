@@ -43,8 +43,8 @@ export interface GradientStop {
 export type Paint =
   | { type: "solid"; color: RGBA }
   | { type: "tone"; tone: ToneSpec; color: RGBA }
-  | { type: "linear-gradient"; x0: number; y0: number; x1: number; y1: number; stops: GradientStop[] }
-  | { type: "radial-gradient"; cx: number; cy: number; r: number; stops: GradientStop[] };
+  | { type: "linear-gradient"; x0: number; y0: number; x1: number; y1: number; stops: GradientStop[]; screen?: "am" | "spatter" }
+  | { type: "radial-gradient"; cx: number; cy: number; r: number; stops: GradientStop[]; screen?: "am" | "spatter" };
 
 export interface NodeTag {
   elementId: string;

@@ -593,7 +593,7 @@ function vignette(f: FxCtx): Node[] {
     // four edge bands fading from the ground colour into the picture
     const bandW = width * (0.6 + soft * 0.8);
     const tr0 = { ...color, a: 0 };
-    const band = (q: Vec[], x0: number, y0: number, x1: number, y1: number): Node => ({ kind: "path", path: polyPath(q, true), fillRule: "nonzero", paint: { type: "linear-gradient", x0, y0, x1, y1, stops: [{ offset: 0, color }, { offset: 1, color: tr0 }] }, tag: tag(f.el, "fill") });
+    const band = (q: Vec[], x0: number, y0: number, x1: number, y1: number): Node => ({ kind: "path", path: polyPath(q, true), fillRule: "nonzero", paint: { type: "linear-gradient", x0, y0, x1, y1, stops: [{ offset: 0, color }, { offset: 1, color: tr0 }], screen: (p.screen as "am" | "spatter") ?? "am" }, tag: tag(f.el, "fill") });
     const X0 = b.x;
     const Y0 = b.y;
     const X1 = b.x + b.w;
@@ -610,7 +610,7 @@ function vignette(f: FxCtx): Node[] {
   const t0 = innerR / r;
   const tr = { ...color, a: 0 };
   const stops = [{ offset: Math.max(0, t0 - soft * 0.2), color: tr }, { offset: Math.min(1, t0 + (1 - t0) * (1 - soft * 0.5)), color }, { offset: 1, color }];
-  const node: Node = { kind: "group", transform: [b.w / Math.max(b.w, b.h) * 1.1, 0, 0, b.h / Math.max(b.w, b.h) * 1.1, cx * (1 - (b.w / Math.max(b.w, b.h)) * 1.1), cy * (1 - (b.h / Math.max(b.w, b.h)) * 1.1)], children: [{ kind: "path", path: polyPath([{ x: cx - r * 2, y: cy - r * 2 }, { x: cx + r * 2, y: cy - r * 2 }, { x: cx + r * 2, y: cy + r * 2 }, { x: cx - r * 2, y: cy + r * 2 }], true), fillRule: "nonzero", paint: { type: "radial-gradient", cx, cy, r, stops }, tag: tag(f.el, "fill") }], tag: tag(f.el, "fill") };
+  const node: Node = { kind: "group", transform: [b.w / Math.max(b.w, b.h) * 1.1, 0, 0, b.h / Math.max(b.w, b.h) * 1.1, cx * (1 - (b.w / Math.max(b.w, b.h)) * 1.1), cy * (1 - (b.h / Math.max(b.w, b.h)) * 1.1)], children: [{ kind: "path", path: polyPath([{ x: cx - r * 2, y: cy - r * 2 }, { x: cx + r * 2, y: cy - r * 2 }, { x: cx + r * 2, y: cy + r * 2 }, { x: cx - r * 2, y: cy + r * 2 }], true), fillRule: "nonzero", paint: { type: "radial-gradient", cx, cy, r, stops, screen: (p.screen as "am" | "spatter") ?? "am" }, tag: tag(f.el, "fill") }], tag: tag(f.el, "fill") };
   return wrap(f, [node]);
 }
 

@@ -454,7 +454,9 @@ export class RasterBackend {
       color = p.color;
     } else {
       // mono conversion of gray/gradient fills: screen luminance
-      spec = { density: 0, lpi: dev.opts.monoLpi, angle: Math.PI / 4, dot: "round", grain: 0.08, invert: false, offset: [0, 0], seed: 3 };
+      // spatter: irregular white-ink specks instead of a regular dot screen
+      const spatter = (p.type === "linear-gradient" || p.type === "radial-gradient") && p.screen === "spatter";
+      spec = { density: 0, lpi: dev.opts.monoLpi, angle: Math.PI / 4, dot: spatter ? "noise" : "round", grain: spatter ? 0.18 : 0.08, invert: false, offset: [0, 0], seed: 3 };
       const off0 = createCanvas(r.w, r.h);
       const o0 = off0.getContext("2d");
       setM(o0, matMul([1, 0, 0, 1, -r.x, -r.y], m));
