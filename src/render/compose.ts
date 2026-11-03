@@ -18,7 +18,7 @@ import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, rectIn
 import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
-import { type PageGeom, type PanelGeom, computePageGeom, layoutPanels } from "../layout/page.js";
+import { type PageGeom, type PanelGeom, bookOf, computePageGeom, layoutPanels } from "../layout/page.js";
 import { RefRegistry, center, place } from "../layout/place.js";
 import type { RElement, RPage, ResolvedDoc } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolveStroke } from "../model/values.js";
@@ -94,7 +94,7 @@ async function prepareFonts(page: RPage, o: ComposeOptions) {
 
 export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: number, o: ComposeOptions): Promise<{ list: DisplayList; info: PageLayoutInfo }> {
   const bag = o.bag;
-  const book = (doc.doc.book ?? {}) as Obj;
+  const book = bookOf(doc.doc);
   const geom = computePageGeom(page, physicalIndex, book, bag);
   const u = geom.units;
   const panels = page.type === "blank" ? [] : layoutPanels(page, geom, bag);
@@ -357,27 +357,30 @@ function offsetConvex(poly: Vec[], d: number): Vec[] {
 function borderNodes(pg: PanelGeom, poly: Vec[], shaped: boolean, geom: PageGeom, bag: DiagnosticBag): Node[] {
   const u = geom.units;
   const p = pg.panel.props;
-  const b = (p.border ?? {}) as Obj;
-  if (b.style === "none") return [];
-  const hand = resolveHand(p.hand, u);
-  const st = resolveStroke(b, hand, u, bag, [...pg.panel.path, "border"]);
-  if (st.style === "none" || st.width <= 0) return [];
-  st.pen = { ...st.pen, cap: "flat" };
+  const b0 = (p.border ?? {}) as Obj;
+  if (b0.style === "none" && !isObj(b0.sides)) return [];
+  const hand0 = resolveHand(p.hand, u);
   const rng = new Rng(pg.panel.seed);
   const t = { elementId: pg.panel.id, elementType: "panel", role: "frame" as const, separation: "frame" };
-  const ruler = b.ruler !== false;
+  const nodes: Node[] = [];
+  const resolveB = (b: Obj, path: (string | number)[]) => {
+    const hand = isObj(b.hand) ? resolveHand(b.hand, u) : hand0;
+    const st = resolveStroke(b, hand, u, bag, path);
+    st.pen = { ...st.pen, cap: "flat" };
+    return { b, hand, st, style: (b.style as string) ?? "solid" };
+  };
+  const main = resolveB(b0, [...pg.panel.path, "border"]);
   if (shaped) {
-    const res = inkShape({ pts: poly, closed: true, smooth: true }, { line: st, hand, rng, ruler: false });
-    return inksToNodes(res.inks, st.color, t);
+    if (main.style === "none" || main.st.width <= 0) return [];
+    const res = inkShape({ pts: poly, closed: true, smooth: true }, { line: main.st, hand: main.hand, rng, ruler: false });
+    return inksToNodes(res.inks, main.st.color, t);
   }
-  const join = (b.join as string) ?? "clean";
-  const inks: InkPoly[] = [];
   const n = pg.polygon.length;
-  const allDrawn = pg.bledSides.length === 0;
-  if (allDrawn && st.style !== "solid") {
-    const res = inkShape({ pts: pg.polygon, closed: true, corners: pg.polygon.map((_, i) => ({ index: i, kind: "convex" as const })) }, { line: st, hand, rng, ruler, join: join as "clean" });
-    return inksToNodes(res.inks, st.color, t);
-  }
+  // interior direction for each edge (inner lines of double borders, blur bands)
+  const cx = pg.polygon.reduce((a, q) => a + q.x, 0) / n;
+  const cy = pg.polygon.reduce((a, q) => a + q.y, 0) / n;
+  const sideName = (d: Vec, nrm: Vec) => (Math.abs(d.x) >= Math.abs(d.y) ? (nrm.y > 0 ? "top" : "bottom") : nrm.x > 0 ? "left" : "right");
+  const L = (v: unknown, fb: string) => toMm((v as string) ?? fb, u);
   for (let i = 0; i < n; i++) {
     const a = pg.polygon[i];
     const c = pg.polygon[(i + 1) % n];
@@ -386,6 +389,16 @@ function borderNodes(pg: PanelGeom, poly: Vec[], shaped: boolean, geom: PageGeom
     const d = { x: c.x - a.x, y: c.y - a.y };
     const l = Math.hypot(d.x, d.y) || 1;
     const dir = { x: d.x / l, y: d.y / l };
+    let nrm = { x: -dir.y, y: dir.x };
+    if (nrm.x * (cx - a.x) + nrm.y * (cy - a.y) < 0) nrm = { x: -nrm.x, y: -nrm.y };
+    // per-side overrides (spec 4.9 sides)
+    const sides = isObj(b0.sides) ? (b0.sides as Obj) : {};
+    const sv = sides[sideName(dir, nrm)];
+    const E = sv === undefined ? main : sv === "none" ? null : resolveB({ ...b0, ...(isObj(sv) ? sv : {}), sides: undefined }, [...pg.panel.path, "border", "sides"]);
+    if (!E || E.style === "none" || E.st.width <= 0) continue;
+    const { st, hand, b } = E;
+    const ruler = b.ruler !== false;
+    const join = (b.join as string) ?? "clean";
     let e0 = st.width / 2;
     let e1 = st.width / 2;
     if (join === "overshoot") {
@@ -397,9 +410,58 @@ function borderNodes(pg: PanelGeom, poly: Vec[], shaped: boolean, geom: PageGeom
     }
     const p0 = { x: a.x - dir.x * e0, y: a.y - dir.y * e0 };
     const p1 = { x: c.x + dir.x * e1, y: c.y + dir.y * e1 };
-    inks.push(...inkLine([p0, p1], { width: st.width, pen: st.pen, style: "solid" }, hand, rng.fork(`b${i}`), { ruler, taperIn: false, taperOut: false, resolution: 0.5, inkPool: false, noPull: true }));
+    const line = (q0: Vec, q1: Vec, w: number, key: string, rul = ruler) => inkLine([q0, q1], { width: w, pen: st.pen, style: "solid" }, hand, rng.fork(key), { ruler: rul, taperIn: false, taperOut: false, resolution: 0.5, inkPool: false, noPull: true });
+    const inks: InkPoly[] = [];
+    if (E.style === "dashed") {
+      const dash = Array.isArray(b.dash) ? (b.dash as unknown[]) : [];
+      const on = L(dash[0], `${3 * geom.k}mm`);
+      const off = L(dash[1], `${1.5 * geom.k}mm`);
+      const total = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+      const k = Math.max(1, Math.round((total + off) / (on + off)));
+      const step = (total + off) / k;
+      for (let j = 0; j < k; j++) {
+        const s0 = j * step;
+        const s1 = Math.min(total, s0 + step - off);
+        inks.push(...line({ x: p0.x + dir.x * s0, y: p0.y + dir.y * s0 }, { x: p0.x + dir.x * s1, y: p0.y + dir.y * s1 }, st.width, `d${i}-${j}`));
+      }
+    } else if (E.style === "wavy") {
+      const wv = isObj(b.wave) ? (b.wave as Obj) : {};
+      const amp = L(wv.amplitude, `${0.8 * geom.k}mm`);
+      const wl = L(wv.wavelength, `${8 * geom.k}mm`);
+      const total = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+      const waves = Math.max(1, Math.round(total / wl));
+      const pts: Vec[] = [];
+      const N = Math.max(8, Math.ceil(total / 0.4));
+      for (let j = 0; j <= N; j++) {
+        const s1 = (j / N) * total;
+        const o = Math.sin((j / N) * waves * Math.PI * 2) * amp;
+        pts.push({ x: p0.x + dir.x * s1 + nrm.x * o, y: p0.y + dir.y * s1 + nrm.y * o });
+      }
+      inks.push(...inkLine(pts, { width: st.width, pen: st.pen, style: "solid" }, hand, rng.fork(`w${i}`), { taperIn: false, taperOut: false, inkPool: false, noPull: true }));
+    } else if (E.style === "blur") {
+      // fade the panel edge into the ground colour (no line)
+      const bl = isObj(b.blur) ? (b.blur as Obj) : {};
+      const bw = L(bl.width, `${6 * geom.k}mm`);
+      const col = parseColor((bl.color as string) ?? "paper") ?? WHITE;
+      const q = [a, c, { x: c.x + nrm.x * bw, y: c.y + nrm.y * bw }, { x: a.x + nrm.x * bw, y: a.y + nrm.y * bw }];
+      nodes.push({ kind: "path", path: polyPath(q, true), fillRule: "nonzero", paint: { type: "linear-gradient", x0: a.x, y0: a.y, x1: a.x + nrm.x * bw, y1: a.y + nrm.y * bw, stops: [{ offset: 0, color: col }, { offset: 1, color: { ...col, a: 0 } }] }, tag: t });
+      continue;
+    } else {
+      inks.push(...line(p0, p1, st.width, `b${i}`));
+      if (E.style === "double") {
+        const db = isObj(b.double) ? (b.double as Obj) : {};
+        const gap = L(db.gap, `${0.6 * geom.k}mm`);
+        const iw = L(db.inner, `${0.25 * geom.k}mm`);
+        const off = st.width / 2 + gap + iw / 2;
+        // the inner line runs between the neighbouring edges' inner lines
+        const q0 = { x: a.x + nrm.x * off + dir.x * (off - iw / 2), y: a.y + nrm.y * off + dir.y * (off - iw / 2) };
+        const q1 = { x: c.x + nrm.x * off - dir.x * (off - iw / 2), y: c.y + nrm.y * off - dir.y * (off - iw / 2) };
+        inks.push(...line(q0, q1, iw, `i${i}`));
+      }
+    }
+    nodes.push(...inksToNodes(inks, st.color, t));
   }
-  return inksToNodes(inks, st.color, t);
+  return nodes;
 }
 
 function isBledEdge(a: Vec, c: Vec, geom: PageGeom, pg: PanelGeom): boolean {

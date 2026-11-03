@@ -71,6 +71,14 @@ export function pageSize(settings: Obj, bag: DiagnosticBag, path: (string | numb
   return { w, h, unit };
 }
 
+/** book settings with defaults that depend on the document (non-Japanese books bind on the left; spec 4.3) */
+export function bookOf(doc: Obj): Obj {
+  const book = (isObj(doc.book) ? doc.book : {}) as Obj;
+  if (book.binding !== undefined) return book;
+  const lang = String(((doc.meta ?? {}) as Obj).lang ?? "ja");
+  return { ...book, binding: /^ja\b/.test(lang) ? "right" : "left" };
+}
+
 export function computePageGeom(page: RPage, physicalIndex: number, book: Obj, bag: DiagnosticBag): PageGeom {
   const s = page.settings;
   const sz = pageSize(s, bag, page.path);

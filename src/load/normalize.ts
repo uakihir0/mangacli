@@ -43,6 +43,7 @@ function stripExt(o: unknown): unknown {
 
 export function normStroke(v: unknown, path: Path, bag: DiagnosticBag): unknown {
   if (typeof v === "number") return { width: v };
+  if (isObj(v)) return "pen" in v ? { ...v, pen: normPen(v.pen) } : v;
   if (typeof v !== "string") return v;
   const toks = v.trim().split(/\s+/);
   if (toks.length === 1 && toks[0] === "none") return { style: "none" };

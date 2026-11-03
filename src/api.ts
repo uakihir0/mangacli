@@ -23,7 +23,7 @@ import { HAND_PRESETS, PEN_PRESETS } from "./ink/presets.js";
 import { BUILTIN_STYLES, PAGE_PRESETS } from "./model/defaults.js";
 import { MARK_KINDS } from "./load/normalize.js";
 import { Document } from "./schema/schema.js";
-import { computePageGeom } from "./layout/page.js";
+import { bookOf, computePageGeom } from "./layout/page.js";
 import { pageSize } from "./layout/page.js";
 
 type Obj = Record<string, unknown>;
@@ -395,7 +395,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
     for (const pl of plan) {
       if (!selected.has(pl.idx)) continue;
       const page = resolved.pages[pl.idx];
-      const g = computePageGeom(page, pl.physical, (p.doc.book ?? {}) as Obj, probe);
+      const g = computePageGeom(page, pl.physical, bookOf(p.doc), probe);
       const split = g.type === "spread" && spreadMode === "split";
       const halves = split ? [{ side: g.rtl ? "right" : "left", n: pl.nombre }, { side: g.rtl ? "left" : "right", n: pl.nombre === null ? null : pl.nombre + 1 }] : [{ side: g.side, n: pl.nombre }];
       for (const run of seps0 ?? [{ name: undefined }])
