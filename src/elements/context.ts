@@ -1,7 +1,7 @@
 import type { DiagnosticBag } from "../core/diagnostics.js";
 import type { UnitContext } from "../core/units.js";
 import type { FontRegistry } from "../fonts/registry.js";
-import type { Rect, Vec } from "../geom/vec.js";
+import { type Rect, type Vec, applyMat } from "../geom/vec.js";
 import type { PageGeom, PanelGeom } from "../layout/page.js";
 import { type PlaceCtx, RefRegistry } from "../layout/place.js";
 import type { RElement } from "../model/resolve.js";
@@ -26,6 +26,26 @@ export interface ElemCtx {
   outputDpi: number;
   /** children of a sized group: coordinates are local, so the page safe area does not apply */
   localFrame?: boolean;
+  /** coarse alpha maps of the panel's character art (tails stop short of the figures) */
+  silhouettes?: Silhouette[];
+}
+
+export interface Silhouette {
+  id: string;
+  inv: import("../geom/vec.js").Matrix;
+  w: number;
+  h: number;
+  gw: number;
+  gh: number;
+  alpha: Uint8Array;
+}
+
+/** whether a page point falls on the opaque part of a silhouette */
+export function silhouetteHit(s: Silhouette, p: Vec): boolean {
+  const q = applyMat(s.inv, p);
+  const gx = Math.floor((q.x / s.w) * s.gw);
+  const gy = Math.floor((q.y / s.h) * s.gh);
+  return gx >= 0 && gy >= 0 && gx < s.gw && gy < s.gh && s.alpha[gy * s.gw + gx] > 128;
 }
 
 export function placeCtx(ctx: ElemCtx, el: RElement): PlaceCtx {

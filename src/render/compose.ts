@@ -3,7 +3,7 @@ import { BLACK, WHITE, parseColor } from "../core/color.js";
 import type { DiagnosticBag } from "../core/diagnostics.js";
 import { Rng } from "../core/random.js";
 import { parseAngle, toMm } from "../core/units.js";
-import { type ElemCtx, placeCtx, tag } from "../elements/context.js";
+import { type ElemCtx, type Silhouette, placeCtx, tag } from "../elements/context.js";
 import { type BalloonPlan, planBalloon, renderBalloon, renderConnected } from "../elements/balloon.js";
 import { renderEffect } from "../elements/effects.js";
 import { layoutImage } from "../elements/image.js";
@@ -184,7 +184,9 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       }
     }
     // place balloons
-    placeBalloons(plans.map((p) => p.plan), ctx, refs, processed, await silhouettes(refs, ctx));
+    const sils = await silhouettes(refs, ctx);
+    placeBalloons(plans.map((p) => p.plan), ctx, refs, processed, sils);
+    ctx = { ...ctx, silhouettes: sils };
     const consumed = new Set<string>();
     const byId = new Map(plans.map((x) => [x.plan.el.id, x]));
     for (const { plan, idx } of plans) {
@@ -813,15 +815,6 @@ function renderScatter(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect 
 
 // ---- balloon placement ------------------------------------------------------------
 
-interface Silhouette {
-  inv: Matrix;
-  w: number;
-  h: number;
-  gw: number;
-  gh: number;
-  alpha: Uint8Array;
-}
-
 /** coarse alpha maps of the panel's character art: balloons prefer not to cover the figures */
 async function silhouettes(refs: RefRegistry, ctx: ElemCtx): Promise<Silhouette[]> {
   const out: Silhouette[] = [];
@@ -835,7 +828,7 @@ async function silhouettes(refs: RefRegistry, ctx: ElemCtx): Promise<Silhouette[
     if (!px) continue;
     const alpha = new Uint8Array(px.width * px.height);
     for (let i = 0; i < alpha.length; i++) alpha[i] = px.data[i * 4 + 3];
-    out.push({ inv: invertMat(matrix), w, h, gw: px.width, gh: px.height, alpha });
+    out.push({ id: t.id, inv: invertMat(matrix), w, h, gw: px.width, gh: px.height, alpha });
   }
   return out;
 }

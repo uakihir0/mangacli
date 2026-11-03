@@ -15,7 +15,7 @@ import polygonClipping from "polygon-clipping";
 import { BODY_GENERATORS, type BodyGeom, type ShapeParams } from "../shapes/balloon.js";
 import { Contour, type PluginBalloonShape, activePlugins } from "../plugin.js";
 import { type TextLayout, layoutText } from "../text/layout.js";
-import { type ElemCtx, tag } from "./context.js";
+import { type ElemCtx, silhouetteHit, tag } from "./context.js";
 import { fillNode, inksToNodes, polysToPath } from "./inkir.js";
 import { glyphNodes } from "./glyphs.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
@@ -466,6 +466,16 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         const tf = rayEllipseEntry(R, dir, face);
         if (tf !== null) avail = Math.min(avail, tf - gap * 0.5);
       }
+      // nor into the speaker's figure: the tip stops just short of the art's silhouette
+      const sil = tgtRef ? ctx.silhouettes?.find((q) => q.id === tgtRef.id) : undefined;
+      if (sil && !face) {
+        const step = 0.25 * u.k;
+        for (let d = step; d < avail; d += step)
+          if (silhouetteHit(sil, { x: R.x + dir.x * d, y: R.y + dir.y * d })) {
+            avail = Math.min(avail, d - 0.5 * u.k);
+            break;
+          }
+      }
       length = Math.min(maxLen, Math.max(2.5 * u.k, avail));
     } else length = (kind === "zigzag" ? 9 : 5) * u.k;
     // off-panel tails run past the frame and are cut by it
@@ -662,6 +672,9 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
     const res = inkShape(contour, { line: isFlash ? { ...bb.stroke, style: "none" } : bb.stroke, hand: plan.hand, rng: bb.rng.fork("body"), ruler: bb.ruler, join: plan.params.join ?? (bb.ruler ? "clean" : "overshoot"), strokes: plan.params.strokes, sizeHint: Math.min(plan.outer.w, plan.outer.h) });
     fillPoly = res.fill;
     const fn = fillNode(res.fill, plan.fill, tag(el, "fill"));
+    // a thin rim of the fill colour outside the outline keeps it readable over black art
+    const halo = plan.props.halo === "none" || plan.props.halo === false ? 0 : plan.props.halo !== undefined ? toMm(plan.props.halo as string, ctx.u) : 0.3 * ctx.u.k;
+    if (fn && halo > 0 && !isFlash && fn.kind === "path" && fn.paint?.type === "solid" && fn.paint.color.a > 0.99) nodes.push({ kind: "path", path: polyPath(res.fill, true), fillRule: "nonzero", paint: null, stroke: { width: bb.stroke.width + halo * 2, paint: fn.paint, join: "round" }, tag: tag(el, "fill") });
     if (fn) nodes.push(fn);
     if (isFlash) nodes.push(...flashLines(res.fill, plan.center!, ctx, bb.rng, el));
     nodes.push(...inksToNodes(res.inks, bb.stroke.color, t));
