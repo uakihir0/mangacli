@@ -467,11 +467,12 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         if (tf !== null) avail = Math.min(avail, tf - gap * 0.5);
       }
       length = Math.min(maxLen, Math.max(2.5 * u.k, avail));
-    } else length = (kind === "zigzag" ? 7 : 5) * u.k;
+    } else length = (kind === "zigzag" ? 9 : 5) * u.k;
     // off-panel tails run past the frame and are cut by it
     if (offSide && target) length = Math.hypot(target.x - R.x, target.y - R.y);
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
-    const bw = (t.width !== undefined ? toMm(t.width as string, u) : Math.min(7 * u.k, Math.max(2.6 * u.k, minSide * 0.3))) * widthScale;
+    // a lightning-bolt tail is a narrower band than a wedge
+    const bw = (t.width !== undefined ? toMm(t.width as string, u) : Math.min(7 * u.k, Math.max(2.6 * u.k, minSide * 0.3)) * (kind === "zigzag" ? 0.7 : 1)) * widthScale;
     const bend = typeof t.bend === "number" ? t.bend : 0.1;
     const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : 0.12;
     const perp = { x: -dir.y, y: dir.x };
@@ -535,7 +536,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     const zigV: Vec[] = [];
     if (zig) {
       // amplitude bounded by the segment length so the band never folds over itself
-      const amp = Math.min(bw * 0.55, (length / segs) * 0.42);
+      const amp = Math.min(bw * 0.8, (length / segs) * 0.5);
       for (let k = 0; k <= segs; k++) {
         const tt = k / segs;
         const o = k === 0 || k === segs ? 0 : (k % 2 ? 1 : -1) * amp * (1 - tt * 0.4);
@@ -575,6 +576,15 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         const w8 = Math.min(1, tt * 4);
         sideA.push({ x: A.p.x * (1 - w8) + (q.x + nn.x * half) * w8, y: A.p.y * (1 - w8) + (q.y + nn.y * half) * w8 });
         sideB.push({ x: B.p.x * (1 - w8) + (q.x - nn.x * half) * w8, y: B.p.y * (1 - w8) + (q.y - nn.y * half) * w8 });
+        continue;
+      }
+      if (zig) {
+        // the bolt keeps an even band square to the tail axis (blended from the root points)
+        const sg = perp.x * (A.p.x - R.x) + perp.y * (A.p.y - R.y) < 0 ? -1 : 1;
+        const half = (bw / 2) * f;
+        const w8 = Math.min(1, tt * 5);
+        sideA.push({ x: (cl.x + (A.p.x - R.x) * f) * (1 - w8) + (cl.x + perp.x * sg * half) * w8, y: (cl.y + (A.p.y - R.y) * f) * (1 - w8) + (cl.y + perp.y * sg * half) * w8 });
+        sideB.push({ x: (cl.x + (B.p.x - R.x) * f) * (1 - w8) + (cl.x - perp.x * sg * half) * w8, y: (cl.y + (B.p.y - R.y) * f) * (1 - w8) + (cl.y - perp.y * sg * half) * w8 });
         continue;
       }
       sideA.push({ x: cl.x + (A.p.x - R.x) * f, y: cl.y + (A.p.y - R.y) * f });
@@ -735,7 +745,8 @@ export function renderConnected(a: BalloonPlan, b: BalloonPlan, style: string, w
     const tp = who ? ctx.refs.point(who, ctx.panel?.panel.id) : null;
     return tp ? Math.hypot(tp.x - pl.center!.x, tp.y - pl.center!.y) : Infinity;
   };
-  const sameSpeaker = a.props.who !== undefined && a.props.who === b.props.who;
+  // no speaker on either side counts as one voice too (the connect target keeps its tail)
+  const sameSpeaker = a.props.who === b.props.who;
   const da = speakerDist(a);
   const db = speakerDist(b);
   const ba = buildBody(a, ctx, sameSpeaker && db < da);

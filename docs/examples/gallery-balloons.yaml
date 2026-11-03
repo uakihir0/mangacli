@@ -58,7 +58,7 @@ pages:
           - { balloon: ガーン, as: shock, at: [50%, 45%] }
           - { text: shock, color: white, outline: none }
       - layers:
-          - { balloon: そうか, id: c1, at: [62%, 26%], tail: { direction: 60deg } }
+          - { balloon: そうか, id: c1, at: [62%, 26%], tail: { direction: 15deg } }
           - { balloon: やっぱり君だったのか, at: [36%, 58%], connect: { to: c1 } }
           - text: connect
       - layers:

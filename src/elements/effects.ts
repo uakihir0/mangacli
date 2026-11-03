@@ -217,16 +217,34 @@ function betaFlash(f: FxCtx): Node[] {
   const th = R(f, p.thickness, { min: 0.25 * f.k, max: 1.0 * f.k, dist: "low" });
   const ij = (p.innerJitter as number) ?? 0.5;
   const spikes = (isObj(p.spikes) ? p.spikes : { ratio: 0.1, depth: 0.6 }) as Obj;
-  const angles = clusteredAngles(f.rng, count, 0.9, 0.25);
+  const angles = clusteredAngles(f.rng, count, 0.9, 0.25).sort((a, b) => a - b);
   const inks: InkPoly[] = [];
+  const spikesAt: { a: number; ri: number }[] = [];
   for (const a of angles) {
     const d = { x: Math.cos(a), y: Math.sin(a) };
     const ro = outerR(a) + 0.8 * f.k;
     let ri = ellipseR(rx, ry, a) * (1 + ij * Math.pow(f.rng.next(), 1.3) * ((ro / ellipseR(rx, ry, a)) - 1) * 0.6);
     if (f.rng.chance((spikes.ratio as number) ?? 0.1)) ri *= 1 - ((spikes.depth as number) ?? 0.6) * f.rng.next() * 0.6;
     ri = Math.min(ri, ro - 1 * f.k);
+    spikesAt.push({ a, ri });
     const w = sampleR(f, th);
     inks.push(...inkLine([{ x: c.x + d.x * ro, y: c.y + d.y * ro }, { x: c.x + d.x * ri, y: c.y + d.y * ri }], lineStyle(f, w), f.hand, f.rng.fork("bf"), { ruler: true, taperIn: false, taperOut: true, taperOutLen: (ro - ri) * 0.85, resolution: Math.max(0.3, w), inkPool: false }));
+  }
+  // the solid black reaches in past the outer boundary as a ring of wedges, so the strokes
+  // grow out of solid ink instead of ending at a visible (scalloped) edge
+  const solidR = (a: number, ri: number) => {
+    const ro = outerR(a);
+    return ro - (ro - ri) * 0.22;
+  };
+  for (let i = 0; i < spikesAt.length; i++) {
+    const s0 = spikesAt[i];
+    const s1 = spikesAt[(i + 1) % spikesAt.length];
+    const a1 = i + 1 < spikesAt.length ? s1.a : s1.a + Math.PI * 2;
+    const am = (s0.a + a1) / 2;
+    const rb = solidR(am, Math.max(s0.ri, s1.ri));
+    const rt = solidR(s0.a, s0.ri) - (solidR(s0.a, s0.ri) - s0.ri) * 0.45;
+    if (i === 0) outerPoly.length = 0;
+    outerPoly.push({ x: c.x + Math.cos(s0.a) * rt, y: c.y + Math.sin(s0.a) * rt }, { x: c.x + Math.cos(am) * rb, y: c.y + Math.sin(am) * rb });
   }
   const core = parsePaint(p.core ?? "paper", { u: f.ctx.u, box: b, seed: f.el.seed });
   const pre: Node[] = [];
@@ -662,6 +680,11 @@ function renderEffectInner(el: RElement, ctx: ElemCtx, hold: { f?: FxCtx }): Nod
       const out = ink(gloomLines(f));
       if (p.tone && p.tone !== "none") {
         const tp = parsePaint(p.tone, { u: ctx.u, box: region.bbox, seed: el.seed, bag: ctx.bag, path: [...el.path, "tone"] });
+        // a flat tone fades out toward the line ends instead of stopping at a hard edge
+        if (tp?.type === "tone" && !tp.tone.gradient && p.toneFade !== false) {
+          const bb = region.bbox;
+          tp.tone = { ...tp.tone, gradient: { type: "linear", p0: { x: bb.x, y: bb.y }, p1: { x: bb.x, y: bb.y + bb.h }, stops: [[0, tp.tone.density], [0.35, tp.tone.density], [1, 0]], easing: "linear" } };
+        }
         if (tp) (out[0] as { children: Node[] }).children.unshift({ kind: "path", path: region.path, fillRule: region.fillRule, paint: tp, tag: tag(el, "tone") });
       }
       return out;

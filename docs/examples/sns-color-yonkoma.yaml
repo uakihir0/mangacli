@@ -115,7 +115,7 @@ pages:
             size: [auto, 85%]
             at: [30%, 55%]
           - sfx: ダダダ
-            at: [70%, 70%]
+            at: [70%, 56%]
             fontSize: 54
             color: "#3b2f2f"
             outline: [{ width: 5, color: white }]

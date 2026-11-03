@@ -750,9 +750,13 @@ function renderScatter(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect 
   const placed: Vec[] = [];
   const nodes: Node[] = [];
   let tries = 0;
+  // items stay whole inside the region (and clear of avoided areas): test a ring around the point
+  const rad = Math.max(0, ...items.map((i) => (i.size !== undefined && !Array.isArray(i.size) ? toMm(i.size as string, u) : 4 * u.k) * (i.asset ? 0.75 : 0.5))) * sc[1];
+  const ring = (q: Vec) => [q, ...Array.from({ length: 8 }, (_, k) => ({ x: q.x + Math.cos((k * Math.PI) / 4) * rad, y: q.y + Math.sin((k * Math.PI) / 4) * rad }))];
   while (placed.length < count && tries++ < count * 40) {
     const q = { x: b.x + rng.next() * b.w, y: b.y + rng.next() * b.h };
-    if (!reg.contains(q) || avoid.some((a) => a.contains(q))) continue;
+    const rq = ring(q);
+    if (!rq.every((v) => reg.contains(v)) || avoid.some((a) => rq.some((v) => a.contains(v)))) continue;
     if (isObj(p.falloff)) {
       // density from the centre (from) to the edge (to)
       const fo = p.falloff as Obj;

@@ -415,6 +415,21 @@ let shapeFeatures: InstanceType<typeof hb.Feature>[] = [];
 /** tate-chu-yoko runs squeezed below ~60 %, collected per layout call */
 let tcyWarn: string[] = [];
 
+const VERT_TURN = new Set(Array.from("〜～ー－―‐…‥（）「」『』【】〔〕〈〉《》［］｛｝＝＜＞→←"));
+const vertCache = new Map<string, boolean>();
+/** whether the font substitutes a vertical form for ch (vert / vrt2) */
+function hasVertForm(f: LoadedFont, ch: string, lang: string): boolean {
+  const key = `${f.key}|${ch}`;
+  let v = vertCache.get(key);
+  if (v === undefined) {
+    const a = shape(f, ch, "ttb", lang)[0];
+    const b = shape(f, ch, "ltr", lang)[0];
+    v = !a || !b || a.gid !== b.gid;
+    vertCache.set(key, v);
+  }
+  return v;
+}
+
 function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: number, o: Orient, vertical: boolean, style: TextStyle, boxes: Box[]) {
   const f = pk.font;
   const size = size0 * pk.scale;
@@ -435,6 +450,16 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
   };
   const bshift = pk.baselineShift * size;
   if (vertical && o === "upright") {
+    // marks that must turn in vertical text: fonts without a vertical alternate get them rotated
+    const turn = seg.findIndex((c) => VERT_TURN.has(c) && !hasVertForm(f, c, style.lang));
+    if (turn >= 0) {
+      if (turn > 0) shapeSegment(seg.slice(0, turn), segUnits.slice(0, turn), pk, size0, o, vertical, style, boxes);
+      shapeSegment([seg[turn]], [segUnits[turn]], pk, size0, "sideways", vertical, style, boxes);
+      const nb = boxes[boxes.length - 1];
+      nb.orient = "upright";
+      if (turn + 1 < seg.length) shapeSegment(seg.slice(turn + 1), segUnits.slice(turn + 1), pk, size0, o, vertical, style, boxes);
+      return;
+    }
     const g = shape(f, text, "ttb", style.lang);
     const per: Box[] = seg.map((c, k) => ({ chars: c, units: [segUnits[k]], adv: 0, size: size0, orient: o, glyphs: [], firstChar: c, lastChar: c }));
     const pen: number[] = new Array(seg.length).fill(0);
