@@ -375,7 +375,7 @@ function rain(f: FxCtx): InkPoly[] {
   const b = f.region.bbox;
   const ang = parseAngle((p.angle as string) ?? "100deg");
   const d = { x: Math.cos(ang), y: Math.sin(ang) };
-  const rate = ((p.rate as number) ?? 0.6) * ((p.density as number) ?? 1);
+  const rate = ((p.rate as number) ?? 2.5) * ((p.density as number) ?? 1);
   const n = Math.round(((b.w * b.h) / 100) * rate);
   const lenR = R(f, p.length, { min: 3 * f.k, max: 12 * f.k, dist: "uniform" });
   const th = R(f, p.thickness, { min: 0.08 * f.k, max: 0.2 * f.k, dist: "low" });
@@ -383,7 +383,7 @@ function rain(f: FxCtx): InkPoly[] {
   for (let i = 0; i < n; i++) {
     const c = { x: b.x + f.rng.next() * b.w, y: b.y + f.rng.next() * b.h };
     const l = sampleR(f, lenR);
-    out.push(...inkLine([{ x: c.x - (d.x * l) / 2, y: c.y - (d.y * l) / 2 }, { x: c.x + (d.x * l) / 2, y: c.y + (d.y * l) / 2 }], lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("r"), { ruler: true, taperIn: true, taperOut: true, taperInLen: l * 0.4, taperOutLen: l * 0.5, inkPool: false, resolution: 0.25 }));
+    out.push(...inkLine([{ x: c.x - (d.x * l) / 2, y: c.y - (d.y * l) / 2 }, { x: c.x + (d.x * l) / 2, y: c.y + (d.y * l) / 2 }], lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("r"), { ruler: true, taperIn: true, taperOut: true, taperInLen: l * 0.2, taperOutLen: l * 0.35, inkPool: false, resolution: 0.25 }));
   }
   return out;
 }

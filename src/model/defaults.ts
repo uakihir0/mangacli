@@ -54,7 +54,7 @@ export const BUILTIN_EFFECT_DEFAULTS: Record<string, Obj> = {
   impact: { radius: "18%", spikes: 14, irregularity: 0.5, fill: "paper", stroke: { width: "0.3bmm", pen: { preset: "g-pen" } }, double: true, rays: { count: 24, length: ["2bmm", "8bmm"], thickness: ["0.15bmm", "0.4bmm"] } },
   "gloom-lines": { region: { band: { side: "top", size: "55%" } }, spacing: ["0.7bmm", "1.5bmm"], length: ["45%", "100%"], thickness: ["0.15bmm", "0.35bmm"], taper: "end", tone: "none", ruler: true, pen: { preset: "maru-pen" } },
   hatching: { pattern: "hatch", angle: "45deg", spacing: "0.6bmm", thickness: ["0.08bmm", "0.16bmm"], blockSize: ["2bmm", "3.5bmm"], linesPerBlock: 4, edge: "soft", ruler: false, pen: { preset: "maru-pen" } },
-  rain: { angle: "100deg", rate: 0.6, length: ["3bmm", "12bmm"], thickness: ["0.08bmm", "0.2bmm"], taper: "both", ruler: true, pen: { preset: "maru-pen" } },
+  rain: { angle: "100deg", rate: 2.5, length: ["4bmm", "14bmm"], thickness: ["0.1bmm", "0.22bmm"], taper: "both", ruler: true, pen: { preset: "maru-pen" } },
   vignette: { color: "paper", width: "8bmm", shape: "rect", softness: 0.7, screen: "am" },
 };
 
