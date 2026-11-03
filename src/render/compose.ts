@@ -282,7 +282,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     else root.children.push(...it.nodes);
   }
   // page numbers
-  if (o.nombre !== null) root.children.push(...nombreNodes(doc, page, geom, o));
+  if (o.nombre !== null) root.children.push(...nombreNodes(doc, page, geom, o, panels));
   const list: DisplayList = {
     version: 1,
     page: { id: page.id, index: page.index },
@@ -1083,7 +1083,7 @@ function segRect(a: Vec, b: Vec, r: Rect): boolean {
 
 // ---- page numbers -----------------------------------------------------------------
 
-function nombreNodes(doc: ResolvedDoc, page: RPage, geom: PageGeom, o: ComposeOptions): Node[] {
+function nombreNodes(doc: ResolvedDoc, page: RPage, geom: PageGeom, o: ComposeOptions, panels: PanelGeom[] = []): Node[] {
   const book = (doc.doc.book ?? {}) as Obj;
   const pn = (book.pageNumbers ?? {}) as Obj;
   if (pn.enabled === false || o.nombre === null) return [];
@@ -1092,14 +1092,10 @@ function nombreNodes(doc: ResolvedDoc, page: RPage, geom: PageGeom, o: ComposeOp
   if (page.number === false) return [];
   if (Array.isArray(pn.skip) && (pn.skip as string[]).includes(page.id)) return [];
   const u = geom.units;
-  const hidden = (isObj(page.number) && (page.number as Obj).hidden === true) || pn.hidden === true;
-  const size = hidden ? toMm("5pt", u) : toMm((pn.fontSize as string) ?? "8pt", u);
+  const hidden0 = (isObj(page.number) && (page.number as Obj).hidden === true) || pn.hidden === true;
   const fmt = (pn.format as string) ?? "{n}";
   const margin = (pn.margin as unknown[]) ?? ["8mm", "12mm"];
-  const mv = toMm(margin[0] as string, u);
-  const mh = hidden ? 1.5 : toMm(margin[1] as string, u);
   const pos = (pn.position as string) ?? "bottom-outer";
-  const inner = pos.includes("inner") || hidden;
   const color = parseColor((pn.color as string) ?? "black") ?? BLACK;
   // one number per physical page; a spread carries two (spec 4.15)
   const halves: { n: number; side: "left" | "right"; x0: number; w: number }[] =
@@ -1109,15 +1105,27 @@ function nombreNodes(doc: ResolvedDoc, page: RPage, geom: PageGeom, o: ComposeOp
           { n: o.nombre! + 1, side: geom.rtl ? "left" : "right", x0: geom.rtl ? 0 : geom.trimW / 2, w: geom.trimW / 2 },
         ]
       : [{ n: o.nombre!, side: geom.side === "left" ? "left" : "right", x0: 0, w: geom.trimW }];
-  return halves.map((h) => {
+  // art bled to the trim covers the number: it moves into the binding margin as a small hidden number
+  const bled = panels.filter((p) => p.bledSides.length > 0);
+  const make = (h: (typeof halves)[number], hidden: boolean) => {
+    const size = hidden ? toMm("5pt", u) : toMm((pn.fontSize as string) ?? "8pt", u);
+    const mv = toMm(margin[0] as string, u);
+    const mh = hidden ? 1.5 : toMm(margin[1] as string, u);
+    const inner = pos.includes("inner") || hidden;
     const text = fmt.replace("{n}", String(h.n));
     const tl = layoutText(text, defaultTextStyle({ font: (pn.font as string) ?? "ui", fontSize: size, writing: "horizontal", markup: false, tcy: null }), o.fonts);
     const outerLeft = h.side === "left";
     let x: number;
-    if (pos.includes("center")) x = h.x0 + h.w / 2 - tl.width / 2;
+    if (pos.includes("center") && !hidden) x = h.x0 + h.w / 2 - tl.width / 2;
     else if ((outerLeft && !inner) || (!outerLeft && inner)) x = h.x0 + mh;
     else x = h.x0 + h.w - mh - tl.width;
-    const y = pos.startsWith("top") ? mv : hidden ? geom.trimH - 3 - tl.height : geom.trimH - mv - tl.height;
+    const y = pos.startsWith("top") && !hidden ? mv : hidden ? geom.trimH - 3 - tl.height : geom.trimH - mv - tl.height;
+    return { tl, x, y, size, rect: { x: geom.trim.x + x - 1, y: geom.trim.y + y - 1, w: tl.width + 2, h: tl.height + 2 } };
+  };
+  return halves.map((h) => {
+    let r = make(h, hidden0);
+    if (!hidden0 && pn.autoHide !== false && bled.some((p) => rectIntersect(p.box, r.rect))) r = make(h, true);
+    const { tl, x, y, size } = r;
     return {
       kind: "path" as const,
       stroke: { width: size * 0.25, paint: { type: "solid" as const, color: WHITE }, join: "round" as const },

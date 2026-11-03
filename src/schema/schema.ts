@@ -541,6 +541,7 @@ const Character = z
 const PageNumbers = z
   .object({
     enabled: z.boolean().optional(),
+    autoHide: z.boolean().optional(),
     show: z.enum(["print", "always", "never"]).optional(),
     start: z.number().int().optional(),
     position: z.enum(["bottom-outer", "bottom-center", "bottom-inner", "top-outer", "top-center", "outer-middle"]).optional(),

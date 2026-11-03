@@ -97,6 +97,9 @@
                     "enabled": {
                       "type": "boolean"
                     },
+                    "autoHide": {
+                      "type": "boolean"
+                    },
                     "show": {
                       "type": "string",
                       "enum": [
