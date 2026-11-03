@@ -538,7 +538,8 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
       if (!isFinite(x0)) continue;
       // small kana drawn nearly full size (display faces) are reduced first so they read as small
       const ink = Math.max(Math.abs(g.m[0]) * (x1 - x0), Math.abs(g.m[3]) * (y1 - y0));
-      if (small && ink > 0.66 * size) {
+      const reduced = small && ink > 0.66 * size;
+      if (reduced) {
         const k = (0.62 * size) / ink;
         const ox = g.m[0] * (x0 + x1) / 2 + g.m[4];
         const oy = g.m[3] * (y0 + y1) / 2 + g.m[5];
@@ -549,8 +550,10 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
       // target: small kana up-right of centre, 、。 in the upper-right quarter
       const tx = (small ? 0.12 : 0.28) * size;
       const ty = -(small ? 0.14 : 0.28) * size;
-      const dx = cx < tx * 0.5 ? tx - cx : 0;
-      const dy = cy > ty * 0.5 ? ty - cy : 0;
+      // only glyphs the font left at the centre of the cell are moved (proper vertical forms stay)
+      const centred = Math.abs(cx) < 0.05 * size && Math.abs(cy) < 0.05 * size;
+      const dx = centred || reduced ? tx - cx : 0;
+      const dy = centred || reduced ? ty - cy : 0;
       if (dx || dy) g.m = [g.m[0], g.m[1], g.m[2], g.m[3], g.m[4] + dx, g.m[5] + dy];
     }
     boxes.push(...per);
