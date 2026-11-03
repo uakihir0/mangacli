@@ -86,7 +86,8 @@ export function renderMark(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
   const stroke = resolveStroke(p.stroke, hand, u, ctx.bag, [...el.path, "stroke"]);
   const color = parseColor((p.color as string) ?? "black") ?? BLACK;
   const sizeV = p.size;
-  const s = Array.isArray(sizeV) ? toMm(sizeV[0] as string, u) : toMm((sizeV as string) ?? `${6 * u.k}mm`, u);
+  const s0 = Array.isArray(sizeV) ? toMm(sizeV[0] as string, u) : toMm((sizeV as string) ?? `${6 * u.k}mm`, u);
+  const s = s0 * (typeof p.scale === "number" ? p.scale : Array.isArray(p.scale) ? Number(p.scale[0]) : 1);
   const fill = parsePaint(p.fill ?? "none", { u, box: { x: 0, y: 0, w: s, h: s }, seed: el.seed, bag: ctx.bag, path: [...el.path, "fill"] });
   const pc = placeCtx(ctx, el);
   // target-based default position
@@ -119,6 +120,21 @@ export function renderMark(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
   };
   const count = typeof p.count === "number" ? p.count : 1;
   const W = (k: number) => stroke.width * k;
+  if (kind === "asset") {
+    // a mark drawn from an image asset (e.g. a hand-drawn manpu supplied as PNG)
+    const info = typeof p.asset === "string" ? ctx.assets.get(p.asset) : undefined;
+    if (!info || info.missing) {
+      ctx.bag.error("ASSET_NOT_FOUND", `mark asset "${String(p.asset)}" not found`, { path: [...el.path, "asset"] });
+      return { nodes: [], bbox: pl.bbox };
+    }
+    const w = s;
+    const h = (s * info.height) / info.width;
+    const ca = Math.cos(rotA);
+    const sa = Math.sin(rotA);
+    const fx = p.flip === "x" || p.flip === "xy" || p.flip === true ? -1 : 1;
+    const fy = p.flip === "y" || p.flip === "xy" ? -1 : 1;
+    return { nodes: [{ kind: "image", assetKey: info.key, dest: { x: -w / 2, y: -h / 2, w, h }, sourceRect: { x: 0, y: 0, w: info.width, h: info.height }, transform: [ca * fx, sa * fx, -sa * fy, ca * fy, c.x, c.y], smoothing: "high", lineart: info.kind === "lineart", monoLpi: 60, filters: [], tag: tag(el, "art") }], bbox: pl.bbox };
+  }
   switch (kind) {
     case "sweat":
       for (let i = 0; i < count; i++) {
@@ -343,6 +359,9 @@ export function renderMark(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
   }
   nodes.push(...inksToNodes(m.inks, color, t));
   void resolvePoint;
-  void ({} as Obj);
+  // flip mirrors the drawn mark about its centre
+  const fx = p.flip === "x" || p.flip === "xy" || p.flip === true;
+  const fy = p.flip === "y" || p.flip === "xy";
+  if (fx || fy) return { nodes: [{ kind: "group", transform: [fx ? -1 : 1, 0, 0, fy ? -1 : 1, fx ? 2 * c.x : 0, fy ? 2 * c.y : 0], children: nodes }], bbox: pl.bbox };
   return { nodes, bbox: pl.bbox };
 }

@@ -2,7 +2,7 @@
 import { BLACK, WHITE, parseColor } from "../core/color.js";
 import type { DiagnosticBag } from "../core/diagnostics.js";
 import { Rng } from "../core/random.js";
-import { toMm } from "../core/units.js";
+import { parseAngle, toMm } from "../core/units.js";
 import { type ElemCtx, placeCtx, tag } from "../elements/context.js";
 import { type BalloonPlan, planBalloon, renderBalloon, renderConnected } from "../elements/balloon.js";
 import { renderEffect } from "../elements/effects.js";
@@ -125,6 +125,13 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   const processed = new Map<string, Item>();
   const layoutGroup = async (els: RElement[], ctx: ElemCtx, panelIdx: number, source: number) => {
     for (const [i, el] of els.entries()) {
+      // scatter items and marks drawn from assets are loaded up front (rendering is synchronous)
+      const preload = async (e: RElement) => {
+        if (e.type === "scatter") for (const it of (e.props.items as Obj[]) ?? []) if (typeof it.asset === "string") await ctx.assets.info(it.asset, [...e.path, "items"]);
+        if (e.type === "mark" && e.props.kind === "asset" && typeof e.props.asset === "string") await ctx.assets.info(e.props.asset, [...e.path, "asset"]);
+        for (const c of e.children ?? []) await preload(c);
+      };
+      await preload(el);
       if (el.type !== "image") continue;
       const coords = coordsFor(el, ctx, geom);
       const c2 = { ...ctx, coordsBox: coords };
@@ -684,6 +691,14 @@ function renderScatter(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect 
   while (placed.length < count && tries++ < count * 40) {
     const q = { x: b.x + rng.next() * b.w, y: b.y + rng.next() * b.h };
     if (!reg.contains(q) || avoid.some((a) => a.contains(q))) continue;
+    if (isObj(p.falloff)) {
+      // density from the centre (from) to the edge (to)
+      const fo = p.falloff as Obj;
+      const c0 = center(b);
+      const t = Math.min(1, Math.hypot(q.x - c0.x, q.y - c0.y) / (Math.hypot(b.w, b.h) / 2));
+      const dens = Number(fo.from ?? 1) + (Number(fo.to ?? 0) - Number(fo.from ?? 1)) * t;
+      if (rng.next() > dens) continue;
+    }
     if (minD > 0 && placed.some((o) => Math.hypot(o.x - q.x, o.y - q.y) < minD)) continue;
     placed.push(q);
     let r = rng.next() * wsum;
@@ -697,10 +712,34 @@ function renderScatter(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect 
     }
     if (!item) break;
     const s = rng.range(sc[0], sc[1]);
+    // orientation: random within itemRotate, or along / across the line from the region centre
+    const rr = (Array.isArray(p.itemRotate) ? p.itemRotate : ["-20deg", "20deg"]) as string[];
+    const jitter = rng.range(parseAngle(rr[0]), parseAngle(rr[1] ?? rr[0]));
+    const orient = (p.orient as string) ?? "random";
+    const cc = center(b);
+    const radial = Math.atan2(q.y - cc.y, q.x - cc.x);
+    const ang = orient === "radial" ? radial + Math.PI / 2 + jitter * 0.3 : orient === "tangent" ? radial + Math.PI + jitter * 0.3 : jitter;
+    const at = [`${q.x - ctx.coordsBox.x}mm`, `${q.y - ctx.coordsBox.y}mm`];
+    const size0 = item.size !== undefined && !Array.isArray(item.size) ? toMm(item.size as string, u) : 4 * u.k;
+    const deg = `${(ang * 180) / Math.PI}deg`;
     if (item.mark) {
-      const base = (item.size as string) ?? undefined;
-      const sub: RElement = { id: `${el.id}-s${placed.length}`, type: "mark", path: el.path, seed: rng.nextU32(), props: { ...item, kind: item.mark, at: [`${q.x - ctx.coordsBox.x}mm`, `${q.y - ctx.coordsBox.y}mm`], ...(base ? {} : {}), size: `${(4 * u.k) * s}mm`, stroke: { width: `${0.2 * u.k}mm` } } };
+      const sub: RElement = { id: `${el.id}-s${placed.length}`, type: "mark", path: el.path, seed: rng.nextU32(), props: { stroke: { width: `${0.2 * u.k}mm` }, ...item, kind: item.mark, at, size: `${size0 * s}mm`, rotate: deg } };
       nodes.push(...renderMark(sub, ctx).nodes);
+    } else if (typeof item.asset === "string") {
+      const info = ctx.assets.get(item.asset);
+      if (info && !info.missing) {
+        const w = size0 * s * 1.5;
+        const h = (w * info.height) / info.width;
+        const ca = Math.cos(ang);
+        const sa = Math.sin(ang);
+        nodes.push({ kind: "image", assetKey: info.key, dest: { x: -w / 2, y: -h / 2, w, h }, sourceRect: { x: 0, y: 0, w: info.width, h: info.height }, transform: [ca, sa, -sa, ca, q.x, q.y], smoothing: "high", lineart: info.kind === "lineart", monoLpi: 60, filters: [], tag: tag(el, "art") });
+      }
+    } else if (typeof item.type === "string") {
+      // an inline element definition placed at the point
+      const { weight: _w, ...def } = item;
+      const sub: RElement = { id: `${el.id}-s${placed.length}`, type: String(item.type), path: el.path, seed: rng.nextU32(), props: { ...def, at, rotate: def.rotate ?? deg, scale: s } };
+      const r = sub.type === "text" ? renderText(sub, ctx) : sub.type === "sfx" ? renderSfx(sub, ctx) : renderMisc(sub, ctx);
+      nodes.push(...r.nodes);
     }
   }
   return { nodes: [{ kind: "group", clip: reg.path, children: nodes, tag: tag(el, "ink") }], bbox: b };
