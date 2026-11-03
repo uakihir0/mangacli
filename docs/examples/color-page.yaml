@@ -1,0 +1,50 @@
+# yaml-language-server: $schema=../../node_modules/mangacli/schema.json
+#
+# カラーの 1 ページ（B5）。グラデーションの地、素材の乗算、雨、波に沿った描き文字、色付きの集中線・ウニフラッシュ、照れの漫符。
+#
+#   npx mangacli render docs/examples/color-page.yaml -p web
+
+mangacli: 1
+meta: { title: 雨の日, lang: ja }
+page: { size: B5, color: color }
+assets:
+  taro: { src: ./assets/taro/normal.png, character: taro, anchors: { mouth: [500, 535] }, regions: { face: [285, 155, 430, 490] } }
+  taro-s: { src: ./assets/taro/surprised.png, character: taro, anchors: { mouth: [500, 550] }, regions: { face: [285, 155, 430, 490] } }
+  hanako: { src: ./assets/hanako/smile.png, character: hanako, anchors: { mouth: [500, 535] }, regions: { face: [285, 155, 430, 490] } }
+  room: ./assets/bg/classroom.png
+characters:
+  taro: { name: 太郎 }
+  hanako: { name: 花子 }
+pages:
+  - layout:
+      rows:
+        - { cols: [1], height: 0.9 }
+        - { cols: [2, 3], height: 1.2, slant: -5mm }
+        - { cols: [1], height: 1.1 }
+    panels:
+      - bleed: [top, left, right]
+        background: "linear-gradient(to bottom, #6b7d8f, #b8c4cf)"
+        layers:
+          - { image: room, opacity: 0.5, blend: multiply }
+          - { effect: rain, color: "#e8eef5" }
+          - { balloon: その日は朝から雨だった, as: narration, place: top-right }
+          - { sfx: ザァァ, at: [25%, 55%], fontSize: 14mm, color: "#2b3a4a", path: { kind: wave, amplitude: 2mm, wavelength: 30mm } }
+      - layers:
+          - { image: taro, size: [auto, 110%], at: [50%, 110%], anchor: bottom }
+        dialogue:
+          - taro: 傘、忘れた……
+          - { taro: どうしよう, as: think }
+      - background: "#fff3e0"
+        layers:
+          - { effect: focus-lines, color: "#e8a35a", inner: [32%, 28%] }
+          - { image: hanako, size: [auto, 100%], at: [50%, 100%], anchor: bottom }
+          - { mark: sparkle, at: [80%, 20%], color: "#e8a35a" }
+        dialogue:
+          - hanako: 入っていく？
+      - layers:
+          - { effect: uni-flash, color: "#ff9db3" }
+          - { image: taro-s, size: [auto, 120%], at: [35%, 125%], anchor: bottom, outline: 0.8mm white }
+          - { mark: blush, at: taro.face, color: "#ff6f91" }
+          - { sfx: ドキッ, at: [78%, 40%], fontSize: 16mm, color: "#d6336c", outline: [{ width: 1mm, color: white }] }
+        dialogue:
+          - { taro: "えっ！？", as: shout }
