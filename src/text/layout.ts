@@ -31,6 +31,8 @@ export interface TextStyle {
   lang: string;
   glyphScale: [number, number];
   seed: number;
+  /** OpenType features ({ palt: true }) */
+  features?: Record<string, boolean | number>;
 }
 
 export interface LetteringSpec {
@@ -116,7 +118,7 @@ function shape(font: LoadedFont, text: string, dir: "ttb" | "ltr", lang: string)
   } catch {
     /* ignore */
   }
-  hb.shape(font.font, buf);
+  hb.shape(font.font, buf, shapeFeatures.length ? shapeFeatures : undefined);
   const infos = buf.getGlyphInfos();
   const pos = buf.getGlyphPositions();
   return infos.map((g, i) => ({ gid: g.codepoint, cluster: g.cluster, ...pos[i] }));
@@ -134,6 +136,7 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
   const em = style.fontSize;
   const missing: string[] = [];
   tcyWarn = [];
+  shapeFeatures = Object.entries(style.features ?? {}).map(([tag, v]) => new hb.Feature(tag, v === true ? 1 : v === false ? 0 : Number(v)));
   const boxes = buildBoxes(parsed, style, reg, missing);
   spreadRubyBases(parsed, boxes, style, reg, style.writing === "vertical");
   for (const t of tcyWarn) parsed.infos.push({ code: "TEXT_TCY_TOO_LONG", message: `tate-chu-yoko "${t}" does not fit in 1 em`, severity: "warning" });
@@ -393,6 +396,9 @@ function unitMatrix(f: LoadedFont, size: number, xOff: number, yOff: number, ver
   if (vertical) return [s, 0, 0, -s, xOff * s, -yOff * s];
   return [s, 0, 0, -s, xOff * s, -yOff * s];
 }
+
+/** OpenType features of the layout in progress (style.features) */
+let shapeFeatures: InstanceType<typeof hb.Feature>[] = [];
 
 /** tate-chu-yoko runs squeezed below ~60 %, collected per layout call */
 let tcyWarn: string[] = [];
