@@ -2,6 +2,7 @@
 import { BLACK, WHITE, parseColor } from "../core/color.js";
 import { DiagnosticBag } from "../core/diagnostics.js";
 import { Rng } from "../core/random.js";
+import { phraseBoundaries } from "../text/linebreak.js";
 import { parseAngle, toMm } from "../core/units.js";
 import { type ElemCtx, type Silhouette, placeCtx, tag } from "../elements/context.js";
 import { type BalloonPlan, planBalloon, renderBalloon, renderConnected } from "../elements/balloon.js";
@@ -1022,7 +1023,8 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
       for (const m of [Math.max(3, Math.round(base * 0.6)), Math.round(base * 1.5)]) {
         if (m === base) continue;
         const vp = replan(pl, { ...pl.props, maxChars: m });
-        if (vp && (Math.abs(vp.outer.w - pl.outer.w) > 1 || Math.abs(vp.outer.h - pl.outer.h) > 1)) variants.push({ vp, extra: W.reshape });
+        // a reshaped balloon must not break worse than the original (mid-phrase, one word per line)
+        if (vp && (Math.abs(vp.outer.w - pl.outer.w) > 1 || Math.abs(vp.outer.h - pl.outer.h) > 1) && breakFaults(vp.text, ctx.lang) <= breakFaults(pl.text, ctx.lang)) variants.push({ vp, extra: W.reshape });
       }
     }
     // the parts of the cost that do not depend on the other balloons are computed once
@@ -1144,6 +1146,26 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
       // earlier balloons are drawn on top: a large overlap hides the later one's text
       if (ov > 0.2 * Math.min(a.w * a.h, b.w * b.h) && !rects[j].pl.props.connect && !rects[i].pl.props.connect) ctx.bag.warn("BALLOON_TEXT_HIDDEN", `balloon ${rects[j].pl.el.id} is largely covered by ${rects[i].pl.el.id}`, { path: rects[j].pl.el.path, elementId: rects[j].pl.el.id });
     }
+}
+
+/** line breaks a letterer would reject: inside a phrase, or lines holding a single word */
+function breakFaults(tl: import("../text/layout.js").TextLayout, lang: string): number {
+  const lines = tl.lines.map((l) => l.text ?? "");
+  if (lines.length < 2) return 0;
+  const joined = lines.join("");
+  const bounds = phraseBoundaries(joined, lang);
+  let pos = 0;
+  let bad = 0;
+  for (let i = 0; i < lines.length; i++) {
+    // latin lines always break at spaces; CJK breaks must fall on phrase boundaries
+    const latin = /[A-Za-z0-9!?.,…'’"”]$/.test(lines[i - 1] ?? "") && /^[A-Za-z0-9'‘"“]/.test(lines[i]);
+    if (i > 0 && !latin && !bounds.has(pos) && !/^\s/.test(lines[i]) && !/\s$/.test(lines[i - 1])) bad++;
+    pos += lines[i].length;
+  }
+  // latin text: lines of one word read like a list
+  const single = lines.filter((l) => /[A-Za-z]/.test(l) && l.trim().split(/\s+/).length === 1 && !/[!?…]$/.test(l.trim())).length;
+  if (lines.length >= 3 && single >= 2) bad += single;
+  return bad;
 }
 
 /** fraction of rect `r` covered by the ellipse inscribed in `e` (sampled) */

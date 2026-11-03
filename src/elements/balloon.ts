@@ -498,21 +498,28 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       let size = t.bubbleSize !== undefined ? toMm(t.bubbleSize as string, u) : Math.min(5 * u.k, Math.max(1.5 * u.k, minSide * 0.2));
       const shrink = typeof t.shrink === "number" ? t.shrink : 0.62;
       // the bubble chain must stop short of the speaker (face): scale it down to the available run
+      let spacing = 0.45;
       if (target && t.length === undefined) {
-        let span = gap * 0.6;
-        let sz = size;
-        for (let i = 0; i < count; i++) {
-          span += sz + (i + 1 < count ? sz * 0.45 : 0);
-          sz *= shrink;
-        }
-        if (span > length) size *= Math.max(0.55, length / span);
+        const spanOf = (sp: number, sz0: number) => {
+          let span = gap * 0.6;
+          let sz = sz0;
+          for (let i = 0; i < count; i++) {
+            span += sz + (i + 1 < count ? sz * sp : 0);
+            sz *= shrink;
+          }
+          return span;
+        };
+        // a short run tightens the chain first, then shrinks it, but keeps all bubbles readable
+        if (spanOf(spacing, size) > length) spacing = 0.15;
+        const span = spanOf(spacing, size);
+        if (span > length) size = Math.max(1.4 * u.k, size * Math.max(0.5, length / span));
       }
       let dpos = gap * 0.6 + size / 2;
       const total = target ? length : length + size;
       // an explicit length spreads the chain evenly over it
       const spread = t.length !== undefined && count > 1 ? Math.max(0, (length - dpos) / (count - 1)) : 0;
       for (let i = 0; i < count; i++) {
-        if (!spread && dpos + size / 2 > total + 1e-6 && i > 0) break;
+        if (!spread && dpos + size / 2 > total + 1e-6 && i > 1) break;
         if (spread) dpos = gap * 0.6 + size / 2 + 0 + i * spread;
         const tt = Math.min(1, dpos / Math.max(1e-6, total));
         const c = quad(R, ctrl, tipBent, tt);
@@ -523,7 +530,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
           size *= shrink;
           continue;
         }
-        dpos += size / 2 + size * 0.45;
+        dpos += size / 2 + size * spacing;
         size *= shrink;
         dpos += size / 2;
       }

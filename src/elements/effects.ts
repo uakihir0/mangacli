@@ -668,7 +668,7 @@ function applyClear(f: FxCtx, nodes: Node[], kind: string): Node[] {
     let out = nodes;
     for (const t of f.ctx.refs.all())
       if (t.type === "image" && t.character && t.imagePx && (!f.ctx.panel || t.panelId === f.ctx.panel.panel.id))
-        out = [{ kind: "group", alphaMaskOf: { ...t.imagePx, invert: true, dilate: 1.6 * f.k }, children: out }];
+        out = [{ kind: "group", alphaMaskOf: { ...t.imagePx, invert: true, dilate: 3 * f.k }, children: out }];
     return out;
   }
   if (clear === undefined || clear === null || !nodes.length) return nodes;

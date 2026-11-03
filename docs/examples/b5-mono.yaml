@@ -123,7 +123,7 @@ pages:
           - effect: speed-lines
             angle: 0deg
             region: { band: { side: bottom, size: 30% } }
-            thickness: [0.08mm, 0.25mm]      # モノクロでは opacity ではなく線幅で薄く見せる
+            thickness: [0.12mm, 0.4mm]       # モノクロでは opacity ではなく線幅で薄く見せる
           - balloon: その日の放課後——
             as: narration
             place: top-right
