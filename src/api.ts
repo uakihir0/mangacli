@@ -230,6 +230,7 @@ function buildFonts(p: Project, o: RenderOptions): FontRegistry {
     fontCacheDir: o.fontCacheDir,
     fontMirror: o.fontMirror,
     onInfo: (code, message) => p.bag.info(code, message),
+    onError: (code, message) => p.bag.error(code, message),
   }, o.fontCache);
 }
 
@@ -504,7 +505,12 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
     } catch (e) {
       if (e instanceof MangaValidationError) throw e;
       result.failures.push({ pageId: page.id, index: pl.idx + 1, error: e as Error });
-      bag.error("RENDER_FAILED", `page ${page.id}: ${(e as Error).message}`, { pageId: page.id });
+      // errors raised as "CODE: message" keep their code (OUTPUT_TOO_LARGE, OUTPUT_MODE_UNSUPPORTED, …)
+      const m = /^([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+): ([\s\S]*)$/.exec((e as Error).message);
+      const sys = (e as { code?: string }).code;
+      if (m) bag.error(m[1], `page ${page.id}: ${m[2]}`, { pageId: page.id });
+      else if (sys && /^E[A-Z]+$/.test(sys) && (e as { syscall?: string }).syscall === "open") bag.error("OUTPUT_WRITE_FAILED", `page ${page.id}: ${(e as Error).message}`, { pageId: page.id });
+      else bag.error("RENDER_FAILED", `page ${page.id}: ${(e as Error).message}`, { pageId: page.id });
       if (options.failFast) break;
     }
     timings[page.id] = performance.now() - tp;

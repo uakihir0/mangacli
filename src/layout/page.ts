@@ -93,6 +93,11 @@ export function computePageGeom(page: RPage, physicalIndex: number, book: Obj, b
   const firstSide = (book.firstPageSide as string) ?? (binding === "right" ? "left" : "right");
   const sideOf = (i: number) => ((i % 2 === 1) === (firstSide === "left") ? "left" : "right");
   const side = page.type === "spread" ? "spread" : sideOf(physicalIndex);
+  if (page.type === "spread") {
+    // the spread's first page in reading order must sit on the binding's leading side (spec 4.15)
+    const want = rtl ? "right" : "left";
+    if (sideOf(physicalIndex) !== want) bag.warn("LAYOUT_SPREAD_PARITY", `spread ${page.id} starts on a ${sideOf(physicalIndex)} page; it should start on a ${want} page`, { path: page.path, pageId: page.id });
+  }
   // base frame
   let baseFrame: Rect;
   const bf = s.baseFrame;

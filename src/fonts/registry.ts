@@ -73,6 +73,7 @@ interface Chain {
 
 export class FontRegistry {
   private loaded = new Map<string, LoadedFont>();
+  private failed = new Set<string>();
   private chains = new Map<string, Chain>();
   readonly diagnostics: { code: string; message: string; severity: "error" | "warning" | "info" }[] = [];
 
@@ -100,9 +101,25 @@ export class FontRegistry {
   }
 
   private catalogPhys(ref: string): Phys {
-    const { id, weight } = parseCatalogRef(ref);
-    const f = findCatalogFont(id, weight);
-    if (!f) throw new FontFetchError("FONT_DOWNLOAD_FAILED", `FONT_CATALOG_UNKNOWN: ${ref}`);
+    let f: ReturnType<typeof findCatalogFont>;
+    try {
+      const { id, weight } = parseCatalogRef(ref);
+      f = findCatalogFont(id, weight);
+    } catch {
+      f = undefined;
+    }
+    if (!f) {
+      // unknown catalog entries never cover anything; loading reports the error once
+      return {
+        key: `cat-unknown:${ref}`,
+        label: ref,
+        index: 0,
+        coverage: () => false,
+        load: async () => {
+          throw new FontFetchError("FONT_CATALOG_UNKNOWN", `font "${ref}" is not in the catalog`);
+        },
+      };
+    }
     const cov = catalogCoverage(f.id);
     return {
       key: `cat:${f.id}@${f.weight}`,
@@ -128,7 +145,13 @@ export class FontRegistry {
   }
 
   private pushSetRole(name: string, items: Chain["items"], fallbackOnly: boolean) {
-    const role = this.setRole(name) ?? this.setRole("dialogue");
+    let role: SetRole | undefined;
+    try {
+      role = this.setRole(name) ?? this.setRole("dialogue");
+    } catch (e) {
+      this.fetchOpts.onError?.("FONT_CATALOG_UNKNOWN", (e as Error).message.replace(/^FONT_CATALOG_UNKNOWN: /, ""));
+      return;
+    }
     if (!role || typeof role === "string") return;
     const add = (font: string, ranges?: Chain["items"][number]["ranges"]) => {
       const phys = this.catalogPhys(font);
@@ -240,8 +263,18 @@ export class FontRegistry {
           this.loaded.set(p.key, hit);
           return;
         }
-        const data = await p.load();
-        const lf = makeLoaded(p, data);
+        if (this.failed.has(p.key)) return;
+        let lf: LoadedFont;
+        try {
+          lf = makeLoaded(p, await p.load());
+        } catch (e) {
+          this.failed.add(p.key);
+          const err = e as Error & { code?: string };
+          const code = e instanceof FontFetchError ? e.code : err.code === "ENOENT" ? "FONT_NOT_FOUND" : err.code === "EACCES" ? "FONT_LOAD_FAILED" : "FONT_UNSUPPORTED_FORMAT";
+          this.fetchOpts.onError?.(code, `${p.label}: ${err.message}`);
+          if (!this.fetchOpts.onError) throw e;
+          return;
+        }
         this.loaded.set(p.key, lf);
         if (shareable) this.shared?.set(p.key, lf);
       }),

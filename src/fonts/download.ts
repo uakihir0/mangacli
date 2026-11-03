@@ -13,10 +13,12 @@ export interface FontFetchOptions {
   signal?: AbortSignal;
   onProgress?: (e: { font: string; done: number; total: number }) => void;
   onInfo?: (code: string, message: string) => void;
+  /** font errors are reported here instead of thrown (missing files, unknown catalog ids) */
+  onError?: (code: string, message: string) => void;
 }
 
 export class FontFetchError extends Error {
-  constructor(public code: "FONT_DOWNLOAD_FAILED" | "FONT_INTEGRITY_FAILED" | "FONT_DOWNLOAD_DISABLED", message: string) {
+  constructor(public code: "FONT_DOWNLOAD_FAILED" | "FONT_INTEGRITY_FAILED" | "FONT_DOWNLOAD_DISABLED" | "FONT_CATALOG_UNKNOWN", message: string) {
     super(message);
   }
 }
