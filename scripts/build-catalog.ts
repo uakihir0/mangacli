@@ -102,7 +102,7 @@ const catalog = {
       thought: "dialogue",
       whisper: "dialogue",
       narration: { font: "comic-neue@400", fallback: ["noto-sans-jp@400"] },
-      shout: { font: "bangers@400", fallback: ["noto-sans-jp@700"] },
+      shout: { font: "bangers@400", scale: 1.35, fallback: ["noto-sans-jp@700"] },
       sfx: { font: "bangers@400", fallback: ["noto-sans-jp@700"] },
       hand: { font: "comic-neue@400", fallback: ["noto-sans-jp@400"] },
       title: { font: "bangers@400", fallback: ["noto-sans-jp@700"] },

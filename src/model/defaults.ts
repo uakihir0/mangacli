@@ -24,7 +24,7 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
     clip: "none",
     autoPlace: "auto",
   },
-  text: { font: "narration", fontSize: "12bQ", clip: "none", padding: ["0.3em", "0.3em"], overflow: "shrink", outline: [{ width: "0.5bmm", color: "paper" }] },
+  text: { font: "narration", fontSize: "12bQ", clip: "none", padding: ["0.3em", "0.3em"], overflow: "shrink", outline: [{ width: "0.8bmm", color: "paper" }] },
   sfx: {
     font: "sfx",
     fontSize: "12bmm",
@@ -58,7 +58,7 @@ export const BUILTIN_EFFECT_DEFAULTS: Record<string, Obj> = {
 };
 
 export const BUILTIN_MARK_DEFAULTS: Record<string, Obj> = {
-  "*": { color: "black", stroke: { width: "0.25bmm", pen: { preset: "g-pen" } }, clip: "none" },
+  "*": { color: "black", stroke: { width: "0.25bmm", pen: { preset: "g-pen" } }, clip: "panel" },
   sweat: { size: "5bmm", count: 1, fill: "paper" },
   "sweat-burst": { size: "12bmm", count: 5, fill: "paper" },
   anger: { size: "6bmm", variant: "cross" },

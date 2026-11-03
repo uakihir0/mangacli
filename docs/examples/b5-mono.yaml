@@ -184,6 +184,7 @@ pages:
             outline: 0.8mm white
           - mark: surprise
             target: taro2
+            spread: 160deg                 # 頭が枠に接しているので、線を左右へ広げる
           - type: sfx
             text: ドキッ
             at: [20%, 35%]

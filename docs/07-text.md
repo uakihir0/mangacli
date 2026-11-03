@@ -244,7 +244,8 @@ fonts:
 |---|---|
 | `dialogue`、`thought`、`whisper` | `comic-neue@700` |
 | `narration`、`hand` | `comic-neue@400` |
-| `shout`、`sfx`、`title` | `bangers` |
+| `shout` | `bangers`（字幅の狭い書体のため 1.35 倍） |
+| `sfx`、`title` | `bangers` |
 
 いずれもフォールバックは `noto-sans-jp`。
 
@@ -540,7 +541,7 @@ ruby:
 | `padding` | Length \| `[縦, 横]` | `0.3em` | 板の余白 |
 | `stroke` | Stroke | `none` | 板の輪郭線 |
 | `overflow` | `shrink` \| `clip` \| `error` | `shrink` | 固定サイズの箱に収まらない場合の処理（[6.7.4](06-balloons.md#674-収まらない場合) と同じ） |
-| `outline` | Outline[] | `[{ width: 0.5bmm, color: paper }]` | 縁取り。絵や効果線の上でも読めるよう、既定で細い白フチを付ける。`none` で付けない |
+| `outline` | Outline[] | `[{ width: 0.8bmm, color: paper }]` | 縁取り。絵や効果線の上でも読めるよう、既定で白フチを付ける（小さい文字では字間までつながって地の白になる）。`none` で付けない |
 | 組版・装飾のプロパティ | - | - | 7.2、7.12 |
 | 共通プロパティ | - | - | [5.2](05-elements-and-images.md#52-共通プロパティ) |
 

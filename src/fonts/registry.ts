@@ -153,13 +153,13 @@ export class FontRegistry {
       return;
     }
     if (!role || typeof role === "string") return;
-    const add = (font: string, ranges?: Chain["items"][number]["ranges"]) => {
+    const add = (font: string, ranges?: Chain["items"][number]["ranges"], scale = 1) => {
       const phys = this.catalogPhys(font);
-      if (!items.some((i) => i.phys.key === phys.key && !i.ranges)) items.push({ phys, ranges, scale: 1, baselineShift: 0 });
+      if (!items.some((i) => i.phys.key === phys.key && !i.ranges)) items.push({ phys, ranges, scale, baselineShift: 0 });
     };
     if (!fallbackOnly) {
       if (role.compose) for (const it of role.compose) add(it.font, it.ranges);
-      if (role.font) add(role.font);
+      if (role.font) add(role.font, undefined, role.scale ?? 1);
     }
     for (const f of role.fallback ?? []) add(f);
   }

@@ -152,6 +152,8 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   // phase B: balloons plans, text, sfx, effects, fills, marks, draw
   const renderOthers = async (els: RElement[], ctx: ElemCtx, panelIdx: number, source: number) => {
     const plans: { plan: BalloonPlan; idx: number }[] = [];
+    const balloonIds = new Set(els.filter((e) => e.type === "balloon").map((e) => e.id));
+    const p0 = (v: unknown) => (typeof v === "string" ? v.split(".")[0] : undefined);
     for (const [i, el] of els.entries()) {
       if (el.type === "image") continue;
       if (el.props.visible === false) continue;
@@ -174,6 +176,14 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
             const r = renderSfx(el, c2);
             processed.set(el.id, mkItem(el, r.nodes, r.bbox, panelIdx, i, source, ctx));
             refs.add({ id: el.id, type: "sfx", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id });
+            break;
+          }
+          case "mark": {
+            // marks tied to the art are drawn before the balloons are placed, so balloons avoid them
+            const refTo = [p0(el.props.target), p0(el.props.at), p0(el.props.anchorTo)].filter(Boolean) as string[];
+            if (refTo.some((r) => balloonIds.has(r))) break;
+            const r = renderMisc(el, c2);
+            processed.set(el.id, mkItem(el, r.nodes, r.bbox, panelIdx, i, source, ctx));
             break;
           }
           default:
@@ -242,7 +252,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     }
     // effects etc (after refs exist)
     for (const [i, el] of els.entries()) {
-      if (["image", "balloon", "text", "sfx"].includes(el.type) || el.props.visible === false) continue;
+      if (["image", "balloon", "text", "sfx"].includes(el.type) || el.props.visible === false || processed.has(el.id)) continue;
       const c2 = { ...ctx, coordsBox: coordsFor(el, ctx, geom) };
       try {
         const nodes = renderMisc(el, c2);
@@ -879,6 +889,8 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   for (const it of processed.values()) {
     const el = (it as { el?: RElement }).el;
     if (el && (el.type === "text" || el.type === "sfx") && rectIntersect(it.bbox, panelBox)) obstacles.push({ r: it.bbox, w: 50 });
+    // marks the author placed (sparkles, sweat, ...) should stay visible
+    else if (el && el.type === "mark" && rectIntersect(it.bbox, panelBox)) obstacles.push({ r: it.bbox, w: 30 });
   }
   const pid = ctx.panel?.panel.id;
   const hard: Rect[] = [];
