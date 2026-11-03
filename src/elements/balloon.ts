@@ -435,13 +435,20 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       const a = parseAngle((t.direction as string) ?? "100deg");
       dir = { x: Math.cos(a), y: Math.sin(a) };
     }
+    // root picks where the tail leaves the body; the tip still heads for the target / direction
+    let rootDir = dir;
     if (t.root !== undefined && t.root !== "auto") {
       const a = parseAngle(t.root as string);
-      dir = { x: Math.cos(a), y: Math.sin(a) };
+      rootDir = { x: Math.cos(a), y: Math.sin(a) };
     }
-    const hit = rayPolygon(center, dir, cur.pts);
+    const hit = rayPolygon(center, rootDir, cur.pts);
     if (!hit) continue;
-    const R = { x: center.x + dir.x * hit.t, y: center.y + dir.y * hit.t };
+    const R = { x: center.x + rootDir.x * hit.t, y: center.y + rootDir.y * hit.t };
+    if (rootDir !== dir && target) {
+      const d2 = { x: target.x - R.x, y: target.y - R.y };
+      const l2 = Math.hypot(d2.x, d2.y) || 1;
+      dir = { x: d2.x / l2, y: d2.y / l2 };
+    }
     if (target && pointInPolygon(target, cur.pts)) {
       ctx.bag.warn("BALLOON_TAIL_TARGET_INSIDE", `tail target of ${plan.el.id} is inside the balloon`, { path: plan.el.path, elementId: plan.el.id });
       continue;
@@ -488,13 +495,20 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       }
       let dpos = gap * 0.6 + size / 2;
       const total = target ? length : length + size;
+      // an explicit length spreads the chain evenly over it
+      const spread = t.length !== undefined && count > 1 ? Math.max(0, (length - dpos) / (count - 1)) : 0;
       for (let i = 0; i < count; i++) {
-        if (dpos + size / 2 > total + 1e-6 && i > 0) break;
+        if (!spread && dpos + size / 2 > total + 1e-6 && i > 0) break;
+        if (spread) dpos = gap * 0.6 + size / 2 + 0 + i * spread;
         const tt = Math.min(1, dpos / Math.max(1e-6, total));
         const c = quad(R, ctrl, tipBent, tt);
         const r = size / 2;
         const pts = blobPoly(c, r, tc.rng, 28, 0.06).map((q) => ({ x: c.x + (q.x - c.x) * 1, y: c.y + (q.y - c.y) * 0.88 }));
         extra.push({ pts, closed: true, kind: "bubble" });
+        if (spread) {
+          size *= shrink;
+          continue;
+        }
         dpos += size / 2 + size * 0.45;
         size *= shrink;
         dpos += size / 2;
@@ -529,6 +543,10 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       }
     }
     const NN = zig ? segs * Math.max(4, Math.ceil(N / segs)) : N;
+    // outward normal at the root (from the body centre); a tail that runs along the outline is "slanted"
+    const nl = Math.hypot(R.x - center.x, R.y - center.y) || 1;
+    const nOut = { x: (R.x - center.x) / nl, y: (R.y - center.y) / nl };
+    const slanted = !zig && !offSide && nOut.x * dir.x + nOut.y * dir.y < 0.55;
     const zigCorners: number[] = [];
     for (let i = 0; i <= NN; i++) {
       const tt = i / NN;
@@ -542,6 +560,23 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       }
       // off-panel tails stay open where the frame cuts them
       const f = zig ? Math.max(0, 1 - tt) ** 1.15 : offSide ? 1 - 0.65 * Math.pow(tt, 0.8) : Math.pow(1 - tt, 1 + sideCurve * 1.6);
+      if (slanted) {
+        // the tail leaves the outline at a slant: bow the centre line outward first, and keep
+        // the width square to the local direction so it never collapses into a line
+        const c0 = { x: R.x + nOut.x * length * 0.45 + dir.x * length * 0.2, y: R.y + nOut.y * length * 0.45 + dir.y * length * 0.2 };
+        const q = quad(R, c0, tip, tt);
+        const q2 = quad(R, c0, tip, Math.min(1, tt + 0.01));
+        const q1 = quad(R, c0, tip, Math.max(0, tt - 0.01));
+        const tg = { x: q2.x - q1.x, y: q2.y - q1.y };
+        const tl2 = Math.hypot(tg.x, tg.y) || 1;
+        let nn = { x: -tg.y / tl2, y: tg.x / tl2 };
+        if (nn.x * (A.p.x - R.x) + nn.y * (A.p.y - R.y) < 0) nn = { x: -nn.x, y: -nn.y };
+        const half = (bw / 2) * Math.pow(1 - tt, 1 + sideCurve);
+        const w8 = Math.min(1, tt * 4);
+        sideA.push({ x: A.p.x * (1 - w8) + (q.x + nn.x * half) * w8, y: A.p.y * (1 - w8) + (q.y + nn.y * half) * w8 });
+        sideB.push({ x: B.p.x * (1 - w8) + (q.x - nn.x * half) * w8, y: B.p.y * (1 - w8) + (q.y - nn.y * half) * w8 });
+        continue;
+      }
       sideA.push({ x: cl.x + (A.p.x - R.x) * f, y: cl.y + (A.p.y - R.y) * f });
       sideB.push({ x: cl.x + (B.p.x - R.x) * f, y: cl.y + (B.p.y - R.y) * f });
     }
