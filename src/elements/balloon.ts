@@ -701,8 +701,44 @@ export function renderConnected(a: BalloonPlan, b: BalloonPlan, style: string, w
     r.push(r[0]);
     return [r];
   };
+  if (style === "line") {
+    // two separate bodies joined by one short pen line between their outlines
+    const ra = renderBalloon(a, ctx);
+    const rb = renderBalloon(b, ctx);
+    const ca = a.center!;
+    const cb = b.center!;
+    const d = { x: cb.x - ca.x, y: cb.y - ca.y };
+    const l = Math.hypot(d.x, d.y) || 1;
+    const dir = { x: d.x / l, y: d.y / l };
+    const ha = rayPolygon(ca, dir, ra.contour);
+    const hb = rayPolygon(cb, { x: -dir.x, y: -dir.y }, rb.contour);
+    const nodes = [...ra.nodes, ...rb.nodes];
+    if (ha && hb) {
+      const p0 = { x: ca.x + dir.x * ha.t, y: ca.y + dir.y * ha.t };
+      const p1 = { x: cb.x - dir.x * hb.t, y: cb.y - dir.y * hb.t };
+      const st = resolveStroke(a.props.stroke, a.hand, ctx.u);
+      const inks = inkShape({ pts: [p0, p1], closed: false }, { line: st, hand: a.hand, rng: new Rng(a.el.seed ^ 0x3c), taper: false }).inks;
+      nodes.push(...inksToNodes(inks, st.color, tag(a.el, "ink")));
+    }
+    const bx = boundsOf([...ra.contour, ...rb.contour]);
+    return { nodes, bbox: bx, contour: ra.contour };
+  }
   const polys: [number, number][][][] = [toRing(ba.contour.pts), toRing(bbb.contour.pts)];
-  if (style !== "overlap") {
+  let neck = style !== "overlap";
+  if (!neck) {
+    // overlap needs the bodies to touch; otherwise fall back to a neck (spec 6.9.1)
+    let touching = false;
+    try {
+      touching = polygonClipping.intersection(polys[0], polys[1]).length > 0;
+    } catch {
+      touching = false;
+    }
+    if (!touching) {
+      ctx.bag.warn("BALLOON_CONNECT_DISJOINT", `connected balloons ${a.el.id} and ${b.el.id} do not overlap; joined with a neck`, { path: a.el.path, elementId: a.el.id });
+      neck = true;
+    }
+  }
+  if (neck) {
     const ca = a.center!;
     const cb = b.center!;
     const d = { x: cb.x - ca.x, y: cb.y - ca.y };
@@ -727,6 +763,7 @@ export function renderConnected(a: BalloonPlan, b: BalloonPlan, style: string, w
     }
     if (best) merged = best.slice(0, -1).map(([x, y]) => ({ x, y }));
     if (u.length > 1) ctx.bag.warn("BALLOON_CONNECT_DISJOINT", `connected balloons ${a.el.id} and ${b.el.id} do not touch`, { path: a.el.path, elementId: a.el.id });
+    void neck;
   } catch (e) {
     ctx.bag.warn("RENDER_FEATURE_APPROXIMATED", `connect failed: ${(e as Error).message}`, { path: a.el.path });
   }
