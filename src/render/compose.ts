@@ -3,7 +3,7 @@ import { BLACK, WHITE, parseColor } from "../core/color.js";
 import type { DiagnosticBag } from "../core/diagnostics.js";
 import { Rng } from "../core/random.js";
 import { toMm } from "../core/units.js";
-import { type ElemCtx, tag } from "../elements/context.js";
+import { type ElemCtx, placeCtx, tag } from "../elements/context.js";
 import { type BalloonPlan, planBalloon, renderBalloon, renderConnected } from "../elements/balloon.js";
 import { renderEffect } from "../elements/effects.js";
 import { layoutImage } from "../elements/image.js";
@@ -13,13 +13,13 @@ import { resolveRegion } from "../elements/region.js";
 import { renderSfx, renderText } from "../elements/textel.js";
 import { textValue } from "../elements/textstyle.js";
 import type { FontRegistry } from "../fonts/registry.js";
-import { polyPath, smoothPath } from "../geom/path.js";
+import { flattenPath, parseSvgPath, polyPath, smoothPath, transformPath } from "../geom/path.js";
 import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
 import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
 import { type PageGeom, type PanelGeom, bookOf, computePageGeom, layoutPanels } from "../layout/page.js";
-import { RefRegistry, center, place } from "../layout/place.js";
+import { RefRegistry, center, place, resolvePoint, sizeValue } from "../layout/place.js";
 import type { RElement, RPage, ResolvedDoc } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolveStroke } from "../model/values.js";
 import { BODY_GENERATORS } from "../shapes/balloon.js";
@@ -550,12 +550,31 @@ function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
     case "scatter":
       return renderScatter(el, ctx);
     case "group": {
+      // a group is a coordinate frame: with `size`, children use its box (0..size) and the
+      // group's placement (at / anchor / rotate / scale) moves them all (spec 5.10)
+      const pc = placeCtx(ctx, el);
+      const sz = Array.isArray(p.size) ? p.size : null;
+      const gw = sz ? sizeValue(sz[0], ctx.coordsBox.w, pc) : "auto";
+      const gh = sz ? sizeValue(sz[1], ctx.coordsBox.h, pc) : "auto";
+      const sized = gw !== "auto" && gh !== "auto";
+      const cctx: ElemCtx = sized ? { ...ctx, coordsBox: { x: 0, y: 0, w: gw as number, h: gh as number }, localFrame: true } : ctx;
       const nodes: Node[] = [];
       for (const c of el.children ?? []) {
-        const r = c.type === "text" ? renderText(c, ctx) : c.type === "sfx" ? renderSfx(c, ctx) : renderMisc(c, ctx);
+        const r = c.type === "text" ? renderText(c, cctx) : c.type === "sfx" ? renderSfx(c, cctx) : renderMisc(c, cctx);
         nodes.push(...r.nodes);
       }
-      return { nodes: [{ kind: "group", children: nodes }], bbox: ctx.coordsBox };
+      let transform: [number, number, number, number, number, number] | undefined;
+      let bbox = ctx.coordsBox;
+      if (sized) {
+        const pl = place(p, gw as number, gh as number, pc);
+        transform = pl.matrix as typeof transform;
+        bbox = pl.bbox;
+      } else if (p.rotate !== undefined || p.scale !== undefined) {
+        const c = p.at !== undefined ? (resolvePoint(p.at, pc) ?? center(ctx.coordsBox)) : center(ctx.coordsBox);
+        const pl = place({ ...p, at: undefined, anchor: [0.5, 0.5] }, 0, 0, pc, c);
+        transform = pl.matrix as typeof transform;
+      }
+      return { nodes: [{ kind: "group", transform, children: nodes, tag: tag(el, "fill") }], bbox };
     }
   }
   return { nodes: [], bbox: ctx.coordsBox };
@@ -575,11 +594,24 @@ function renderDraw(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
     const sz = (p.size as unknown[]) ?? ["10mm", "10mm"];
     const w = toMm(sz[0] as string, { ...u, base: ctx.coordsBox.w });
     const h = toMm(sz[1] as string, { ...u, base: ctx.coordsBox.h });
+    // local shape in 0..w, 0..h, mapped through the placement (anchor, rotate, scale)
     const pl = place(p, w, h, pc);
-    const c0 = center(pl.bbox);
-    if (kind === "rect") pts = rectPts({ x: c0.x - w / 2, y: c0.y - h / 2, w, h });
-    else pts = Array.from({ length: 72 }, (_, i) => ({ x: c0.x + Math.cos((i / 72) * Math.PI * 2) * w / 2, y: c0.y + Math.sin((i / 72) * Math.PI * 2) * h / 2 }));
+    let local: Vec[];
+    if (kind === "rect") {
+      const rad = p.radius !== undefined ? Math.min(w / 2, h / 2, toMm(p.radius as string, u)) : 0;
+      if (rad > 0) {
+        local = [];
+        const corners = [[w - rad, rad, -Math.PI / 2], [w - rad, h - rad, 0], [rad, h - rad, Math.PI / 2], [rad, rad, Math.PI]] as const;
+        for (const [cx, cy, a0] of corners) for (let k = 0; k <= 8; k++) local.push({ x: cx + Math.cos(a0 + (k / 8) * (Math.PI / 2)) * rad, y: cy + Math.sin(a0 + (k / 8) * (Math.PI / 2)) * rad });
+      } else local = rectPts({ x: 0, y: 0, w, h });
+    } else local = Array.from({ length: 72 }, (_, i) => ({ x: w / 2 + (Math.cos((i / 72) * Math.PI * 2) * w) / 2, y: h / 2 + (Math.sin((i / 72) * Math.PI * 2) * h) / 2 }));
+    pts = local.map((q) => applyMat(pl.matrix, q));
     closed = true;
+  } else if (kind === "path") {
+    const d = typeof p.d === "string" ? p.d : "";
+    const flat = flattenPath(transformPath(parseSvgPath(d), [1, 0, 0, 1, ctx.coordsBox.x, ctx.coordsBox.y]), 0.05);
+    pts = flat[0]?.pts ?? [];
+    closed = flat[0]?.closed ?? false;
   } else {
     const raw = (p.points as unknown[]) ?? [];
     pts = raw.map((q) => (Array.isArray(q) ? { x: ctx.coordsBox.x + toMm(q[0] as string, { ...u, base: ctx.coordsBox.w }), y: ctx.coordsBox.y + toMm(q[1] as string, { ...u, base: ctx.coordsBox.h }) } : (ctx.refs.point(String(q), ctx.panel?.panel.id) ?? { x: 0, y: 0 })));
@@ -611,8 +643,8 @@ function renderDraw(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
   const fill = parsePaint(p.fill ?? "none", { u, box: boundsOf(pts), seed: el.seed });
   if (fill && closed) nodes.push({ kind: "path", path: smoothPath(res.fill, true), fillRule: "nonzero", paint: fill, tag: tag(el, "fill") });
   nodes.push(...inksToNodes(res.inks, st.color, tag(el, "ink")));
-  if (kind === "arrow") {
-    const head = (p.head ?? { end: "arrow" }) as Obj;
+  if (kind === "arrow" || p.head !== undefined) {
+    const head = (typeof p.head === "string" ? { end: p.head } : (p.head ?? { end: "arrow" })) as Obj;
     const size = head.size !== undefined ? toMm(head.size as string, u) : st.width * 10;
     const mk = (tip: Vec, from: Vec, style: string) => {
       if (!style || style === "none") return;
@@ -623,6 +655,8 @@ function renderDraw(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
       const a = { x: tip.x - dir.x * size + nrm.x * size * 0.5, y: tip.y - dir.y * size + nrm.y * size * 0.5 };
       const b = { x: tip.x - dir.x * size - nrm.x * size * 0.5, y: tip.y - dir.y * size - nrm.y * size * 0.5 };
       if (style === "triangle") nodes.push({ kind: "path", path: polyPath([tip, a, b], true), fillRule: "nonzero", paint: { type: "solid", color: st.color }, tag: tag(el, "ink") });
+      else if (style === "dot") nodes.push({ kind: "path", path: polyPath(Array.from({ length: 20 }, (_, i) => ({ x: tip.x + Math.cos((i / 20) * Math.PI * 2) * size * 0.3, y: tip.y + Math.sin((i / 20) * Math.PI * 2) * size * 0.3 })), true), fillRule: "nonzero", paint: { type: "solid", color: st.color }, tag: tag(el, "ink") });
+      else if (style === "bar") nodes.push(...inksToNodes(inkLine([{ x: tip.x + nrm.x * size * 0.5, y: tip.y + nrm.y * size * 0.5 }, { x: tip.x - nrm.x * size * 0.5, y: tip.y - nrm.y * size * 0.5 }], st, hand, rng.fork("hbar"), { taperIn: false, taperOut: false }), st.color, tag(el, "ink")));
       else nodes.push(...inksToNodes([...inkLine([a, tip], st, hand, rng.fork("ha"), { taperIn: true, taperOut: false }), ...inkLine([b, tip], st, hand, rng.fork("hb"), { taperIn: true, taperOut: false })], st.color, tag(el, "ink")));
     };
     mk(pts[pts.length - 1], pts[Math.max(0, pts.length - 3)], (head.end as string) ?? "arrow");

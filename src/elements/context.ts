@@ -24,11 +24,13 @@ export interface ElemCtx {
   characters: Record<string, Record<string, unknown>>;
   /** output resolution for asset resolution checks */
   outputDpi: number;
+  /** children of a sized group: coordinates are local, so the page safe area does not apply */
+  localFrame?: boolean;
 }
 
 export function placeCtx(ctx: ElemCtx, el: RElement): PlaceCtx {
   const textual = el.type === "balloon" || el.type === "text";
-  const safeBox = textual && ctx.u.units !== "px" ? ctx.geom.safe : undefined;
+  const safeBox = textual && ctx.u.units !== "px" && !ctx.localFrame ? ctx.geom.safe : undefined;
   return { u: ctx.u, coordsBox: ctx.coordsBox, refs: ctx.refs, panelId: ctx.panel?.panel.id, bag: ctx.bag, path: el.path, safeBox };
 }
 
