@@ -40,7 +40,7 @@
 | `maxSize` | Size | `[70%, 70%]` | `auto` のときの最大（コマの表示領域に対する割合） |
 | `aspect` | 数値 \| `auto` | `auto` | 本体の縦横比（幅 / 高さ）の希望値 |
 | `aspectRange` | `[最小, 最大]` | `[0.55, 1.8]` | `aspect: auto` のときに許す縦横比の範囲 |
-| `padding` | Length \| `[縦, 横]` | `[0.7em, 0.8em]` | 本文と本体の内側の安全領域との間隔 |
+| `padding` | Length \| `[縦, 横]` | `[0.45em, 0.9em]` | 本文と本体の内側の安全領域との間隔 |
 | `textOffset` | `[dx, dy]` | `[0, 0]` | 本文の位置の微調整 |
 | `textOutline` | Outline[] | - | 本文の縁取り。`shape: none` で絵の上に直接文字を置く場合に使う |
 | `overflow` | `shrink` \| `grow` \| `clip` \| `error` | `auto` のときは `grow`、固定サイズのときは `shrink` | 本文が収まらない場合の処理（[6.7.4](#674-収まらない場合)） |
@@ -229,18 +229,18 @@ tail: none
 |---|---|---|---|
 | `kind` | `wedge` \| `bubbles` \| `line` \| `zigzag` \| `none` | 形状と `as` による | しっぽの種類（下表） |
 | `to` | Point | 話者 | 向き先。`who` があり、同じコマに話者の画像があれば、その画像（[3.7.2](03-document-format.md#372-参照)） |
-| `direction` | Angle | `90deg`（下） | `to` がない場合の向き |
-| `length` | Length | `to` までの距離から決める / 6 mm | しっぽの長さ（本体の縁から先端まで） |
-| `maxLength` | Length | `20mm` | 長さの上限。向き先が遠い場合は、向きだけを合わせてこの長さで止める |
+| `direction` | Angle | `100deg`（下やや左） | `to` がない場合の向き |
+| `length` | Length | `to` までの距離から決める / 5 mm（`zigzag` は 7 mm） | しっぽの長さ（本体の縁から先端まで）。話者の顔（`face` の楕円）の手前で止める |
+| `maxLength` | Length | 本体の短辺の 80 %（4〜14 mm に制限） | 長さの上限。向き先が遠い場合は、向きだけを合わせてこの長さで止める |
 | `gap` | Length | `2mm` | 先端と向き先の点の間に残す距離（しっぽは口元に触れない） |
-| `width` | Length | 本体の短辺の 22 %（2〜7 mm に制限） | 付け根の幅 |
+| `width` | Length | 本体の短辺の 30 %（2.6〜7 mm に制限） | 付け根の幅 |
 | `widthScale` | 数値 | `1` | 付け根の幅の倍率。カスケードの後に掛ける（`as: shout` などで使う） |
 | `bend` | -1〜1 | `0.15` | しっぽ全体の曲がり。正で時計回りに曲がる |
 | `sideCurve` | 0〜1 | `0.25` | 両側の辺の内側への反り。大きいほど先端が鋭く見える |
 | `root` | `auto` \| Angle | `auto` | 本体のどこから出すか。`auto` は本体の中心から向き先への方向。角度は本体の中心から見た方向 |
 | `offscreen` | `top` \| `right` \| `bottom` \| `left` | - | 画面外の話者。コマの指定した辺の外へ向け、枠で切る（P1） |
 | `count` | 整数 | `3` | `bubbles` の泡の数 |
-| `bubbleSize` | Length | 本体の短辺の 22 %（1.5〜5 mm に制限） | `bubbles` の最初の泡の直径 |
+| `bubbleSize` | Length | 本体の短辺の 20 %（1.5〜5 mm に制限）。顔までの距離に収まらない場合は 55 % まで縮める | `bubbles` の最初の泡の直径 |
 | `shrink` | 0〜1 | `0.62` | `bubbles` の泡ごとの縮小率 |
 | `segments` | 整数 | `3` | `zigzag` の折れの数 |
 
