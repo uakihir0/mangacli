@@ -435,6 +435,19 @@ function hatching(f: FxCtx): InkPoly[] {
   const layers = Number(p.layers ?? (pattern === "hatch" ? 1 : 2));
   const out: InkPoly[] = [];
   const soft = (p.edge as string) !== "clean";
+  const ruler = p.ruler === true;
+  // gradient: darkness 1 -> 0 across the region; lines thin out where it is light
+  const gr = isObj(p.gradient) ? (p.gradient as Obj) : null;
+  const gAng = gr ? parseAngle((gr.angle as string) ?? "90deg") : 0;
+  const gd = { x: Math.cos(gAng), y: Math.sin(gAng) };
+  const gc = [b, { ...b, x: b.x + b.w }, { ...b, y: b.y + b.h }, { ...b, x: b.x + b.w, y: b.y + b.h }].map((q) => q.x * gd.x + q.y * gd.y);
+  const g0 = Math.min(...gc);
+  const g1 = Math.max(...gc);
+  const darkAt = (q: Vec) => {
+    if (!gr) return 1;
+    const t = (q.x * gd.x + q.y * gd.y - g0) / Math.max(1e-6, g1 - g0);
+    return Number(gr.from ?? 1) + (Number(gr.to ?? 0) - Number(gr.from ?? 1)) * t;
+  };
   if (pattern === "kakeami") {
     const bs = R(f, p.blockSize, { min: 2 * f.k, max: 3.5 * f.k, dist: "uniform" });
     const lpb = Number(p.linesPerBlock ?? 4);
@@ -449,6 +462,8 @@ function hatching(f: FxCtx): InkPoly[] {
           const cx = x + f.rng.range(-0.15, 0.15) * size;
           const cy = y + f.rng.range(-0.15, 0.15) * size;
           if (soft && !f.region.contains({ x: cx, y: cy })) continue;
+          // darker parts get more layers
+          if (gr && f.rng.next() > Math.max(0, Math.min(1, darkAt({ x: cx, y: cy }) * layers - layer))) continue;
           const parity = ((Math.round(x / step) + Math.round(y / step) + layer) % 2) * (Math.PI / 2);
           const a = ang0 + parity + f.rng.range(-0.26, 0.26);
           const d = { x: Math.cos(a), y: Math.sin(a) };
@@ -457,7 +472,7 @@ function hatching(f: FxCtx): InkPoly[] {
             const o = (i - (lpb - 1) / 2) * (size / lpb);
             const l = size * f.rng.range(0.8, 1.05);
             const c0 = { x: cx + n.x * o, y: cy + n.y * o };
-            out.push(...inkLine([{ x: c0.x - (d.x * l) / 2, y: c0.y - (d.y * l) / 2 }, { x: c0.x + (d.x * l) / 2, y: c0.y + (d.y * l) / 2 }], lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("ka"), { taperIn: true, taperOut: true, taperInLen: l * 0.3, taperOutLen: l * 0.4, inkPool: false, wobble: false, resolution: 0.15 }));
+            out.push(...inkLine([{ x: c0.x - (d.x * l) / 2, y: c0.y - (d.y * l) / 2 }, { x: c0.x + (d.x * l) / 2, y: c0.y + (d.y * l) / 2 }], lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("ka"), { taperIn: true, taperOut: true, taperInLen: l * 0.3, taperOutLen: l * 0.4, inkPool: false, wobble: false, resolution: 0.15, ruler }));
           }
         }
       }
@@ -485,8 +500,24 @@ function hatching(f: FxCtx): InkPoly[] {
         if ((!ins || t > tB) && t0 !== null) {
           const t1 = t - (soft ? f.rng.range(0, 2) * f.k : 0);
           if (t1 - t0 > 1 * f.k) {
-            const l = t1 - t0;
-            out.push(...inkLine([{ x: n.x * s + d.x * t0, y: n.y * s + d.y * t0 }, { x: n.x * s + d.x * t1, y: n.y * s + d.y * t1 }], lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("h"), { taperIn: true, taperOut: true, taperInLen: Math.min(l * 0.3, 2 * f.k), taperOutLen: Math.min(l * 0.4, 3 * f.k), inkPool: false, resolution: 0.3 }));
+            // with a gradient, lines are cut into strokes and the light side keeps fewer, shorter ones
+            const pieces = gr ? Math.max(1, Math.round((t1 - t0) / (4 * f.k))) : 1;
+            const pl = (t1 - t0) / pieces;
+            for (let k = 0; k < pieces; k++) {
+              let a0 = t0 + k * pl;
+              let a1 = a0 + pl * (gr ? 1.08 : 1);
+              if (gr) {
+                const mid = { x: n.x * s + d.x * (a0 + pl / 2), y: n.y * s + d.y * (a0 + pl / 2) };
+                const dk = Math.max(0, Math.min(1, darkAt(mid)));
+                if (f.rng.next() > dk + 0.05) continue;
+                const shrink = pl * (1 - (0.35 + 0.65 * dk)) * 0.5;
+                a0 += shrink;
+                a1 -= shrink;
+              }
+              const l = a1 - a0;
+              if (l < 0.6 * f.k) continue;
+              out.push(...inkLine([{ x: n.x * s + d.x * a0, y: n.y * s + d.y * a0 }, { x: n.x * s + d.x * a1, y: n.y * s + d.y * a1 }], lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("h"), { taperIn: true, taperOut: true, taperInLen: Math.min(l * 0.3, 2 * f.k), taperOutLen: Math.min(l * 0.4, 3 * f.k), inkPool: false, resolution: 0.3, ruler }));
+            }
           }
           t0 = null;
         }
@@ -556,6 +587,23 @@ function vignette(f: FxCtx): Node[] {
   const soft = (p.softness as number) ?? 0.7;
   const cx = b.x + b.w / 2;
   const cy = b.y + b.h / 2;
+  const shape = (p.shape as string) ?? "rect";
+  if (shape === "rect") {
+    // four edge bands fading from the ground colour into the picture
+    const bandW = width * (0.6 + soft * 0.8);
+    const tr0 = { ...color, a: 0 };
+    const band = (q: Vec[], x0: number, y0: number, x1: number, y1: number): Node => ({ kind: "path", path: polyPath(q, true), fillRule: "nonzero", paint: { type: "linear-gradient", x0, y0, x1, y1, stops: [{ offset: 0, color }, { offset: 1, color: tr0 }] }, tag: tag(f.el, "fill") });
+    const X0 = b.x;
+    const Y0 = b.y;
+    const X1 = b.x + b.w;
+    const Y1 = b.y + b.h;
+    return wrap(f, [
+      band([{ x: X0, y: Y0 }, { x: X1, y: Y0 }, { x: X1, y: Y0 + bandW }, { x: X0, y: Y0 + bandW }], X0, Y0, X0, Y0 + bandW),
+      band([{ x: X0, y: Y1 - bandW }, { x: X1, y: Y1 - bandW }, { x: X1, y: Y1 }, { x: X0, y: Y1 }], X0, Y1, X0, Y1 - bandW),
+      band([{ x: X0, y: Y0 }, { x: X0 + bandW, y: Y0 }, { x: X0 + bandW, y: Y1 }, { x: X0, y: Y1 }], X0, Y0, X0 + bandW, Y0),
+      band([{ x: X1 - bandW, y: Y0 }, { x: X1, y: Y0 }, { x: X1, y: Y1 }, { x: X1 - bandW, y: Y1 }], X1, Y0, X1 - bandW, Y0),
+    ]);
+  }
   const r = Math.hypot(b.w, b.h) / 2;
   const innerR = Math.max(0, r - width * 2.2);
   const t0 = innerR / r;
