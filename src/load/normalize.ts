@@ -221,6 +221,7 @@ export function normElementProps(v: Obj, path: Path, bag: DiagnosticBag): Obj {
   if (typeof o.shape === "string") o.shape = { kind: o.shape };
   if ("tail" in o) o.tail = normTail(o.tail);
   if ("padding" in o && !Array.isArray(o.padding)) o.padding = [o.padding, o.padding];
+  if (o.size === "auto") o.size = ["auto", "auto"];
   if (typeof o.lettering === "string") o.lettering = { mode: o.lettering };
   return o;
 }

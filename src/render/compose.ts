@@ -745,7 +745,8 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   for (const pl of plans) {
     if (!pl.explicit) continue;
     const pc = { u, coordsBox: ctx.coordsBox, refs, panelId: pid, bag: ctx.bag, path: pl.el.path, safeBox: u.units !== "px" ? geom.safe : undefined };
-    const r = place(pl.props, pl.outer.w, pl.outer.h, pc);
+    // rotation is applied around the body centre when drawing, not to the placement box
+    const r = place({ ...pl.props, rotate: undefined }, pl.outer.w, pl.outer.h, pc);
     const tl = r.bbox;
     setCenter(pl, { x: tl.x - pl.outer.x, y: tl.y - pl.outer.y });
   }

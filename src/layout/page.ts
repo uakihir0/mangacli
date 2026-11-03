@@ -323,7 +323,7 @@ export function layoutPanels(page: RPage, geom: PageGeom, bag: DiagnosticBag): P
     }
     assigned[i] = queue[qi++] ?? null;
   }
-  if (mode !== "free" && qi < queue.length) bag.error("LAYOUT_TOO_MANY_PANELS", `${slotPanels.length} panels for ${leaves.length} layout slots`, { path: page.path, pageId: page.id });
+  if (mode !== "free" && mode !== "single" && qi < queue.length) bag.error("LAYOUT_TOO_MANY_PANELS", `${slotPanels.length} panels for ${leaves.length} layout slots`, { path: page.path, pageId: page.id });
   leaves.forEach((lf, i) => {
     let p = assigned[i];
     if (!p) {

@@ -184,18 +184,8 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       const fixedAspect = typeof p.aspect === "number" ? p.aspect : undefined;
       base = fitBody(kind, params, shapeSeed, withMargin, fixedAspect, ar);
       body = genBody(kind, base.w, base.h, params, shapeSeed);
-      let ob = boundsOf(body.contour.pts);
-      // min size
-      if (minW !== "auto" && minH !== "auto" && (ob.w < minW || ob.h < minH)) {
-        const f = Math.max(minW / ob.w, minH / ob.h);
-        base = { w: base.w * Math.max(1, ob.w < minW ? minW / ob.w : 1), h: base.h * Math.max(1, ob.h < minH ? minH / ob.h : 1) };
-        void f;
-        body = genBody(kind, base.w, base.h, params, shapeSeed);
-        ob = boundsOf(body.contour.pts);
-      }
-      if ((maxW !== "auto" && ob.w > maxW) || (maxH !== "auto" && ob.h > maxH)) fits = false;
       // balance text inside the organic contour, then tighten
-      let ic = bestOffset(withMargin, body.inner, innerCenterOf(body), ob);
+      let ic = bestOffset(withMargin, body.inner, innerCenterOf(body), boundsOf(body.contour.pts));
       let lo = 0.78;
       let hi = 1;
       for (let it = 0; it < 7; it++) {
@@ -207,12 +197,21 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
         else lo = f;
       }
       if (hi < 1) {
-        const minOk = minW === "auto" || minH === "auto" ? true : true;
-        void minOk;
         base = { w: base.w * hi, h: base.h * hi };
         body = genBody(kind, base.w, base.h, params, shapeSeed);
         ic = bestOffset(withMargin, body.inner, innerCenterOf(body), boundsOf(body.contour.pts));
       }
+      // minimum size last, so tightening cannot undo it
+      let ob = boundsOf(body.contour.pts);
+      const gw = minW !== "auto" && ob.w < minW ? minW / ob.w : 1;
+      const gh = minH !== "auto" && ob.h < minH ? minH / ob.h : 1;
+      if (gw > 1 || gh > 1) {
+        base = { w: base.w * gw, h: base.h * gh };
+        body = genBody(kind, base.w, base.h, params, shapeSeed);
+        ob = boundsOf(body.contour.pts);
+        ic = bestOffset(withMargin, body.inner, innerCenterOf(body), ob);
+      }
+      if ((maxW !== "auto" && ob.w > maxW + 0.01) || (maxH !== "auto" && ob.h > maxH + 0.01)) fits = false;
       centerOverride = ic;
     }
     if (!fits && overflow !== "grow" && scale > minFontScale + 1e-6 && overflow !== "clip" && overflow !== "error") {
@@ -583,7 +582,11 @@ function buildBody(plan: BalloonPlan, ctx: ElemCtx, skipTails = false): BodyBuil
   const p = plan.props;
   const center = plan.center!;
   const rng = new Rng(el.seed ^ 0x5bd1e995);
-  const translate = (pts: Vec[]) => pts.map((q) => ({ x: q.x + center.x, y: q.y + center.y }));
+  // rotate: the body turns about its centre; tails are then aimed from the rotated outline
+  const ra = p.rotate !== undefined ? parseAngle(p.rotate as string) : 0;
+  const cr = Math.cos(ra);
+  const sr = Math.sin(ra);
+  const translate = (pts: Vec[]) => pts.map((q) => ({ x: q.x * cr - q.y * sr + center.x, y: q.x * sr + q.y * cr + center.y }));
   const body = plan.body;
   let contour: ShapeContour = { ...body.contour, pts: translate(body.contour.pts) };
   const tails: Obj[] = skipTails ? [] : Array.isArray(p.tails) ? (p.tails as Obj[]) : isObj(p.tail) ? [p.tail as Obj] : [];
@@ -624,6 +627,16 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
 }
 
 function textNodes(plan: BalloonPlan, ctx: ElemCtx): Node[] {
+  const ra = plan.props.rotate !== undefined ? parseAngle(plan.props.rotate as string) : 0;
+  const nodes = textNodesFlat(plan, ctx);
+  if (!ra) return nodes;
+  const c = plan.center!;
+  const cr = Math.cos(ra);
+  const sr = Math.sin(ra);
+  return [{ kind: "group", transform: [cr, sr, -sr, cr, c.x - cr * c.x + sr * c.y, c.y - sr * c.x - cr * c.y], children: nodes }];
+}
+
+function textNodesFlat(plan: BalloonPlan, ctx: ElemCtx): Node[] {
   const el = plan.el;
   const p = plan.props;
   const u = ctx.u;

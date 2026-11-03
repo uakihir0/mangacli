@@ -44,7 +44,8 @@ export class DiagnosticBag {
     if (o === "off") return;
     const sev = o && FIXED_ERRORS.has(d.code) ? d.severity : (o ?? d.severity);
     const loc = d.location ?? (d.path && this.locate ? this.locate(d.path) : undefined);
-    if (this.items.some((x) => x.code === d.code && x.message === d.message && x.elementId === d.elementId)) return;
+    const pk = d.path ? d.path.join(".") : "";
+    if (this.items.some((x) => x.code === d.code && x.message === d.message && x.elementId === d.elementId && x.pageId === d.pageId && (x.path ? x.path.join(".") : "") === pk)) return;
     if (this.items.length >= 200) return;
     this.items.push({ ...d, severity: sev, location: loc });
   }
