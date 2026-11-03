@@ -5,7 +5,7 @@ import { LineCounter, isMap, isScalar, isSeq, parseDocument, type Node as YNode 
 import { DiagnosticBag, type SourceLocation } from "../core/diagnostics.js";
 
 /** keys whose scalar values are always read as their source string (spec 3.2 item 8) */
-const TEXT_KEYS = new Set(["text", "placeholder", "title", "name", "subtitle", "description", "copyright", "note", "format"]);
+const TEXT_KEYS = new Set(["text", "balloon", "sfx", "placeholder", "title", "name", "subtitle", "description", "copyright", "note", "format"]);
 
 export interface Loaded {
   data: unknown;
