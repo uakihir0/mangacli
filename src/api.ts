@@ -2,7 +2,7 @@
 import { mkdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type Diagnostic, DiagnosticBag, MangaError, MangaValidationError, suggest } from "./core/diagnostics.js";
+import { type Diagnostic, DiagnosticBag, MangaAbortError, MangaError, MangaRenderError, MangaResourceError, MangaSecurityError, MangaValidationError, suggest } from "./core/diagnostics.js";
 import { FontRegistry, type FontDef } from "./fonts/registry.js";
 import { type LoadedDocument, loadDocumentFile, loadDocumentFromObject, loadDocumentFromString } from "./load/document.js";
 import { isObj, normalizeDocument } from "./load/normalize.js";
@@ -326,7 +326,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   const result: RenderResult = { pages: [], files: [], diagnostics: bag.items, failures: [], layout: [], timings };
   const throwOnError = options.throwOnError !== false;
   const fail = () => {
-    if (throwOnError) throw new MangaValidationError(bag.items);
+    if (throwOnError) throw errorFor(bag.items);
     return result;
   };
   if (bag.hasErrors) return fail();
@@ -436,7 +436,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   let done = 0;
   for (const pl of plan) {
     if (!selected.has(pl.idx)) continue;
-    options.signal?.throwIfAborted();
+    if (options.signal?.aborted) throw new MangaAbortError();
     const page = resolved.pages[pl.idx];
     const tp = performance.now();
     try {
@@ -472,7 +472,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       if (transparentOut) list = { ...list, background: null, root: { ...list.root, children: list.root.children.filter((c) => !(c.kind === "path" && c.tag?.elementType === "page" && c.tag.role === "background")) } };
       result.layout.push(info);
       if (options.keepLists) (result.lists ??= []).push(list);
-      if (bag.hasErrors && throwOnError) throw new MangaValidationError(bag.items);
+      if (bag.hasErrors && throwOnError) throw errorFor(bag.items);
       if (options.layoutOnly) {
         timings[page.id] = performance.now() - tp;
         options.onProgress?.({ phase: "layout", pageId: page.id, done: ++done, total });
@@ -568,7 +568,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         writeFileSync(f, JSON.stringify(roundList(list)));
       }
     } catch (e) {
-      if (e instanceof MangaValidationError) throw e;
+      if (e instanceof MangaError && !(e instanceof MangaRenderError)) throw e;
       result.failures.push({ pageId: page.id, index: pl.idx + 1, error: e as Error });
       // errors raised as "CODE: message" keep their code (OUTPUT_TOO_LARGE, OUTPUT_MODE_UNSUPPORTED, …)
       const m = /^([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+): ([\s\S]*)$/.exec((e as Error).message);
@@ -606,10 +606,27 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   if (outDir && options.emit?.includes("manifest")) writeFileSync(join(outDir, "manifest.json"), JSON.stringify({ files: result.pages.map((r) => ({ path: r.path, page: r.id, width: r.width, height: r.height, format: r.format })) }, null, 2));
   timings.total = performance.now() - t0;
   if (options.strict && bag.items.some((d) => d.severity === "warning")) {
-    if (throwOnError) throw new MangaValidationError(bag.items.map((d) => (d.severity === "warning" ? { ...d, severity: "error" as const } : d)));
+    // strict: warnings count as errors, also in the returned diagnostics
+    result.diagnostics = bag.items.map((d) => (d.severity === "warning" ? { ...d, severity: "error" as const } : d));
+    if (throwOnError) throw new MangaValidationError(result.diagnostics);
   }
-  if (result.failures.length && throwOnError) throw new MangaError("RENDER_FAILED", result.failures.map((f) => `${f.pageId}: ${f.error.message}`).join("\n"), bag.items);
+  if (options.onDiagnostic) for (const d of result.diagnostics) options.onDiagnostic(d);
+  if (result.failures.length && throwOnError) {
+    const codes = bag.items.filter((d) => d.severity === "error").map((d) => d.code);
+    const msg = result.failures.map((f) => `${f.pageId}: ${f.error.message}`).join("\n");
+    if (codes.some((c) => /^(ASSET|FONT)_/.test(c))) throw new MangaResourceError(codes.find((c) => /^(ASSET|FONT)_/.test(c))!, msg, bag.items);
+    if (codes.some((c) => /^SECURITY_/.test(c))) throw new MangaSecurityError(codes.find((c) => /^SECURITY_/.test(c))!, msg, bag.items);
+    throw new MangaRenderError(codes[0] ?? "RENDER_FAILED", msg, bag.items, result.failures);
+  }
   return result;
+}
+
+/** the exception class for a set of error diagnostics (spec 11.9.1) */
+function errorFor(items: Diagnostic[]): MangaError {
+  const first = items.find((d) => d.severity === "error");
+  // unreadable assets/fonts found while drawing are resource errors; everything else is validation
+  if (first && /^(ASSET_DECODE_FAILED|ASSET_UNSUPPORTED_FORMAT|FONT_LOAD_FAILED|FONT_UNSUPPORTED_FORMAT|FONT_DOWNLOAD_FAILED|FONT_INTEGRITY_FAILED)$/.test(first.code)) return new MangaResourceError(first.code, first.message, items);
+  return new MangaValidationError(items);
 }
 
 function normalizeSeparations(s: RenderOptions["separate"]): { name: string; list: string[] }[] | null {
@@ -688,6 +705,11 @@ export interface Renderer {
   renderPage(input: MangaInput | Project, page: number | string, options?: RenderOptions): Promise<RenderedPage>;
   layout(input: MangaInput | Project, options?: RenderOptions): Promise<PageLayoutInfo[]>;
   displayList(input: MangaInput | Project, page: number | string, options?: RenderOptions): Promise<DisplayList>;
+  resolve(input: MangaInput | Project, options?: RenderOptions): ResolvedDoc;
+  renderStream(input: MangaInput | Project, options?: RenderOptions): AsyncGenerator<RenderedPage>;
+  /** drop cached fonts (all, or those whose key contains `match`) */
+  invalidate(match?: string): void;
+  dispose(): void;
 }
 
 /** a renderer with shared defaults and font cache (spec 11.4) */
@@ -701,6 +723,12 @@ export function createRenderer(base: RenderOptions = {}): Renderer {
     render: (input, o) => render(input, merged(o)),
     renderPage: (input, page, o) => renderPage(input, page, merged(o)),
     layout: async (input, o) => (await validate(input, merged(o))).layout,
+    resolve: (input, o) => resolve(input, merged(o)),
+    renderStream: (input, o) => renderStream(input, merged(o)),
+    invalidate: (match) => {
+      for (const k of [...fontCache.keys()]) if (!match || k.includes(match)) fontCache.delete(k);
+    },
+    dispose: () => fontCache.clear(),
     displayList: async (input, page, o) => {
       const r = await render(input, { ...merged(o), pages: [page], layoutOnly: true, keepLists: true, throwOnError: false });
       const list = r.lists?.[0];
@@ -719,11 +747,31 @@ export async function layout(input: MangaInput | Project, options: RenderOptions
 export async function* renderStream(input: MangaInput | Project, options: RenderOptions = {}): AsyncGenerator<RenderedPage> {
   const fontCache = options.fontCache ?? new Map();
   const project = typeof input === "object" && input !== null && !(input instanceof URL) && "bag" in input && "loaded" in input ? (input as Project) : load(input as MangaInput, options);
-  const first = await render(project, { ...options, fontCache, layoutOnly: true, throwOnError: false, outDir: undefined });
+  const first = await render(project, { ...options, fontCache, layoutOnly: true, throwOnError: false, outDir: undefined, onDiagnostic: undefined });
+  // validation errors are thrown before the first page (spec 11.9.2)
+  if (first.diagnostics.some((d) => d.severity === "error") && options.throwOnError !== false) throw errorFor(first.diagnostics);
   const ids = first.layout.map((l) => l.geom.id);
+  const failures: RenderResult["failures"] = [];
   for (const id of ids) {
-    options.signal?.throwIfAborted();
-    const r = await render(project, { ...options, fontCache, pages: [id] });
+    if (options.signal?.aborted) throw new MangaAbortError();
+    const r = await render(project, { ...options, fontCache, pages: [id], throwOnError: false });
+    failures.push(...r.failures);
+    if (r.failures.length && options.failFast) throw new MangaRenderError("RENDER_FAILED", r.failures.map((f) => `${f.pageId}: ${f.error.message}`).join("\n"), r.diagnostics, r.failures);
     for (const pg of r.pages) yield pg;
   }
+  if (failures.length && options.throwOnError !== false) throw new MangaRenderError("RENDER_FAILED", failures.map((f) => `${f.pageId}: ${f.error.message}`).join("\n"), [], failures);
+}
+
+/** parse a YAML string into a project (spec 11.2) */
+export function parseDocument(text: string, options: RenderOptions & { filename?: string } = {}): Project {
+  return load({ yaml: text, filename: options.filename, baseDir: options.baseDir }, options);
+}
+
+/** the cascade-resolved document (spec 11.2) */
+export function resolve(input: MangaInput | Project, options: RenderOptions = {}): ResolvedDoc {
+  const p = typeof input === "object" && input !== null && !(input instanceof URL) && "bag" in input && "loaded" in input ? (input as Project) : load(input as MangaInput, options);
+  const bag = p.bag.fork();
+  const r = resolveDocument(p.doc, bag, { seedOverride: options.seed, lang: options.lang, configDefaults: options.config?.defaults as Obj, configStyles: options.config?.styles as Record<string, Obj> });
+  if (bag.hasErrors && options.throwOnError !== false) throw errorFor(bag.items);
+  return r;
 }

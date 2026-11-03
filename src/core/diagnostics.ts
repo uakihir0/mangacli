@@ -80,8 +80,41 @@ export class MangaError extends Error {
 export class MangaValidationError extends MangaError {
   constructor(diagnostics: Diagnostic[]) {
     const errs = diagnostics.filter((d) => d.severity === "error");
-    super("VALIDATION", `${errs.length} error(s):\n` + errs.slice(0, 10).map(formatDiagnostic).join("\n"), diagnostics);
+    // code: the first error's diagnostic code
+    super(errs[0]?.code ?? "VALIDATION", `${errs.length} error(s):\n` + errs.slice(0, 10).map(formatDiagnostic).join("\n"), diagnostics);
     this.name = "MangaValidationError";
+  }
+}
+
+/** assets or fonts that cannot be read */
+export class MangaResourceError extends MangaError {
+  constructor(code: string, message: string, diagnostics: Diagnostic[] = []) {
+    super(code, message, diagnostics);
+    this.name = "MangaResourceError";
+  }
+}
+
+/** backend / encoder failures, and partial failures of a multi-page render */
+export class MangaRenderError extends MangaError {
+  constructor(code: string, message: string, diagnostics: Diagnostic[] = [], public failures: { pageId: string; index: number; error: Error }[] = []) {
+    super(code, message, diagnostics);
+    this.name = "MangaRenderError";
+  }
+}
+
+/** violations found while processing (limits, network) */
+export class MangaSecurityError extends MangaError {
+  constructor(code: string, message: string, diagnostics: Diagnostic[] = []) {
+    super(code, message, diagnostics);
+    this.name = "MangaSecurityError";
+  }
+}
+
+/** aborted through `signal`; `name` is "AbortError" like DOM aborts */
+export class MangaAbortError extends MangaError {
+  constructor(message = "aborted") {
+    super("ABORTED", message);
+    this.name = "AbortError";
   }
 }
 

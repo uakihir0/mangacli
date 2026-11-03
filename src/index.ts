@@ -10,6 +10,8 @@ export {
   render,
   renderPage,
   renderStream,
+  parseDocument,
+  resolve,
   validate,
   type MangaInput,
   type Project,
@@ -20,7 +22,7 @@ export {
   type ValidateResult,
 } from "./api.js";
 export { defineConfig, findConfig, loadConfig, type MangaConfig } from "./config.js";
-export { type Diagnostic, type Severity, type SourceLocation, MangaError, MangaValidationError, formatDiagnostic } from "./core/diagnostics.js";
+export { type Diagnostic, type Severity, type SourceLocation, MangaAbortError, MangaError, MangaRenderError, MangaResourceError, MangaSecurityError, MangaValidationError, formatDiagnostic } from "./core/diagnostics.js";
 export { installFonts, catalogStatus, setFontRefs, type InstallFontsOptions, type InstalledFont } from "./fonts/install.js";
 export { loadCatalog, type CatalogFont } from "./fonts/catalog.js";
 export { defaultFontCacheDir } from "./fonts/download.js";
