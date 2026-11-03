@@ -301,7 +301,16 @@ function finish(out: ParsedText, norm: NormalizeOptions, vertical: boolean): Par
 }
 
 /** auto tate-chu-yoko grouping (spec 7.10): marks digits */
-export function assignTcy(units: Unit[], opt: { digits: number; marks: boolean; latin: number } | null) {
+export function assignTcy(units: Unit[], opt: { digits: number; marks: boolean; latin: number } | null, latinMode = "auto") {
+  // manga lettering sets longer numbers and short capitals (OK, TV) upright, one per square
+  const upright = (a: number, b: number) => {
+    if (latinMode !== "auto") return;
+    for (let k = a; k < b; k++) {
+      const uu = units[k] as { style: InlineStyle };
+      if (!uu.style.sideways && !uu.style.upright) uu.style = { ...uu.style, upright: true };
+    }
+  };
+  const isLetter = (k: number) => k >= 0 && k < units.length && units[k].kind === "char" && /^[A-Za-z]$/.test((units[k] as { ch: string }).ch);
   let gid = 0;
   let i = 0;
   while (i < units.length) {
@@ -334,7 +343,7 @@ export function assignTcy(units: Unit[], opt: { digits: number; marks: boolean; 
       if (j - i <= opt.digits && opt.digits > 0) {
         gid++;
         for (let k = i; k < j; k++) (units[k] as { tcyGroup?: number }).tcyGroup = gid;
-      }
+      } else if (!isLetter(i - 1) && !isLetter(j)) upright(i, j);
       i = j;
       continue;
     }
@@ -352,11 +361,16 @@ export function assignTcy(units: Unit[], opt: { digits: number; marks: boolean; 
       i = j;
       continue;
     }
-    if (/^[A-Za-z]$/.test(u.ch) && opt.latin > 0) {
+    if (/^[A-Za-z]$/.test(u.ch)) {
       const j = runOf(/^[A-Za-z]$/);
-      if (j - i <= opt.latin) {
+      if (opt.latin > 0 && j - i <= opt.latin) {
         gid++;
         for (let k = i; k < j; k++) (units[k] as { tcyGroup?: number }).tcyGroup = gid;
+      } else if (j - i <= 3 && /^[A-Z]+$/.test(units.slice(i, j).map((x) => (x as { ch: string }).ch).join(""))) {
+        // a standalone short capital word (not part of a longer latin phrase)
+        const prev = i > 0 ? (units[i - 1] as { ch?: string }).ch ?? "" : "";
+        const next = j < units.length ? (units[j] as { ch?: string }).ch ?? "" : "";
+        if (!/^[A-Za-z0-9 ]$/.test(prev) && !/^[A-Za-z0-9 ]$/.test(next)) upright(i, j);
       }
       i = j;
       continue;

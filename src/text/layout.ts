@@ -4,7 +4,7 @@ import { Rng, noise1 } from "../core/random.js";
 import type { FontPick, FontRegistry, LoadedFont } from "../fonts/registry.js";
 import { type PathData, flattenPath, pathFromJson } from "../geom/path.js";
 import { type Matrix, type Rect, boundsOf, matMul, matRotate, matScale, matTranslate } from "../geom/vec.js";
-import { type KinsokuLevel, inseparable, isClosingPunct, isOpeningPunct, noEnd, noStart, phraseBoundaries } from "./linebreak.js";
+import { type KinsokuLevel, inseparable, isClosingPunct, isOpeningPunct, noEnd, noStart, phraseBoundaries, wordBoundaries } from "./linebreak.js";
 import { type InlineStyle, type NormalizeOptions, type ParsedText, type Unit, assignTcy, parseMarkup } from "./markup.js";
 
 export interface TextStyle {
@@ -99,6 +99,8 @@ interface Box {
   shake?: boolean;
   hand?: boolean;
   startPhrase?: boolean;
+  /** a word start inside a phrase: the fallback when a phrase is longer than the line */
+  startWord?: boolean;
   firstChar: string;
   lastChar: string;
 }
@@ -138,7 +140,7 @@ function isLatinChar(ch: string): boolean {
 
 export function layoutText(text: string, style: TextStyle, reg: FontRegistry, boxLimit?: number): TextLayout {
   const parsed: ParsedText = parseMarkup(text, { markup: style.markup, normalize: style.normalize, vertical: style.writing === "vertical" });
-  if (style.writing === "vertical") assignTcy(parsed.units, style.tcy);
+  if (style.writing === "vertical") assignTcy(parsed.units, style.tcy, style.latin);
   const vertical = style.writing === "vertical";
   const em = style.fontSize;
   const missing: string[] = [];
@@ -153,9 +155,11 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
   const wrap = style.wrap === "auto" ? "phrase" : style.wrap;
   if (wrap === "phrase" || wrap === "balanced") {
     const bounds = phraseBoundaries(plain, style.lang);
+    const words = wordBoundaries(plain, style.lang);
     let idx = 0;
     for (const b of boxes) {
       b.startPhrase = bounds.has(idx);
+      b.startWord = bounds.has(idx) || words.has(idx);
       idx += b.chars.length;
     }
   }
@@ -604,6 +608,7 @@ function canBreakBetween(a: Box, b: Box, wrap: string, style: TextStyle): boolea
   if (/[0-9]$/.test(a.lastChar) && /^[0-9,.]/.test(b.firstChar)) return false;
   if (b.wbrBefore) return true;
   if ((wrap === "phrase" || wrap === "balanced") && b.startPhrase === false) return false;
+  if (wrap === "word" && b.startWord === false) return false;
   return true;
 }
 
@@ -642,6 +647,11 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
           k = j;
           break;
         }
+      }
+      if (k < 0 && (wrap === "phrase" || wrap === "balanced")) {
+        // a phrase longer than the line: break at a word start inside it, else between characters
+        for (let j = cur.length - 1; j >= 1 && k < 0; j--) if (canBreakBetween(cur[j - 1], cur[j], "word", style)) k = j;
+        if (k < 0 && canBreakBetween(cur[cur.length - 1], b, "word", style)) k = cur.length;
       }
       if (k < 0 && (wrap === "phrase" || wrap === "balanced")) {
         for (let j = cur.length - 1; j >= 1; j--) {

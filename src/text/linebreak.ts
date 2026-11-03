@@ -89,7 +89,10 @@ export function phraseBoundaries(text: string, lang = "ja"): Set<number> {
         // split single kanji (角|丸)
         (KANJI_ONLY.test(w.s) && KANJI_ONLY.test(lastWord) && (w.s.length === 1 || lastWord.length === 1) && KANJI_ONLY.test(prev.s)) ||
         (/^[゠-ヿ]+$/u.test(w.s) && /[゠-ヿ]$/u.test(prev.s)) ||
-        (!/^\s+$/.test(prev.s) && /^[0-9,.]+$/.test(w.s) && /[0-9]$/.test(prev.s)));
+        (!/^\s+$/.test(prev.s) && /^[0-9,.]+$/.test(w.s) && /[0-9]$/.test(prev.s)) ||
+        // numbers keep their counter and prefix (2024年, 3人, 第12話)
+        (/^[一-鿿々]{1,2}/u.test(w.s) && /[0-9０-９]$/.test(prev.s)) ||
+        (/^[0-9０-９]/.test(w.s) && /第$/.test(prev.s)));
       if (attach) {
         const teChain = isTe(lastWord) && HIRA.test(w.s) && w.s.length <= 3;
         prev.s += w.s;
@@ -102,6 +105,14 @@ export function phraseBoundaries(text: string, lang = "ja"): Set<number> {
   }
   const out = new Set<number>();
   for (const p of phrases) out.add(p.i);
+  return out;
+}
+
+/** secondary break points inside a phrase that is longer than a line: word starts (2+ chars) */
+export function wordBoundaries(text: string, lang = "ja"): Set<number> {
+  const seg = new Intl.Segmenter(lang, { granularity: "word" });
+  const out = new Set<number>();
+  for (const w of seg.segment(text)) if (Array.from(w.segment).length >= 2 && !PUNCT_START.test(w.segment)) out.add(w.index);
   return out;
 }
 
