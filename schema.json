@@ -6689,6 +6689,9 @@
         "allowVertical": {
           "type": "boolean"
         },
+        "curl": {
+          "type": "boolean"
+        },
         "bend": {
           "type": "number",
           "minimum": -1,

@@ -521,7 +521,31 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     const bend = typeof t.bend === "number" ? t.bend : 0.1;
     const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : 0.12;
     const perp = { x: -dir.y, y: dir.x };
-    const tip = { x: R.x + dir.x * length, y: R.y + dir.y * length };
+    let tip = { x: R.x + dir.x * length, y: R.y + dir.y * length };
+    // a tail with a speaker curls toward the face: its centre line is a circular arc whose centre
+    // lies on the face's side, leaving the body along `dir` and turning toward the face
+    let arcFn: ((tt: number) => Vec) | null = null;
+    if (kind === "wedge" && !offSide && t.curl !== false && target) {
+      const ref = typeof t.to === "string" ? ctx.refs.target(t.to, ctx.panel?.panel.id) : who ? ctx.refs.target(who, ctx.panel?.panel.id) : undefined;
+      const fb = ref?.regions.face?.bbox;
+      const F = fb ? { x: fb.x + fb.w / 2, y: fb.y + fb.h / 2 } : target;
+      const toF = { x: F.x - R.x, y: F.y - R.y };
+      const ang = Math.atan2(dir.x * toF.y - dir.y * toF.x, dir.x * toF.x + dir.y * toF.y);
+      const turn = Math.max(-1.0, Math.min(1.0, ang * 0.85));
+      if (Math.abs(turn) > 0.03) {
+        const sgn = Math.sign(turn);
+        const r = length / Math.abs(turn);
+        const C = { x: R.x - dir.y * sgn * r, y: R.y + dir.x * sgn * r };
+        const v0 = { x: R.x - C.x, y: R.y - C.y };
+        arcFn = (tt: number) => {
+          const a = sgn * Math.abs(turn) * tt;
+          const ca = Math.cos(a);
+          const sa = Math.sin(a);
+          return { x: C.x + v0.x * ca - v0.y * sa, y: C.y + v0.x * sa + v0.y * ca };
+        };
+        tip = arcFn(1);
+      }
+    }
     const ctrl = { x: (R.x + tip.x) / 2 + perp.x * bend * length * 0.5, y: (R.y + tip.y) / 2 + perp.y * bend * length * 0.5 };
     const tipBent = { x: tip.x + perp.x * bend * length * 0.25, y: tip.y + perp.y * bend * length * 0.25 };
 
@@ -603,7 +627,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     const zigCorners: number[] = [];
     for (let i = 0; i <= NN; i++) {
       const tt = i / NN;
-      let cl = quad(R, ctrl, tipBent, tt);
+      let cl = arcFn ? arcFn(tt) : quad(R, ctrl, tipBent, tt);
       if (zig) {
         const pos = tt * segs;
         const k = Math.min(segs - 1, Math.floor(pos));
@@ -617,9 +641,10 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         // the tail leaves the outline at a slant: bow the centre line outward first, and keep
         // the width square to the local direction so it never collapses into a line
         const c0 = { x: R.x + nOut.x * length * 0.45 + dir.x * length * 0.2, y: R.y + nOut.y * length * 0.45 + dir.y * length * 0.2 };
-        const q = quad(R, c0, tip, tt);
-        const q2 = quad(R, c0, tip, Math.min(1, tt + 0.01));
-        const q1 = quad(R, c0, tip, Math.max(0, tt - 0.01));
+        const cq = (x: number) => (arcFn ? arcFn(x) : quad(R, c0, tip, x));
+        const q = cq(tt);
+        const q2 = cq(Math.min(1, tt + 0.01));
+        const q1 = cq(Math.max(0, tt - 0.01));
         const tg = { x: q2.x - q1.x, y: q2.y - q1.y };
         const tl2 = Math.hypot(tg.x, tg.y) || 1;
         let nn = { x: -tg.y / tl2, y: tg.x / tl2 };
