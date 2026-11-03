@@ -125,11 +125,26 @@ export class FontRegistry {
     }
   }
 
+  private pushSetRole(name: string, items: Chain["items"], fallbackOnly: boolean) {
+    const role = this.setRole(name) ?? this.setRole("dialogue");
+    if (!role || typeof role === "string") return;
+    const add = (font: string, ranges?: Chain["items"][number]["ranges"]) => {
+      const phys = this.catalogPhys(font);
+      if (!items.some((i) => i.phys.key === phys.key && !i.ranges)) items.push({ phys, ranges, scale: 1, baselineShift: 0 });
+    };
+    if (!fallbackOnly) {
+      if (role.compose) for (const it of role.compose) add(it.font, it.ranges);
+      if (role.font) add(role.font);
+    }
+    for (const f of role.fallback ?? []) add(f);
+  }
+
   /** Build a candidate chain for a font name (role or registered name). */
   chain(name: string, seen = new Set<string>()): Chain {
     const hit = this.chains.get(name);
     if (hit) return hit;
     if (seen.has(name)) return { items: [] };
+    const top = seen.size === 0;
     seen.add(name);
     const items: Chain["items"] = [];
     const pushName = (n: string) => items.push(...this.chain(n, seen).items);
@@ -161,21 +176,16 @@ export class FontRegistry {
           break;
         }
       }
-      if (!found && (ROLE_CHAINS[name] || name === "default")) {
-        const role = this.setRole(name) ?? this.setRole("dialogue");
-        if (role && typeof role !== "string") {
-          if (role.compose) for (const it of role.compose) items.push({ phys: this.catalogPhys(it.font), ranges: it.ranges, scale: 1, baselineShift: 0 });
-          if (role.font) items.push({ phys: this.catalogPhys(role.font), scale: 1, baselineShift: 0 });
-          for (const f of role.fallback ?? []) items.push({ phys: this.catalogPhys(f), scale: 1, baselineShift: 0 });
-        }
-      }
+      if (!found && (ROLE_CHAINS[name] || name === "default")) this.pushSetRole(name, items, false);
     }
-    if (seen.size === 1) {
+    if (top) {
       for (const g of this.globalFallback) if (g !== name) pushName(g);
+      // user-defined fonts still fall back to the font set (CJK coverage, emphasis marks etc.)
+      if (name !== "ui") this.pushSetRole(ROLE_CHAINS[name] ? name : "dialogue", items, true);
       items.push({ phys: { key: `file:${UI_FONT}`, label: "Lato", index: 0, load: async () => readFileSync(UI_FONT) }, scale: 1, baselineShift: 0 });
     }
     const ch = { items };
-    if (seen.size === 1) this.chains.set(name, ch);
+    if (top) this.chains.set(name, ch);
     return ch;
   }
 

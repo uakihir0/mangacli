@@ -244,12 +244,12 @@ pages:
               告白……！？
             as: think
             who: taro
-            at: [78%, 22%]
+            at: [80%, 21%]
           - type: balloon
             text: いや、ないない
             as: think
             who: taro
-            at: [62%, 40%]
+            at: [67%, 41%]
             connect: { to: b-think, style: neck }
           - text: ※太郎の心の声
             font: hand

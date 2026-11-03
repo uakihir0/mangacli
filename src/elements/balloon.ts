@@ -440,10 +440,20 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       const count = typeof t.count === "number" ? t.count : 3;
       let size = t.bubbleSize !== undefined ? toMm(t.bubbleSize as string, u) : Math.min(5 * u.k, Math.max(1.5 * u.k, minSide * 0.2));
       const shrink = typeof t.shrink === "number" ? t.shrink : 0.62;
+      // the bubble chain must stop short of the speaker (face): scale it down to the available run
+      if (target && t.length === undefined) {
+        let span = gap * 0.6;
+        let sz = size;
+        for (let i = 0; i < count; i++) {
+          span += sz + (i + 1 < count ? sz * 0.45 : 0);
+          sz *= shrink;
+        }
+        if (span > length) size *= Math.max(0.55, length / span);
+      }
       let dpos = gap * 0.6 + size / 2;
-      const total = target ? Math.max(length, size * 2) : length + size;
+      const total = target ? length : length + size;
       for (let i = 0; i < count; i++) {
-        if (dpos > total + gap && i > 0) break;
+        if (dpos + size / 2 > total + 1e-6 && i > 0) break;
         const tt = Math.min(1, dpos / Math.max(1e-6, total));
         const c = quad(R, ctrl, tipBent, tt);
         const r = size / 2;
@@ -518,7 +528,7 @@ interface BodyBuild {
   rng: Rng;
 }
 
-function buildBody(plan: BalloonPlan, ctx: ElemCtx): BodyBuild {
+function buildBody(plan: BalloonPlan, ctx: ElemCtx, skipTails = false): BodyBuild {
   const el = plan.el;
   const p = plan.props;
   const center = plan.center!;
@@ -526,7 +536,7 @@ function buildBody(plan: BalloonPlan, ctx: ElemCtx): BodyBuild {
   const translate = (pts: Vec[]) => pts.map((q) => ({ x: q.x + center.x, y: q.y + center.y }));
   const body = plan.body;
   let contour: ShapeContour = { ...body.contour, pts: translate(body.contour.pts) };
-  const tails: Obj[] = Array.isArray(p.tails) ? (p.tails as Obj[]) : isObj(p.tail) ? [p.tail as Obj] : [];
+  const tails: Obj[] = skipTails ? [] : Array.isArray(p.tails) ? (p.tails as Obj[]) : isObj(p.tail) ? [p.tail as Obj] : [];
   const tr = applyTails(contour, tails, { ctx, plan, center, rng });
   if (tr.contour) contour = tr.contour;
   const stroke = resolveStroke(p.stroke, plan.hand, ctx.u, ctx.bag, [...el.path, "stroke"]);
@@ -592,8 +602,17 @@ export function renderBalloon(plan: BalloonPlan, ctx: ElemCtx): { nodes: Node[];
 
 /** two balloons joined by a neck or merged outline (spec 6.9.1) */
 export function renderConnected(a: BalloonPlan, b: BalloonPlan, style: string, widthSpec: unknown, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; contour: Vec[] } {
-  const ba = buildBody(a, ctx);
-  const bbb = buildBody(b, ctx);
+  // one speaker -> one tail: only the body nearer to the speaker keeps its tail(s)
+  const speakerDist = (pl: BalloonPlan) => {
+    const who = pl.props.who as string | undefined;
+    const tp = who ? ctx.refs.point(who, ctx.panel?.panel.id) : null;
+    return tp ? Math.hypot(tp.x - pl.center!.x, tp.y - pl.center!.y) : Infinity;
+  };
+  const sameSpeaker = a.props.who !== undefined && a.props.who === b.props.who;
+  const da = speakerDist(a);
+  const db = speakerDist(b);
+  const ba = buildBody(a, ctx, sameSpeaker && db < da);
+  const bbb = buildBody(b, ctx, sameSpeaker && da <= db);
   const toRing = (pts: Vec[]) => {
     const r = pts.map((q) => [q.x, q.y] as [number, number]);
     r.push(r[0]);
