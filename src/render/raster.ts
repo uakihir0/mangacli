@@ -7,6 +7,7 @@ import type { AssetRegistry } from "./assets.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
 import { makeToneSampler } from "./screen.js";
 import { distanceSquared } from "./edt.js";
+import { applyFilters } from "./filters.js";
 
 export type ColorMode = "color" | "gray" | "mono";
 export type ToneRendering = "dots" | "flat" | "auto";
@@ -559,8 +560,9 @@ export class RasterBackend {
     const outW = n.dest.w * scX;
     const outH = n.dest.h * scY;
     if (outW < 1 || outH < 1) return;
-    const pix = await dev.opts.assets.pixels(n.assetKey, Math.min(outW, n.sourceRect.w * 4), Math.min(outH, n.sourceRect.h * 4), n.sourceRect);
-    if (!pix) return;
+    const pix0 = await dev.opts.assets.pixels(n.assetKey, Math.min(outW, n.sourceRect.w * 4), Math.min(outH, n.sourceRect.h * 4), n.sourceRect);
+    if (!pix0) return;
+    const pix = n.filters.length ? await applyFilters(pix0, n.filters, n.dest.w / pix0.width) : pix0;
     const tmp = createCanvas(pix.width, pix.height);
     const tctx = tmp.getContext("2d");
     const id = tctx.createImageData(pix.width, pix.height);

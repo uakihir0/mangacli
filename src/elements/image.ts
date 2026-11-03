@@ -1,4 +1,5 @@
 // Image elements (spec 5.5).
+import { FILTER_NAMES, parseFilter } from "../render/filters.js";
 import { parseColor } from "../core/color.js";
 import { toMm } from "../core/units.js";
 import { polyPath, smoothPath, transformPath } from "../geom/path.js";
@@ -155,7 +156,14 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect):
     smoothing: (p.smoothing as "high") ?? "high",
     lineart: info!.kind === "lineart",
     monoLpi: info!.kind === "photo" ? 65 : 60,
-    filters: [],
+    filters: [...(info?.filters ?? []), ...(Array.isArray(p.filters) ? (p.filters as unknown[]) : [])].flatMap((f, i) => {
+      const pf = parseFilter(f);
+      if (!pf || !FILTER_NAMES.has(pf.name)) {
+        ctx.bag.error("SCHEMA_ENUM", `unknown image filter ${JSON.stringify(f)}`, { path: [...el.path, "filters", i] });
+        return [];
+      }
+      return [pf];
+    }),
     tag: tag(el, "art"),
   };
   const outline = Array.isArray(p.outline) ? (p.outline as Obj[]) : [];

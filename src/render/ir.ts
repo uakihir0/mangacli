@@ -99,6 +99,8 @@ export interface ImageNode {
 export interface ImageFilter {
   name: string;
   args: (number | string)[];
+  /** object form parameters ({ halftone: { lpi: 60 } }) */
+  opts?: Record<string, unknown>;
 }
 
 export type Node = GroupNode | PathNode | ImageNode;

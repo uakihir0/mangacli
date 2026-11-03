@@ -4,6 +4,7 @@ import type { RGBA } from "../core/color.js";
 import type { PathData } from "../geom/path.js";
 import type { Matrix } from "../geom/vec.js";
 import type { AssetRegistry } from "./assets.js";
+import { applyFilters } from "./filters.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
 
 export interface SvgOptions {
@@ -115,8 +116,9 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
     const dpi = o.imageDpi ?? 200;
     const w = Math.max(1, Math.min(im.sourceRect.w, Math.round((im.dest.w / 25.4) * dpi)));
     const h = Math.max(1, Math.min(im.sourceRect.h, Math.round((im.dest.h / 25.4) * dpi)));
-    const px = await o.assets.pixels(im.assetKey, w, h, im.sourceRect);
-    if (!px) return "";
+    const px0 = await o.assets.pixels(im.assetKey, w, h, im.sourceRect);
+    if (!px0) return "";
+    const px = im.filters.length ? await applyFilters(px0, im.filters, im.dest.w / px0.width) : px0;
     let img = sharp(px.data, { raw: { width: px.width, height: px.height, channels: 4 } });
     if (o.colorMode !== "color") img = img.grayscale();
     const png = await img.png().toBuffer();
