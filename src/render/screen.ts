@@ -88,7 +88,15 @@ export interface ScreenTarget {
  */
 export function makeToneSampler(spec: ToneSpec, target: ScreenTarget, densityOverride?: (x: number, y: number) => number) {
   const tab = table(spec.dot);
-  const c = 25.4 / Math.max(1, spec.lpi);
+  let c = 25.4 / Math.max(1, spec.lpi);
+  // snap the cell to the device grid for 0°/90° and 45° screens: a fractional cell beats
+  // against the pixel grid and shows as a coarse plaid (like a RIP's rational screening)
+  const a = (((spec.angle % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2)) / (Math.PI / 2);
+  const cellPx = c / target.mmPerPx;
+  if (cellPx > 2) {
+    if (Math.min(a, 1 - a) < 0.01) c = Math.max(2, Math.round(cellPx)) * target.mmPerPx;
+    else if (Math.abs(a - 0.5) < 0.01) c = Math.max(2, Math.round(cellPx / Math.SQRT2)) * Math.SQRT2 * target.mmPerPx;
+  }
   const ca = Math.cos(-spec.angle);
   const sa = Math.sin(-spec.angle);
   const [ox, oy] = spec.offset;
@@ -124,8 +132,8 @@ export function makeToneSampler(spec: ToneSpec, target: ScreenTarget, densityOve
     if (d <= 0.0005) return 0;
     if (d >= 0.9995) return 1;
     // skip unprintably small dots
-    const cellPx = c / target.mmPerPx;
-    if (spec.dot === "round" && d < 0.5 && 2 * cellPx * Math.sqrt(d / Math.PI) < dotMinPx * 0.5) return 0;
+ const cellNow = c / target.mmPerPx;
+    if (spec.dot === "round" && d < 0.5 && 2 * cellNow * Math.sqrt(d / Math.PI) < dotMinPx * 0.5) return 0;
     const T = tab[Math.min(1024, Math.max(0, Math.round(d * 1024)))];
     return spot(spec.dot, u, v) < T ? 1 : 0;
   };
