@@ -8,6 +8,7 @@ import { isObj, normalizeDocument } from "./load/normalize.js";
 import { type ResolvedDoc, resolveDocument } from "./model/resolve.js";
 import { type EncodeOptions, EXT, MIME, type OutputFormat, encode } from "./output/encode.js";
 import { type Profile, resolveProfile } from "./output/profiles.js";
+import { PdfWriter } from "./output/pdf.js";
 import { AssetRegistry } from "./render/assets.js";
 import { type PageLayoutInfo, composePage } from "./render/compose.js";
 import type { DisplayList } from "./render/ir.js";
@@ -285,6 +286,10 @@ export async function render(input: MangaInput | Project, options: RenderOptions
   const outDir = options.outDir ? resolvePath(options.outDir) : undefined;
   const nameTpl = options.name ?? (docOutput.name as string) ?? prof.name ?? "{name}-{page:03}";
   const emitted = new Set<string>();
+  // pdf: all pages of a run go into one document
+  const pdfs = new Map<string, { writer: PdfWriter; colorMode: string; dpi: number }>();
+  const meta = (p.doc.meta ?? {}) as Obj;
+  const sde = process.env.SOURCE_DATE_EPOCH;
   const total = selected.size;
   let done = 0;
   for (const pl of plan) {
@@ -354,6 +359,20 @@ export async function render(input: MangaInput | Project, options: RenderOptions
         for (const part of parts)
         for (const fmt of formats) {
           const raster = part.raster;
+          if (fmt === "pdf") {
+            const key = run.name ?? "";
+            let pw = pdfs.get(key);
+            if (!pw) {
+              pw = { writer: new PdfWriter({ title: typeof meta.title === "string" ? meta.title : undefined, author: typeof meta.author === "string" ? meta.author : undefined, date: sde ? new Date(Number(sde) * 1000) : undefined }), colorMode, dpi };
+              pdfs.set(key, pw);
+            }
+            const trimH = Math.round((geom.trimH * dpi) / 25.4 + 1e-6);
+            const edge = Math.round((raster.height - trimH) / 2);
+            const bleedPx = crop === "trim" ? 0 : Math.round((geom.bleed * dpi) / 25.4 + 1e-6);
+            const trim = { x: edge, y: edge, w: raster.width - 2 * edge, h: raster.height - 2 * edge };
+            pw.writer.addPage({ rgba: raster.data, width: raster.width, height: raster.height, dpi, colorMode: (options.debug ? "color" : colorMode) as "color", trim, bleed: { x: trim.x - bleedPx, y: trim.y - bleedPx, w: trim.w + 2 * bleedPx, h: trim.h + 2 * bleedPx } });
+            continue;
+          }
           const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, transparent: options.transparent ?? !!run.list, metadata: { Software: "mangacli", Title: String((p.doc.meta as Obj | undefined)?.title ?? ""), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed) } };
           const data = await encode(raster.data, raster.width, raster.height, enc);
           const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: raster.width, height: raster.height, dpi, separation: run.name, data };
@@ -385,6 +404,21 @@ export async function render(input: MangaInput | Project, options: RenderOptions
     }
     timings[page.id] = performance.now() - tp;
     options.onProgress?.({ phase: "render", pageId: page.id, done: ++done, total });
+  }
+  for (const [sep, pw] of pdfs) {
+    if (!pw.writer.pageCount) continue;
+    const data = pw.writer.build();
+    const rp: RenderedPage = { id: resolved.pages[0]?.id ?? "document", index: 0, number: null, side: "document", format: "pdf", mimeType: MIME.pdf, colorMode: pw.colorMode, width: 0, height: 0, dpi: pw.dpi, separation: sep || undefined, data };
+    if (outDir) {
+      const file = join(outDir, `${p.name}${sep ? `-${sep}` : ""}.pdf`);
+      mkdirSync(dirname(file), { recursive: true });
+      const tmp = `${file}.${process.pid}.tmp`;
+      writeFileSync(tmp, data);
+      renameSync(tmp, file);
+      rp.path = file;
+      result.files.push(file);
+    }
+    result.pages.push(rp);
   }
   if (outDir && options.emit?.includes("transcript")) {
     const tr = result.layout.map((l) => ({ id: l.geom.id, items: l.transcript }));

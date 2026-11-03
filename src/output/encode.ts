@@ -3,7 +3,7 @@ import sharp from "sharp";
 import { deflateSync } from "node:zlib";
 import type { ColorMode } from "../render/raster.js";
 
-export type OutputFormat = "png" | "jpeg" | "webp" | "avif" | "tiff";
+export type OutputFormat = "png" | "jpeg" | "webp" | "avif" | "tiff" | "pdf";
 
 export interface EncodeOptions {
   format: OutputFormat;
@@ -119,11 +119,13 @@ export async function encode(rgba: Uint8ClampedArray, w: number, h: number, o: E
       return img.webp({ quality: o.quality ?? 92, lossless: !!o.lossless }).toBuffer();
     case "avif":
       return img.avif({ quality: o.quality ?? 80 }).toBuffer();
+    case "pdf":
+      throw new Error("pdf pages are assembled by PdfWriter");
     case "tiff":
       if (o.colorMode === "mono") return img.toColourspace("b-w").tiff({ compression: "ccittfax4", bitdepth: 1, xres: o.dpi / 25.4, yres: o.dpi / 25.4 }).toBuffer();
       return img.tiff({ compression: "lzw", xres: o.dpi / 25.4, yres: o.dpi / 25.4 }).toBuffer();
   }
 }
 
-export const MIME: Record<OutputFormat, string> = { png: "image/png", jpeg: "image/jpeg", webp: "image/webp", avif: "image/avif", tiff: "image/tiff" };
-export const EXT: Record<OutputFormat, string> = { png: "png", jpeg: "jpg", webp: "webp", avif: "avif", tiff: "tif" };
+export const MIME: Record<OutputFormat, string> = { png: "image/png", jpeg: "image/jpeg", webp: "image/webp", avif: "image/avif", tiff: "image/tiff", pdf: "application/pdf" };
+export const EXT: Record<OutputFormat, string> = { png: "png", jpeg: "jpg", webp: "webp", avif: "avif", tiff: "tif", pdf: "pdf" };
