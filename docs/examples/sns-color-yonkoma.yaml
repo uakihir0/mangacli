@@ -1,0 +1,124 @@
+# yaml-language-server: $schema=../../node_modules/mangacli/schema.json
+#
+# SNS 投稿用のカラー 4 コマの例（1080 × 1350 px。px で定義した判型は sns プロファイルでもこの寸法で出力する）。
+# px 単位、カラーの塗り・グラデーション、4 コマのテンプレート、題の欄を使う（P0 と P1 の機能を含む）。
+#
+#   npx mangacli render docs/examples/sns-color-yonkoma.yaml            # 既定は output.profile（sns）
+
+mangacli: 1
+
+meta:
+  title: ねこと朝
+  lang: ja
+
+page:
+  size: sns-portrait                 # 1080 × 1350 px。単位のない数値は px
+  color: color
+  baseFrame:
+    margins: { top: 36, bottom: 36, inner: 40, outer: 40 }
+  gutter: { row: 22 }
+  background: "#fffaf2"
+
+engine: 1
+hand:
+  preset: ink
+
+fonts:                               # 登録しないロールは manga-basic のフォントを使う
+  dialogue: catalog:zen-maru-gothic@700
+  title: catalog:zen-maru-gothic@900
+  sfx: catalog:rampart-one
+
+assets:
+  cat-sleep: { src: ./assets/cat_sleep.png, character: cat }
+  cat-wake: { src: ./assets/cat_wake.png, character: cat, regions: { face: [220, 140, 360, 300] } }
+  cat-run: { src: ./assets/cat_run.png, character: cat }
+  owner:
+    src: ./assets/owner.png
+    character: owner
+    anchors: { mouth: [402, 318] }
+    regions: { face: [300, 160, 220, 240] }
+
+characters:
+  owner: { name: 飼い主 }
+  cat: { name: ねこ }
+
+defaults:
+  panel:
+    border: { width: 4, color: "#3b2f2f" }
+  balloon:
+    fontSize: 34
+    stroke: { width: 3, color: "#3b2f2f" }
+
+output:
+  profile: sns
+
+pages:
+  - title: ねこと朝
+    layout:
+      template: yonkoma
+      params: { title: true }
+    panels:
+      # 起
+      - background: "linear-gradient(to bottom, #ffe9c7, #fff6e8)"
+        layers:
+          - image: cat-sleep
+            size: [70%, auto]
+            at: [50%, 96%]
+            anchor: bottom
+          - mark: zzz
+            at: [72%, 30%]
+            color: "#7a6a9a"
+        dialogue:
+          - { as: narration, text: 朝 }
+
+      # 承
+      - layers:
+          - image: owner
+            id: owner1
+            size: [auto, 100%]
+            at: [35%, 100%]
+            anchor: bottom
+          - sfx: ジリリリ
+            at: [75%, 40%]
+            fontSize: 60
+            color: "#e8553f"
+            outline: [{ width: 6, color: white }]
+            perChar: { rotate: [-15deg, 15deg], jitter: 4 }
+        dialogue:
+          - owner: |
+              ほら
+              起きて〜
+
+      # 転
+      - background: "radial-gradient(at 50% 45%, #fff3b0 0%, #ffd36b 100%)"
+        layers:
+          - effect: focus-lines
+            color: "#c4741c"
+            inner: [34%, 30%]
+          - image: cat-wake
+            id: cat1
+            size: [auto, 92%]
+            at: [50%, 100%]
+            anchor: bottom
+          - mark: exclamation
+            at: cat1.face
+            anchor: bottom-left
+            offset: [60, -20]
+            color: "#e8553f"
+
+      # 結
+      - layers:
+          - effect: speed-lines
+            angle: 180deg
+            color: "#7fa7b8"
+          - image: cat-run
+            size: [55%, auto]
+            at: [30%, 60%]
+          - sfx: ダダダ
+            at: [70%, 70%]
+            fontSize: 54
+            color: "#3b2f2f"
+            outline: [{ width: 5, color: white }]
+            distort: { skew: -12deg }
+        dialogue:
+          - { who: owner, as: offscreen, from: right, text: ごはんだけは早い！ }

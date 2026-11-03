@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=../../node_modules/mangacli/schema.json
+#
+# 最小の例: B5 判・モノクロ・右綴じ・縦書き・手描き風（ink）の既定値で 1 ページを出力する。
+# 使う機能はすべて P0。
+#
+#   npx mangacli render docs/examples/minimal.yaml --profile preview
+
+mangacli: 1
+
+# fonts を省略すると、既定のフォントセット manga-basic（アンチゴチ・明朝体など）を使う。
+# 手元になければ初回のレンダリング時に自動でダウンロードする（mangacli fonts install で事前に取得してもよい）。
+
+assets:
+  taro: ./assets/taro.png
+
+pages:
+  - layout:
+      rows: [[1], [1, 1]]          # 1 段目に 1 コマ、2 段目に 2 コマ（右が先）
+    panels:
+      - layers:
+          - image: taro              # コマ全体を覆う（cover）
+          - balloon: おはよう          # 位置を省略すると、右上から流し込み
+      - layers:
+          - balloon: |
+              今日は
+              いい天気だね
+      - layers:
+          - effect: focus-lines
+          - text: その時——
+            place: top-right
+            outline: 0.8mm white

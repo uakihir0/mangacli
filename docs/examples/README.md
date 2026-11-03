@@ -1,0 +1,19 @@
+English | [日本語](README.ja.md)
+
+# Examples
+
+| File | Contents | Feature priorities used |
+|---|---|---|
+| [minimal.yaml](minimal.yaml) | Minimal example: one page using only defaults (B5, monochrome, right-to-left binding, vertical text, `ink` hand-drawn preset, `manga-basic` font set) | P0 only |
+| [b5-mono.yaml](b5-mono.yaml) | Two-page B5 monochrome doujinshi manuscript. Uses bleed panels, slanted gutters, a split layout, mixed catalog fonts, ruby and emphasis dots, many balloon types, effects, tones, SFX lettering, manpu marks, dialogue shorthand, connected balloons, frame-breaking art, a balloon spanning panels, and a print profile | P0 and P1 |
+| [sns-color-yonkoma.yaml](sns-color-yonkoma.yaml) | Color 4-panel strip for social media (1080 × 1350 px). Uses px units, color and gradient fills, and the 4-panel template | P0 and P1 |
+
+- The examples use fonts from the built-in catalog. They are downloaded automatically on the first render. To fetch them in advance, run `npx mangacli fonts install --for docs/examples/b5-mono.yaml`.
+- The image assets referenced by the examples are not in the repository. Redistributable sample assets will be added under `docs/examples/assets/` during implementation.
+- You can check the layout without assets in draft mode:
+
+```bash
+npx mangacli render docs/examples/b5-mono.yaml --draft
+```
+
+The YAML comments and dialogue in the examples are in Japanese.
