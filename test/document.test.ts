@@ -72,3 +72,18 @@ describe("rendering", () => {
     await expect(render(yaml("mangacli: 1\npages:\n  - panels:\n      - layers:\n          - balloon: x\n            at: nowhere\n"))).rejects.toThrow();
   });
 });
+
+describe("renderer", () => {
+  it("shares fonts and renders a project repeatedly", async () => {
+    const { createRenderer } = await import("../src/api.js");
+    const r = createRenderer({ profile: "preview" });
+    const project = r.load(yaml("mangacli: 1\npage: { size: [60mm, 40mm], bleed: 0 }\npages:\n  - panels:\n      - layers:\n          - balloon: やあ\n"));
+    const v = await r.validate(project);
+    expect(v.ok).toBe(true);
+    const a = await r.renderPage(project, 1);
+    const b = await r.renderPage(project, 1);
+    expect(Buffer.from(a.data).equals(Buffer.from(b.data))).toBe(true);
+    const list = await r.displayList(project, 1);
+    expect(list.root.children.length).toBeGreaterThan(0);
+  });
+});

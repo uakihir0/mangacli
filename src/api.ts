@@ -64,6 +64,10 @@ export interface RenderOptions {
   signal?: AbortSignal;
   /** internal: compose only (validate / layout) */
   layoutOnly?: boolean;
+  /** internal: keep display lists in the result */
+  keepLists?: boolean;
+  /** internal: font cache shared by a renderer */
+  fontCache?: Map<string, import("./fonts/registry.js").LoadedFont>;
 }
 
 export interface RenderedPage {
@@ -88,6 +92,8 @@ export interface RenderResult {
   diagnostics: Diagnostic[];
   failures: { pageId: string; index: number; error: Error }[];
   layout: PageLayoutInfo[];
+  /** display lists (only with keepLists) */
+  lists?: DisplayList[];
   timings: Record<string, number>;
 }
 
@@ -190,7 +196,7 @@ function buildFonts(p: Project, o: RenderOptions): FontRegistry {
     fontCacheDir: o.fontCacheDir,
     fontMirror: o.fontMirror,
     onInfo: (code, message) => p.bag.info(code, message),
-  });
+  }, o.fontCache);
 }
 
 function selectPages(sel: RenderOptions["pages"], ids: string[]): Set<number> {
@@ -230,7 +236,9 @@ function fillName(tpl: string, vars: Record<string, string | number>): string {
 
 export async function render(input: MangaInput | Project, options: RenderOptions = {}): Promise<RenderResult> {
   const t0 = performance.now();
-  const p = typeof input === "object" && input !== null && !(input instanceof URL) && "bag" in input && "loaded" in input ? (input as Project) : load(input as MangaInput, options);
+  const given = typeof input === "object" && input !== null && !(input instanceof URL) && "bag" in input && "loaded" in input;
+  // a Project can be rendered many times: each run reports into its own copy of the load diagnostics
+  const p = given ? { ...(input as Project), bag: (input as Project).bag.fork() } : load(input as MangaInput, options);
   const bag = p.bag;
   const timings: Record<string, number> = {};
   const result: RenderResult = { pages: [], files: [], diagnostics: bag.items, failures: [], layout: [], timings };
@@ -320,6 +328,7 @@ export async function render(input: MangaInput | Project, options: RenderOptions
       };
       const { list, info } = await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor });
       result.layout.push(info);
+      if (options.keepLists) (result.lists ??= []).push(list);
       if (bag.hasErrors && throwOnError) throw new MangaValidationError(bag.items);
       if (options.layoutOnly) {
         timings[page.id] = performance.now() - tp;
@@ -502,4 +511,38 @@ export async function renderPage(input: MangaInput | Project, page: number | str
   const out = r.pages[0];
   if (!out) throw new MangaError("RENDER_FAILED", `page ${page} produced no output`, r.diagnostics);
   return out;
+}
+
+export interface Renderer {
+  load(input: MangaInput, options?: RenderOptions): Project;
+  validate(input: MangaInput | Project, options?: RenderOptions): Promise<ValidateResult>;
+  render(input: MangaInput | Project, options?: RenderOptions): Promise<RenderResult>;
+  renderPage(input: MangaInput | Project, page: number | string, options?: RenderOptions): Promise<RenderedPage>;
+  layout(input: MangaInput | Project, options?: RenderOptions): Promise<PageLayoutInfo[]>;
+  displayList(input: MangaInput | Project, page: number | string, options?: RenderOptions): Promise<DisplayList>;
+}
+
+/** a renderer with shared defaults and font cache (spec 11.4) */
+export function createRenderer(base: RenderOptions = {}): Renderer {
+  const fontCache = new Map<string, import("./fonts/registry.js").LoadedFont>();
+  const merged = (o: RenderOptions = {}): RenderOptions => ({ ...base, ...o, fontCache, config: o.config ?? base.config });
+  // a project loaded through the renderer keeps the renderer's root/diagnostic settings
+  return {
+    load: (input, o) => load(input, merged(o)),
+    validate: (input, o) => validate(input, merged(o)),
+    render: (input, o) => render(input, merged(o)),
+    renderPage: (input, page, o) => renderPage(input, page, merged(o)),
+    layout: async (input, o) => (await validate(input, merged(o))).layout,
+    displayList: async (input, page, o) => {
+      const r = await render(input, { ...merged(o), pages: [page], layoutOnly: true, keepLists: true, throwOnError: false });
+      const list = r.lists?.[0];
+      if (!list) throw new MangaError("RENDER_FAILED", `page ${page} produced no display list`, r.diagnostics);
+      return list;
+    },
+  };
+}
+
+/** layout without rasterizing (spec 11.2) */
+export async function layout(input: MangaInput | Project, options: RenderOptions = {}): Promise<PageLayoutInfo[]> {
+  return (await validate(input, options)).layout;
 }

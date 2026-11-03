@@ -3,6 +3,8 @@ import type { z } from "zod";
 import type { Document } from "./schema/schema.js";
 
 export {
+  createRenderer,
+  layout,
   load,
   load as loadDocument,
   render,
@@ -13,6 +15,7 @@ export {
   type RenderOptions,
   type RenderResult,
   type RenderedPage,
+  type Renderer,
   type ValidateResult,
 } from "./api.js";
 export { defineConfig, findConfig, loadConfig, type MangaConfig } from "./config.js";

@@ -81,6 +81,8 @@ export class FontRegistry {
     private fontSet: string | "none",
     private globalFallback: string[],
     private fetchOpts: FontFetchOptions,
+    /** cache shared between registries (catalog fonts are immutable) */
+    private shared?: Map<string, LoadedFont>,
   ) {}
 
   hasDef(name: string): boolean {
@@ -232,8 +234,16 @@ export class FontRegistry {
     await Promise.all(
       list.map(async (p) => {
         if (this.loaded.has(p.key)) return;
+        const shareable = p.key.startsWith("cat:") || p.key === `file:${UI_FONT}`;
+        const hit = shareable ? this.shared?.get(p.key) : undefined;
+        if (hit) {
+          this.loaded.set(p.key, hit);
+          return;
+        }
         const data = await p.load();
-        this.loaded.set(p.key, makeLoaded(p, data));
+        const lf = makeLoaded(p, data);
+        this.loaded.set(p.key, lf);
+        if (shareable) this.shared?.set(p.key, lf);
       }),
     );
   }

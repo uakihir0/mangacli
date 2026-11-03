@@ -28,6 +28,13 @@ export class DiagnosticBag {
     private overrides: Record<string, Severity | "off"> = {},
   ) {}
 
+  /** a new bag with the same settings and a copy of the current items */
+  fork(): DiagnosticBag {
+    const b = new DiagnosticBag(this.locate, this.overrides);
+    b.items.push(...this.items);
+    return b;
+  }
+
   setLocator(fn: (path: (string | number)[]) => SourceLocation | undefined) {
     this.locate = fn;
   }
