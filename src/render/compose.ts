@@ -963,6 +963,23 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const sb = sOf({ x: b.r.x + b.r.w / 2, y: b.r.y + b.r.h / 2 }, b.r.h);
     if (sb < sa - 0.08) ctx.bag.info("BALLOON_ORDER_MISMATCH", `balloon ${b.pl.el.id} reads before ${a.pl.el.id} by its position`, { path: b.pl.el.path, elementId: b.pl.el.id });
   }
+  // a tail running to its speaker through another balloon
+  const linked = new Set<string>();
+  for (const r0 of rects) {
+    const cn = r0.pl.props.connect;
+    for (const c of (Array.isArray(cn) ? cn : cn ? [cn] : []) as Obj[]) {
+      linked.add(r0.pl.el.id);
+      linked.add(String(c.to));
+    }
+  }
+  for (const a of rects) {
+    if (linked.has(a.pl.el.id)) continue;
+    const who = a.pl.props.who as string | undefined;
+    const sp = who ? refs.point(who, pid) : null;
+    if (!sp) continue;
+    const c0 = { x: a.r.x + a.r.w / 2, y: a.r.y + a.r.h / 2 };
+    for (const b of rects) if (b !== a && segRect(c0, sp, b.r)) ctx.bag.warn("BALLOON_TAIL_CROSSES", `the tail of ${a.pl.el.id} crosses ${b.pl.el.id}`, { path: a.pl.el.path, elementId: a.pl.el.id });
+  }
   for (let i = 0; i < rects.length; i++)
     for (let j = i + 1; j < rects.length; j++) {
       const a = rects[i].r;
