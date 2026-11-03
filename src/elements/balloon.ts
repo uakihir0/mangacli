@@ -482,6 +482,8 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       length = Math.min(maxLen, Math.max(2.5 * u.k, avail));
     } else length = (kind === "zigzag" ? 11 : 5) * u.k;
     // off-panel tails run past the frame and are cut by it
+    // on a spiky body the tail must outreach the spikes to read as the pointer
+    if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.4, 6 * u.k);
     if (offSide && target) length = Math.hypot(target.x - R.x, target.y - R.y);
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
