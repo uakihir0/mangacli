@@ -45,6 +45,10 @@ export interface NormalizeOptions {
   spaceAfterMarks?: boolean;
   dropTrailingPeriod?: boolean;
   spaces?: boolean;
+  /** typographer's quotes: ' " -> ’ “ ” (on by default outside CJK text) */
+  smartQuotes?: boolean;
+  /** all caps (comic lettering) */
+  uppercase?: boolean;
 }
 
 const TAGS = new Set(["ruby", "em", "tcy", "upright", "sideways", "b", "size", "big", "small", "font", "color", "shake", "hand", "nobr", "scale", "br", "wbr", "space"]);
@@ -60,6 +64,8 @@ export function normalizeChunk(s: string, o: NormalizeOptions, vertical: boolean
   if (o.ellipsisPair) t = t.replace(/(?<!…)…(?!…)/g, "……");
   if (o.dash !== false) t = t.replace(/[—―]{2,}/g, (m) => "―".repeat(m.length)).replace(/--+/g, "――").replace(/(?<![―—])[―—](?![―—])/g, "――");
   if (o.waveDash !== false) t = t.replace(/~/g, "〜");
+  if (o.uppercase) t = t.toUpperCase();
+  if (o.smartQuotes) t = t.replace(/(\w)'(\w)/g, "$1’$2").replace(/(^|[\s(\[{])'/g, "$1‘").replace(/'/g, "’").replace(/(^|[\s(\[{])"/g, "$1“").replace(/"/g, "”");
   if ((o.fullwidthMarks ?? vertical) !== false && vertical) {
     // keep 2-3 char runs of !? for tcy; convert lone marks
     t = t.replace(/[!?]+/g, (m) => (m.length >= 2 && m.length <= 3 ? m : m.replace(/!/g, "！").replace(/\?/g, "？")));
@@ -367,10 +373,16 @@ export function assignTcy(units: Unit[], opt: { digits: number; marks: boolean; 
         gid++;
         for (let k = i; k < j; k++) (units[k] as { tcyGroup?: number }).tcyGroup = gid;
       } else if (j - i <= 3 && /^[A-Z]+$/.test(units.slice(i, j).map((x) => (x as { ch: string }).ch).join(""))) {
-        // a standalone short capital word (not part of a longer latin phrase)
+        // a standalone short capital word (not part of a longer latin phrase):
+        // two letters go across the column (OK, TV), three stand upright one per square
         const prev = i > 0 ? (units[i - 1] as { ch?: string }).ch ?? "" : "";
         const next = j < units.length ? (units[j] as { ch?: string }).ch ?? "" : "";
-        if (!/^[A-Za-z0-9 ]$/.test(prev) && !/^[A-Za-z0-9 ]$/.test(next)) upright(i, j);
+        if (!/^[A-Za-z0-9 ]$/.test(prev) && !/^[A-Za-z0-9 ]$/.test(next)) {
+          if (j - i <= 2 && latinMode === "auto") {
+            gid++;
+            for (let k = i; k < j; k++) (units[k] as { tcyGroup?: number }).tcyGroup = gid;
+          } else upright(i, j);
+        }
       }
       i = j;
       continue;

@@ -85,3 +85,8 @@ export function coverageHas(ranges: [number, number][], cp: number): boolean {
   }
   return false;
 }
+
+/** the font set used when none is chosen: manga lettering for CJK text, comic lettering otherwise */
+export function defaultFontSet(lang: string | undefined): string {
+  return !lang || /^(ja|zh|ko)/.test(lang) ? "manga-basic" : "comic-basic";
+}

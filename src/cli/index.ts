@@ -7,7 +7,7 @@ import { parse as parseYaml } from "yaml";
 import { type RenderOptions, render, validate } from "../api.js";
 import { type MangaConfig, findConfig, loadConfig } from "../config.js";
 import { type Diagnostic, MangaError, MangaValidationError } from "../core/diagnostics.js";
-import { loadCatalog } from "../fonts/catalog.js";
+import { defaultFontSet, loadCatalog } from "../fonts/catalog.js";
 import { defaultFontCacheDir, findLocalCatalogFont } from "../fonts/download.js";
 import { installFonts } from "../fonts/install.js";
 import { PACKAGE_ROOT } from "../fonts/catalog.js";
@@ -685,7 +685,7 @@ async function documentFontRefs(file: string, o: Obj): Promise<string[]> {
     }
   };
   walk(p.doc.fonts);
-  const set = (p.doc.fontSet as string) ?? "manga-basic";
+  const set = (p.doc.fontSet as string) ?? defaultFontSet((p.doc.meta as Obj | undefined)?.lang as string);
   if (set !== "none") for (const r of setFontRefs(set)) refs.add(`catalog:${r}`);
   return [...refs];
 }

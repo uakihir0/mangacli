@@ -60,11 +60,14 @@ export function resolveTextStyle(p: Obj, u: UnitContext, lang: string, isBalloon
     font: (p.font as string) ?? "dialogue",
     fontSize,
     writing,
+    // western comic balloons are lettered in capitals unless the document says otherwise
+    textTransform: p.textTransform === "uppercase" || (p.textTransform !== "none" && isBalloon && !/^(ja|zh|ko)/.test(lang) && writing === "horizontal") ? "uppercase" : "none",
     lineHeight,
     lineHeightAbs,
     letterSpacing: ls,
     align,
-    wrap: (p.wrap as TextStyle["wrap"]) ?? "auto",
+    // horizontal balloons balance their lines (no short last line)
+    wrap: (p.wrap as TextStyle["wrap"]) ?? (isBalloon && writing === "horizontal" ? "balanced" : "auto"),
     maxChars,
     maxExtent: p.maxExtent !== undefined ? toMm(p.maxExtent as string, emCtx) : undefined,
     kinsoku: (p.kinsoku as TextStyle["kinsoku"]) ?? "strict",

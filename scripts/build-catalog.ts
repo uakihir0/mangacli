@@ -16,6 +16,8 @@ const ENTRIES: { id: string; family: string; dir: string; files: Record<number, 
   { id: "yomogi", family: "Yomogi", dir: "yomogi", files: { 400: "Yomogi-Regular.ttf" }, copyright: "Copyright 2020 The Yomogi Project Authors" },
   { id: "klee-one", family: "Klee One", dir: "kleeone", files: { 400: "KleeOne-Regular.ttf", 600: "KleeOne-SemiBold.ttf" }, copyright: "Copyright 2020 The Klee Project Authors" },
   { id: "yusei-magic", family: "Yusei Magic", dir: "yuseimagic", files: { 400: "YuseiMagic-Regular.ttf" }, copyright: "Copyright 2020 The Yusei Magic Project Authors" },
+  { id: "comic-neue", family: "Comic Neue", dir: "comicneue", files: { 400: "ComicNeue-Regular.ttf", 700: "ComicNeue-Bold.ttf" }, copyright: "Copyright 2014 The Comic Neue Project Authors" },
+  { id: "bangers", family: "Bangers", dir: "bangers", files: { 400: "Bangers-Regular.ttf" }, copyright: "Copyright 2010 The Bangers Project Authors" },
   { id: "noto-sans-jp", family: "Noto Sans JP", dir: "notosansjp", files: { 400: "NotoSansJP[wght].ttf", 700: "NotoSansJP[wght].ttf" }, variable: true, copyright: "Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'" },
 ];
 
@@ -93,6 +95,17 @@ const catalog = {
       sfx: { font: "dela-gothic-one@400", fallback: ["noto-sans-jp@700"] },
       hand: { font: "yomogi@400", fallback: ["noto-sans-jp@400"] },
       title: { font: "zen-maru-gothic@900", fallback: ["noto-sans-jp@700"] },
+    },
+    // western comic lettering (spec 7.3.10): used by default for documents whose language is not CJK
+    "comic-basic": {
+      dialogue: { font: "comic-neue@700", fallback: ["noto-sans-jp@700"] },
+      thought: "dialogue",
+      whisper: "dialogue",
+      narration: { font: "comic-neue@400", fallback: ["noto-sans-jp@400"] },
+      shout: { font: "bangers@400", fallback: ["noto-sans-jp@700"] },
+      sfx: { font: "bangers@400", fallback: ["noto-sans-jp@700"] },
+      hand: { font: "comic-neue@400", fallback: ["noto-sans-jp@400"] },
+      title: { font: "bangers@400", fallback: ["noto-sans-jp@700"] },
     },
   },
 };

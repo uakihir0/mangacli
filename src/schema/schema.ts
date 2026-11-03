@@ -173,6 +173,7 @@ const typo = {
   weight: z.number().optional(),
   color: z.union([ColorStr, Paint]).optional(),
   writing: z.enum(["vertical", "horizontal"]).optional(),
+  textTransform: z.enum(["auto", "uppercase", "none"]).optional(),
   lineHeight: z.union([z.number(), Length]).optional(),
   letterSpacing: Length.optional(),
   align: z.enum(["start", "center", "end", "justify"]).optional(),

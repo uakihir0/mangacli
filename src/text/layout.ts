@@ -11,6 +11,8 @@ export interface TextStyle {
   font: string;
   fontSize: number; // mm
   writing: "vertical" | "horizontal";
+  /** uppercase: all caps (western comic lettering) */
+  textTransform?: "uppercase" | "none";
   lineHeight: number; // multiplier
   lineHeightAbs?: number; // mm
   letterSpacing: number; // em
@@ -139,7 +141,7 @@ function isLatinChar(ch: string): boolean {
 }
 
 export function layoutText(text: string, style: TextStyle, reg: FontRegistry, boxLimit?: number): TextLayout {
-  const parsed: ParsedText = parseMarkup(text, { markup: style.markup, normalize: /^(ja|zh|ko)/.test(style.lang) ? style.normalize : { ellipsis: false, dash: false, waveDash: false, ...style.normalize }, vertical: style.writing === "vertical" });
+  const parsed: ParsedText = parseMarkup(text, { markup: style.markup, normalize: { ...(/^(ja|zh|ko)/.test(style.lang) ? style.normalize : { ellipsis: false, dash: false, waveDash: false, smartQuotes: true, ...style.normalize }), uppercase: style.textTransform === "uppercase" }, vertical: style.writing === "vertical" });
   if (style.writing === "vertical") assignTcy(parsed.units, style.tcy, style.latin);
   const vertical = style.writing === "vertical";
   const em = style.fontSize;

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, rmSync } from "node:fs";
 import { relative as relativePath } from "node:path";
-import { PACKAGE_ROOT } from "./fonts/catalog.js";
+import { PACKAGE_ROOT, defaultFontSet } from "./fonts/catalog.js";
 
 const PKG_VERSION = (JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8")) as { version: string }).version;
 import { type Diagnostic, DiagnosticBag, MangaAbortError, MangaError, MangaRenderError, MangaResourceError, MangaSecurityError, MangaValidationError, suggest } from "./core/diagnostics.js";
@@ -292,7 +292,7 @@ function buildFonts(p: Project, o: RenderOptions): FontRegistry {
   const loc = isObj(p.doc.locales) && o.lang ? ((p.doc.locales as Obj)[o.lang] as Obj | undefined) : undefined;
   addDefs(loc?.fonts as Obj);
   addDefs(o.fonts as Obj);
-  const set = o.fontSet ?? (p.doc.fontSet as string) ?? (cfgOf(o)?.fontSet as string) ?? "manga-basic";
+  const set = o.fontSet ?? (p.doc.fontSet as string) ?? (cfgOf(o)?.fontSet as string) ?? defaultFontSet(o.lang ?? ((p.doc.meta as Obj | undefined)?.lang as string));
   // global fallback entries may be font names or file paths
   const fallback = (o.fontFallback ?? (cfgOf(o)?.fontFallback as string[]) ?? []).map((f, i) => {
     if (defs.has(f) || !/[./\\]/.test(f) || f.startsWith("catalog:")) return f;
