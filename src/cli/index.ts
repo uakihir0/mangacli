@@ -599,6 +599,19 @@ async function cmdInspect(file: string, o: Obj): Promise<number> {
   return 0;
 }
 
+async function cmdMigrate(file: string, o: Obj): Promise<number> {
+  const text = readFileSync(resolve(file), "utf8");
+  const m = text.match(/^mangacli:\s*(\S+)/m);
+  const v = m ? Number(m[1]) : NaN;
+  if (v === 1) {
+    log("info", `${paint("32", "✔")} ${t("最新の形式（mangacli: 1）です。変換は不要です", "already at the current version (mangacli: 1); nothing to migrate")}`);
+    return 0;
+  }
+  log("error", `${paint("31", "✖")} ${t(`未対応のバージョンです: ${m?.[1] ?? "（なし）"}`, `unsupported version: ${m?.[1] ?? "(missing)"}`)}`);
+  void o;
+  return 1;
+}
+
 async function cmdCache(sub: string | undefined): Promise<number> {
   const { readdirSync, statSync, rmSync } = await import("node:fs");
   const dir = defaultFontCacheDir();
@@ -735,6 +748,9 @@ common(cli.command("inspect <file>", "Show resolved values and layout"))
   .option("--layout", "Panel polygons, reading order, element boxes")
   .option("--lang <tag>", "Text language")
   .action(wrap((file: string, o: Obj) => cmdInspect(file, o)));
+common(cli.command("migrate <file>", "Convert an older document to the current version"))
+  .option("--write", "Write the result")
+  .action(wrap((file: string, o: Obj) => cmdMigrate(file, o)));
 common(cli.command("cache [sub]", "Font cache: info | clean")).action(wrap((sub: string | undefined, _o: Obj) => cmdCache(sub)));
 common(cli.command("fonts <sub> [...args]", "Catalog fonts: install [ids...] | list [file] | verify | licenses [file]"))
   .option("-o, --out <file>", "Write licenses to a file")

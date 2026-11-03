@@ -366,7 +366,11 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         return d;
       };
       const { list: list0, info } = await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor });
-      const list = plugins ? (plugins.hook("beforeRender", list0) as DisplayList) : list0;
+      let list = plugins ? (plugins.hook("beforeRender", list0) as DisplayList) : list0;
+      // transparent output: no page ground (panel grounds stay; spec 10.15)
+      const transparentOut = options.transparent ?? (docOutput.background === "transparent" ? true : undefined) ?? prof.transparent ?? false;
+      if (transparentOut && formats.some((f) => f === "jpeg")) bag.error("OUTPUT_MODE_UNSUPPORTED", "jpeg cannot store a transparent background", { pageId: page.id });
+      if (transparentOut) list = { ...list, background: null, root: { ...list.root, children: list.root.children.filter((c) => !(c.kind === "path" && c.tag?.elementType === "page" && c.tag.role === "background")) } };
       result.layout.push(info);
       if (options.keepLists) (result.lists ??= []).push(list);
       if (bag.hasErrors && throwOnError) throw new MangaValidationError(bag.items);
@@ -383,7 +387,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const seps = normalizeSeparations(options.separate ?? prof.separate);
       const runs: { name?: string; list?: string[] }[] = seps ? seps : [{}];
       for (const run of runs) {
-        const backend = new RasterBackend({ dpi, crop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, toneCurve: prof.toneCurve ?? "linear", transparent: options.transparent ?? prof.transparent ?? !!run.list, separations: run.list, assets });
+        const backend = new RasterBackend({ dpi, crop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
         const needRaster = formats.some((f) => f !== "svg");
         let full = needRaster ? await backend.render(list) : { data: new Uint8ClampedArray(0), width: 0, height: 0, dpi };
         if (plugins && needRaster) full = { ...full, ...(plugins.hook("afterRender", { data: full.data, width: full.width, height: full.height }) as object) };
@@ -428,7 +432,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
             continue;
           }
           if (fmt === "svg" && part !== parts[0]) continue;
-          const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, transparent: options.transparent ?? !!run.list, metadata: { Software: "mangacli", Title: String((p.doc.meta as Obj | undefined)?.title ?? ""), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed) } };
+          const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, transparent: transparentOut || !!run.list, metadata: { Software: "mangacli", Title: String((p.doc.meta as Obj | undefined)?.title ?? ""), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed) } };
           const data = fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: Math.min(dpi, 300) })) : await encode(raster.data, raster.width, raster.height, enc);
           const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: raster.width, height: raster.height, dpi, separation: run.name, data };
           if (outDir) {
