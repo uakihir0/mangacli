@@ -5050,6 +5050,9 @@
                     "minDistance": {
                       "$ref": "#/$defs/__schema0"
                     },
+                    "avoidBalloons": {
+                      "type": "boolean"
+                    },
                     "avoid": {
                       "type": "array",
                       "items": {
@@ -6956,6 +6959,9 @@
                 },
                 "threshold": {
                   "type": "number"
+                },
+                "reshape": {
+                  "type": "boolean"
                 }
               },
               "additionalProperties": false

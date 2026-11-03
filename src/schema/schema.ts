@@ -287,7 +287,7 @@ const balloonProps = {
   halo: z.union([Length, z.literal("none"), z.literal(false)]).optional(),
   autoConnect: z.boolean().optional(),
   connect: z.union([z.object({ to: z.string(), style: z.enum(["neck", "overlap", "line"]).optional(), width: Length.optional() }).strict(), z.array(z.object({ to: z.string(), style: z.enum(["neck", "overlap", "line"]).optional(), width: Length.optional() }).strict())]).optional(),
-  autoPlace: z.union([z.enum(["auto", "flow"]), z.object({ mode: z.enum(["auto", "flow"]).optional(), inset: Length.optional(), weights: z.record(z.string(), z.number()).optional(), threshold: z.number().optional() }).strict()]).optional(),
+  autoPlace: z.union([z.enum(["auto", "flow"]), z.object({ mode: z.enum(["auto", "flow"]).optional(), inset: Length.optional(), weights: z.record(z.string(), z.number()).optional(), threshold: z.number().optional(), reshape: z.boolean().optional() }).strict()]).optional(),
   from: z.enum(["top", "right", "bottom", "left"]).optional(),
 };
 
@@ -400,6 +400,7 @@ export const Element: z.ZodType = z.lazy(() =>
         itemRotate: RangeOf(Angle).optional(),
         orient: z.enum(["random", "radial", "tangent"]).optional(),
         minDistance: Length.optional(),
+        avoidBalloons: z.boolean().optional(),
         avoid: z.array(Region).optional(),
         falloff: z.unknown().optional(),
       })
