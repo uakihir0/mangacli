@@ -883,3 +883,26 @@ export function defaultTextStyle(partial: Partial<TextStyle> & { font: string; f
     ...partial,
   };
 }
+
+/** line breaks a letterer would reject: inside a phrase, or lines holding a single word */
+export function breakFaults(tl: TextLayout, lang: string): number {
+  const lines = tl.lines.map((l) => l.text ?? "");
+  if (lines.length < 2) return 0;
+  const joined = lines.join("");
+  const bounds = phraseBoundaries(joined, lang);
+  let pos = 0;
+  let bad = 0;
+  for (let i = 0; i < lines.length; i++) {
+    // latin lines always break at spaces; CJK breaks must fall on phrase boundaries
+    const latin = /[A-Za-z0-9!?.,…'’"”]$/.test(lines[i - 1] ?? "") && /^[A-Za-z0-9'‘"“]/.test(lines[i]);
+    if (i > 0 && !latin && !bounds.has(pos) && !/^\s/.test(lines[i]) && !/\s$/.test(lines[i - 1])) bad++;
+    pos += lines[i].length;
+  }
+  // a lone character on its own line (ご／説明します)
+  bad += lines.filter((l) => Array.from(l.trim()).length === 1 && !/^[、。！？!?…」』）]$/.test(l.trim())).length;
+  // latin text: lines of one word read like a list
+  const single = lines.filter((l) => /[A-Za-z]/.test(l) && l.trim().split(/\s+/).length === 1 && !/[!?…]$/.test(l.trim())).length;
+  if (lines.length >= 3 && single >= 2) bad += single;
+  return bad;
+}
+

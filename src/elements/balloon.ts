@@ -14,7 +14,7 @@ import type { Node, Paint } from "../render/ir.js";
 import polygonClipping from "polygon-clipping";
 import { BODY_GENERATORS, type BodyGeom, type ShapeParams } from "../shapes/balloon.js";
 import { Contour, type PluginBalloonShape, activePlugins } from "../plugin.js";
-import { type TextLayout, layoutText } from "../text/layout.js";
+import { type TextLayout, breakFaults, layoutText } from "../text/layout.js";
 import { type ElemCtx, silhouetteHit, tag } from "./context.js";
 import { fillNode, inksToNodes, polysToPath } from "./inkir.js";
 import { glyphNodes } from "./glyphs.js";
@@ -155,6 +155,11 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       if (isFinite(lim)) boxLimit = Math.min(boxLimit ?? Infinity, Math.max(lim, style.fontSize * 4.5));
     }
     const tl = layoutText(text, style, ctx.fonts, boxLimit);
+    // a size limit that forces breaks inside phrases: set the text smaller before breaking it badly
+    if (boxLimit !== undefined && !fixedBase && scale > minFontScale + 1e-6 && attempt < 11 && breakFaults(tl, ctx.lang) > breakFaults(layoutText(text, style, ctx.fonts), ctx.lang)) {
+      scale = Math.max(minFontScale, scale - 0.05);
+      continue;
+    }
     // a full block of text gets a balloon with a squarer core; a short word a round one
     if (kind === "ellipse" && !(isObj(p.shape) && (p.shape as Obj).squareness !== undefined)) {
       const lens = tl.lines.map((l) => l.length);

@@ -29,7 +29,7 @@
 | `align` | `start` \| `center` \| `end` \| `justify` | 吹き出しの縦書きは `start`、吹き出しの横書きは `center`、その他は `start` | 行の揃え。縦書きの `start` は天揃え |
 | `blockAlign` | `start` \| `center` \| `end` | `center` | 箱の中での文字のかたまりの位置（`text` で `size` を固定した場合） |
 | `wrap` | `auto` \| `none` \| `char` \| `phrase` \| `balanced` | `auto` | 改行の方法（[7.6](#76-改行と禁則処理)） |
-| `maxChars` | 数値 | 吹き出しの縦書き 8、吹き出しの横書き 14、その他はなし | 1 行の最大文字数（全角 1、半角 0.5 として数える） |
+| `maxChars` | 数値 | 吹き出しの縦書き 8、吹き出しの横書き 14、その他はなし | 1 行の最大文字数（全角 1、半角 0.5 として数える）。吹き出しの本文に手で改行を入れた場合、既定値はその最長の行まで（既定の 1.5 倍を上限に）広げ、作者の改行を保つ |
 | `maxExtent` | Length | - | 1 行の最大の長さ |
 | `kinsoku` | `strict` \| `normal` \| `loose` \| `none` | `strict` | 禁則の強さ（[7.6.4](#764-禁則)） |
 | `hanging` | 真偽値 | `false` | 句読点のぶら下げ |

@@ -24,7 +24,7 @@ defaults:
     inset: 1.5mm
 
 pages:
-  - layout: { template: grid, params: { cols: 3, rows: 4 } }
+  - layout: { template: grid, params: { cols: 4, rows: 4 } }
     panels:
       - layers:
           - { balloon: ふつうの吹き出し, at: [50%, 42%], tail: { direction: 110deg } }
@@ -64,3 +64,15 @@ pages:
       - layers:
           - { balloon: 心の声, as: monologue, at: [50%, 45%] }
           - text: monologue
+      - layers:
+          - { balloon: "だが当局は\n東の極右政党による\n暗殺と見ている", at: [50%, 42%], tail: { direction: 120deg } }
+          - text: "say (long: squarer core)"
+      - layers:
+          - { balloon: オイ, as: gruff, at: [50%, 42%], tail: { direction: 60deg } }
+          - text: "gruff (hexagon)"
+      - layers:
+          - { balloon: "ご説明します", shape: round-rect, at: [50%, 42%], tail: { direction: 100deg } }
+          - text: "round-rect"
+      - layers:
+          - { balloon: ん？, at: [50%, 42%], tail: { direction: 80deg } }
+          - text: "say (short)"
