@@ -812,7 +812,7 @@ function placeEmphasis(boxes: Box[], glyphs: GlyphOut[], style: TextStyle, reg: 
       pts = flattenPath(raw).flatMap((q) => q.pts);
       bb = boundsOf(pts);
     }
-    const tx = vertical ? b._pos[0] + (pos === "left" ? -1 : 1) * (b.size / 2 + size * 0.6) : b._pos[0] + b.adv / 2;
+    const tx = vertical ? b._pos[0] + (pos === "left" ? -1 : 1) * (b.size / 2 + size * 0.45) : b._pos[0] + b.adv / 2;
     const ty = vertical ? b._pos[1] + b.adv / 2 : pos === "under" ? b._pos[1] + b.size * 0.12 + size * 0.6 : b._pos[1] - b.size * 0.88 - size * 0.5;
     const dx = tx - (bb.x + bb.w / 2);
     const dy = ty - (bb.y + bb.h / 2);
