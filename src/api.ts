@@ -689,3 +689,16 @@ export function createRenderer(base: RenderOptions = {}): Renderer {
 export async function layout(input: MangaInput | Project, options: RenderOptions = {}): Promise<PageLayoutInfo[]> {
   return (await validate(input, options)).layout;
 }
+
+/** render pages one by one, yielding each page's outputs as soon as it is done (spec 11.2) */
+export async function* renderStream(input: MangaInput | Project, options: RenderOptions = {}): AsyncGenerator<RenderedPage> {
+  const fontCache = options.fontCache ?? new Map();
+  const project = typeof input === "object" && input !== null && !(input instanceof URL) && "bag" in input && "loaded" in input ? (input as Project) : load(input as MangaInput, options);
+  const first = await render(project, { ...options, fontCache, layoutOnly: true, throwOnError: false, outDir: undefined });
+  const ids = first.layout.map((l) => l.geom.id);
+  for (const id of ids) {
+    options.signal?.throwIfAborted();
+    const r = await render(project, { ...options, fontCache, pages: [id] });
+    for (const pg of r.pages) yield pg;
+  }
+}

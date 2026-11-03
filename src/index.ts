@@ -9,6 +9,7 @@ export {
   load as loadDocument,
   render,
   renderPage,
+  renderStream,
   validate,
   type MangaInput,
   type Project,
