@@ -5,7 +5,7 @@ import type { Matrix, Rect } from "../geom/vec.js";
 
 export type BlendMode =
   | "normal" | "multiply" | "screen" | "overlay" | "darken" | "lighten" | "color-dodge" | "color-burn"
-  | "hard-light" | "soft-light" | "difference" | "exclusion";
+  | "hard-light" | "soft-light" | "difference" | "exclusion" | "destination-out";
 
 export type DotShape = "round" | "square" | "ellipse" | "line" | "cross" | "noise";
 
@@ -62,6 +62,8 @@ export interface GroupNode {
   clipRule?: "nonzero" | "evenodd";
   /** soft-edged clip: the outline blurred by `feather` mm (feathered regions, masks) */
   softClip?: { path: PathData; fillRule: "nonzero" | "evenodd"; feather: number };
+  /** render children on their own layer (needed when a child erases with destination-out) */
+  isolate?: boolean;
   /** multiply children by the alpha of an image (region mode: alpha) */
   alphaMaskOf?: { matrix: Matrix; assetKey: string; w: number; h: number; invert?: boolean; dilate?: number };
   children: Node[];

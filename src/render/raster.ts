@@ -275,7 +275,7 @@ export class RasterBackend {
     const ctx = dev.ctx;
     const mm = g.transform ? matMul(m, g.transform) : m;
     if (this.opts.separations && g.tag && g.tag.role === "background" && !this.opts.separations.includes("background")) return;
-    const needOff = (g.opacity !== undefined && g.opacity < 0.999) || (g.blend && g.blend !== "normal") || !!g.alphaMaskOf || !!g.softClip;
+    const needOff = (g.opacity !== undefined && g.opacity < 0.999) || (g.blend && g.blend !== "normal") || !!g.alphaMaskOf || !!g.softClip || !!g.isolate;
     if (!needOff) {
       if (g.clip) {
         ctx.save();

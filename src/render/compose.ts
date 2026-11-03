@@ -21,7 +21,7 @@ import { isObj } from "../load/normalize.js";
 import { type PageGeom, type PanelGeom, bookOf, computePageGeom, layoutPanels } from "../layout/page.js";
 import { RefRegistry, center, place, resolvePoint, sizeValue } from "../layout/place.js";
 import type { RElement, RPage, ResolvedDoc } from "../model/resolve.js";
-import { parsePaint, resolveHand, resolveStroke } from "../model/values.js";
+import { parsePaint, resolveHand, resolvePen, resolveStroke } from "../model/values.js";
 import { BODY_GENERATORS } from "../shapes/balloon.js";
 import { defaultTextStyle, layoutText } from "../text/layout.js";
 import { parseMarkup, plainText } from "../text/markup.js";
@@ -549,6 +549,45 @@ function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
         const rng = new Rng(el.seed);
         const polys = reg.polys.map((pl) => inkShape({ pts: pl, closed: true, smooth: true }, { hand: { ...resolveHand(undefined, ctx.u), wobbleAmp: 0.1 * ctx.u.k, wobbleLen: 4 * ctx.u.k }, rng }).fill);
         pathNode = { ...pathNode, path: polys.flatMap((q) => polyPath(q, true)) } as Node;
+      }
+      // erase: scrape the tone back to paper with lines, areas and scratches (spec 8.13.6)
+      if (Array.isArray(p.erase) && p.erase.length) {
+        const er: Node[] = [];
+        const rng = new Rng(el.seed ^ 0xe7a5);
+        const hand = resolveHand(p.hand, ctx.u, ctx.draft);
+        const K = { type: "solid" as const, color: BLACK };
+        const rangeMm = (v: unknown, a: number, b: number) => (Array.isArray(v) ? [toMm(v[0] as string, ctx.u), toMm((v[1] ?? v[0]) as string, ctx.u)] : v !== undefined ? [toMm(v as string, ctx.u), toMm(v as string, ctx.u)] : [a * ctx.u.k, b * ctx.u.k]);
+        const pcE = placeCtx(ctx, el);
+        for (const [i, op] of (p.erase as Obj[]).entries()) {
+          if (Array.isArray(op.points)) {
+            const pts = (op.points as unknown[]).map((q) => resolvePoint(q, pcE)).filter((q): q is Vec => !!q);
+            const [w0, w1] = rangeMm(op.width, 0.6, 1.4);
+            const taper = (op.taper as string) ?? "both";
+            if (pts.length > 1) er.push(...inksToNodes(inkLine(pts, { width: (w0 + w1) / 2, pen: { ...resolvePen(undefined, ctx.u), pressure: 0.5 }, style: "solid" }, hand, rng.fork(`e${i}`), { taperIn: taper !== "none" && taper !== "end", taperOut: taper !== "none" && taper !== "start" }), BLACK, tag(el, "fill")));
+          } else if (op.region !== undefined) {
+            const r2 = resolveRegion(op.region, ctx, "panel", [...el.path, "erase", i, "region"]);
+            const fe2 = op.feather !== undefined ? toMm(op.feather as string, ctx.u) : r2.feather;
+            const n2: Node = { kind: "path", path: r2.path, fillRule: r2.fillRule, paint: K, tag: tag(el, "fill") };
+            er.push(fe2 > 0 ? { kind: "group", softClip: { path: r2.path, fillRule: r2.fillRule, feather: fe2 }, children: [n2] } : n2);
+          } else if (isObj(op.scratches)) {
+            const sc = op.scratches as Obj;
+            const r2 = resolveRegion(sc.region ?? "panel", ctx, "panel", [...el.path, "erase", i, "scratches"]);
+            const count = Number(sc.count ?? 12);
+            const [l0, l1] = rangeMm(sc.length, 3, 8);
+            const [w0, w1] = rangeMm(sc.width, 0.2, 0.5);
+            const ang = parseAngle((sc.angle as string) ?? "30deg");
+            for (let k = 0, tries = 0; k < count && tries < count * 20; tries++) {
+              const c = { x: r2.bbox.x + rng.next() * r2.bbox.w, y: r2.bbox.y + rng.next() * r2.bbox.h };
+              if (!r2.contains(c)) continue;
+              k++;
+              const L = rng.range(l0, l1);
+              const a = ang + rng.range(-0.15, 0.15);
+              const d = { x: (Math.cos(a) * L) / 2, y: (Math.sin(a) * L) / 2 };
+              er.push(...inksToNodes(inkLine([{ x: c.x - d.x, y: c.y - d.y }, { x: c.x + d.x, y: c.y + d.y }], { width: rng.range(w0, w1), pen: resolvePen(undefined, ctx.u), style: "solid" }, hand, rng.fork(`s${k}`), { taperIn: true, taperOut: true, ruler: true }), BLACK, tag(el, "fill")));
+            }
+          }
+        }
+        if (er.length) pathNode = { kind: "group", isolate: true, children: [pathNode, { kind: "group", blend: "destination-out", children: er }], tag: tag(el, "tone") };
       }
       const fe = reg.feather > 0 ? reg.feather : p.edge === "soft" && paint.type !== "tone" ? (p.edgeWidth !== undefined ? toMm(p.edgeWidth as string, ctx.u) : 3 * ctx.u.k) : 0;
       if (fe > 0) pathNode = { kind: "group", softClip: { path: reg.path, fillRule: reg.fillRule, feather: fe }, children: [pathNode], tag: tag(el, "fill") };
