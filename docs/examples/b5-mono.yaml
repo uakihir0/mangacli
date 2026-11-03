@@ -59,18 +59,18 @@ assets:
   taro-normal:
     src: ./assets/taro/normal.png
     character: taro
-    anchors: { mouth: [612, 540] }
-    regions: { face: [470, 300, 290, 330] }
+    anchors: { mouth: [500, 535] }
+    regions: { face: [285, 155, 430, 490] }
   taro-shock:
     src: ./assets/taro/shock.png
     character: taro
-    anchors: { mouth: [580, 610] }
-    regions: { face: [430, 360, 300, 340] }
+    anchors: { mouth: [500, 550] }
+    regions: { face: [285, 155, 430, 490] }
   hanako-smile:
     src: ./assets/hanako/smile.png
     character: hanako
-    anchors: { mouth: [420, 488] }
-    regions: { face: [300, 260, 260, 300] }
+    anchors: { mouth: [500, 520] }
+    regions: { face: [285, 155, 430, 490] }
   hanako-back:
     src: ./assets/hanako/back.png
     kind: lineart                    # 白背景の線画（乗算で重ねる）
@@ -163,7 +163,7 @@ pages:
             anchor: bottom
             flip: x
           - mark: sweat
-            at: taro1.face
+            at: taro1.face.top-left
             anchor: bottom-left
             offset: [2mm, -1mm]
         dialogue:

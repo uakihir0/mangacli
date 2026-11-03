@@ -30,13 +30,13 @@ fonts:                               # 登録しないロールは manga-basic �
 
 assets:
   cat-sleep: { src: ./assets/cat_sleep.png, character: cat }
-  cat-wake: { src: ./assets/cat_wake.png, character: cat, regions: { face: [220, 140, 360, 300] } }
+  cat-wake: { src: ./assets/cat_wake.png, character: cat, regions: { face: [190, 170, 340, 300] } }
   cat-run: { src: ./assets/cat_run.png, character: cat }
   owner:
     src: ./assets/owner.png
     character: owner
-    anchors: { mouth: [402, 318] }
-    regions: { face: [300, 160, 220, 240] }
+    anchors: { mouth: [500, 535] }
+    regions: { face: [285, 155, 430, 490] }
 
 characters:
   owner: { name: 飼い主 }

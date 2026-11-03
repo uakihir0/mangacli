@@ -11,7 +11,7 @@ mangacli: 1
 # 手元になければ初回のレンダリング時に自動でダウンロードする（mangacli fonts install で事前に取得してもよい）。
 
 assets:
-  taro: ./assets/taro.png
+  taro: ./assets/taro/normal.png
 
 pages:
   - layout:
