@@ -346,12 +346,25 @@ function speedLines(f: FxCtx): InkPoly[] {
   const dens = (p.density as number) ?? 1;
   const clearReg0 = p.clear ? resolveRegion(p.clear, f.ctx, "panel", [...f.el.path, "clear"]) : null;
   const clearReg = clearReg0 && !clearReg0.alphaOf ? clearReg0 : null;
+  // in a band region the lines thin out toward the band's open edge instead of stopping at a rule
+  const band = isObj(p.region) && isObj((p.region as Obj).band) ? String(((p.region as Obj).band as Obj).side ?? "") : "";
+  const bandN = band === "top" ? { x: 0, y: -1 } : band === "bottom" ? { x: 0, y: 1 } : band === "left" ? { x: -1, y: 0 } : band === "right" ? { x: 1, y: 0 } : null;
+  // +1: the open edge is at n0, -1: at n1 (only when the lines run along the band)
+  const openAt = bandN && Math.abs(bandN.x * n.x + bandN.y * n.y) > 0.9 ? (bandN.x * n.x + bandN.y * n.y > 0 ? 1 : -1) : 0;
+  const fade = typeof p.fade === "number" ? p.fade : openAt ? 0.45 : 0;
   const out: InkPoly[] = [];
   let pos = n0 - sp.max;
   while (pos < n1 + sp.max) {
     const mod = 1 + cl * 1.5 * noise1(seed, pos / (6 * f.k));
     pos += Math.max(sp.min * 0.5, sampleR(f, sp) / Math.max(0.3, mod) / dens);
-    const len = sampleR(f, lenR);
+    let len = sampleR(f, lenR);
+    if (fade > 0 && openAt) {
+      // 0 at the open edge -> 1 at the far side; the outer `fade` part of the band thins out
+      const tN = Math.max(0, Math.min(1, openAt > 0 ? (pos - n0) / Math.max(1e-6, n1 - n0) : (n1 - pos) / Math.max(1e-6, n1 - n0)));
+      const keep = Math.min(1, tN / fade);
+      if (f.rng.next() > keep * keep) continue;
+      len *= 0.45 + 0.55 * keep;
+    }
     let start: number;
     if (align === "start") start = d0 + f.rng.range(0, extent * 0.08);
     else if (align === "end") start = d1 - len - f.rng.range(0, extent * 0.08);
