@@ -87,7 +87,7 @@ export function runPluginDrawable(
     const gen = def.generate?.(dc, params);
     if (gen) raw.push(...gen);
   } catch (e) {
-    ctx.bag.error("PLUGIN_FAILED", `${String(el.props.kind)}: ${(e as Error).message}`, { path: el.path, elementId: el.id });
+    ctx.bag.error("PLUGIN_ERROR", `${String(el.props.kind)}: ${(e as Error).message}`, { path: el.path, elementId: el.id });
   }
   void parseColor;
   return [...nodes, ...raw];

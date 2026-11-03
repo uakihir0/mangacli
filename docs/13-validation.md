@@ -97,6 +97,9 @@ diagnostics:
 | `IMPORT_OVERRIDE` | I | インポートした定義を上書きした | ○ |
 | `PLUGIN_NAME_CONFLICT` | E | プラグインの名前が衝突した | × |
 | `PLUGIN_ERROR` | E | プラグインの関数が例外を投げた | × |
+| `PLUGIN_LOAD_FAILED` | E | 設定ファイルで指定したプラグインのモジュールを読み込めない | × |
+| `CONFIG_NOT_FOUND` | E | 指定した設定ファイルがない | × |
+| `CONFIG_INVALID` | E | 設定ファイルを読み込めない、またはオブジェクトを返さない | × |
 | `DIAGNOSTIC_NOT_CONFIGURABLE` | W | 変更できない診断の重大度を変更しようとした | ○ |
 
 ### 13.5.3 リソース
@@ -121,6 +124,7 @@ diagnostics:
 | `FONT_DOWNLOAD_FAILED` | E | カタログのフォントを取得できない（ネットワーク、取得元の応答） | × |
 | `FONT_INTEGRITY_FAILED` | E | 取得したフォントのハッシュがカタログと一致しない | × |
 | `FONT_DOWNLOAD_DISABLED` | E | `fontDownload: never` で、必要なカタログのフォントが手元にない | × |
+| `IO_NOT_FOUND` | E | 入力のファイルがない（CLI） | × |
 | `SECURITY_PATH_OUTSIDE_ROOT` | E | ルートの外側のファイルを参照した | × |
 | `SECURITY_NETWORK_DENIED` | E | 許可されていない URL を参照した | × |
 | `SECURITY_LIMIT_EXCEEDED` | E | 入力・処理量の上限（ページ数、要素数、解像度など）を超えた | × |

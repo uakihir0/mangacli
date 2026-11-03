@@ -585,7 +585,7 @@ function expandTemplate(name: string, params: Obj, page: RPage, bag: DiagnosticB
         try {
           return tpl(params);
         } catch (e) {
-          bag.error("PLUGIN_FAILED", `layout template "${name}": ${(e as Error).message}`, { path: [...page.path, "layout", "template"] });
+          bag.error("PLUGIN_ERROR", `layout template "${name}": ${(e as Error).message}`, { path: [...page.path, "layout", "template"] });
           return {};
         }
       }
