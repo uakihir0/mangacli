@@ -273,6 +273,23 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       });
       return { id: pid, index: ki, props: pprops, elements: els, path: ["pages", pi, "panels", ki], seed: deriveSeed(pSeed, pid, "panel") };
     });
+    // yonkoma title slot (spec 4.6): a borderless panel holding the page title
+    const lay = isObj(pg.layout) ? (pg.layout as Obj) : undefined;
+    const lparams = lay && isObj(lay.params) ? (lay.params as Obj) : {};
+    const tflag = lparams.title === "false" ? false : lparams.title;
+    if (lay?.template === "yonkoma" && tflag) {
+      const tid = `${pageId}-title`;
+      const ki = panels.length;
+      const levels = layersFor(undefined, undefined);
+      const title = typeof tflag === "string" && tflag !== "true" ? tflag : typeof pg.title === "string" ? pg.title : typeof (doc.meta as Obj | undefined)?.title === "string" ? ((doc.meta as Obj).title as string) : "";
+      const pprops = merge(deepClone(BUILTIN_DEFAULTS.panel), { border: { style: "none" }, background: "none", __titleSlot: true }, BUILTIN_DEFAULTS.panel);
+      const els: RElement[] = [];
+      if (title) {
+        const raw: Obj = { type: "text", text: title, font: "title", writing: "horizontal", place: "center", align: "center", fontSize: lparams.titleSize ?? "24bQ", ...(isObj(lparams.titleStyle) ? (lparams.titleStyle as Obj) : {}) };
+        els.push(resolveEl(raw, ["pages", pi, "layout", "params", "title"], tid, {}, levels, pageSeedBase));
+      }
+      panels.push({ id: tid, index: ki, props: pprops, elements: els, path: ["pages", pi, "layout"], seed: deriveSeed(pageSeedBase, tid, "panel") });
+    }
     const pageLevels = layersFor(undefined, undefined);
     const pc: Record<string, number> = {};
     const layers = ((pg.layers ?? []) as Obj[]).map((e, i) => {

@@ -269,7 +269,9 @@ export function layoutPanels(page: RPage, geom: PageGeom, bag: DiagnosticBag): P
       } else rowPoly = remaining;
       const cols = (rows[i].cols as number[]) ?? [1];
       const gc = isObj(rows[i].gutter) && (rows[i].gutter as Obj).col !== undefined ? toMm((rows[i].gutter as Obj).col as string, u) : gCol;
-      leaves.push(...splitCols(rowPoly, cols, (rows[i].colSlant as string[]) ?? [], gc, rtl, u, area));
+      const rowLeaves = splitCols(rowPoly, cols, (rows[i].colSlant as string[]) ?? [], gc, rtl, u, area);
+      if (rows[i].__title) for (const lf of rowLeaves) lf.bind = `${page.id}-title`;
+      leaves.push(...rowLeaves);
     }
   } else if (mode === "split") {
     leaves = splitTree(layoutObj, rectPoly(area), gCol, gRow, rtl, u);
@@ -556,8 +558,9 @@ function expandTemplate(name: string, params: Obj, page: RPage, bag: DiagnosticB
     case "yonkoma": {
       const count = Number(params.count ?? 4);
       const rows: Obj[] = Array.from({ length: count }, () => ({ cols: [1], height: 1 }));
-      if (params.title) rows.unshift({ cols: [1], height: params.titleHeight ?? 0.32, __title: true });
-      return { rows, __yonkomaTitle: !!params.title };
+      const tflag = params.title === "false" ? false : !!params.title;
+      if (tflag) rows.unshift({ cols: [1], height: params.titleHeight ?? 0.32, __title: true });
+      return { rows, __yonkomaTitle: tflag };
     }
     case "hero-top": {
       const ratio = Number(params.ratio ?? 0.5);

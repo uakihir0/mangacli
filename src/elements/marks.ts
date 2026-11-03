@@ -239,9 +239,18 @@ export function renderMark(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
       break;
     }
     case "zzz": {
-      for (let i = 0; i < Number(p.count ?? 3); i++) {
-        const sz = s * (0.25 + i * 0.12);
-        const o = { x: c.x + i * s * 0.32 - s * 0.3, y: c.y - i * s * 0.3 + s * 0.3 };
+      // small -> large, stepping up and to the right without overlapping
+      const n = Number(p.count ?? 3);
+      const sizes = Array.from({ length: n }, (_, i) => s * (0.2 + i * 0.1));
+      let ox = c.x - s * 0.35;
+      let oy = c.y + s * 0.3;
+      for (let i = 0; i < n; i++) {
+        const sz = sizes[i];
+        if (i > 0) {
+          ox += (sizes[i - 1] + sz) * 0.5 + s * 0.1;
+          oy -= (sizes[i - 1] + sz) * 0.5 + s * 0.04;
+        }
+        const o = { x: ox, y: oy };
         m.line([{ x: o.x - sz / 2, y: o.y - sz / 2 }, { x: o.x + sz / 2, y: o.y - sz / 2 }, { x: o.x - sz / 2, y: o.y + sz / 2 }, { x: o.x + sz / 2, y: o.y + sz / 2 }], { w: W(1.1) });
       }
       break;

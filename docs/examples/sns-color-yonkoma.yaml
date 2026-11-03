@@ -62,8 +62,8 @@ pages:
       - background: "linear-gradient(to bottom, #ffe9c7, #fff6e8)"
         layers:
           - image: cat-sleep
-            size: [70%, auto]
-            at: [50%, 96%]
+            size: [auto, 80%]
+            at: [45%, 96%]
             anchor: bottom
           - mark: zzz
             at: [72%, 30%]
@@ -79,8 +79,8 @@ pages:
             at: [35%, 100%]
             anchor: bottom
           - sfx: ジリリリ
-            at: [75%, 40%]
-            fontSize: 60
+            at: [75%, 50%]
+            fontSize: 50
             color: "#e8553f"
             outline: [{ width: 6, color: white }]
             perChar: { rotate: [-15deg, 15deg], jitter: 4 }
@@ -112,8 +112,8 @@ pages:
             angle: 180deg
             color: "#7fa7b8"
           - image: cat-run
-            size: [55%, auto]
-            at: [30%, 60%]
+            size: [auto, 85%]
+            at: [30%, 55%]
           - sfx: ダダダ
             at: [70%, 70%]
             fontSize: 54

@@ -2,7 +2,7 @@
 import { BLACK, WHITE, parseColor } from "../core/color.js";
 import { Rng } from "../core/random.js";
 import { type UnitContext, parseAngle, toMm } from "../core/units.js";
-import { distToPolyline, pointInPolygon, polygonArea, rayPolygon } from "../geom/path.js";
+import { type PathData, distToPolyline, pointInPolygon, polyPath, polygonArea, rayPolygon } from "../geom/path.js";
 import { type Rect, type Vec, boundsOf, rot } from "../geom/vec.js";
 import type { HandSpec } from "../ink/presets.js";
 import { type ShapeContour, inkShape } from "../ink/shape.js";
@@ -124,6 +124,12 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
         const ib = boundsOf(genBody(kind, fixedBase.w, fixedBase.h, params, shapeSeed).inner);
         boxLimit = (style.writing === "vertical" ? ib.h * 0.86 : ib.w * 0.86) - 2 * (style.writing === "vertical" ? padV : padH);
       }
+    }
+    if (!fixedBase) {
+      // keep auto-sized balloons within maxSize: wrap before the line outgrows it (organic bodies lose ~30% to curvature)
+      const mx = style.writing === "vertical" ? maxH : maxW;
+      const lim = mx === "auto" ? Infinity : mx * 0.72 - 2 * (style.writing === "vertical" ? padV : padH) - 2 * margin;
+      if (isFinite(lim)) boxLimit = Math.min(boxLimit ?? Infinity, Math.max(lim, style.fontSize * 4.5));
     }
     const tl = layoutText(text, style, ctx.fonts, boxLimit);
     // points relative to text block center
@@ -596,7 +602,27 @@ function textNodes(plan: BalloonPlan, ctx: ElemCtx): Node[] {
 export function renderBalloon(plan: BalloonPlan, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; contour: Vec[] } {
   const bb = buildBody(plan, ctx);
   const body = inkBody(plan, bb, ctx, bb.contour);
-  const nodes = [...body.nodes, ...textNodes(plan, ctx)];
+  let nodes: Node[] = [...body.nodes, ...textNodes(plan, ctx)];
+  // offscreen tails are cut by the panel frame (spec 6.5): clip to panel ∪ body box
+  const tails: Obj[] = Array.isArray(plan.props.tails) ? (plan.props.tails as Obj[]) : isObj(plan.props.tail) ? [plan.props.tail as Obj] : [];
+  if (ctx.panelPoly && tails.some((t) => t.offscreen)) {
+    const c = plan.center!;
+    const m = plan.outer;
+    const pad = 1.5 * ctx.u.k;
+    const x0 = c.x + m.x - pad;
+    const y0 = c.y + m.y - pad;
+    const x1 = c.x + m.x + m.w + pad;
+    const y1 = c.y + m.y + m.h + pad;
+    const box: Vec[] = [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
+    const ring = (pts: Vec[]) => [[...pts.map((q) => [q.x, q.y] as [number, number]), [pts[0].x, pts[0].y] as [number, number]]];
+    try {
+      const u = polygonClipping.union(ring(ctx.panelPoly), ring(box));
+      const clip: PathData = u.flatMap((poly) => poly.flatMap((r) => polyPath(r.slice(0, -1).map(([x, y]) => ({ x, y })), true)));
+      nodes = [{ kind: "group", clip, children: nodes }];
+    } catch {
+      /* keep unclipped */
+    }
+  }
   return { nodes, bbox: boundsOf(body.fill), contour: body.fill };
 }
 
