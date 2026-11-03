@@ -87,6 +87,8 @@ interface Box {
   color?: string;
   bold?: boolean;
   emph?: boolean | string;
+  shake?: boolean;
+  hand?: boolean;
   startPhrase?: boolean;
   firstChar: string;
   lastChar: string;
@@ -264,7 +266,8 @@ function alignOffset(align: TextStyle["align"], block: number, len: number): num
 }
 
 function emitBox(b: Box, ox: number, oy: number, _vertical: boolean, out: GlyphOut[], style: TextStyle, rng: Rng) {
-  const L = style.lettering;
+  // <hand> borrows the hand-lettering jitter; <shake> is a stronger, irregular tremble
+  const L = b.shake ? { rotate: (6 * Math.PI) / 180, scale: 0.05, offset: 0.07 } : b.hand && !style.lettering ? { rotate: (1.5 * Math.PI) / 180, scale: 0.03, offset: 0.025 } : style.lettering;
   for (const g of b.glyphs) {
     let m = matMul(matTranslate(ox, oy), g.m);
     // approximate glyph cell center for jitter
@@ -356,7 +359,9 @@ function buildBoxes(parsed: ParsedText, style: TextStyle, reg: FontRegistry, mis
           boxes.push({ chars: seg[k], units: [ui], adv: size, size, orient: o, glyphs: pf ? [{ gid: 0, font: pf, m: unitMatrix(pf, size, 0, 0, vertical) }] : [], firstChar: seg[k], lastChar: seg[k] });
         });
       } else {
-        shapeSegment(seg, segUnits, pk, size, o, vertical, style, boxes);
+        // <scale x= y=> narrows/flattens the run (長体・平体); the advance follows the line axis
+        const runStyle = st.scaleX !== undefined || st.scaleY !== undefined ? { ...style, glyphScale: [style.glyphScale[0] * (st.scaleX ?? 1), style.glyphScale[1] * (st.scaleY ?? 1)] as [number, number] } : style;
+        shapeSegment(seg, segUnits, pk, size, o, vertical, runStyle, boxes);
       }
       s0 = s1;
     }
@@ -368,6 +373,8 @@ function buildBoxes(parsed: ParsedText, style: TextStyle, reg: FontRegistry, mis
       bx.ruby = uu.ruby;
       bx.nobr = st.nobr;
       bx.emph = uu.emph;
+      bx.shake = st.shake;
+      bx.hand = st.hand;
     }
     if (boxes.length > first) {
       if (pendingForced) boxes[first].breakBefore = "forced";
@@ -415,9 +422,9 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
     const pen: number[] = new Array(seg.length).fill(0);
     for (const gl of g) {
       const k = charOfCluster(gl.cluster);
-      const m: Matrix = [s * gx, 0, 0, -s * gy, gl.xOffset * s * gx + bshift, -(gl.yOffset + f.vOriginFix) * s - pen[k]];
+      const m: Matrix = [s * gx, 0, 0, -s * gy, gl.xOffset * s * gx + bshift, -(gl.yOffset + f.vOriginFix) * s * gy - pen[k]];
       per[k].glyphs.push({ gid: gl.gid, font: f, m });
-      const adv = -gl.yAdvance * s;
+      const adv = -gl.yAdvance * s * gy;
       per[k].adv += adv;
       pen[k] -= adv;
     }
@@ -482,9 +489,9 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
   g.forEach((gl, gi) => {
     const k = charOfCluster(gl.cluster);
     if (isNaN(boxStart[k])) boxStart[k] = xs[gi];
-    const m: Matrix = [s * gx, 0, 0, -s * gy, xs[gi] - boxStart[k] + gl.xOffset * s, -gl.yOffset * s - bshift];
+    const m: Matrix = [s * gx, 0, 0, -s * gy, (xs[gi] - boxStart[k] + gl.xOffset * s) * gx, -gl.yOffset * s - bshift];
     per[k].glyphs.push({ gid: gl.gid, font: f, m });
-    per[k].adv += gl.xAdvance * s;
+    per[k].adv += gl.xAdvance * s * gx;
   });
   // latin words should not break inside
   boxes.push(...per);

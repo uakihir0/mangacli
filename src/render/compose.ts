@@ -291,6 +291,14 @@ function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listI
   const blend = el.type !== "image" && typeof el.props.blend === "string" && el.props.blend !== "normal" ? (el.props.blend as GroupNode["blend"]) : undefined;
   let inner = nodes;
   if (el.props.visible === false) inner = [];
+  // flip for lettering: mirror about the element's box (spec 5.3.4)
+  if ((el.type === "text" || el.type === "sfx") && el.props.flip && inner.length) {
+    const fx = el.props.flip === "x" || el.props.flip === "xy" || el.props.flip === true;
+    const fy = el.props.flip === "y" || el.props.flip === "xy";
+    const cx = bbox.x + bbox.w / 2;
+    const cy = bbox.y + bbox.h / 2;
+    inner = [{ kind: "group", transform: [fx ? -1 : 1, 0, 0, fy ? -1 : 1, fx ? 2 * cx : 0, fy ? 2 * cy : 0], children: inner }];
+  }
   // mask: show the element only inside a region (spec 5.11); feathered masks fade out
   if (el.props.mask !== undefined && inner.length) {
     const mspec = isObj(el.props.mask) && "region" in (el.props.mask as Obj) ? (el.props.mask as Obj).region : el.props.mask;
