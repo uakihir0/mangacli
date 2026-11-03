@@ -25,6 +25,7 @@ export class FontFetchError extends Error {
 
 export function defaultFontCacheDir(): string {
   if (process.env.MANGACLI_FONT_CACHE) return process.env.MANGACLI_FONT_CACHE;
+  if (process.env.MANGACLI_CACHE_DIR) return join(process.env.MANGACLI_CACHE_DIR, "fonts");
   const p = platform();
   if (p === "darwin") return join(homedir(), "Library", "Caches", "mangacli", "fonts");
   if (p === "win32") return join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "mangacli", "Cache", "fonts");
