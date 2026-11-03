@@ -60,6 +60,8 @@ export interface GlyphOut {
 export interface LineInfo {
   rect: Rect;
   length: number;
+  /** the characters set on this line (inspect --text) */
+  text?: string;
 }
 
 export interface TextLayout {
@@ -73,6 +75,8 @@ export interface TextLayout {
   infos: { code: string; message: string; severity?: "warning" | "info" }[];
   autoBreaks: number;
   plain: string;
+  /** fonts that supplied glyphs */
+  fonts?: string[];
 }
 
 type Orient = "upright" | "sideways" | "tcy";
@@ -226,11 +230,11 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
         (b as Box & { _pos?: [number, number] })._pos = [cx, y];
         y += c.d.advs[bi] + just;
       });
-      outLines.push({ rect: { x: cx - c.d.size / 2, y: offset, w: c.d.size, h: c.d.len }, length: c.d.len });
+      outLines.push({ rect: { x: cx - c.d.size / 2, y: offset, w: c.d.size, h: c.d.len }, length: c.d.len, text: c.d.ln.boxes.map((b) => b.chars).join("") });
     }
     placeRuby(parsed, boxes, glyphs, style, reg, true);
     placeEmphasis(boxes, glyphs, style, reg, true);
-    return { glyphs, width: blockW, height: blockLen, lines: outLines, fontSize: em, missing, errors: parsed.errors, infos: parsed.infos, autoBreaks, plain: plainOf(parsed) };
+    return { glyphs, width: blockW, height: blockLen, lines: outLines, fontSize: em, missing, errors: parsed.errors, infos: parsed.infos, autoBreaks, plain: plainOf(parsed), fonts: [...new Set(boxes.flatMap((b) => b.glyphs.map((g) => g.font.label)))] };
   }
 
   // horizontal
@@ -246,12 +250,12 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
       (b as Box & { _pos?: [number, number] })._pos = [x, y + asc];
       x += d.advs[bi] + just;
     });
-    outLines.push({ rect: { x: offset, y, w: d.len, h: d.size }, length: d.len });
+    outLines.push({ rect: { x: offset, y, w: d.len, h: d.size }, length: d.len, text: d.ln.boxes.map((b) => b.chars).join("") });
     y += d.size;
   });
   placeRuby(parsed, boxes, glyphs, style, reg, false);
   placeEmphasis(boxes, glyphs, style, reg, false);
-  return { glyphs, width: blockLen, height: y, lines: outLines, fontSize: em, missing, errors: parsed.errors, infos: parsed.infos, autoBreaks, plain: plainOf(parsed) };
+  return { glyphs, width: blockLen, height: y, lines: outLines, fontSize: em, missing, errors: parsed.errors, infos: parsed.infos, autoBreaks, plain: plainOf(parsed), fonts: [...new Set(boxes.flatMap((b) => b.glyphs.map((g) => g.font.label)))] };
 }
 
 function plainOf(p: ParsedText): string {

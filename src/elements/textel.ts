@@ -26,7 +26,7 @@ function outlineNodes(path: PathData, outlines: unknown, ctx: ElemCtx, el: RElem
     .map((o) => ({ kind: "path" as const, path, fillRule: "nonzero" as const, paint: null, stroke: { width: o.w * 2, paint: { type: "solid" as const, color: o.c }, join: "round" as const }, tag: tag(el, "text") }));
 }
 
-export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
+export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; layout?: TextLayout } {
   const p = el.props;
   const u = ctx.u;
   const style = resolveTextStyle(p, u, ctx.lang, false, el.seed);
@@ -100,7 +100,7 @@ export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
       nodes.push(...inksToNodes(res.inks, st.color, tag(el, "ink")));
     }
   }
-  return { nodes, bbox: pl.bbox };
+  return { nodes, bbox: pl.bbox, layout: tl };
 }
 
 function textPaint(c: unknown, ctx: ElemCtx, el: RElement, box: Rect): Paint {

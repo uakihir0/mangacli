@@ -51,6 +51,8 @@ export interface PageLayoutInfo {
   panels: { id: string; polygon: Vec[]; order: number; box: Rect }[];
   elements: { id: string; type: string; bbox: Rect; panel?: string }[];
   transcript: { panel?: string; id: string; type: string; who?: string; name?: string; as?: string; text: string; raw?: string }[];
+  /** typesetting results per text-bearing element (inspect --text) */
+  text: { id: string; lines: string[]; fontSize: number; fonts: string[]; autoBreaks: number; missing: string[] }[];
   /** the page number(s) printed on the page */
   number?: number | null;
 }
@@ -106,7 +108,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   const refs = new RefRegistry((ch) => ((doc.characters[ch]?.anchorPriority as string[]) ?? ["mouth", "face"]));
   const items: Item[] = [];
   const panelNodes: { pg: PanelGeom; clipped: Item[] }[] = [];
-  const info: PageLayoutInfo = { geom, panels: panels.map((p) => ({ id: p.panel.id, polygon: p.polygon, order: p.order, box: p.box })), elements: [], transcript: [] };
+  const info: PageLayoutInfo = { geom, panels: panels.map((p) => ({ id: p.panel.id, polygon: p.polygon, order: p.order, box: p.box })), elements: [], transcript: [], text: [] };
   const baseCtx = (pg?: PanelGeom): ElemCtx => ({
     u,
     geom,
@@ -157,10 +159,13 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       try {
         switch (el.type) {
           case "balloon":
-            plans.push({ plan: planBalloon(el, c2), idx: i });
+            const plan = planBalloon(el, c2);
+            plans.push({ plan, idx: i });
+            info.text.push(textInfo(el.id, plan.text));
             break;
           case "text": {
             const r = renderText(el, c2);
+            if (r.layout) info.text.push(textInfo(el.id, r.layout));
             processed.set(el.id, mkItem(el, r.nodes, r.bbox, panelIdx, i, source, ctx));
             refs.add({ id: el.id, type: "text", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id });
             break;
@@ -1073,6 +1078,10 @@ function nombreNodes(doc: ResolvedDoc, page: RPage, geom: PageGeom, o: ComposeOp
       tag: { elementId: `${page.id}-nombre`, elementType: "nombre", role: "furniture" as const, separation: "furniture" },
     };
   });
+}
+
+function textInfo(id: string, tl: import("../text/layout.js").TextLayout) {
+  return { id, lines: tl.lines.map((l) => l.text ?? ""), fontSize: Math.round(tl.fontSize * 100) / 100, fonts: tl.fonts ?? [], autoBreaks: tl.autoBreaks, missing: [...new Set(tl.missing)] };
 }
 
 function collectTranscript(el: RElement, panel: string | undefined, info: PageLayoutInfo, o: ComposeOptions) {

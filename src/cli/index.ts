@@ -617,6 +617,23 @@ async function cmdFonts(sub: string | undefined, args: string[], o: Obj): Promis
     }
     return 0;
   }
+  if (sub === "check") {
+    // glyphs missing from the document's fonts
+    if (!args[0]) throw new UsageError(t("fonts check にはファイルを指定してください", "fonts check needs a file"));
+    const opts = await renderOptions(o, args[0]);
+    const { validate: v } = await import("../api.js");
+    const r = await v(readInput(args[0], o), opts);
+    let missing = 0;
+    for (const l of r.layout)
+      for (const x of l.text)
+        if (x.missing.length) {
+          missing += x.missing.length;
+          emitJson({ type: "missing", page: l.geom.id, element: x.id, chars: x.missing });
+          if (!out.json) process.stdout.write(`${paint("33", "⚠")} ${l.geom.id} ${x.id}: ${x.missing.join(" ")}  (${x.fonts.join(", ")})\n`);
+        }
+    if (!missing) log("info", `${paint("32", "✔")} ${t("欠けている字形はありません", "no missing glyphs")}`);
+    return missing ? 1 : 0;
+  }
   if (sub === "verify") {
     const { createHash } = await import("node:crypto");
     const config = await configFor(o);
@@ -704,14 +721,18 @@ async function cmdInspect(file: string, o: Obj): Promise<number> {
   const out: Obj = {};
   if (o.resolved) {
     const resolved = resolveDocument(project.doc, project.bag.fork(), { lang: opts.lang });
-    const pick = (els: { id: string; type: string; props: Obj; children?: unknown[] }[]): unknown[] => els.map((e) => ({ id: e.id, type: e.type, props: e.props }));
+    const pick = (els: { id: string; type: string; props: Obj; children?: unknown[] }[]): unknown[] => els.filter((e) => !o.element || e.id === o.element).map((e) => ({ id: e.id, type: e.type, props: e.props }));
     out.resolved = resolved.pages
       .filter((p) => !o.page || p.id === o.page)
       .map((p) => ({ id: p.id, panels: p.panels.map((pn) => ({ id: pn.id, props: pn.props, elements: pick(pn.elements as never) })), layers: pick(p.layers as never) }));
   }
-  if (o.layout || !o.resolved) {
+  if (o.layout || o.text || !o.resolved) {
     const r = await v(project, opts);
-    out.layout = r.layout
+    if (o.text)
+      out.text = r.layout
+        .filter((l) => !o.page || l.geom.id === o.page)
+        .map((l) => ({ id: l.geom.id, elements: l.text.filter((x) => !o.element || x.id === o.element) }));
+    if (o.layout || !o.text) out.layout = r.layout
       .filter((l) => !o.page || l.geom.id === o.page)
       .map((l) => ({ id: l.geom.id, trim: [l.geom.trimW, l.geom.trimH], panels: l.panels, elements: o.element ? l.elements.filter((e) => e.id === o.element) : l.elements }));
     for (const d of r.diagnostics) reportDiagnostic(d, process.cwd());
@@ -898,13 +919,14 @@ common(cli.command("inspect <file>", "Show resolved values and layout"))
   .option("--element <id>", "Element ID")
   .option("--resolved", "Resolved values")
   .option("--layout", "Panel polygons, reading order, element boxes")
+  .option("--text", "Line breaks, font sizes, fonts and missing glyphs of each text")
   .option("--lang <tag>", "Text language")
   .action(wrap((file: string, o: Obj) => cmdInspect(file, o)));
 common(cli.command("migrate <file>", "Convert an older document to the current version"))
   .option("--write", "Write the result")
   .action(wrap((file: string, o: Obj) => cmdMigrate(file, o)));
 common(cli.command("cache [sub]", "Font cache: info | clean")).action(wrap((sub: string | undefined, _o: Obj) => cmdCache(sub)));
-common(cli.command("fonts <sub> [...args]", "Catalog fonts: install [ids...] | list [file] | verify | licenses [file]"))
+common(cli.command("fonts <sub> [...args]", "Catalog fonts: install [ids...] | list [file] | check <file> | verify | licenses [file]"))
   .option("-o, --out <file>", "Write licenses to a file")
   .option("--set <name>", "Font set")
   .option("--for <file>", "Fonts used by a document")
