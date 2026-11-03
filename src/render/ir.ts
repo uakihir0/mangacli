@@ -63,7 +63,7 @@ export interface GroupNode {
   /** soft-edged clip: the outline blurred by `feather` mm (feathered regions, masks) */
   softClip?: { path: PathData; fillRule: "nonzero" | "evenodd"; feather: number };
   /** multiply children by the alpha of an image (region mode: alpha) */
-  alphaMaskOf?: { matrix: Matrix; assetKey: string; w: number; h: number };
+  alphaMaskOf?: { matrix: Matrix; assetKey: string; w: number; h: number; invert?: boolean; dilate?: number };
   children: Node[];
   tag?: NodeTag;
 }

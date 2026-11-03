@@ -141,7 +141,9 @@ function focusLines(f: FxCtx, over: Obj = {}): InkPoly[] {
   const angles = clusteredAngles(f.rng, count, jit, cl);
   const out: InkPoly[] = [];
   const clear = p.clear;
-  const clearReg = clear ? resolveRegion(clear, f.ctx, "panel", [...f.el.path, "clear"]) : null;
+  const clearReg0 = clear ? resolveRegion(clear, f.ctx, "panel", [...f.el.path, "clear"]) : null;
+  // silhouette clears are applied as a mask afterwards (applyClear)
+  const clearReg = clearReg0 && !clearReg0.alphaOf ? clearReg0 : null;
   for (const a of angles) {
     const d = { x: Math.cos(a), y: Math.sin(a) };
     let rin = ellipseR(rx, ry, a - rot0) * (1 + ij * Math.pow(f.rng.next(), 1.5));
@@ -308,7 +310,8 @@ function speedLines(f: FxCtx): InkPoly[] {
   const cl = (p.cluster as number) ?? 0.4;
   const seed = f.rng.nextU32();
   const dens = (p.density as number) ?? 1;
-  const clearReg = p.clear ? resolveRegion(p.clear, f.ctx, "panel", [...f.el.path, "clear"]) : null;
+  const clearReg0 = p.clear ? resolveRegion(p.clear, f.ctx, "panel", [...f.el.path, "clear"]) : null;
+  const clearReg = clearReg0 && !clearReg0.alphaOf ? clearReg0 : null;
   const out: InkPoly[] = [];
   let pos = n0 - sp.max;
   while (pos < n1 + sp.max) {
@@ -562,7 +565,29 @@ function vignette(f: FxCtx): Node[] {
   return wrap(f, [node]);
 }
 
+/** clear: keep the effect off a region for every kind (focus/speed lines also shorten their lines) */
+function applyClear(f: FxCtx, nodes: Node[], kind: string): Node[] {
+  const clear = f.p.clear;
+  if (clear === undefined || clear === null || !nodes.length) return nodes;
+  const reg = resolveRegion(clear, f.ctx, "panel", [...f.el.path, "clear"]);
+  if (reg.alphaOf) {
+    const t = f.ctx.refs.get(reg.alphaOf);
+    if (t?.imagePx) return [{ kind: "group", alphaMaskOf: { ...t.imagePx, invert: true, dilate: reg.feather || 1.2 * f.k }, children: nodes }];
+  }
+  if (kind === "focus-lines" || kind === "speed-lines") return nodes;
+  const b = f.region.bbox;
+  const outer = polyPath([{ x: b.x - 1, y: b.y - 1 }, { x: b.x + b.w + 1, y: b.y - 1 }, { x: b.x + b.w + 1, y: b.y + b.h + 1 }, { x: b.x - 1, y: b.y + b.h + 1 }], true);
+  const path = [...outer, ...reg.path];
+  return [reg.feather > 0 ? { kind: "group", softClip: { path, fillRule: "evenodd", feather: reg.feather }, children: nodes } : { kind: "group", clip: path, clipRule: "evenodd", children: nodes }];
+}
+
 export function renderEffect(el: RElement, ctx: ElemCtx): Node[] {
+  const hold: { f?: FxCtx } = {};
+  const out = renderEffectInner(el, ctx, hold);
+  return hold.f ? applyClear(hold.f, out, String(el.props.kind)) : out;
+}
+
+function renderEffectInner(el: RElement, ctx: ElemCtx, hold: { f?: FxCtx }): Node[] {
   const p = el.props;
   const kind = String(p.kind);
   const hand = resolveHand(p.hand, ctx.u, ctx.draft);
@@ -570,6 +595,7 @@ export function renderEffect(el: RElement, ctx: ElemCtx): Node[] {
   const color = parseColor((p.color as string) ?? "black") ?? BLACK;
   const region = resolveRegion(p.region, ctx, ctx.panel ? "panel" : "page", [...el.path, "region"]);
   const f: FxCtx = { el, p, ctx, region, rng: new Rng(el.seed), hand, pen, color, k: ctx.u.k };
+  hold.f = f;
   const ink = (inks: InkPoly[]) => wrap(f, inksToNodes(inks, color, tag(el, "ink")), backgroundNode(f));
   switch (kind) {
     case "focus-lines": {

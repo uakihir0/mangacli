@@ -379,10 +379,17 @@ export class RasterBackend {
     tctx.putImageData(id, 0, 0);
     const octx = off.getContext("2d");
     octx.save();
-    octx.globalCompositeOperation = "destination-in";
+    // invert: keep everything except the silhouette (effects cleared around a figure)
+    octx.globalCompositeOperation = mask.invert ? "destination-out" : "destination-in";
     const k: Matrix = matMul(mm, [mask.w / pix.width, 0, 0, mask.h / pix.height, 0, 0]);
     setM(octx, k);
+    if (mask.dilate && mask.dilate > 0) octx.filter = `blur(${Math.max(0.5, (mask.dilate * dev.scale) / 2)}px)`;
     octx.drawImage(tmp, 0, 0);
+    if (mask.dilate && mask.dilate > 0) {
+      // a second pass hardens the blurred silhouette into a slightly grown one
+      octx.filter = "none";
+      octx.drawImage(tmp, 0, 0);
+    }
     octx.restore();
   }
 
