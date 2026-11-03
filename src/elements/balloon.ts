@@ -155,6 +155,15 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       if (isFinite(lim)) boxLimit = Math.min(boxLimit ?? Infinity, Math.max(lim, style.fontSize * 4.5));
     }
     const tl = layoutText(text, style, ctx.fonts, boxLimit);
+    // a full block of text gets a balloon with a squarer core; a short word a round one
+    if (kind === "ellipse" && !(isObj(p.shape) && (p.shape as Obj).squareness !== undefined)) {
+      const lens = tl.lines.map((l) => l.length);
+      const L = lens.length;
+      const maxL = Math.max(1e-6, ...lens);
+      const fill = lens.reduce((a, b) => a + b, 0) / (L * maxL);
+      const elong = Math.max(tl.width, tl.height) / Math.max(1e-6, Math.min(tl.width, tl.height));
+      params.squareness = Math.max(0, Math.min(0.3, 0.03 * (L - 1) + (fill - 0.7) * 0.1 + (elong > 2.5 ? 0.25 : 0)));
+    }
     // points relative to text block center
     const cx = tl.width / 2;
     const cy = tl.height / 2;
@@ -457,7 +466,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       continue;
     }
     const gap = t.gap !== undefined ? toMm(t.gap as string, u) : 2 * u.k;
-    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : Math.min(14 * u.k, Math.max(4 * u.k, minSide * 0.8));
+    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : Math.min(10 * u.k, Math.max(3.5 * u.k, minSide * 0.55));
     let length: number;
     if (t.length !== undefined) length = toMm(t.length as string, u);
     else if (target) {
@@ -479,15 +488,15 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
             break;
           }
       }
-      length = Math.min(maxLen, Math.max(2.5 * u.k, avail));
-    } else length = (kind === "zigzag" ? 11 : 5) * u.k;
+      length = Math.min(maxLen, Math.max(3.2 * u.k, avail));
+    } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
     // off-panel tails run past the frame and are cut by it
     // on a spiky body the tail must outreach the spikes to read as the pointer
     if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.4, 6 * u.k);
     if (offSide && target) length = Math.hypot(target.x - R.x, target.y - R.y);
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
-    const bw = (t.width !== undefined ? toMm(t.width as string, u) : Math.min(7 * u.k, Math.max(2.6 * u.k, minSide * 0.3)) * (kind === "zigzag" ? 0.7 : 1)) * widthScale;
+    const bw = (t.width !== undefined ? toMm(t.width as string, u) : Math.min(3.4 * u.k, Math.max(1.8 * u.k, minSide * 0.16)) * (kind === "zigzag" ? 1.2 : 1)) * widthScale;
     const bend = typeof t.bend === "number" ? t.bend : 0.1;
     const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : 0.12;
     const perp = { x: -dir.y, y: dir.x };

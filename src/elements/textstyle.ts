@@ -34,7 +34,15 @@ export function resolveTextStyle(p: Obj, u: UnitContext, lang: string, isBalloon
   const ls = p.letterSpacing !== undefined ? toMm(p.letterSpacing as string, emCtx) / fontSize : 0;
   const align = (p.align as TextStyle["align"]) ?? (isBalloon && writing === "horizontal" ? "center" : "start");
   let maxChars = typeof p.maxChars === "number" ? p.maxChars : undefined;
-  if (maxChars === undefined && isBalloon) maxChars = writing === "vertical" ? 8 : 14;
+  if (maxChars === undefined && isBalloon) {
+    maxChars = writing === "vertical" ? 8 : 14;
+    // lines the author broke by hand are kept whole when they are only a little longer
+    if (typeof p.text === "string" && p.text.includes("\n")) {
+      const plain = p.text.replace(/<[^>]*>/g, "").replace(/《[^》]*》/g, "").replace(/[｜|]/g, "");
+      const longest = Math.max(...plain.split("\n").map((l) => Array.from(l.trim()).length));
+      maxChars = Math.min(Math.round(maxChars * 1.5), Math.max(maxChars, longest));
+    }
+  }
   const tcy =
     p.tcy === "none"
       ? null

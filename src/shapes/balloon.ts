@@ -85,7 +85,7 @@ function harmonic(h: Harmonics, th: number): number {
 function organicEllipse(a: number, b: number, p: ShapeParams, rng: Rng): (th: number) => number {
   const sq = p.squareness ?? 0.2;
   const n = 2 + 3 * sq;
-  const egg = p.egg ?? 0.06;
+  const egg = p.egg ?? 0.02;
   const h = harmonics(rng, p.irregularity);
   return (th: number) => seRadius(a, b, n, th) * harmonic(h, th) * (1 + egg * -Math.sin(th) * 0.5);
 }
@@ -351,6 +351,47 @@ const electronic: BodyGenerator = (w, h, p, seed) => {
   return { contour: { pts, closed: true, corners: pts.map((_, i) => ({ index: i, kind: "convex" as const })) }, inner, kind: "electronic", smooth: false, ruler: false };
 };
 
+/** a squared-off balloon (flat, blunt voices): straight sides, softly rounded corners */
+const hexagon: BodyGenerator = (w, h, p, seed) => {
+  const rng = new RngCls(seed);
+  const n = Math.max(5, Math.round(p.corners ?? 6));
+  const a = w / 2;
+  const b = h / 2;
+  // vertices on a superellipse; with 6 sides the flats run up the left and right
+  const ph = Math.PI / 2;
+  const V: Vec[] = [];
+  for (let i = 0; i < n; i++) {
+    const th = ph + (i / n) * TAU + rng.range(-0.04, 0.04) * p.irregularity * 4;
+    const r = seRadius(a, b, 2.4, th) * (1.06 + rng.range(-0.02, 0.02) * p.irregularity * 4);
+    V.push({ x: Math.cos(th) * r, y: Math.sin(th) * r });
+  }
+  const rad = Math.min(a, b) * 0.22;
+  const pts: Vec[] = [];
+  for (let i = 0; i < n; i++) {
+    const P0 = V[(i + n - 1) % n];
+    const P1 = V[i];
+    const P2 = V[(i + 1) % n];
+    const l0 = Math.hypot(P1.x - P0.x, P1.y - P0.y);
+    const l2 = Math.hypot(P2.x - P1.x, P2.y - P1.y);
+    const r0 = Math.min(rad, l0 * 0.35);
+    const r2 = Math.min(rad, l2 * 0.35);
+    const A = { x: P1.x + ((P0.x - P1.x) / l0) * r0, y: P1.y + ((P0.y - P1.y) / l0) * r0 };
+    const B = { x: P1.x + ((P2.x - P1.x) / l2) * r2, y: P1.y + ((P2.y - P1.y) / l2) * r2 };
+    for (let k = 0; k <= 6; k++) {
+      const t = k / 6;
+      pts.push({ x: (1 - t) * (1 - t) * A.x + 2 * t * (1 - t) * P1.x + t * t * B.x, y: (1 - t) * (1 - t) * A.y + 2 * t * (1 - t) * P1.y + t * t * B.y });
+    }
+    // the straight side to the next corner
+    const nl = Math.hypot(V[(i + 2) % n].x - P2.x, V[(i + 2) % n].y - P2.y);
+    const C = { x: P2.x + ((P1.x - P2.x) / l2) * Math.min(rad, l2 * 0.35), y: P2.y + ((P1.y - P2.y) / l2) * Math.min(rad, l2 * 0.35) };
+    const steps = Math.max(2, Math.ceil(Math.hypot(C.x - B.x, C.y - B.y) / 0.8));
+    for (let k = 1; k < steps; k++) pts.push({ x: B.x + ((C.x - B.x) * k) / steps, y: B.y + ((C.y - B.y) * k) / steps });
+    void nl;
+  }
+  const out = pts.map((q) => rot(q, p.tilt));
+  return { contour: { pts: out, closed: true, smooth: true }, inner: shrinkTo(out, 0.97), kind: "hexagon", smooth: true, ruler: false };
+};
+
 /** the outline shrunk toward its centroid: a text area that follows the shape */
 function shrinkTo(pts: Vec[], f: number): Vec[] {
   const cx = pts.reduce((a, q) => a + q.x, 0) / pts.length;
@@ -399,6 +440,7 @@ export const BODY_GENERATORS: Record<string, BodyGenerator> = {
   wavy,
   flash: ellipse,
   electronic,
+  hexagon,
   polygon,
   path: pathShape,
   none,

@@ -1170,11 +1170,11 @@ function breakFaults(tl: import("../text/layout.js").TextLayout, lang: string): 
 
 /** fraction of rect `r` covered by the ellipse inscribed in `e` (sampled) */
 function ellipseOverlap(r: Rect, e: Rect): number {
-  if (!rectIntersect(r, { x: e.x - e.w * 0.06, y: e.y - e.h * 0.06, w: e.w * 1.12, h: e.h * 1.12 })) return 0;
+  if (!rectIntersect(r, { x: e.x - e.w * 0.14, y: e.y - e.h * 0.14, w: e.w * 1.28, h: e.h * 1.28 })) return 0;
   const cx = e.x + e.w / 2;
   const cy = e.y + e.h / 2;
-  // a little breathing room around the face
-  e = { x: cx - e.w * 0.56, y: cy - e.h * 0.56, w: e.w * 1.12, h: e.h * 1.12 };
+  // breathing room around the face, enough for a visible tail between balloon and face
+  e = { x: cx - e.w * 0.64, y: cy - e.h * 0.64, w: e.w * 1.28, h: e.h * 1.28 };
   const N = 8;
   let hit = 0;
   for (let j = 0; j < N; j++)

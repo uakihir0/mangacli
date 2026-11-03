@@ -9,7 +9,7 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
     background: "paper",
   },
   balloon: {
-    shape: { kind: "ellipse", irregularity: 0.35, tilt: ["-3deg", "3deg"] },
+    shape: { kind: "ellipse", irregularity: 0.12, tilt: ["-1.5deg", "1.5deg"] },
     stroke: { width: "0.25bmm", color: "black", pen: { preset: "g-pen" }, style: "solid", dash: ["1.6bmm", "1.0bmm"], dot: { size: "0.45bmm", gap: "0.9bmm" }, double: { gap: "0.6bmm", inner: "0.2bmm" } },
     fill: "paper",
     tail: { kind: "wedge", gap: "2bmm", bend: 0.15, sideCurve: 0.25, root: "auto", count: 3, shrink: 0.62, segments: 3 },
@@ -17,7 +17,7 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
     maxSize: ["70%", "70%"],
     aspect: "auto",
     aspectRange: [0.55, 1.8],
-    padding: ["0.45em", "0.9em"],
+    padding: ["0.6em", "0.8em"],
     minFontScale: 0.75,
     font: "dialogue",
     fontSize: "13bQ",
@@ -99,6 +99,8 @@ export const BUILTIN_STYLES: Record<string, Obj> = {
   shock: { shape: { kind: "flash" }, stroke: { style: "none" }, tail: { kind: "none" }, font: "thought" },
   electronic: { shape: { kind: "electronic" }, stroke: { width: "0.25bmm" }, tail: { kind: "zigzag" }, font: "dialogue" },
   offscreen: { shape: { kind: "ellipse" }, stroke: { width: "0.25bmm" }, tail: { kind: "wedge" }, font: "dialogue" },
+  // a blunt, flat or gruff voice: squared-off balloon with straight sides
+  gruff: { shape: { kind: "hexagon" }, stroke: { width: "0.25bmm" }, tail: { kind: "wedge" }, font: "dialogue" },
 };
 
 export const PAGE_PRESETS: Record<string, { w: number; h: number; unit: "mm" | "px" }> = {
