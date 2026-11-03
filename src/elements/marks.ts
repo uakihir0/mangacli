@@ -251,6 +251,15 @@ export function renderMark(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
       for (let i = 0; i < Number(p.count ?? 3); i++) m.shape(T(circle(0.07 * s), { x: c.x + (i - 1) * s * 0.3, y: c.y }), { type: "solid", color }, true);
       break;
     case "note": {
+      if (p.variant === "beamed") {
+        // two eighth notes joined by a beam (♫)
+        for (const dx of [-0.28, 0.22]) {
+          m.shape(T(circle(0.13 * s, 20, 1.35), { x: c.x + dx * s - 0.08 * s, y: c.y + 0.32 * s }, -0.4), { type: "solid", color }, true);
+          m.line([{ x: c.x + dx * s + 0.06 * s, y: c.y + 0.3 * s }, { x: c.x + dx * s + 0.06 * s, y: c.y - 0.38 * s + (dx > 0 ? -0.06 * s : 0) }], { w: W(1.1), tin: false, tout: false });
+        }
+        m.shape([{ x: c.x - 0.22 * s, y: c.y - 0.42 * s }, { x: c.x + 0.28 * s, y: c.y - 0.5 * s }, { x: c.x + 0.28 * s, y: c.y - 0.4 * s }, { x: c.x - 0.22 * s, y: c.y - 0.32 * s }], { type: "solid", color }, false);
+        break;
+      }
       m.shape(T(circle(0.16 * s, 20, 1.35), { x: c.x - 0.1 * s, y: c.y + 0.3 * s }, -0.4), { type: "solid", color }, true);
       m.line([{ x: c.x + 0.1 * s, y: c.y + 0.28 * s }, { x: c.x + 0.1 * s, y: c.y - 0.45 * s }], { w: W(1.2), tin: false, tout: false });
       m.line([{ x: c.x + 0.1 * s, y: c.y - 0.45 * s }, { x: c.x + 0.32 * s, y: c.y - 0.2 * s }, { x: c.x + 0.28 * s, y: c.y - 0.02 * s }], { w: W(1.4), tin: false });
