@@ -13,6 +13,7 @@ import { AssetRegistry } from "./render/assets.js";
 import { type PageLayoutInfo, composePage } from "./render/compose.js";
 import type { DisplayList } from "./render/ir.js";
 import { RasterBackend } from "./render/raster.js";
+import { renderSvg } from "./render/svg.js";
 import { Document } from "./schema/schema.js";
 import { computePageGeom } from "./layout/page.js";
 import { pageSize } from "./layout/page.js";
@@ -344,12 +345,13 @@ export async function render(input: MangaInput | Project, options: RenderOptions
       const runs: { name?: string; list?: string[] }[] = seps ? seps : [{}];
       for (const run of runs) {
         const backend = new RasterBackend({ dpi, crop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, toneCurve: prof.toneCurve ?? "linear", transparent: options.transparent ?? prof.transparent ?? !!run.list, separations: run.list, assets });
-        const full = await backend.render(list);
+        const needRaster = formats.some((f) => f !== "svg");
+        const full = needRaster ? await backend.render(list) : { data: new Uint8ClampedArray(0), width: 0, height: 0, dpi };
         if (options.debug) drawDebug(full, list, info, dpi, crop, options.debug);
         // spreads: one joined image, or two pages each with bleed on all sides (spec 10.9)
         const spreadMode = options.spread ?? (docOutput.spread as "joined" | "split" | undefined) ?? prof.spread ?? "joined";
         const parts: { raster: { data: Uint8ClampedArray; width: number; height: number }; side: string; nombre: number | null }[] = [];
-        if (geom.type === "spread" && spreadMode === "split") {
+        if (geom.type === "spread" && spreadMode === "split" && needRaster) {
           const trimPx = Math.round((geom.trimW * dpi) / 25.4 + 1e-6);
           const edge = Math.round((full.width - trimPx) / 2);
           const half = Math.round(trimPx / 2);
@@ -382,8 +384,9 @@ export async function render(input: MangaInput | Project, options: RenderOptions
             pw.writer.addPage({ rgba: raster.data, width: raster.width, height: raster.height, dpi, colorMode: (options.debug ? "color" : colorMode) as "color", trim, bleed: { x: trim.x - bleedPx, y: trim.y - bleedPx, w: trim.w + 2 * bleedPx, h: trim.h + 2 * bleedPx } });
             continue;
           }
+          if (fmt === "svg" && part !== parts[0]) continue;
           const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, transparent: options.transparent ?? !!run.list, metadata: { Software: "mangacli", Title: String((p.doc.meta as Obj | undefined)?.title ?? ""), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed) } };
-          const data = await encode(raster.data, raster.width, raster.height, enc);
+          const data = fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: Math.min(dpi, 300) })) : await encode(raster.data, raster.width, raster.height, enc);
           const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: raster.width, height: raster.height, dpi, separation: run.name, data };
           if (outDir) {
             const splitSuffix = parts.length > 1 && !/\{(page|side)/.test(nameTpl) ? `-${part.side}` : "";

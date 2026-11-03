@@ -488,7 +488,7 @@ const renderOpts = (c: ReturnType<typeof cli.command>) =>
   common(c)
     .option("-o, --out <dir>", "Output directory")
     .option("-p, --profile <name>", "Output profile (print-mono, print-gray, print-color, web, sns, preview, draft)")
-    .option("-f, --format <fmt>", "png, jpeg, webp, avif, tiff (comma separated)")
+    .option("-f, --format <fmt>", "png, jpeg, webp, avif, tiff, pdf, svg (comma separated)")
     .option("--color [mode]", "color | gray | mono")
     .option("--dpi <n>", "Resolution")
     .option("--scale <n>", "Scale factor on the design resolution")
