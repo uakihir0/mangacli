@@ -281,6 +281,28 @@ export class FontRegistry {
     );
   }
 
+  private weighted = new Map<string, LoadedFont>();
+
+  /** the same face at another weight of its `wght` axis (variable fonts; others are returned as is) */
+  atWeight(lf: LoadedFont, weight: number): LoadedFont {
+    const key = `${lf.key}#wght=${weight}`;
+    const hit = this.weighted.get(key);
+    if (hit) return hit;
+    let out = lf;
+    try {
+      const axes = lf.face.getAxisInfos();
+      if ("wght" in axes) {
+        const font = new hb.Font(lf.face);
+        font.setVariations([new hb.Variation("wght", weight)]);
+        out = { ...lf, key, font };
+      }
+    } catch {
+      out = lf;
+    }
+    this.weighted.set(key, out);
+    return out;
+  }
+
   /** Pick a loaded font for codepoint (sync; call prepare first). */
   pick(name: string, cp: number): FontPick | null {
     const ch = this.chain(name);

@@ -33,6 +33,8 @@ export interface TextStyle {
   seed: number;
   /** OpenType features ({ palt: true }) */
   features?: Record<string, boolean | number>;
+  /** variable-font weight (wght axis) */
+  weight?: number;
 }
 
 export interface LetteringSpec {
@@ -358,7 +360,8 @@ function buildBoxes(parsed: ParsedText, style: TextStyle, reg: FontRegistry, mis
       let s1 = s0 + 1;
       while (s1 < chars.length && picks[s1]?.font.key === picks[s0]?.font.key) s1++;
       const seg = chars.slice(s0, s1);
-      const pk = picks[s0];
+      const pk0 = picks[s0];
+      const pk = pk0 && style.weight ? { ...pk0, font: reg.atWeight(pk0.font, style.weight) } : pk0;
       const segUnits = run.slice(s0, s1);
       if (!pk) {
         for (const c of seg) if (c.trim()) missing.push(c);

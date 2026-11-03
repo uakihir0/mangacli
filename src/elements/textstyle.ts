@@ -73,6 +73,7 @@ export function resolveTextStyle(p: Obj, u: UnitContext, lang: string, isBalloon
     tcy,
     latin: (p.latin as TextStyle["latin"]) ?? "auto",
     ruby: { size: (ruby.size as number) ?? 0.5, font: ruby.font as string | undefined, position: (ruby.position as TextStyle["ruby"]["position"]) ?? "auto", align: (ruby.align as "center" | "start") ?? "center", overhang: typeof ruby.overhang === "number" ? ruby.overhang : 1 },
+    weight: typeof p.weight === "number" ? p.weight : undefined,
     features: isObj(p.features) ? (p.features as Record<string, boolean | number>) : undefined,
     emphasis: { mark: (emph.mark as string) ?? "sesame", size: (emph.size as number) ?? 0.5, position: emph.position as TextStyle["emphasis"]["position"], color: emph.color as string | undefined },
     lettering,
