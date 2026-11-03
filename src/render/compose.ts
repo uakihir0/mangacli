@@ -187,6 +187,26 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     const sils = await silhouettes(refs, ctx);
     placeBalloons(plans.map((p) => p.plan), ctx, refs, processed, sils);
     ctx = { ...ctx, silhouettes: sils };
+    // consecutive auto-placed lines of one speaker that end up side by side are joined (one tail)
+    const linkedIds = new Set<string>();
+    for (const x of plans) if (x.plan.props.connect) {
+      linkedIds.add(x.plan.el.id);
+      for (const c of (Array.isArray(x.plan.props.connect) ? x.plan.props.connect : [x.plan.props.connect]) as Obj[]) linkedIds.add(String(c.to));
+    }
+    for (let i = 1; i < plans.length; i++) {
+      const a = plans[i - 1].plan;
+      const b = plans[i].plan;
+      if (a.explicit || b.explicit || !a.center || !b.center || linkedIds.has(a.el.id) || linkedIds.has(b.el.id)) continue;
+      if (!a.props.who || a.props.who !== b.props.who || (a.props.as ?? "say") !== (b.props.as ?? "say") || b.props.autoConnect === false) continue;
+      const ra = { x: a.center.x + a.outer.x, y: a.center.y + a.outer.y, w: a.outer.w, h: a.outer.h };
+      const rb = { x: b.center.x + b.outer.x, y: b.center.y + b.outer.y, w: b.outer.w, h: b.outer.h };
+      const gx = Math.max(0, Math.max(ra.x, rb.x) - Math.min(ra.x + ra.w, rb.x + rb.w));
+      const gy = Math.max(0, Math.max(ra.y, rb.y) - Math.min(ra.y + ra.h, rb.y + rb.h));
+      if (Math.hypot(gx, gy) > 4 * u.k) continue;
+      b.props = { ...b.props, connect: { to: a.el.id, style: "neck" } };
+      linkedIds.add(a.el.id);
+      linkedIds.add(b.el.id);
+    }
     const consumed = new Set<string>();
     const byId = new Map(plans.map((x) => [x.plan.el.id, x]));
     for (const { plan, idx } of plans) {

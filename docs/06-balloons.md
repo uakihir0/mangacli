@@ -33,6 +33,7 @@
 | `shape` | Shape | `{ kind: ellipse }` | 本体の形（[6.3](#63-形状shape)） |
 | `stroke` | Stroke | `{ width: 0.25mm, pen: g-pen }` | 本体としっぽの線（[6.4](#64-線stroke)） |
 | `fill` | Paint | `paper` | 本体の塗り（[6.5](#65-塗りfill)） |
+| `autoConnect` | 真偽値 | `true` | 同じ話者の続けての自動配置の吹き出しが 4 bmm 以内に並んだ場合、`connect: { to: 直前の吹き出し, style: neck }` として 1 つのしっぽにまとめる |
 | `halo` | Length \| `none` | `0.3bmm` | 線の外側に付ける塗り色（不透明な単色のときのみ）のふち。黒い絵やベタに重なっても輪郭が見えるようにする |
 | `tail` | Tail \| Point \| `none` | 下記 | しっぽ（[6.6](#66-しっぽtail)） |
 | `tails` | Tail[] | - | 複数のしっぽ（P1）。`tail` と同時に指定できない |
