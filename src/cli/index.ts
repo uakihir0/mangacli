@@ -216,7 +216,7 @@ async function cmdRender(file: string, o: Obj): Promise<number> {
   const t0 = performance.now();
   opts.onProgress = (e) => {
     emitJson({ type: "progress", ...e });
-    log("info", `  ${paint("2", `${e.done}/${e.total}`)} ${e.pageId ?? ""}`);
+    if (e.phase === "render") log("info", `  ${paint("2", `${e.done}/${e.total}`)} ${e.pageId ?? ""}`);
   };
   const conc = Math.max(1, Math.round(Number(o.concurrency ?? process.env.MANGACLI_CONCURRENCY ?? opts.config?.concurrency ?? 1)) || 1);
   const formats = ([] as unknown[]).concat(opts.format ?? []);

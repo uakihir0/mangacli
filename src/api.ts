@@ -413,6 +413,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
     return fail();
   }
   timings.prepare = performance.now() - t0;
+  options.onProgress?.({ phase: "load", done: 1, total: 1 });
   // physical numbering
   const book = (p.doc.book ?? {}) as Obj;
   const pn = (book.pageNumbers ?? {}) as Obj;
@@ -511,6 +512,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         if (draft && !options.dpi) d = Math.min(d, 150);
         return d;
       };
+      if (!options.layoutOnly) options.onProgress?.({ phase: "layout", pageId: page.id, done, total });
       const { list: list0, info } = await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor, characters: resolved.characters });
       info.number = pl.nombre;
       let list = plugins ? (plugins.hook("beforeRender", list0) as DisplayList) : list0;
