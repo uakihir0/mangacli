@@ -139,7 +139,7 @@ function isLatinChar(ch: string): boolean {
 }
 
 export function layoutText(text: string, style: TextStyle, reg: FontRegistry, boxLimit?: number): TextLayout {
-  const parsed: ParsedText = parseMarkup(text, { markup: style.markup, normalize: style.normalize, vertical: style.writing === "vertical" });
+  const parsed: ParsedText = parseMarkup(text, { markup: style.markup, normalize: /^(ja|zh|ko)/.test(style.lang) ? style.normalize : { ellipsis: false, dash: false, waveDash: false, ...style.normalize }, vertical: style.writing === "vertical" });
   if (style.writing === "vertical") assignTcy(parsed.units, style.tcy, style.latin);
   const vertical = style.writing === "vertical";
   const em = style.fontSize;
@@ -194,9 +194,10 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
       let a = b.adv;
       if (style.punctCompress && i + 1 < ln.boxes.length) {
         const nx = ln.boxes[i + 1];
-        if (isClosingPunct(b.lastChar) && (isClosingPunct(nx.firstChar) || isOpeningPunct(nx.firstChar)) && b.orient !== "sideways") a -= b.size * 0.5;
+        // only full-width punctuation has the half-em of space that compression removes
+        if (isClosingPunct(b.lastChar) && (isClosingPunct(nx.firstChar) || isOpeningPunct(nx.firstChar)) && b.orient !== "sideways" && b.adv > b.size * 0.8) a -= b.size * 0.5;
       }
-      if (style.punctCompress && i > 0 && isOpeningPunct(b.firstChar) && isClosingPunct(ln.boxes[i - 1].lastChar) && b.orient !== "sideways") a -= b.size * 0.5;
+      if (style.punctCompress && i > 0 && isOpeningPunct(b.firstChar) && isClosingPunct(ln.boxes[i - 1].lastChar) && b.orient !== "sideways" && b.adv > b.size * 0.8) a -= b.size * 0.5;
       return a + (i + 1 < ln.boxes.length ? ls : 0);
     });
     const len = advs.reduce((x, y) => x + y, 0);
@@ -604,7 +605,9 @@ function canBreakBetween(a: Box, b: Box, wrap: string, style: TextStyle): boolea
   if (a.ruby !== undefined && a.ruby === b.ruby) return false;
   if (a.nobr !== undefined && a.nobr === b.nobr) return false;
   // latin word continuity (horizontal): letters adjacent without space
-  if (style.writing === "horizontal" && /[A-Za-z0-9'’]$/.test(a.lastChar) && /^[A-Za-z0-9'’.,!?]/.test(b.firstChar)) return false;
+  if (style.writing === "horizontal" && /[A-Za-z0-9'’]$/.test(a.lastChar) && /^[A-Za-z0-9'’.,!?…]/.test(b.firstChar)) return false;
+  // trailing punctuation stays with its word (Unbelievable...)
+  if (style.writing === "horizontal" && /[.,!?…'’"”)]$/.test(a.lastChar) && /^[.,!?…'’"”)]/.test(b.firstChar)) return false;
   if (/[0-9]$/.test(a.lastChar) && /^[0-9,.]/.test(b.firstChar)) return false;
   if (b.wbrBefore) return true;
   if ((wrap === "phrase" || wrap === "balanced") && b.startPhrase === false) return false;
@@ -663,6 +666,12 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
         if (k < 0 && canBreakBetween(cur[cur.length - 1], b, "char", style)) k = cur.length;
       }
       if (k < 0 && canBreakBetween(cur[cur.length - 1], b, wrap, style)) k = cur.length;
+      // a latin word longer than the line overflows rather than splitting mid-word (the balloon grows)
+      if (k < 0 && style.writing === "horizontal" && /[A-Za-z0-9'’.,!?…]$/.test(cur[cur.length - 1].lastChar) && /^[A-Za-z0-9'’.,!?…]/.test(b.firstChar)) {
+        cur.push(b);
+        len += adv;
+        continue;
+      }
       if (k < 0) k = cur.length;
       // oidashi would leave a one-character line: fall back to oikomi (exceed by one character)
       if (prohibited && k <= 1) {

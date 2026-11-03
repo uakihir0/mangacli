@@ -180,7 +180,10 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       const ic = innerCenterOf(body);
       fits = withMargin.every((q) => pointInPolygon({ x: q.x + ic.x, y: q.y + ic.y }, body.inner));
     } else {
-      const ar = (p.aspectRange as [number, number]) ?? [0.55, 1.8];
+      let ar = (p.aspectRange as [number, number]) ?? [0.55, 1.8];
+      // a box follows its text block; horizontal lines make wider balloons than vertical columns
+      if (kind === "rect" || kind === "none") ar = [0.05, 20];
+      else if (style.writing === "horizontal") ar = [ar[0], Math.max(ar[1], 2.6)];
       const fixedAspect = typeof p.aspect === "number" ? p.aspect : undefined;
       base = fitBody(kind, params, shapeSeed, withMargin, fixedAspect, ar);
       body = genBody(kind, base.w, base.h, params, shapeSeed);

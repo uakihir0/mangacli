@@ -249,7 +249,7 @@ pages:
             text: いや、ないない
             as: think
             who: taro
-            at: [67%, 41%]
+            at: [73%, 46%]
             connect: { to: b-think, style: neck }
           - text: ※太郎の心の声
             font: hand
