@@ -539,8 +539,9 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
     if (b.chars === "" && b.breakBefore === "forced") continue;
     const adv = b.adv + (cur.length ? ls : 0);
     if (cur.length && len + adv > Lmax + 1e-6) {
-      // hanging / oikomi for a single prohibited punctuation
-      if (noStart(b.firstChar, style.kinsoku) && b.chars.length === 1 && b.adv <= b.size * 1.01) {
+      const prohibited = noStart(b.firstChar, style.kinsoku) && b.chars.length === 1 && b.adv <= b.size * 1.01;
+      // hanging: 、。，． hang outside the line end
+      if (prohibited && style.hanging && /^[、。，．,.]$/.test(b.firstChar)) {
         cur.push(b);
         len += adv;
         continue;
@@ -564,6 +565,12 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
       }
       if (k < 0 && canBreakBetween(cur[cur.length - 1], b, wrap, style)) k = cur.length;
       if (k < 0) k = cur.length;
+      // oidashi would leave a one-character line: fall back to oikomi (exceed by one character)
+      if (prohibited && k <= 1) {
+        cur.push(b);
+        len += adv;
+        continue;
+      }
       const carry = cur.slice(k);
       cur = cur.slice(0, k);
       push(true);
