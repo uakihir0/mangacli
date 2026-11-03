@@ -23,7 +23,7 @@ export interface TextStyle {
   punctCompress: boolean;
   tcy: { digits: number; marks: boolean; latin: number } | null;
   latin: "auto" | "rotate" | "upright";
-  ruby: { size: number; font?: string; position: "auto" | "right" | "left" | "over" | "under" };
+  ruby: { size: number; font?: string; position: "auto" | "right" | "left" | "over" | "under"; align?: "center" | "start"; overhang?: number };
   emphasis: { mark: string; size: number };
   lettering: LetteringSpec | null;
   markup: boolean;
@@ -133,6 +133,7 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
   const missing: string[] = [];
   tcyWarn = [];
   const boxes = buildBoxes(parsed, style, reg, missing);
+  spreadRubyBases(parsed, boxes, style, reg, style.writing === "vertical");
   for (const t of tcyWarn) parsed.infos.push({ code: "TEXT_TCY_TOO_LONG", message: `tate-chu-yoko "${t}" does not fit in 1 em`, severity: "warning" });
 
   // phrase boundaries
@@ -207,7 +208,8 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
     const rubyExtra = hasRuby ? em * style.ruby.size : 0;
     const blockW = totalW + rubyExtra;
     for (const c of cols) {
-      const cx = blockW - c.center - rubyExtra; // right-to-left with ruby space at right
+      // right-to-left; the ruby space sits on the side the ruby is set on
+      const cx = blockW - c.center - (style.ruby.position === "left" ? 0 : rubyExtra);
       const offset = alignOffset(style.align, blockLen, c.d.len);
       let y = offset;
       const just = style.align === "justify" && c.d.ln.boxes.length > 1 && c !== cols[cols.length - 1] ? (blockLen - c.d.len) / (c.d.ln.boxes.length - 1) : 0;
@@ -581,6 +583,40 @@ function trimSpaces(bs: Box[]): Box[] {
   return out;
 }
 
+/** ruby longer than its base (plus the allowed overhang) spreads the base characters evenly (spec 7.8) */
+function spreadRubyBases(parsed: ParsedText, boxes: Box[], style: TextStyle, reg: FontRegistry, vertical: boolean) {
+  if (!parsed.rubies.length) return;
+  const rsize = style.fontSize * style.ruby.size;
+  const font = style.ruby.font ?? style.font;
+  const hang = (style.ruby.overhang ?? 1) * rsize;
+  const rubyLen = (text: string) => {
+    if (vertical) return Array.from(text).length * rsize;
+    const c0 = text.codePointAt(0);
+    const pk = c0 !== undefined ? reg.pick(font, c0) : null;
+    if (!pk) return Array.from(text).length * rsize;
+    return shape(pk.font, text, "ltr", style.lang).reduce((a, g) => a + g.xAdvance * (rsize / pk.font.upem), 0);
+  };
+  for (const r of parsed.rubies) {
+    const bs = boxes.filter((b) => b.ruby === r.id);
+    if (!bs.length) continue;
+    const groups = r.mono ? bs.map((b, k) => ({ text: r.mono![k] ?? "", boxes: [b] })) : [{ text: r.text, boxes: bs }];
+    for (const g of groups) {
+      const base = g.boxes.reduce((a, b) => a + b.adv, 0);
+      const need = rubyLen(g.text) - base - 2 * hang;
+      if (need <= 0.01) continue;
+      const per = need / g.boxes.length;
+      for (const b of g.boxes) {
+        // grow the advance and keep the glyph centred in it
+        b.adv += per;
+        for (const gl of b.glyphs) {
+          if (vertical) gl.m = [gl.m[0], gl.m[1], gl.m[2], gl.m[3], gl.m[4], gl.m[5] + per / 2];
+          else gl.m = [gl.m[0], gl.m[1], gl.m[2], gl.m[3], gl.m[4] + per / 2, gl.m[5]];
+        }
+      }
+    }
+  }
+}
+
 function placeRuby(parsed: ParsedText, boxes: Box[], glyphs: GlyphOut[], style: TextStyle, reg: FontRegistry, vertical: boolean) {
   if (!parsed.rubies.length) return;
   const rsize = style.fontSize * style.ruby.size;
@@ -595,12 +631,15 @@ function placeRuby(parsed: ParsedText, boxes: Box[], glyphs: GlyphOut[], style: 
       const lp = last._pos!;
       const chars = Array.from(sg.text);
       if (!chars.length) continue;
+      const startAlign = style.ruby.align === "start";
       if (vertical) {
         const start = first[1];
         const end = lp[1] + last.adv;
         const total = chars.length * rsize;
-        let y = (start + end) / 2 - total / 2;
-        const x = first[0] + sg.boxes[0].size / 2 + rsize / 2;
+        let y = startAlign ? start : (start + end) / 2 - total / 2;
+        // right of the column by default; `left` puts it on the other side
+        const left = style.ruby.position === "left";
+        const x = left ? first[0] - sg.boxes[0].size / 2 - rsize / 2 : first[0] + sg.boxes[0].size / 2 + rsize / 2;
         for (const c of chars) {
           const pk = reg.pick(font, c.codePointAt(0)!);
           if (pk) {
@@ -623,8 +662,9 @@ function placeRuby(parsed: ParsedText, boxes: Box[], glyphs: GlyphOut[], style: 
         const g = shape(pk0.font, sg.text, "ltr", style.lang);
         const s = rsize / pk0.font.upem;
         const W = g.reduce((a, gl) => a + gl.xAdvance * s, 0);
-        let x = (start + end) / 2 - W / 2;
-        const y = first[1] - sg.boxes[0].size * 0.95;
+        let x = startAlign ? start : (start + end) / 2 - W / 2;
+        // over the line by default; `under` sets it below the baseline
+        const y = style.ruby.position === "under" ? first[1] + sg.boxes[0].size * 0.12 + rsize * 0.88 : first[1] - sg.boxes[0].size * 0.95;
         for (const gl of g) {
           const m: Matrix = [s, 0, 0, -s, x + gl.xOffset * s, y - gl.yOffset * s];
           glyphs.push({ path: pathFromJson(glyphJson(pk0.font, gl.gid), m), unit: sg.boxes[0].units[0], cx: x, cy: y });
