@@ -1,7 +1,7 @@
 // Balloon body shape generators (spec 6.3, 9.3.1). All shapes centered at origin.
 import type { Rng } from "../core/random.js";
 import { Rng as RngCls } from "../core/random.js";
-import { pointInPolygon, polylineLength } from "../geom/path.js";
+import { flattenPath, parseSvgPath, pointInPolygon, polygonArea, polylineLength } from "../geom/path.js";
 import { type Vec, rot } from "../geom/vec.js";
 import type { Corner, ShapeContour } from "../ink/shape.js";
 
@@ -351,13 +351,37 @@ const electronic: BodyGenerator = (w, h, p, seed) => {
   return { contour: { pts, closed: true, corners: pts.map((_, i) => ({ index: i, kind: "convex" as const })) }, inner, kind: "electronic", smooth: false, ruler: false };
 };
 
+/** the outline shrunk toward its centroid: a text area that follows the shape */
+function shrinkTo(pts: Vec[], f: number): Vec[] {
+  const cx = pts.reduce((a, q) => a + q.x, 0) / pts.length;
+  const cy = pts.reduce((a, q) => a + q.y, 0) / pts.length;
+  return pts.map((q) => ({ x: cx + (q.x - cx) * f, y: cy + (q.y - cy) * f }));
+}
+
+function textAreaRect(p: ShapeParams, w: number, h: number): Vec[] | null {
+  const ta = (p.raw?.textArea as number[] | undefined) ?? undefined;
+  if (!Array.isArray(ta) || ta.length !== 4) return null;
+  const [x, y, tw, th] = ta.map(Number);
+  return [{ x: (x - 0.5) * w, y: (y - 0.5) * h }, { x: (x + tw - 0.5) * w, y: (y - 0.5) * h }, { x: (x + tw - 0.5) * w, y: (y + th - 0.5) * h }, { x: (x - 0.5) * w, y: (y + th - 0.5) * h }];
+}
+
 const polygon: BodyGenerator = (w, h, p) => {
   const ptsIn = p.points ?? [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]];
   const pts = ptsIn.map(([u, v]) => rot({ x: (u - 0.5) * w, y: (v - 0.5) * h }, p.tilt));
-  const inner = [
-    { x: -w * 0.35, y: -h * 0.35 }, { x: w * 0.35, y: -h * 0.35 }, { x: w * 0.35, y: h * 0.35 }, { x: -w * 0.35, y: h * 0.35 },
-  ];
+  const inner = textAreaRect(p, w, h) ?? shrinkTo(pts, 0.72);
   return { contour: { pts, closed: true }, inner, kind: "polygon", smooth: false, ruler: false };
+};
+
+/** any outline as SVG path data in a unit box (0..1) */
+const pathShape: BodyGenerator = (w, h, p) => {
+  const d = (p.raw?.d as string | undefined) ?? "M0.5 0 L1 0.5 L0.5 1 L0 0.5 Z";
+  const contours = flattenPath(parseSvgPath(d), 0.004).filter((c) => c.pts.length > 2);
+  const main = contours.sort((a, b) => Math.abs(polygonArea(b.pts)) - Math.abs(polygonArea(a.pts)))[0]?.pts ?? [];
+  let pts = main.map((q) => rot({ x: (q.x - 0.5) * w, y: (q.y - 0.5) * h }, p.tilt));
+  if (pts.length > 1 && Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < 1e-6) pts = pts.slice(0, -1);
+  if (polygonArea(pts) < 0) pts.reverse();
+  const inner = textAreaRect(p, w, h) ?? shrinkTo(pts, 0.7);
+  return { contour: { pts, closed: true, smooth: true }, inner, kind: "path", smooth: true, ruler: false };
 };
 
 const none: BodyGenerator = (w, h) => {
@@ -376,6 +400,7 @@ export const BODY_GENERATORS: Record<string, BodyGenerator> = {
   flash: ellipse,
   electronic,
   polygon,
+  path: pathShape,
   none,
 };
 
