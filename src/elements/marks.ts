@@ -101,6 +101,13 @@ export function renderMark(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
       at = { x: tbox.x + tbox.w / 2, y: tbox.y };
     }
   }
+  // `at: taro1.face` also tells face-aware marks (blush) the face box
+  if (!tbox && typeof p.at === "string" && p.at.includes(".")) {
+    const [rid, rname] = p.at.split(".");
+    const t = ctx.refs.target(rid, ctx.panel?.panel.id);
+    const rg = t?.regions[rname];
+    if (rg) tbox = rg.bbox;
+  }
   const pl = place(p, s, s, pc, at ?? undefined);
   const c = { x: pl.bbox.x + pl.bbox.w / 2, y: pl.bbox.y + pl.bbox.h / 2 };
   const rotA = p.rotate !== undefined ? parseAngle(p.rotate as string) : 0;
@@ -164,12 +171,16 @@ export function renderMark(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
     case "blush": {
       const n = Number(p.lines ?? 5);
       const a = parseAngle((p.angle as string) ?? "60deg");
-      for (let i = 0; i < n; i++) {
-        const x = (i - (n - 1) / 2) * s * 0.22;
-        const l = s * rng.range(0.35, 0.5);
-        const d = { x: Math.cos(a), y: Math.sin(a) };
-        m.line([{ x: c.x + x - (d.x * l) / 2, y: c.y - (d.y * l) / 2 }, { x: c.x + x + (d.x * l) / 2, y: c.y + (d.y * l) / 2 }], { w: W(0.8) });
-      }
+      // on a face: one patch on each cheek, below and outside the eyes
+      const centres = tbox ? [{ x: tbox.x + tbox.w * 0.24, y: tbox.y + tbox.h * 0.7 }, { x: tbox.x + tbox.w * 0.76, y: tbox.y + tbox.h * 0.7 }] : [c];
+      const sc = tbox ? Math.min(s, tbox.w * 0.28) : s;
+      for (const cc of centres)
+        for (let i = 0; i < n; i++) {
+          const x = (i - (n - 1) / 2) * sc * 0.2;
+          const l = sc * rng.range(0.32, 0.46);
+          const d = { x: Math.cos(a), y: Math.sin(a) };
+          m.line([{ x: cc.x + x - (d.x * l) / 2, y: cc.y - (d.y * l) / 2 }, { x: cc.x + x + (d.x * l) / 2, y: cc.y + (d.y * l) / 2 }], { w: W(0.8) });
+        }
       break;
     }
     case "surprise": {
