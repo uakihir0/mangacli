@@ -151,12 +151,18 @@ function normDialogue(lines: unknown, path: Path, bag: DiagnosticBag, characters
     if (typeof ln === "string") return { text: ln };
     if (!isObj(ln)) return ln;
     const keys = Object.keys(ln);
+    let out: Obj = { ...ln };
     if (keys.length === 1 && !["text", "who", "as"].includes(keys[0])) {
       const who = keys[0];
       if (!characters.has(who)) bag.error("REF_NOT_FOUND", `unknown character "${who}" in dialogue`, { path: [...path, i] });
       return { who, text: ln[who] };
     }
-    const out: Obj = { ...ln };
+    // `<character>: text` combined with other balloon properties ({ taro: えっ, as: shout })
+    const charKeys = keys.filter((k) => characters.has(k));
+    if (charKeys.length === 1 && !("who" in ln) && !("text" in ln)) {
+      const who = charKeys[0];
+      out = { who, text: ln[who], ...Object.fromEntries(Object.entries(ln).filter(([k]) => k !== who)) };
+    }
     if ("stroke" in out) out.stroke = normStroke(out.stroke, [...path, i, "stroke"], bag);
     if (typeof out.shape === "string") out.shape = { kind: out.shape };
     if ("tail" in out) out.tail = normTail(out.tail);

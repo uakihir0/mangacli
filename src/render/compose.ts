@@ -650,7 +650,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   const geom = ctx.geom;
   const rtl = geom.rtl;
   const panelBox = ctx.panel ? ctx.panel.box : geom.baseFrame;
-  const obstacles: { r: Rect; w: number }[] = [];
+  const obstacles: { r: Rect; w: number; ellipse?: boolean }[] = [];
   for (const it of processed.values()) {
     const el = (it as { el?: RElement }).el;
     if (el && (el.type === "text" || el.type === "sfx") && rectIntersect(it.bbox, panelBox)) obstacles.push({ r: it.bbox, w: 50 });
@@ -659,7 +659,8 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   const hard: Rect[] = [];
   for (const t of refs.all()) {
     if (t.type !== "image" || (pid && t.panelId !== pid)) continue;
-    for (const [k, rg] of Object.entries(t.regions)) if (k === "face" || k === "avoid") obstacles.push({ r: rg.bbox, w: 60 });
+    // faces are roughly elliptical: the corners of the face box are free space
+    for (const [k, rg] of Object.entries(t.regions)) if (k === "face" || k === "avoid") obstacles.push({ r: rg.bbox, w: 60, ellipse: k === "face" });
     if (t.anchors.mouth) hard.push({ x: t.anchors.mouth.x - 2 * u.k, y: t.anchors.mouth.y - 2 * u.k, w: 4 * u.k, h: 4 * u.k });
   }
   const placedRects: Rect[] = [];
@@ -680,10 +681,11 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   // text must stay inside the safe area even in bled panels
   if (u.units !== "px") area = rectIntersect(area, geom.safe) ?? area;
   let prevS: number | null = null;
-  const sOf = (c: Vec) => {
+  // reading position of a balloon from its top edge: mostly top-to-bottom, then right-to-left (rtl)
+  const sOf = (c: Vec, h: number) => {
     const xn = (c.x - area.x) / Math.max(1, area.w);
-    const yn = (c.y - area.y) / Math.max(1, area.h);
-    return 0.55 * yn + (rtl ? -0.45 : 0.45) * xn;
+    const yn = (c.y - h / 2 - area.y) / Math.max(1, area.h);
+    return 0.8 * yn + (rtl ? -0.2 : 0.2) * xn;
   };
   // flow cursor
   let flowX = rtl ? area.x + area.w : area.x;
@@ -691,7 +693,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   let rowH = 0;
   for (const pl of plans) {
     if (pl.explicit) {
-      prevS = sOf(pl.center!);
+      prevS = sOf({ x: pl.center!.x + pl.outer.x + pl.outer.w / 2, y: pl.center!.y + pl.outer.y + pl.outer.h / 2 }, pl.outer.h);
       continue;
     }
     const mode = isObj(pl.props.autoPlace) ? ((pl.props.autoPlace as Obj).mode as string) ?? "auto" : (pl.props.autoPlace as string) ?? "auto";
@@ -708,7 +710,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
       setCenter(pl, { x: cx - (pl.outer.x + w / 2), y: cy - (pl.outer.y + h / 2) });
       flowX += rtl ? -(w + 1 * u.k) : w + 1 * u.k;
       rowH = Math.max(rowH, h);
-      prevS = sOf({ x: cx, y: cy });
+      prevS = sOf({ x: cx, y: cy }, h);
       continue;
     }
     const who = pl.props.who as string | undefined;
@@ -723,13 +725,13 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         const rect = { x: x - w / 2, y: y - h / 2, w, h };
         const A = w * h;
         let cost = 0;
-        const s = sOf(c);
+        const s = sOf(c, h);
         if (prevS === null) {
           const cornerX = rtl ? area.x + area.w : area.x;
           cost += 4 * (Math.hypot((x - cornerX) / area.w, (y - area.y) / area.h));
-        } else cost += 4 * 10 * Math.max(0, prevS + 0.04 - s);
+        } else cost += 120 * Math.max(0, prevS + 0.02 - s);
         for (const pr of placedRects) cost += 50 * (rectOverlapArea(rect, pr) / A);
-        for (const ob of obstacles) cost += ob.w * (rectOverlapArea(rect, ob.r) / A);
+        for (const ob of obstacles) cost += ob.w * (ob.ellipse ? ellipseOverlap(rect, ob.r) : rectOverlapArea(rect, ob.r) / A);
         for (const hr of hard) if (rectOverlapArea(rect, hr) > 0) cost += 1000;
         if (sils.length) cost += 6 * silhouetteCover(rect, sils);
         if (speaker) {
@@ -751,8 +753,26 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     if (!best) best = { c: center(area), cost: 999 };
     if (best.cost > 25) ctx.bag.warn("BALLOON_NO_SPACE", `no good position for balloon ${pl.el.id}`, { path: pl.el.path, elementId: pl.el.id });
     setCenter(pl, { x: best.c.x - (pl.outer.x + w / 2), y: best.c.y - (pl.outer.y + h / 2) });
-    prevS = sOf(best.c);
+    prevS = sOf(best.c, h);
   }
+}
+
+/** fraction of rect `r` covered by the ellipse inscribed in `e` (sampled) */
+function ellipseOverlap(r: Rect, e: Rect): number {
+  if (!rectIntersect(r, { x: e.x - e.w * 0.06, y: e.y - e.h * 0.06, w: e.w * 1.12, h: e.h * 1.12 })) return 0;
+  const cx = e.x + e.w / 2;
+  const cy = e.y + e.h / 2;
+  // a little breathing room around the face
+  e = { x: cx - e.w * 0.56, y: cy - e.h * 0.56, w: e.w * 1.12, h: e.h * 1.12 };
+  const N = 8;
+  let hit = 0;
+  for (let j = 0; j < N; j++)
+    for (let i = 0; i < N; i++) {
+      const dx = (r.x + (r.w * (i + 0.5)) / N - cx) / (e.w / 2);
+      const dy = (r.y + (r.h * (j + 0.5)) / N - cy) / (e.h / 2);
+      if (dx * dx + dy * dy <= 1) hit++;
+    }
+  return hit / (N * N);
 }
 
 function segRect(a: Vec, b: Vec, r: Rect): boolean {

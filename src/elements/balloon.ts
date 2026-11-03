@@ -347,22 +347,22 @@ interface TailResult {
 }
 
 /** distance along ray to entering a rect (null if missed) */
-function rayRectEntry(o: Vec, d: Vec, r: Rect): number | null {
-  let t0 = -Infinity;
-  let t1 = Infinity;
-  for (const [p, dd, lo, hi] of [[o.x, d.x, r.x, r.x + r.w], [o.y, d.y, r.y, r.y + r.h]] as [number, number, number, number][]) {
-    if (Math.abs(dd) < 1e-12) {
-      if (p < lo || p > hi) return null;
-      continue;
-    }
-    let a = (lo - p) / dd;
-    let b = (hi - p) / dd;
-    if (a > b) [a, b] = [b, a];
-    t0 = Math.max(t0, a);
-    t1 = Math.min(t1, b);
-  }
-  if (t1 < Math.max(0, t0)) return null;
-  return t0 > 0 ? t0 : null;
+/** distance along the ray to the ellipse inscribed in `r`; 0 when the origin is already inside */
+function rayEllipseEntry(o: Vec, d: Vec, r: Rect): number | null {
+  const a = r.w / 2;
+  const b = r.h / 2;
+  const px = (o.x - (r.x + a)) / a;
+  const py = (o.y - (r.y + b)) / b;
+  const dx = d.x / a;
+  const dy = d.y / b;
+  const A = dx * dx + dy * dy;
+  const B = 2 * (px * dx + py * dy);
+  const C = px * px + py * py - 1;
+  if (C <= 0) return 0;
+  const disc = B * B - 4 * A * C;
+  if (disc < 0 || A < 1e-12) return null;
+  const t = (-B - Math.sqrt(disc)) / (2 * A);
+  return t > 0 ? t : null;
 }
 
 function quad(a: Vec, c: Vec, b: Vec, t: number): Vec {
@@ -427,8 +427,8 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       const tgtRef = typeof t.to === "string" ? ctx.refs.target(t.to, ctx.panel?.panel.id) : who ? ctx.refs.target(who, ctx.panel?.panel.id) : undefined;
       const face = tgtRef?.regions.face?.bbox;
       if (face) {
-        const tf = rayRectEntry(R, dir, face);
-        if (tf !== null && tf > 0) avail = Math.min(avail, tf - gap * 0.5);
+        const tf = rayEllipseEntry(R, dir, face);
+        if (tf !== null) avail = Math.min(avail, tf - gap * 0.5);
       }
       length = Math.min(maxLen, Math.max(2.5 * u.k, avail));
     } else length = (kind === "zigzag" ? 7 : 5) * u.k;
