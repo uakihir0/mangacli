@@ -66,7 +66,8 @@ export interface RenderOptions {
   diagnostics?: Record<string, "error" | "warning" | "info" | "off">;
   root?: string;
   baseDir?: string;
-  assets?: Record<string, Uint8Array>;
+  /** in-memory assets: bytes, or { path } / { data } */
+  assets?: Record<string, Uint8Array | { path: string } | { data: Uint8Array }>;
   fonts?: Record<string, Uint8Array | Obj>;
   fontSet?: string;
   fontDownload?: "auto" | "never";
@@ -76,7 +77,8 @@ export interface RenderOptions {
   fontFallback?: string[];
   missingAssets?: "error" | "placeholder";
   ignoreDocumentOutput?: boolean;
-  config?: Obj;
+  /** a loaded config object, or true to search for mangacli.config.* from the entry's directory */
+  config?: Obj | true;
   emit?: ("layout" | "ir" | "transcript" | "manifest")[];
   onProgress?: (e: { phase: string; pageId?: string; done: number; total: number }) => void;
   onDiagnostic?: (d: Diagnostic) => void;
@@ -145,17 +147,22 @@ export interface Limits {
   maxDpi?: number;
 }
 
+/** the loaded config (`config: true` is resolved by render before use) */
+function cfgOf(o: RenderOptions): Obj | undefined {
+  return o.config === true ? undefined : o.config;
+}
+
 const DEFAULT_LIMITS: Required<Limits> = { maxSourceBytes: 10e6, maxPages: 1000, maxElementsPerPage: 5000, maxTextLength: 2000, maxOutputPixels: 200e6, maxDpi: 2400 };
 
 function limitsOf(o: RenderOptions): Required<Limits> {
-  return { ...DEFAULT_LIMITS, ...((o.config?.limits as Limits | undefined) ?? {}), ...(o.limits ?? {}) };
+  return { ...DEFAULT_LIMITS, ...((cfgOf(o)?.limits as Limits | undefined) ?? {}), ...(o.limits ?? {}) };
 }
 
 const BUILTIN_EFFECTS = new Set(["focus-lines", "beta-flash", "uni-flash", "speed-lines", "gloom-lines", "rain", "swirl-lines", "hatching", "impact", "vignette"]);
 const BUILTIN_TEMPLATES = new Set(["single", "grid", "tiers", "yonkoma", "hero-top", "hero-bottom"]);
 
 function pluginSetFor(o: RenderOptions, bag?: DiagnosticBag): PluginSet | undefined {
-  const list = [...(o.plugins ?? []), ...(((o.config?.plugins as MangaPlugin[] | undefined) ?? []).filter((x) => x && typeof x === "object"))];
+  const list = [...(o.plugins ?? []), ...(((cfgOf(o)?.plugins as MangaPlugin[] | undefined) ?? []).filter((x) => x && typeof x === "object"))];
   if (!list.length) return undefined;
   const set = new PluginSet(list, {
     shapes: new Set(Object.keys(BODY_GENERATORS)),
@@ -176,7 +183,7 @@ function isLoaded(x: unknown): x is LoadedDocument {
 }
 
 export function load(input: MangaInput, options: RenderOptions = {}): Project {
-  const bag = new DiagnosticBag(undefined, options.diagnostics ?? (options.config?.diagnostics as Record<string, "off">) ?? {});
+  const bag = new DiagnosticBag(undefined, options.diagnostics ?? (cfgOf(options)?.diagnostics as Record<string, "off">) ?? {});
   let loaded: LoadedDocument;
   let name = "manga";
   const lim = limitsOf(options);
@@ -280,14 +287,14 @@ function buildFonts(p: Project, o: RenderOptions): FontRegistry {
       else if (Array.isArray(v.compose)) defs.set(k, { kind: "compose", items: v.compose as never, fallback: v.fallback as string[], bold: v.bold as string });
     }
   };
-  addDefs(o.config?.fonts as Obj);
+  addDefs(cfgOf(o)?.fonts as Obj);
   addDefs(p.doc.fonts as Obj);
   const loc = isObj(p.doc.locales) && o.lang ? ((p.doc.locales as Obj)[o.lang] as Obj | undefined) : undefined;
   addDefs(loc?.fonts as Obj);
   addDefs(o.fonts as Obj);
-  const set = o.fontSet ?? (p.doc.fontSet as string) ?? (o.config?.fontSet as string) ?? "manga-basic";
+  const set = o.fontSet ?? (p.doc.fontSet as string) ?? (cfgOf(o)?.fontSet as string) ?? "manga-basic";
   // global fallback entries may be font names or file paths
-  const fallback = (o.fontFallback ?? (o.config?.fontFallback as string[]) ?? []).map((f, i) => {
+  const fallback = (o.fontFallback ?? (cfgOf(o)?.fontFallback as string[]) ?? []).map((f, i) => {
     if (defs.has(f) || !/[./\\]/.test(f) || f.startsWith("catalog:")) return f;
     const name = `__fallback${i}`;
     defs.set(name, { kind: "file", path: resolvePath(o.baseDir ?? process.cwd(), f) });
@@ -347,7 +354,20 @@ function fillName(tpl: string, vars: Record<string, string | number | number[]>)
     .replace(/[\\/]|\.\./g, "_");
 }
 
-export async function render(input: MangaInput | Project, options: RenderOptions = {}): Promise<RenderResult> {
+export async function render(input: MangaInput | Project, options0: RenderOptions = {}): Promise<RenderResult> {
+  let options = options0;
+  if (options.config === true) {
+    // discover the config file from the entry document's directory
+    const { findConfig, loadConfig } = await import("./config.js");
+    const from = typeof input === "string" ? dirname(resolvePath(input)) : input instanceof URL ? dirname(fileURLToPath(input)) : (options.baseDir ?? process.cwd());
+    const f = findConfig(from);
+    options = { ...options, config: f ? ((await loadConfig(f)) as unknown as Obj) : undefined };
+  }
+  if (options.assets) {
+    const conv: Record<string, Uint8Array> = {};
+    for (const [k, v] of Object.entries(options.assets)) conv[k] = v instanceof Uint8Array ? v : "path" in v ? readFileSync(v.path) : v.data;
+    options = { ...options, assets: conv };
+  }
   return withPlugins(pluginSetFor(options), () => renderInner(input, options));
 }
 
@@ -367,13 +387,13 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   };
   if (bag.hasErrors) return fail();
   const docOutput = (!options.ignoreDocumentOutput && isObj(p.doc.output) ? p.doc.output : {}) as Obj;
-  const profName = options.profile ?? (docOutput.profile as string) ?? (options.config?.output as Obj | undefined)?.profile as string ?? "web";
+  const profName = options.profile ?? (docOutput.profile as string) ?? (cfgOf(options)?.output as Obj | undefined)?.profile as string ?? "web";
   let prof: Profile;
   try {
-    prof = resolveProfile(profName, { ...(((options.config?.output as Obj)?.profiles ?? {}) as Record<string, Obj>), ...((docOutput.profiles ?? {}) as Record<string, Obj>) });
+    prof = resolveProfile(profName, { ...(((cfgOf(options)?.output as Obj)?.profiles ?? {}) as Record<string, Obj>), ...((docOutput.profiles ?? {}) as Record<string, Obj>) });
     // precedence: profile < config output < document output < render options
     const strip = (o: Obj | undefined) => (o ? Object.fromEntries(Object.entries(o).filter(([k]) => !["profile", "profiles", "dir"].includes(k))) : undefined);
-    prof = applyOutput(applyOutput(prof, strip(options.config?.output as Obj | undefined)), strip(docOutput));
+    prof = applyOutput(applyOutput(prof, strip(cfgOf(options)?.output as Obj | undefined)), strip(docOutput));
   } catch (e) {
     bag.error("SCHEMA_ENUM", (e as Error).message);
     return fail();
@@ -381,8 +401,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   const draft = options.draft ?? prof.draft ?? false;
   const lang = options.lang ?? ((p.doc.meta as Obj | undefined)?.lang as string) ?? "ja";
   const defaultLang = ((p.doc.meta as Obj | undefined)?.lang as string) ?? "ja";
-  const configStyles = { ...(plugins?.styles ?? {}), ...((options.config?.styles as Record<string, Obj>) ?? {}) };
-  let resolved = resolveDocument(p.doc, bag, { seedOverride: options.seed, lang, configDefaults: options.config?.defaults as Obj, configStyles });
+  const configStyles = { ...(plugins?.styles ?? {}), ...((cfgOf(options)?.styles as Record<string, Obj>) ?? {}) };
+  let resolved = resolveDocument(p.doc, bag, { seedOverride: options.seed, lang, configDefaults: cfgOf(options)?.defaults as Obj, configStyles });
   if (plugins) resolved = plugins.hook("afterResolve", resolved) as typeof resolved;
   p.resolved = resolved;
   const lim = limitsOf(options);
@@ -402,10 +422,10 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   }
   if (bag.hasErrors) return fail();
   const fonts = buildFonts(p, options);
-  const allowNet = options.allowNetwork ?? (options.config?.allowNetwork as RenderOptions["allowNetwork"]) ?? false;
-  const assets = new AssetRegistry((p.doc.assets ?? {}) as Record<string, Obj>, options.assets ?? {}, bag, 350, draft ? "placeholder" : (options.missingAssets ?? (options.config?.missingAssets as "error") ?? "error"), {
-    root: options.root ?? (options.config?.root as string | undefined) ?? p.loaded.baseDir,
-    allowOutsideRoot: options.allowOutsideRoot ?? (options.config?.allowOutsideRoot as boolean | undefined) ?? false,
+  const allowNet = options.allowNetwork ?? (cfgOf(options)?.allowNetwork as RenderOptions["allowNetwork"]) ?? false;
+  const assets = new AssetRegistry((p.doc.assets ?? {}) as Record<string, Obj>, (options.assets ?? {}) as Record<string, Uint8Array>, bag, 350, draft ? "placeholder" : (options.missingAssets ?? (cfgOf(options)?.missingAssets as "error") ?? "error"), {
+    root: options.root ?? (cfgOf(options)?.root as string | undefined) ?? p.loaded.baseDir,
+    allowOutsideRoot: options.allowOutsideRoot ?? (cfgOf(options)?.allowOutsideRoot as boolean | undefined) ?? false,
     network: allowNet === true ? {} : allowNet || false,
   });
   const ids = resolved.pages.map((pg) => pg.id);
@@ -557,7 +577,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         if (plugins && needRaster) full = { ...full, ...(plugins.hook("afterRender", { data: full.data, width: full.width, height: full.height }) as object) };
         // finishing passes: off for print profiles unless the profile itself asks for them
         // finishing: never for print/preview/draft unless the profile itself (not the document) asks for it
-        const profOwn = (PROFILES as Record<string, Profile>)[profName] ? undefined : (resolveProfile(profName, { ...(((options.config?.output as Obj)?.profiles ?? {}) as Record<string, Obj>), ...((docOutput.profiles ?? {}) as Record<string, Obj>) }) as { finish?: Finish }).finish;
+        const profOwn = (PROFILES as Record<string, Profile>)[profName] ? undefined : (resolveProfile(profName, { ...(((cfgOf(options)?.output as Obj)?.profiles ?? {}) as Record<string, Obj>), ...((docOutput.profiles ?? {}) as Record<string, Obj>) }) as { finish?: Finish }).finish;
         const quiet = prof.print || profName === "preview" || profName === "draft" || draft;
         const finish = options.finish === false ? undefined : (options.finish ?? profOwn ?? (quiet ? undefined : (prof.finish as Finish | undefined)));
         if (finish && needRaster && !run.list) full = { ...full, ...(await applyFinish(full, finish, { dpi, colorMode: colorMode as "color", seed: resolved.seed, bag })) };
@@ -913,7 +933,7 @@ export function parseDocument(text: string, options: RenderOptions & { filename?
 export function resolve(input: MangaInput | Project, options: RenderOptions = {}): ResolvedDoc {
   const p = typeof input === "object" && input !== null && !(input instanceof URL) && "bag" in input && "loaded" in input ? (input as Project) : load(input as MangaInput, options);
   const bag = p.bag.fork();
-  const r = resolveDocument(p.doc, bag, { seedOverride: options.seed, lang: options.lang, configDefaults: options.config?.defaults as Obj, configStyles: options.config?.styles as Record<string, Obj> });
+  const r = resolveDocument(p.doc, bag, { seedOverride: options.seed, lang: options.lang, configDefaults: cfgOf(options)?.defaults as Obj, configStyles: cfgOf(options)?.styles as Record<string, Obj> });
   if (bag.hasErrors && options.throwOnError !== false) throw errorFor(bag.items);
   return r;
 }

@@ -197,7 +197,7 @@ async function cmdRender(file: string, o: Obj): Promise<number> {
   const cwd = process.cwd();
   const input = readInput(file, o);
   const opts = await renderOptions(o, file);
-  const cfgOut = (opts.config?.output ?? {}) as Obj;
+  const cfgOut = ((opts.config as Obj | undefined)?.output ?? {}) as Obj;
   const toStdout = !!o.stdout;
   if (!toStdout) {
     // precedence: -o, the document's output.dir (relative to the document), the config's, ./out
@@ -218,7 +218,7 @@ async function cmdRender(file: string, o: Obj): Promise<number> {
     emitJson({ type: "progress", ...e });
     if (e.phase === "render") log("info", `  ${paint("2", `${e.done}/${e.total}`)} ${e.pageId ?? ""}`);
   };
-  const conc = Math.max(1, Math.round(Number(o.concurrency ?? process.env.MANGACLI_CONCURRENCY ?? opts.config?.concurrency ?? 1)) || 1);
+  const conc = Math.max(1, Math.round(Number(o.concurrency ?? process.env.MANGACLI_CONCURRENCY ?? (opts.config as Obj | undefined)?.concurrency ?? 1)) || 1);
   const formats = ([] as unknown[]).concat(opts.format ?? []);
   const canSplit = conc > 1 && !toStdout && !formats.includes("pdf") && !(opts.emit ?? []).some((k) => k === "transcript" || k === "manifest");
   const r = canSplit ? await renderParallel(input, opts, conc) : await render(input, opts);
