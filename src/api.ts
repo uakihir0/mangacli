@@ -29,7 +29,8 @@ import { BODY_GENERATORS } from "./shapes/balloon.js";
 import { HAND_PRESETS, PEN_PRESETS } from "./ink/presets.js";
 import { BUILTIN_STYLES, PAGE_PRESETS } from "./model/defaults.js";
 import { MARK_KINDS } from "./load/normalize.js";
-import { Document } from "./schema/schema.js";
+import { Document, ELEMENT_KEYS } from "./schema/schema.js";
+import { KEYWORDS } from "./layout/place.js";
 import { bookOf, computePageGeom } from "./layout/page.js";
 import { pageSize } from "./layout/page.js";
 
@@ -218,6 +219,25 @@ function validateSchema(doc: Obj, bag: DiagnosticBag) {
     for (const [k, x] of Object.entries(v)) walk(x, [...path, k]);
   };
   walk(doc, []);
+  // style keys that no element of the style's type accepts (spec 3.16)
+  for (const [name, st] of Object.entries(isObj(doc.styles) ? (doc.styles as Record<string, Obj>) : {})) {
+    if (!isObj(st)) continue;
+    const forT = st.for === undefined ? undefined : Array.isArray(st.for) ? (st.for as string[]) : [String(st.for)];
+    const types = forT ?? Object.keys(ELEMENT_KEYS);
+    for (const k of Object.keys(st)) {
+      if (k === "for" || k === "extends") continue;
+      const ok = types.some((t) => { const ks = ELEMENT_KEYS[t]; return ks === undefined || ks === null || ks.has(k); });
+      if (!ok) {
+        if (forT) bag.error("SCHEMA_UNKNOWN_KEY", `style "${name}": "${k}" is not a ${forT.join("/")} property`, { path: ["styles", name, k], hint: hintFor(k, doc, []) });
+        else bag.info("STYLE_KEY_NOT_APPLICABLE", `style "${name}": "${k}" applies to no element type`, { path: ["styles", name, k] });
+      }
+    }
+  }
+  // position keywords cannot name asset anchors/regions (they would shadow e.g. taro1.top)
+  for (const [an, a] of Object.entries(isObj(doc.assets) ? (doc.assets as Record<string, Obj>) : {})) {
+    for (const kind of ["anchors", "regions"] as const)
+      for (const k of Object.keys(isObj(a?.[kind]) ? (a[kind] as Obj) : {})) if (k in KEYWORDS) bag.error("ID_RESERVED", `"${k}" is a position keyword and cannot name an asset ${kind.slice(0, -1)}`, { path: ["assets", an, kind, k] });
+  }
   const r = Document.safeParse(doc);
   if (r.success) return;
   for (const iss of r.error.issues.slice(0, 100)) {
@@ -803,7 +823,7 @@ export interface Renderer {
   validate(input: MangaInput | Project, options?: RenderOptions): Promise<ValidateResult>;
   render(input: MangaInput | Project, options?: RenderOptions): Promise<RenderResult>;
   renderPage(input: MangaInput | Project, page: number | string, options?: RenderOptions): Promise<RenderedPage>;
-  layout(input: MangaInput | Project, options?: RenderOptions): Promise<PageLayoutInfo[]>;
+  layout(input: MangaInput | Project, options?: RenderOptions): Promise<LayoutTree>;
   displayList(input: MangaInput | Project, page: number | string, options?: RenderOptions): Promise<DisplayList>;
   resolve(input: MangaInput | Project, options?: RenderOptions): ResolvedDoc;
   renderStream(input: MangaInput | Project, options?: RenderOptions): AsyncGenerator<RenderedPage>;
@@ -822,7 +842,7 @@ export function createRenderer(base: RenderOptions = {}): Renderer {
     validate: (input, o) => validate(input, merged(o)),
     render: (input, o) => render(input, merged(o)),
     renderPage: (input, page, o) => renderPage(input, page, merged(o)),
-    layout: async (input, o) => (await validate(input, merged(o))).layout,
+    layout: (input, o) => layout(input, merged(o)),
     resolve: (input, o) => resolve(input, merged(o)),
     renderStream: (input, o) => renderStream(input, merged(o)),
     invalidate: (match) => {
@@ -838,9 +858,15 @@ export function createRenderer(base: RenderOptions = {}): Renderer {
   };
 }
 
-/** layout without rasterizing (spec 11.2) */
-export async function layout(input: MangaInput | Project, options: RenderOptions = {}): Promise<PageLayoutInfo[]> {
-  return (await validate(input, options)).layout;
+/** the layout of every page without rasterizing (spec 11.2) */
+export interface LayoutTree {
+  pages: PageLayoutInfo[];
+  diagnostics: Diagnostic[];
+}
+
+export async function layout(input: MangaInput | Project, options: RenderOptions = {}): Promise<LayoutTree> {
+  const v = await validate(input, options);
+  return { pages: v.layout, diagnostics: v.diagnostics };
 }
 
 /** render pages one by one, yielding each page's outputs as soon as it is done (spec 11.2) */

@@ -67,7 +67,7 @@ export function parseYamlText(text: string, file: string, bag: DiagnosticBag, ma
         return node.source ?? String(node.value);
       }
       if (typeof node.value === "string" && (node.type === "BLOCK_LITERAL" || node.type === "BLOCK_FOLDED")) {
-        if (node.type === "BLOCK_FOLDED" && parentKey === "text") bag.warn("TEXT_FOLDED_SCALAR", "folded block scalar (>) joins lines with spaces; use | for dialogue", { location: loc(node.range![0]) });
+        if (node.type === "BLOCK_FOLDED" && (parentKey === "text" || parentKey === "balloon" || parentKey === "sfx")) bag.warn("TEXT_FOLDED_SCALAR", "folded block scalar (>) joins lines with spaces; use | for dialogue", { location: loc(node.range![0]) });
         return node.value.replace(/\n+$/, "");
       }
       return node.value;

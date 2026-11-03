@@ -19,6 +19,7 @@ export {
   type RenderResult,
   type RenderedPage,
   type Renderer,
+  type LayoutTree,
   type ValidateResult,
 } from "./api.js";
 export { defineConfig, findConfig, loadConfig, type MangaConfig } from "./config.js";

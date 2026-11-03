@@ -360,6 +360,20 @@ const drawProps = {
   head: z.object({ start: z.string().optional(), end: z.string().optional(), size: Length.optional() }).strict().optional(),
 };
 
+/** keys each element type accepts (style checks); null = any key (effect, mark) */
+export const ELEMENT_KEYS: Record<string, Set<string> | null> = {
+  image: new Set(["type", ...Object.keys(imageProps)]),
+  balloon: new Set(["type", ...Object.keys(balloonProps)]),
+  text: new Set(["type", ...Object.keys(textProps)]),
+  sfx: new Set(["type", ...Object.keys(sfxProps)]),
+  fill: new Set(["type", ...Object.keys(fillProps)]),
+  draw: new Set(["type", ...Object.keys(drawProps)]),
+  effect: null,
+  mark: null,
+  group: null,
+  scatter: null,
+};
+
 export const Element: z.ZodType = z.lazy(() =>
   z.discriminatedUnion("type", [
     z.object({ type: z.literal("image"), ...imageProps }).strict(),
