@@ -8,6 +8,7 @@ mangacli の作例として、生成 AI（Sogni）で描いた絵に mangacli �
 - `refs/` — 吹き出しの参考に Sogni で生成した、吹き出し付きの漫画のページ
 - `out/` — 描画結果
 - `tools/` — 生成用のスクリプト（`npm install` で Sogni の SDK を入れる）
+- `NOTES.md` — 吹き出しのデザインの修正と、AI で絵を生成するときのコツの記録
 
 ```bash
 cd sample/tools && npm install && cd ../..
