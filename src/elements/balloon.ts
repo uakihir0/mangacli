@@ -487,7 +487,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       continue;
     }
     const gap = t.gap !== undefined ? toMm(t.gap as string, u) : 2 * u.k;
-    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : Math.min(10 * u.k, Math.max(3.5 * u.k, minSide * 0.55));
+    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : Math.min(12 * u.k, Math.max(4.5 * u.k, minSide * 0.6));
     let length: number;
     if (t.length !== undefined) length = toMm(t.length as string, u);
     else if (target) {
@@ -509,7 +509,8 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
             break;
           }
       }
-      length = Math.min(maxLen, Math.max(3.2 * u.k, avail));
+      // a tail always reads as a pointer, even when the speaker's face is right beside the body
+      length = Math.min(maxLen, Math.max(4.5 * u.k, avail));
     } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
     // off-panel tails run past the frame and are cut by it
     // on a spiky body the tail must outreach the spikes to read as the pointer
@@ -517,7 +518,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     if (offSide && target) length = Math.hypot(target.x - R.x, target.y - R.y);
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
-    const bw = (t.width !== undefined ? toMm(t.width as string, u) : Math.min(2.2 * u.k, Math.max(1.1 * u.k, minSide * 0.1)) * (kind === "zigzag" ? 1.5 : 1)) * widthScale;
+    const bw = (t.width !== undefined ? toMm(t.width as string, u) : Math.min(2.8 * u.k, Math.max(1.6 * u.k, minSide * 0.13)) * (kind === "zigzag" ? 1.5 : 1)) * widthScale;
     const bend = typeof t.bend === "number" ? t.bend : 0.1;
     const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : 0.12;
     const perp = { x: -dir.y, y: dir.x };
