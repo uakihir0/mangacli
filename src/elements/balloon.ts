@@ -414,6 +414,14 @@ function quad(a: Vec, c: Vec, b: Vec, t: number): Vec {
   return { x: u * u * a.x + 2 * u * t * c.x + t * t * b.x, y: u * u * a.y + 2 * u * t * c.y + t * t * b.y };
 }
 
+/** the face box if the tail target lies on it (the box grown by 30 %), else undefined */
+function faceOf(face: Rect | undefined, target: Vec): Rect | undefined {
+  if (!face) return undefined;
+  const mx = face.w * 0.3;
+  const my = face.h * 0.3;
+  return target.x >= face.x - mx && target.x <= face.x + face.w + mx && target.y >= face.y - my && target.y <= face.y + face.h + my ? face : undefined;
+}
+
 function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult {
   const { ctx, plan, center } = tc;
   const u = ctx.u;
@@ -494,7 +502,9 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       let avail = Math.hypot(target.x - R.x, target.y - R.y) - gap;
       // do not run into the speaker's face
       const tgtRef = typeof t.to === "string" ? ctx.refs.target(t.to, ctx.panel?.panel.id) : who ? ctx.refs.target(who, ctx.panel?.panel.id) : undefined;
-      const face = tgtRef?.regions.face?.bbox;
+      // the face region is the speaker's only when the target lies on it (an image may also carry
+      // anchors for other characters: `close.hayato`)
+      const face = faceOf(tgtRef?.regions.face?.bbox, target);
       if (face) {
         const tf = rayEllipseEntry(R, dir, face);
         if (tf !== null) avail = Math.min(avail, tf - gap * 0.5);
@@ -528,7 +538,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     let arcFn: ((tt: number) => Vec) | null = null;
     if (kind === "wedge" && !offSide && t.curl !== false && target) {
       const ref = typeof t.to === "string" ? ctx.refs.target(t.to, ctx.panel?.panel.id) : who ? ctx.refs.target(who, ctx.panel?.panel.id) : undefined;
-      const fb = ref?.regions.face?.bbox;
+      const fb = faceOf(ref?.regions.face?.bbox, target);
       const F = fb ? { x: fb.x + fb.w / 2, y: fb.y + fb.h / 2 } : target;
       const toF = { x: F.x - R.x, y: F.y - R.y };
       const ang = Math.atan2(dir.x * toF.y - dir.y * toF.x, dir.x * toF.x + dir.y * toF.y);
