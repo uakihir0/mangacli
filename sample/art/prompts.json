@@ -99,16 +99,16 @@
    "chars": [
     "mio"
    ],
-   "prompt": "Mio tripping and falling forward head first, wide shocked eyes and open mouth, arms thrown out, her bamboo sword flying away out of her hands, toward the low rooftop edge, motion lines, concrete rooftop, chain-link fence behind.",
-   "style": "styleFullBleed"
+   "style": "styleFullBleed",
+   "prompt": "Mio trips and falls forward head first toward the low concrete parapet of a flat school rooftop, wide shocked eyes and open mouth, arms thrown out, her bamboo sword flying out of her hands, motion lines, chain-link fence behind. No tiled roofs, no houses."
   },
   {
    "id": "p3-4",
    "w": 1536,
    "h": 640,
    "chars": [],
-   "prompt": "Dramatic extreme close-up: a boy's hand in a black school-uniform sleeve tightly grips a girl's slender wrist from above, catching her, the girl's hand open in surprise, strong speed lines radiating, high contrast black and white.",
-   "style": "styleFullBleed"
+   "style": "styleFullBleed",
+   "prompt": "Dramatic extreme close-up: a boy's hand in a black gakuran sleeve tightly grips the slender wrist of a girl with a long black high ponytail tied with a big white ribbon, catching her from above as she falls; her face on the right is surprised, the ponytail flies up. Strong speed lines radiating, flat concrete school rooftop, no tiled roofs."
   },
   {
    "id": "p4-1",

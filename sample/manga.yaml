@@ -40,7 +40,7 @@ assets:
   p2-4: { src: ./art/p2-4.png, character: mio, anchors: { mouth: [635, 224] }, regions: { face: [530, 70, 180, 190] } }
   p3-1: { src: ./art/p3-1.png, character: mio, anchors: { mouth: [540, 380], hayato: [1160, 480] }, regions: { face: [450, 220, 180, 190], avoid: [1080, 330, 160, 180] } }
   p3-2: { src: ./art/p3-2.png, character: hayato, anchors: { mouth: [520, 300] }, regions: { face: [400, 90, 220, 250] } }
-  p3-3: { src: ./art/p3-3.png, character: mio, anchors: { mouth: [309, 405] }, regions: { face: [160, 270, 200, 210] } }
+  p3-3: { src: ./art/p3-3.png, character: mio, anchors: { mouth: [375, 392] }, regions: { face: [250, 190, 200, 220] } }
   p3-4: { src: ./art/p3-4.png, kind: background }
   p4-1: { src: ./art/p4-1.png, character: mio, anchors: { mouth: [520, 420], hayato: [380, 340] }, regions: { face: [470, 250, 180, 220], avoid: [220, 120, 200, 230] } }
   p4-2: { src: ./art/p4-2.png, character: mio, anchors: { mouth: [470, 470] }, regions: { face: [330, 240, 250, 260] } }
