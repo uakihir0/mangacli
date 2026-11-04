@@ -1,5 +1,6 @@
 // Sogni の Relaxed ネットワークへ画像の生成を流し続けるデーモン
 //   node sample/tools/daemon.mjs            （sample/gen/queue/*.json を順に処理する）
+//   while :; do node sample/tools/daemon.mjs; sleep 5; done   （接続が切れたら終了するので、ループで動かす）
 // ジョブ: { out, model, prompt, negative?, w, h, steps?, guidance?, context?: [画像], seed? }（パスは sample/ から）
 // 処理中は running/、終わると done/（失敗は failed/）へ移す。接続は 1 本（同じ appId の接続は 1 つまで）
 import { readFileSync, writeFileSync, readdirSync, renameSync, mkdirSync, existsSync, appendFileSync } from "node:fs";
@@ -60,8 +61,16 @@ async function run(name) {
     renameSync(join(Q, "running", name), join(Q, "done", name));
     log(`ok ${job.out} ${job.model} ${((Date.now() - t0) / 1000) | 0}s`);
   } catch (e) {
+    const msg = e?.message ?? String(e);
+    // a connection that went stale (long idle, or another client took the app id): put the job
+    // back and exit so the wrapper loop reconnects
+    if (/WebSocket|account changed|SWITCH_CONNECTION|not connected/i.test(msg)) {
+      renameSync(join(Q, "running", name), join(Q, "queue", name));
+      log(`RETRY ${job.out} ${msg}`);
+      process.exit(3);
+    }
     renameSync(join(Q, "running", name), join(Q, "failed", name));
-    log(`FAIL ${job.out} ${job.model} ${e?.message ?? e}`);
+    log(`FAIL ${job.out} ${job.model} ${msg}`);
   }
 }
 

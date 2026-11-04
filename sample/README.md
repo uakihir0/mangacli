@@ -12,7 +12,7 @@ mangacli の作例として、生成 AI（Sogni）で描いた絵に mangacli �
 
 ```bash
 cd sample/tools && npm install && cd ../..
-node sample/tools/daemon.mjs &                           # Relaxed で生成を流し続ける（sample/.env に SOGNI_API_KEY・SOGNI_APP_ID）
+(while :; do node sample/tools/daemon.mjs; sleep 5; done) &   # Relaxed で生成を流し続ける（接続が切れたら繋ぎ直す）（sample/.env に SOGNI_API_KEY・SOGNI_APP_ID）
 node sample/tools/enqueue.mjs sample/art/prompts.json     # 足りない絵をジョブとして積む（--n 3 で候補を 3 枚ずつ）
 npx mangacli render sample/manga.yaml -p print-mono
 ```
