@@ -1,0 +1,9 @@
+{
+  "style": "A page from a professionally published Japanese weekly shonen manga magazine, black and white, screentone, crisp ink, multiple panels with white gutters, Japanese vertical text lettered inside clean white oval speech balloons with thin sharp tapered tails pointing toward the speakers' mouths, balloons partially overlapping panel borders, sound effects lettering.",
+  "panels": [
+    { "id": "ref-1", "w": 1024, "h": 1448, "chars": [], "prompt": "Two high school students arguing on a rooftop, five panels, several speech balloons of different sizes" },
+    { "id": "ref-2", "w": 1024, "h": 1448, "chars": [], "prompt": "An action scene with a sword fight, shout balloons with spiky outlines, speed lines, four panels" },
+    { "id": "ref-3", "w": 1024, "h": 1448, "chars": [], "prompt": "A quiet emotional conversation scene in a classroom, small and large oval speech balloons, narration boxes, thought balloons with small bubble trails, six panels" },
+    { "id": "ref-4", "w": 1024, "h": 1448, "chars": [], "prompt": "Comedy scene with a surprised girl and a calm boy, balloons placed in the top right corners of panels reading right to left, five panels" }
+  ]
+}

@@ -1,0 +1,150 @@
+{
+ "style": "Black and white Japanese weekly shonen manga panel in the style of a top Shonen Jump artist, clean confident G-pen ink lineart, crisp black fills, light screentone, expressive faces, dynamic camera angle. No text, no letters, no speech bubbles, no sound effects, no panel border, no frame.",
+ "hayato": "Hayato: a lean 16-year-old boy with messy spiky black hair and long bangs, sharp narrow calm eyes, cool sleepy expression, black gakuran school uniform with stand-up collar and gold buttons, hands in pockets.",
+ "mio": "Mio: a 16-year-old girl with long black hair in a high ponytail tied with a big white ribbon, big round fierce eyes, energetic, navy sailor school uniform with white collar stripes and white neckerchief, pleated skirt. She carries a kendo shinai (a straight bamboo practice sword with segmented bamboo slats, white leather tip and grip, no blade, no scabbard).",
+ "model": "qwen_image_2512_lightning",
+ "steps": 4,
+ "guidance": 1,
+ "styleFullBleed": "Black and white Japanese weekly shonen manga illustration in the style of a top Shonen Jump artist, clean confident G-pen ink lineart, crisp black fills, light screentone, expressive faces. A single full-bleed illustration that fills the whole canvas edge to edge. No text, no letters, no speech bubbles, no sound effects, no borders, no frames, no white boxes, no inset panels.",
+ "panels": [
+  {
+   "id": "p1-1",
+   "w": 1536,
+   "h": 896,
+   "chars": [],
+   "prompt": "Wide view of an empty school rooftop at sunset: chain-link fence, water tank, stairwell hut with a steel door, a sprawling city below, enormous cloudy sky. One tiny silhouette of a boy standing at the far fence on the left.",
+   "style": "styleFullBleed"
+  },
+  {
+   "id": "p1-2",
+   "w": 1024,
+   "h": 1152,
+   "chars": [
+    "hayato"
+   ],
+   "prompt": "Close-up of Hayato's face, his eyes sliding to the side toward the viewer's left, calm sharp look, wind in his bangs, plain dark background, empty space on the left side of the image."
+  },
+  {
+   "id": "p1-3",
+   "w": 1024,
+   "h": 1152,
+   "chars": [
+    "mio"
+   ],
+   "prompt": "Mio kicks open the steel rooftop door from the stairwell, full body, pointing her bamboo shinai forward, angry determined grin, motion lines, empty space in the upper left."
+  },
+  {
+   "id": "p2-1",
+   "w": 1024,
+   "h": 1280,
+   "chars": [
+    "mio"
+   ],
+   "prompt": "Low angle, Mio points her bamboo shinai straight at the viewer, strong foreshortening, shouting with open mouth, ponytail swinging, sunset sky behind her, empty space at the top right."
+  },
+  {
+   "id": "p2-2",
+   "w": 1024,
+   "h": 1280,
+   "chars": [
+    "hayato"
+   ],
+   "prompt": "Hayato leaning his back against the chain-link fence with hands in pockets, bored half-closed eyes, sighing, medium shot, he looks toward the viewer's right, empty space on the left side."
+  },
+  {
+   "id": "p2-3",
+   "w": 1536,
+   "h": 768,
+   "chars": [
+    "mio"
+   ],
+   "prompt": "Comedic close shot: Mio on the left side of the picture, blushing red with embarrassment and anger, teeth clenched, one fist raised, comedic steam puffs above her head. Behind her a plain screentone gradient background that continues across the whole picture to the right edge.",
+   "style": "styleFullBleed"
+  },
+  {
+   "id": "p2-4",
+   "w": 1536,
+   "h": 768,
+   "chars": [
+    "mio"
+   ],
+   "prompt": "Extreme dynamic side view: Mio sprinting at full speed toward the left, body leaning far forward, one foot kicking off the concrete rooftop floor, ponytail and skirt streaming behind, bamboo sword held high, dense horizontal speed lines across the whole background.",
+   "style": "styleFullBleed"
+  },
+  {
+   "id": "p3-1",
+   "w": 1536,
+   "h": 1024,
+   "chars": [
+    "mio",
+    "hayato"
+   ],
+   "prompt": "Explosive action shot from a low angle: Mio flying through the air above, both hands swinging her bamboo sword down in a huge overhead strike, ponytail whipping; Hayato standing below on the right on a concrete rooftop, hands in pockets, calmly looking up at her. Radial impact lines, sunset sky.",
+   "style": "styleFullBleed"
+  },
+  {
+   "id": "p3-2",
+   "w": 1024,
+   "h": 1152,
+   "chars": [
+    "hayato"
+   ],
+   "prompt": "Hayato casually sidesteps, a bamboo shinai slices the air right beside him, hands still in pockets, bored face, rooftop, empty space at the top left."
+  },
+  {
+   "id": "p3-3",
+   "w": 1024,
+   "h": 1152,
+   "chars": [
+    "mio"
+   ],
+   "prompt": "Mio tripping and falling forward head first, wide shocked eyes and open mouth, arms thrown out, her bamboo sword flying away out of her hands, toward the low rooftop edge, motion lines, concrete rooftop, chain-link fence behind.",
+   "style": "styleFullBleed"
+  },
+  {
+   "id": "p3-4",
+   "w": 1536,
+   "h": 640,
+   "chars": [],
+   "prompt": "Dramatic extreme close-up: a boy's hand in a black school-uniform sleeve tightly grips a girl's slender wrist from above, catching her, the girl's hand open in surprise, strong speed lines radiating, high contrast black and white.",
+   "style": "styleFullBleed"
+  },
+  {
+   "id": "p4-1",
+   "w": 1024,
+   "h": 1280,
+   "chars": [
+    "hayato",
+    "mio"
+   ],
+   "prompt": "Hayato holding Mio's wrist, having pulled her back close to him, their faces close, Mio blushing deeply and stunned, Hayato calm and gentle, sunset backlight, medium close-up, empty space at the top right."
+  },
+  {
+   "id": "p4-2",
+   "w": 1024,
+   "h": 1280,
+   "chars": [
+    "mio"
+   ],
+   "prompt": "Mio flustered and blushing furiously, eyes darting away, trembling, hands up defensively, comedic embarrassed face, waist-up, empty space at the top left."
+  },
+  {
+   "id": "p4-3",
+   "w": 1536,
+   "h": 768,
+   "chars": [
+    "hayato"
+   ],
+   "prompt": "Hayato walks away toward the rooftop stairwell door with his back turned, one hand raised in a lazy wave over his shoulder, sunset, long shadow, empty space on the right side."
+  },
+  {
+   "id": "p4-4",
+   "w": 1536,
+   "h": 1024,
+   "chars": [
+    "mio"
+   ],
+   "prompt": "Mio standing alone on the rooftop, shaking with rage and embarrassment, red-faced, fists clenched, steam bursting from her head, shouting at the sky with her mouth wide open, comedic exaggeration, big empty sky on the right."
+  }
+ ]
+}

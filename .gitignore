@@ -9,3 +9,6 @@ coverage/
 scratch/
 .vitest
 *.tgz
+
+.env
+**/.env

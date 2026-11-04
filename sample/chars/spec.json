@@ -1,0 +1,8 @@
+{
+  "style": "Black and white Japanese weekly shonen manga character design sheet, professional manga artist, crisp G-pen ink lineart, screentone shading, plain white background, full body front view and a large face close-up side by side, no text, no letters.",
+  "model": "qwen_image_2512_8bit",
+  "panels": [
+    { "id": "hayato", "w": 1024, "h": 1024, "prompt": "Character: Kirishima Hayato, a lean tall 16-year-old Japanese boy, messy spiky black hair with long bangs falling between his eyes, sharp narrow calm eyes, expressionless cool face, black gakuran school uniform with stand-up collar and gold buttons, jacket unbuttoned over a white shirt, hands in trouser pockets, black loafers." },
+    { "id": "mio", "w": 1024, "h": 1024, "prompt": "Character: Takano Mio, a 16-year-old Japanese girl, long straight black hair in a high ponytail tied with a big white ribbon, short side bangs, big round fierce eyes, energetic determined expression, navy sailor school uniform (sera-fuku) with white stripes on the collar, white neckerchief, pleated knee-length skirt, white socks, holding a kendo shinai: a straight bamboo practice sword made of four bamboo slats tied with a string, white leather tip, white leather grip, small round black guard, no blade, no scabbard." }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "mangacli-sample-tools",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@sogni-ai/sogni-client": "^5.73.0"
+  }
+}

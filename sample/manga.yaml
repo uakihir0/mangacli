@@ -1,0 +1,162 @@
+# yaml-language-server: $schema=../schema.json
+#
+# 作例「三十一戦目」— 絵は Sogni（qwen-image-2512 lightning、Relaxed）で生成、写植・吹き出し・効果は mangacli。
+#   npx mangacli render sample/manga.yaml -p print-mono
+
+mangacli: 1
+engine: 1
+
+meta:
+  title: 三十一戦目
+  author: mangacli
+  lang: ja
+
+page:
+  size: B5
+  bleed: 3mm
+  color: mono
+  gutter: { col: 2.5mm, row: 5mm }
+
+book:
+  pageNumbers: { position: bottom-outer }
+
+characters:
+  hayato: { name: 霧島ハヤト }
+  mio: { name: 鷹野ミオ }
+
+defaults:
+  panel:
+    border: { width: 0.5mm }
+  balloon:
+    fontSize: 18bQ
+
+assets:
+  p1-1: { src: ./art/p1-1.png, kind: background }
+  p1-2: { src: ./art/p1-2.png, character: hayato, anchors: { mouth: [440, 330] }, regions: { face: [330, 110, 240, 260] } }
+  p1-3: { src: ./art/p1-3.png, character: mio, anchors: { mouth: [500, 400] }, regions: { face: [430, 240, 190, 190] } }
+  p2-1: { src: ./art/p2-1.png, character: mio, anchors: { mouth: [480, 450] }, regions: { face: [340, 220, 260, 260] } }
+  p2-2: { src: ./art/p2-2.png, character: hayato, anchors: { mouth: [500, 390] }, regions: { face: [390, 180, 230, 250] } }
+  p2-3: { src: ./art/p2-3.png, character: mio, anchors: { mouth: [640, 330] }, regions: { face: [560, 200, 170, 180] } }
+  p2-4: { src: ./art/p2-4.png, character: mio, anchors: { mouth: [635, 224] }, regions: { face: [530, 70, 180, 190] } }
+  p3-1: { src: ./art/p3-1.png, character: mio, anchors: { mouth: [540, 380], hayato: [1160, 480] }, regions: { face: [450, 220, 180, 190], avoid: [1080, 330, 160, 180] } }
+  p3-2: { src: ./art/p3-2.png, character: hayato, anchors: { mouth: [360, 330] }, regions: { face: [270, 110, 190, 240] } }
+  p3-3: { src: ./art/p3-3.png, character: mio, anchors: { mouth: [309, 405] }, regions: { face: [160, 270, 200, 210] } }
+  p3-4: { src: ./art/p3-4.png, kind: background }
+  p4-1: { src: ./art/p4-1.png, character: mio, anchors: { mouth: [520, 420], hayato: [380, 340] }, regions: { face: [470, 250, 180, 220], avoid: [220, 120, 200, 230] } }
+  p4-2: { src: ./art/p4-2.png, character: mio, anchors: { mouth: [470, 470] }, regions: { face: [330, 240, 250, 260] } }
+  p4-3: { src: ./art/p4-3.png, character: hayato, anchors: { mouth: [700, 200] }, regions: { face: [640, 40, 170, 200] } }
+  p4-4: { src: ./art/p4-4.png, character: mio, anchors: { mouth: [770, 400] }, regions: { face: [610, 200, 220, 240] } }
+
+pages:
+  # ── 1 ページ目 ───────────────────────────────
+  - id: p1
+    layout:
+      rows:
+        - { cols: [1], height: 1.15 }
+        - { cols: [1.05, 1], height: 1.2 }
+    panels:
+      - id: p1-a
+        bleed: [top, left, right]
+        layers:
+          - { image: p1-1, focus: [0.5, 0.5] }
+          - { balloon: "放課後の屋上──\nここには\n誰も来ない", as: narration, at: [83%, 22%] }
+      - id: p1-b
+        layers:
+          - { image: p1-2, id: hayato1, focus: [0.45, 0.35] }
+        dialogue:
+          - { hayato: "……\n来たか" }
+      - id: p1-c
+        layers:
+          - { image: p1-3, id: mio1, focus: [0.5, 0.4] }
+          - { sfx: バンッ, at: [86%, 40%], fontSize: 14mm, rotate: 8deg }
+        dialogue:
+          - { mio: "見つけたわよ\n<ruby=きりしま>霧島</ruby>ハヤト！", at: [12%, 14%] }
+
+  # ── 2 ページ目 ───────────────────────────────
+  - id: p2
+    layout:
+      rows:
+        - { cols: [1.15, 1], height: 1.35 }
+        - { cols: [1], height: 0.75 }
+        - { cols: [1], height: 0.75 }
+    panels:
+      - id: p2-a
+        layers:
+          - { image: p2-1, id: mio2, focus: [0.5, 0.35] }
+        dialogue:
+          - { mio: "今日こそ\n決着を\nつけるわ！", as: shout, at: [80%, 12%], fontScale: 1.1 }
+      - id: p2-b
+        layers:
+          - { image: p2-2, id: hayato2, focus: [0.55, 0.3] }
+        dialogue:
+          - { hayato: "……\nまたかよ", at: [18%, 14%] }
+          - { hayato: "三十連敗中\nだろ お前", at: [22%, 48%] }
+      - id: p2-c
+        layers:
+          - { image: p2-3, id: mio3, focus: [0.5, 0.35] }
+        dialogue:
+          - { mio: "う、うるさい！", id: urusai, at: [84%, 36%] }
+          - { mio: "三十一回目は\n勝つの！", at: [72%, 58%], connect: { to: urusai, style: overlap } }
+      - id: p2-d
+        layers:
+          - { image: p2-4, id: mio4, focus: [0.5, 0.35] }
+          - { sfx: ダッ, at: [84%, 55%], fontSize: 17mm }
+
+  # ── 3 ページ目 ───────────────────────────────
+  - id: p3
+    layout:
+      rows:
+        - { cols: [1], height: 1.35 }
+        - { cols: [1, 1], height: 1.1 }
+        - { cols: [1], height: 0.6 }
+    panels:
+      - id: p3-a
+        layers:
+          - { image: p3-1, id: duel, focus: [0.5, 0.35] }
+          - { sfx: ブンッ, at: [62%, 76%], fontSize: 15mm, rotate: -10deg }
+        dialogue:
+          - { mio: "はあああっ！", as: shout, at: [9%, 18%] }
+      - id: p3-b
+        layers:
+          - { image: p3-2, id: hayato3, focus: [0.4, 0.3] }
+          - { sfx: ヒョイ, at: [80%, 82%], fontSize: 9mm, font: hand }
+        dialogue:
+          - { hayato: 遅い, at: [80%, 14%] }
+      - id: p3-c
+        layers:
+          - { image: p3-3, id: mio5, focus: [0.45, 0.3] }
+        dialogue:
+          - { mio: えっ, at: [82%, 12%] }
+      - id: p3-d
+        layers:
+          - { image: p3-4, id: grab, focus: [0.5, 0.4] }
+          - { sfx: ガシッ, at: [50%, 62%], fontSize: 13mm }
+
+  # ── 4 ページ目 ───────────────────────────────
+  - id: p4
+    layout:
+      rows:
+        - { cols: [1.15, 1], height: 1.3 }
+        - { cols: [1], height: 0.75 }
+        - { cols: [1], height: 1.05 }
+    panels:
+      - id: p4-a
+        layers:
+          - { image: p4-1, id: close, focus: [0.45, 0.3] }
+          - { balloon: "……ケガ\nないか", who: hayato, at: [86%, 13%], tail: { to: close.hayato } }
+      - id: p4-b
+        layers:
+          - { image: p4-2, id: mio6, focus: [0.5, 0.3] }
+        dialogue:
+          - { mio: "な、なによ\n……っ", as: tremble, at: [16%, 14%] }
+      - id: p4-c
+        layers:
+          - { image: p4-3, id: hayato4, focus: [0.5, 0.3] }
+        dialogue:
+          - { hayato: "三十一連敗な", at: [20%, 30%] }
+      - id: p4-d
+        bleed: [bottom, left, right]
+        layers:
+          - { image: p4-4, id: mio7, focus: [0.5, 0.35] }
+        dialogue:
+          - { mio: "次は絶対\n勝つんだから\n──っ！！", as: scream, at: [22%, 38%] }
