@@ -62,7 +62,7 @@ export function normalizeChunk(s: string, o: NormalizeOptions, vertical: boolean
   let t = s;
   if (o.ellipsis !== false) t = t.replace(/\.{3,}|・{3,}|。{3,}/g, (m) => "…".repeat(Math.max(1, Math.round(m.length / 3))));
   if (o.ellipsisPair) t = t.replace(/(?<!…)…(?!…)/g, "……");
-  if (o.dash !== false) t = t.replace(/[—―]{2,}/g, (m) => "―".repeat(m.length)).replace(/--+/g, "――").replace(/(?<![―—])[―—](?![―—])/g, "――");
+  if (o.dash !== false) t = t.replace(/[—―─━]{2,}/g, (m) => "―".repeat(m.length)).replace(/--+/g, "――").replace(/(?<![―—─━])[―—─━](?![―—─━])/g, "――");
   if (o.waveDash !== false) t = t.replace(/~/g, "〜");
   if (o.uppercase) t = t.toUpperCase();
   if (o.smartQuotes) t = t.replace(/(\w)'(\w)/g, "$1’$2").replace(/(^|[\s(\[{])'/g, "$1‘").replace(/'/g, "’").replace(/(^|[\s(\[{])"/g, "$1“").replace(/"/g, "”");

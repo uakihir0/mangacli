@@ -424,7 +424,7 @@ let shapeFeatures: InstanceType<typeof hb.Feature>[] = [];
 /** tate-chu-yoko runs squeezed below ~60 %, collected per layout call */
 let tcyWarn: string[] = [];
 
-const VERT_TURN = new Set(Array.from("〜～ー－―—–‐…‥（）「」『』【】〔〕〈〉《》［］｛｝＝＜＞→←"));
+const VERT_TURN = new Set(Array.from("〜～ー－―—─━–‐…‥（）「」『』【】〔〕〈〉《》［］｛｝＝＜＞→←"));
 const vertCache = new Map<string, boolean>();
 const SMALL_KANA = new Set(Array.from("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ"));
 const VERT_PUNCT = new Set(Array.from("、。，．"));
@@ -468,7 +468,8 @@ function fitDash(b: Box, vertical: boolean, span: number) {
   const p0 = vertical ? Math.min(m[3] * y0, m[3] * y1) + m[5] : Math.min(m[0] * x0, m[0] * x1) + m[4];
   const p1 = vertical ? Math.max(m[3] * y0, m[3] * y1) + m[5] : Math.max(m[0] * x0, m[0] * x1) + m[4];
   const len = p1 - p0;
-  if (len <= 0 || (p0 >= -0.02 * b.adv && p1 <= span * 1.02)) return;
+  // a dash fills its cells end to end, so a run reads as one line (fonts draw it short or overhanging)
+  if (len <= 0 || (Math.abs(p0) <= 0.02 * b.adv && Math.abs(p1 - span) <= 0.02 * span)) return;
   const k = span / len;
   g.m = vertical ? [m[0], m[1], m[2], m[3] * k, m[4], (m[5] - p0) * k] : [m[0] * k, m[1], m[2], m[3], (m[4] - p0) * k, m[5]];
 }
