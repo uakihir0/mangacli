@@ -464,14 +464,17 @@ function fitDash(b: Box, vertical: boolean, span: number) {
   const [x0, y0, x1, y1] = inkBox(g.font, g.gid);
   if (!isFinite(x0)) return;
   const m = g.m;
-  // extent along the line in box coordinates
-  const p0 = vertical ? Math.min(m[3] * y0, m[3] * y1) + m[5] : Math.min(m[0] * x0, m[0] * x1) + m[4];
-  const p1 = vertical ? Math.max(m[3] * y0, m[3] * y1) + m[5] : Math.max(m[0] * x0, m[0] * x1) + m[4];
+  // extent along the line in box coordinates (x' = a·x + c·y + e, y' = b·x + d·y + f); a dash
+  // turned for vertical text has its length on the glyph's x axis
+  const along = (x: number, y: number) => (vertical ? m[1] * x + m[3] * y + m[5] : m[0] * x + m[2] * y + m[4]);
+  const ps = [along(x0, y0), along(x1, y0), along(x0, y1), along(x1, y1)];
+  const p0 = Math.min(...ps);
+  const p1 = Math.max(...ps);
   const len = p1 - p0;
   // a dash fills its cells end to end, so a run reads as one line (fonts draw it short or overhanging)
   if (len <= 0 || (Math.abs(p0) <= 0.02 * b.adv && Math.abs(p1 - span) <= 0.02 * span)) return;
   const k = span / len;
-  g.m = vertical ? [m[0], m[1], m[2], m[3] * k, m[4], (m[5] - p0) * k] : [m[0] * k, m[1], m[2], m[3], (m[4] - p0) * k, m[5]];
+  g.m = vertical ? [m[0], m[1] * k, m[2], m[3] * k, m[4], (m[5] - p0) * k] : [m[0] * k, m[1], m[2] * k, m[3], (m[4] - p0) * k, m[5]];
 }
 /** whether the font substitutes a vertical form for ch (vert / vrt2) */
 function hasVertForm(f: LoadedFont, ch: string, lang: string): boolean {
@@ -513,6 +516,7 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
       shapeSegment([seg[turn]], [segUnits[turn]], pk, size0, "sideways", vertical, style, boxes);
       const nb = boxes[boxes.length - 1];
       nb.orient = "upright";
+      if (DASHES.has(nb.chars)) fitDash(nb, true, nb.adv);
       if (turn + 1 < seg.length) shapeSegment(seg.slice(turn + 1), segUnits.slice(turn + 1), pk, size0, o, vertical, style, boxes);
       return;
     }
