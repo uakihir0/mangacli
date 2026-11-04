@@ -221,7 +221,12 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       const gx = Math.max(0, Math.max(ra.x, rb.x) - Math.min(ra.x + ra.w, rb.x + rb.w));
       const gy = Math.max(0, Math.max(ra.y, rb.y) - Math.min(ra.y + ra.h, rb.y + rb.h));
       if (Math.hypot(gx, gy) > 4 * u.k) continue;
-      b.props = { ...b.props, connect: { to: a.el.id, style: "neck" } };
+      // tuck the follow-up balloon into the first one so their outlines merge (a stacked pair)
+      const d = { x: b.center.x - a.center.x, y: b.center.y - a.center.y };
+      const dl = Math.hypot(d.x, d.y) || 1;
+      const tuck = Math.hypot(gx, gy) + Math.min(ra.w, ra.h, rb.w, rb.h) * 0.12;
+      b.center = { x: b.center.x - (d.x / dl) * tuck, y: b.center.y - (d.y / dl) * tuck };
+      b.props = { ...b.props, connect: { to: a.el.id, style: "overlap" } };
       linkedIds.add(a.el.id);
       linkedIds.add(b.el.id);
     }

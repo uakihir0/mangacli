@@ -14,7 +14,7 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
     fill: "paper",
     tail: { kind: "wedge", gap: "2bmm", bend: 0.15, sideCurve: 0.25, root: "auto", count: 3, shrink: 0.62, segments: 3 },
     minSize: ["8bmm", "8bmm"],
-    maxSize: ["70%", "70%"],
+    maxSize: ["75%", "80%"],
     aspect: "auto",
     aspectRange: [0.55, 1.8],
     padding: ["0.6em", "0.8em"],

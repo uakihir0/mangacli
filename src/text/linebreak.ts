@@ -45,7 +45,7 @@ const KANJI_ONLY = /^[一-鿿㐀-䶿々]+$/u;
 const STARTS_KANJI = /^[一-鿿㐀-䶿々]/u;
 /** 連用形 of a single-kanji verb (吹き, 折り, 引き, 取り…) that forms compound verbs/nouns */
 const RENYOU = /^[一-鿿㐀-䶿々][きりちしいみひびけえぎじ]$/u;
-const PUNCT_START = /^[、。，．！？!?」』）】〉》…―ーっゃゅょぁぃぅぇぉッャュョァィゥェォ〜]/u;
+const PUNCT_START = /^[、。，．！？!?」』）】〉》…―─━ーっゃゅょぁぃぅぇぉッャュョァィゥェォ〜]/u;
 const PARTICLES = new Set(["は", "が", "を", "に", "で", "と", "も", "の", "へ", "や", "か", "ね", "よ", "な", "わ", "さ", "ぞ", "ぜ", "て", "た", "だ", "です", "ます", "でし", "まし", "から", "まで", "より", "けど", "って", "ので", "のに", "だけ", "しか", "ばかり", "など", "くらい", "ぐらい", "でも", "じゃ", "なあ", "ねえ", "よね", "かな", "のよ", "わよ", "ん"]);
 
 /** hiragana words that start a phrase even right after a kanji word (今度|なんか, 明日|また) */
@@ -72,6 +72,10 @@ export function phraseBoundaries(text: string, lang = "ja"): Set<number> {
       const attach =
         !afterPunct &&
         (PUNCT_START.test(w.s) || w.s === "ん" ||
+        // the explanatory ん takes its copula (勝つんだから, 行くんです)
+        (HIRA.test(w.s) && /[ぁ-ゟ]ん$/u.test(prev.s) && /^(だ|で|じゃ)/u.test(w.s)) ||
+        // a lone hiragana never starts a phrase (中だ|ろ)
+        (HIRA.test(w.s) && Array.from(w.s).length === 1 && !STANDALONE.has(w.s) && !/[はがをにでともへやかの]$/u.test(prev.s)) ||
         // okurigana / particles after a kanji or katakana word
         (HIRA.test(w.s) && ENDS_KANJI_KATA.test(prev.s) && !free) ||
         // okurigana / particles after a kanji or katakana word
@@ -92,7 +96,10 @@ export function phraseBoundaries(text: string, lang = "ja"): Set<number> {
         (!/^\s+$/.test(prev.s) && /^[0-9,.]+$/.test(w.s) && /[0-9]$/.test(prev.s)) ||
         // numbers keep their counter and prefix (2024年, 3人, 第12話)
         (/^[一-鿿々]{1,2}/u.test(w.s) && /[0-9０-９]$/.test(prev.s)) ||
-        (/^[0-9０-９]/.test(w.s) && /第$/.test(prev.s)));
+        (/^[0-9０-９]/.test(w.s) && /第$/.test(prev.s)) ||
+        // kanji numerals stay one word with what they count (三十一回目, 三十連敗)
+        (/^[一二三四五六七八九十百千万〇零]/u.test(w.s) && /[一二三四五六七八九十百千万〇零]$/u.test(prev.s)) ||
+        (/^[回目度人個本枚匹歳年月日時分秒番位連敗勝戦]/u.test(w.s) && /[一二三四五六七八九十百千万〇零]$/u.test(prev.s)));
       if (attach) {
         const teChain = isTe(lastWord) && HIRA.test(w.s) && w.s.length <= 3;
         prev.s += w.s;
