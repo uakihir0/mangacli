@@ -245,10 +245,10 @@ function spiky(w: number, h: number, p: ShapeParams, seed: number, burst: boolea
   const b = h / 2;
   const base = organicEllipse(a, b, { ...p, squareness: 0.05, egg: p.egg ?? 0.03 }, rng);
   const per = ellipsePerimeter(a, b);
-  const pitch = burst ? 6.5 : 6;
+  const pitch = burst ? 6.5 : 5;
   const n = p.count === undefined || p.count === "auto" ? Math.max(burst ? 8 : 10, Math.round(per / pitch)) : Math.max(5, Math.round(p.count));
-  const dep: [number, number] = Array.isArray(p.depth) ? p.depth : typeof p.depth === "number" ? [p.depth * 0.8, p.depth * 1.2] : burst ? [0.2, 0.6] : [0.22, 0.34];
-  const jit = p.angleJitter ?? 0.3;
+  const dep: [number, number] = Array.isArray(p.depth) ? p.depth : typeof p.depth === "number" ? [p.depth * 0.8, p.depth * 1.2] : burst ? [0.2, 0.6] : [0.18, 0.28];
+  const jit = p.angleJitter ?? (burst ? 0.3 : 0.2);
   const curve = p.curve ?? (burst ? 0.35 : 0.5);
   const step = TAU / n;
   const phase = rng.range(0, step);
