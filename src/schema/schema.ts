@@ -135,7 +135,7 @@ export const Region = RegionBase;
 
 const Mask = z.union([z.object({ region: Region, invert: z.boolean().optional(), feather: Length.optional() }).strict(), Region]);
 
-const Clip = z.union([z.enum(["panel", "none", "trim"]), z.object({ to: z.literal("panel"), open: z.array(z.enum(["top", "right", "bottom", "left"])) }).strict()]);
+const Clip = z.union([z.enum(["panel", "none", "trim", "auto"]), z.object({ to: z.literal("panel"), open: z.array(z.enum(["top", "right", "bottom", "left"])) }).strict()]);
 
 const common = {
   id: z.string().optional(),

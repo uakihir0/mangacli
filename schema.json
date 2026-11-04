@@ -5327,7 +5327,8 @@
           "enum": [
             "panel",
             "none",
-            "trim"
+            "trim",
+            "auto"
           ]
         },
         {

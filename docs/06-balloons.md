@@ -50,7 +50,7 @@
 | `connect` | Connect \| Connect[] | - | 連結（[6.9](#69-連結と重なり)、P1） |
 | `autoPlace` | `auto` \| `flow` \| `{ mode, inset, weights, threshold }` | `auto`（自動配置の実装前は `flow`） | 位置を指定しない場合の配置方法（[6.8](#68-配置)、[6.12](#612-自動配置)） |
 | 組版のプロパティ | - | - | `font`、`fontSize`、`color`、`writing`、`lineHeight`、`letterSpacing`、`align`、`wrap`、`maxChars` など（[7.2](07-text.md#72-組版のプロパティ)） |
-| 共通プロパティ | - | - | `at`、`place`、`anchor`、`offset`、`rotate`、`z`、`clip`（既定 `none`）など（[5.2](05-elements-and-images.md#52-共通プロパティ)） |
+| 共通プロパティ | - | - | `at`、`place`、`anchor`、`offset`、`rotate`、`z`、`clip`（既定 `auto`）など（[5.2](05-elements-and-images.md#52-共通プロパティ)） |
 
 `rotate` は本体と本文をまとめて回転する。本体だけを傾ける場合は `shape.tilt` を使う。
 
@@ -363,8 +363,8 @@ tail: none
 
 | 表現 | 指定 |
 |---|---|
-| 枠にかかる吹き出し（枠線の上に描く） | 既定（`clip: none`） |
-| 枠で切れる吹き出し | `clip: panel`。枠線は吹き出しの上に描かれる |
+| 枠にかかる吹き出し（枠線の上に描く） | 既定（`clip: auto`）でコマの間の枠線にかかる場合。外周の辺でも枠線の上に描くには `clip: none` |
+| 枠で切れる吹き出し | 既定（`clip: auto`）で枠の外周を越える場合。本文は外周の辺から `max(2.5 bmm, 0.8em)` 内側へ寄せる。すべての辺で切るには `clip: panel`。枠線は吹き出しの上に描かれる |
 | コマをまたぐ吹き出し | ページの `layers` に置く、またはコマの `layers` に置いて `coords: page` で配置する |
 
 - 本文が安全領域（[4.1](04-pages-and-panels.md#41-ページの幾何)）の外に出る場合は警告（`TEXT_OUTSIDE_SAFE_AREA`）。

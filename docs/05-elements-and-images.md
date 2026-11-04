@@ -114,11 +114,12 @@ M = translate(at + offset) · rotate(rotate) · scale(scale) · translate(−anc
 | `panel` | コマの形でクリップする |
 | `none` | クリップしない。描画順はすべてのコマの枠線より後（[4.12](04-pages-and-panels.md#412-描画順)） |
 | `trim` | 仕上がりでクリップする（ページの `layers` 用） |
+| `auto` | 吹き出し用。コマの間の枠線にかかる場合は `none` と同じく枠線の上に描き、枠の外周（コマの並びの外側の辺）を越える場合は `panel` と同じく枠で切る。枠で切る場合は、本文を外周の辺から `max(2.5 bmm, 0.8em)` 内側へ寄せる |
 | `{ to: panel, open: [辺...] }` | コマの形でクリップするが、指定した辺の方向には塗り足しの端まで開放する（P1） |
 
 | 種類 | `clip` の既定値 |
 |---|---|
-| `balloon` | `none` |
+| `balloon` | `auto` |
 | `text`、`sfx` | `none` |
 | それ以外（コマ内） | `panel` |
 | ページの `layers` | `none` |

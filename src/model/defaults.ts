@@ -21,7 +21,7 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
     minFontScale: 0.75,
     font: "dialogue",
     fontSize: "13bQ",
-    clip: "none",
+    clip: "auto",
     autoPlace: "auto",
   },
   text: { font: "narration", fontSize: "12bQ", clip: "none", padding: ["0.45em", "0.6em"], overflow: "shrink", outline: [{ width: "0.8bmm", color: "paper" }] },

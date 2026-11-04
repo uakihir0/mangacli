@@ -285,6 +285,9 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       collectTranscript(el, pg.panel.id, info, o);
       const it = processed.get(el.id);
       if (!it) continue;
+      // clip: auto — a balloon may lie over a frame line between panels, but one that runs past
+      // the outer edge of the panel area is cut by the frame there, as lettering usually is
+      if (it.free && el.type === "balloon" && el.props.clip === "auto" && !isOffscreen(el) && crossesOuterEdge(pg, it.bbox, u.k)) it.free = false;
       if (it.free) {
         if (isObj(el.props.clip)) it.openClip = openClipPath(pg, el.props.clip as Obj, geom, u);
         items.push(it);
@@ -293,7 +296,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
         // text cut by the panel clip
         const pb = pg.box;
         const b = it.bbox;
-        if ((el.type === "balloon" || el.type === "text") && (b.x < pb.x - 0.3 || b.y < pb.y - 0.3 || b.x + b.w > pb.x + pb.w + 0.3 || b.y + b.h > pb.y + pb.h + 0.3)) bag.warn("TEXT_CLIPPED", `${el.id} is cut by the panel frame`, { path: el.path, elementId: el.id, pageId: page.id });
+        if ((el.type === "balloon" || el.type === "text") && el.props.clip !== "auto" && (b.x < pb.x - 0.3 || b.y < pb.y - 0.3 || b.x + b.w > pb.x + pb.w + 0.3 || b.y + b.h > pb.y + pb.h + 0.3)) bag.warn("TEXT_CLIPPED", `${el.id} is cut by the panel frame`, { path: el.path, elementId: el.id, pageId: page.id });
       }
       info.elements.push({ id: el.id, type: el.type, bbox: it.bbox, panel: pg.panel.id });
     }
@@ -368,6 +371,14 @@ function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listI
   }
   const wrapped: Node[] = op !== undefined || blend ? [{ kind: "group", opacity: op, blend, children: inner }] : inner;
   return { el, nodes: wrapped, bbox, z: (el.props.z as number) ?? 0, layer, source, panelIdx, listIdx, free };
+}
+
+/** whether a box runs past a side of the panel that lies on the boundary of the panel area */
+function crossesOuterEdge(pg: PanelGeom, b: Rect, k: number): boolean {
+  const pb = pg.box;
+  const tol = 0.5 * k;
+  const past: Record<string, boolean> = { top: b.y < pb.y - tol, bottom: b.y + b.h > pb.y + pb.h + tol, left: b.x < pb.x - tol, right: b.x + b.w > pb.x + pb.w + tol };
+  return pg.edgeSides.some((s) => s !== null && past[s]);
 }
 
 function isOffscreen(el: RElement): boolean {
@@ -934,6 +945,22 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
       tl.x = Math.min(Math.max(tl.x, lim.x), Math.max(lim.x, lim.x + lim.w - tl.w));
       tl.y = Math.min(Math.max(tl.y, lim.y), Math.max(lim.y, lim.y + lim.h - tl.h));
       ctx.bag.info("BALLOON_SHIFTED", `balloon ${pl.el.id} was moved inside the page`, { path: pl.el.path, elementId: pl.el.id });
+    }
+    // a balloon cut by the outer frame (clip: auto) keeps its text clear of the frame line
+    if (ctx.panel && pl.props.clip === "auto" && !isOffscreen(pl.el)) {
+      const pb = ctx.panel.box;
+      const m = Math.max(2.5 * u.k, pl.text.fontSize * 0.8);
+      const tx = tl.x - pl.outer.x + pl.innerCenter.x + pl.textOffset.x - pl.text.width / 2;
+      const ty = tl.y - pl.outer.y + pl.innerCenter.y + pl.textOffset.y - pl.text.height / 2;
+      const sides = new Set(ctx.panel.edgeSides);
+      let dx = 0;
+      let dy = 0;
+      if (sides.has("left") && tx < pb.x + m) dx = pb.x + m - tx;
+      if (sides.has("right") && tx + pl.text.width > pb.x + pb.w - m) dx = Math.min(dx || Infinity, pb.x + pb.w - m - tx - pl.text.width);
+      if (sides.has("top") && ty < pb.y + m) dy = pb.y + m - ty;
+      if (sides.has("bottom") && ty + pl.text.height > pb.y + pb.h - m) dy = Math.min(dy || Infinity, pb.y + pb.h - m - ty - pl.text.height);
+      if (isFinite(dx)) tl.x += dx;
+      if (isFinite(dy)) tl.y += dy;
     }
     setCenter(pl, { x: tl.x - pl.outer.x, y: tl.y - pl.outer.y });
   }
