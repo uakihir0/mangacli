@@ -16,6 +16,7 @@ export interface RasterOptions {
   dpi: number;
   crop: "trim" | "bleed" | "marks";
   marks?: { margin?: number; length?: number; width?: number };
+  drawMarks?: boolean;
   maxPixels?: number;
   /** 1-bit: screen ruling for images (overrides the element's) and dither mode */
   imageLpi?: number;
@@ -235,7 +236,7 @@ export class RasterBackend {
       ctx.clip();
       await this.drawNode(dev, list.root, base, canvas);
       ctx.restore();
-      drawCropMarks(ctx, { x: bleedPx, y: bleedPx, w: trimPxW, h: trimPxH }, bleedOnly, s, o.marks);
+      if (o.drawMarks !== false) drawCropMarks(ctx, { x: bleedPx, y: bleedPx, w: trimPxW, h: trimPxH }, bleedOnly, s, o.marks);
     } else await this.drawNode(dev, list.root, base, canvas);
     return this.result(canvas);
   }
@@ -254,7 +255,7 @@ export class RasterBackend {
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, W, H);
     }
-    if (margin) drawCropMarks(ctx, { x: margin + b, y: margin + b, w: raster.width - 2 * b, h: raster.height - 2 * b }, b, s, o.marks);
+    if (margin && o.drawMarks !== false) drawCropMarks(ctx, { x: margin + b, y: margin + b, w: raster.width - 2 * b, h: raster.height - 2 * b }, b, s, o.marks);
     const result = this.result(canvas);
     for (let y = 0; y < raster.height; y++) {
       result.data.set(raster.data.subarray(y * raster.width * 4, (y + 1) * raster.width * 4), ((y + margin) * W + margin) * 4);

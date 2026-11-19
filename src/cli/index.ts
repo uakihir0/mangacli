@@ -235,7 +235,7 @@ async function cmdRender(file: string, o: Obj, onSystemFont?: (path: string) => 
     process.stdout.write(r.pages[0].data);
   }
   if (o.contactSheet && r.pages.length && opts.outDir) {
-    const sheet = await contactSheet(r.pages.filter((p) => p.format !== "pdf" && p.format !== "svg" && !p.separation), !!(opts.config as Obj | undefined) && false);
+    const sheet = await contactSheet(r.pages.filter((p) => p.format !== "pdf" && p.format !== "svg" && p.format !== "psd" && !p.separation), !!(opts.config as Obj | undefined) && false);
     if (sheet) {
       const base = typeof input === "string" ? basename(input).replace(/\.[^.]+$/, "") : "manga";
       const f = join(opts.outDir, `${base}-contact.png`);
@@ -819,7 +819,7 @@ const renderOpts = (c: ReturnType<typeof cli.command>) =>
   common(c)
     .option("-o, --out <dir>", "Output directory")
     .option("-p, --profile <name>", "Output profile (print-mono, print-gray, print-color, web, sns, preview, draft)")
-    .option("-f, --format <fmt>", "png, jpeg, webp, avif, tiff, pdf, svg (comma separated)")
+    .option("-f, --format <fmt>", "png, jpeg, webp, avif, tiff, pdf, svg, psd (comma separated)")
     .option("--color <mode>", "color | gray | mono")
     .option("--dpi <n>", "Resolution")
     .option("--scale <n>", "Scale factor on the design resolution")
