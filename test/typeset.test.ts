@@ -1,6 +1,12 @@
+import { cpSync, mkdtempSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import * as hb from "harfbuzzjs";
+import { findCatalogFont } from "../src/fonts/catalog.js";
+import { ensureCatalogFont } from "../src/fonts/download.js";
 import { type FontDef, FontRegistry } from "../src/fonts/registry.js";
+import type { SystemFontFace } from "../src/fonts/system.js";
 import { type PathData, flattenPath, pathFromJson } from "../src/geom/path.js";
 import { boundsOf } from "../src/geom/vec.js";
 import { defaultTextStyle, layoutText } from "../src/text/layout.js";
@@ -25,6 +31,83 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
+  it("selects the standalone full-width punctuation font for dialogue TCY", async () => {
+    const fonts = new FontRegistry(new Map() as never, "manga-basic", [], {});
+    await fonts.prepare("dialogue", "！？!?");
+    const style = defaultTextStyle({ font: "dialogue", fontSize: 10 });
+    for (const text of ["！！", "？？", "！!?", "<tcy>！！</tcy>"]) {
+      const mark = text.includes("？") ? "？" : "！";
+      const selected = fonts.pick("dialogue", mark.codePointAt(0)!)!;
+      const result = layoutText(text, style, fonts);
+      const expected = layoutText(text, { ...style, font: "selected" }, { pick: () => selected, boldName: () => undefined } as never);
+      expect(result.glyphs.map((g) => normalizedOutline(g.path))).toEqual(expected.glyphs.map((g) => normalizedOutline(g.path)));
+      expect(result.lines[0].rect.h).toBeCloseTo(10);
+    }
+  });
+  it("retains the documented half-width minimum for non-mark TCY", async () => {
+    const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id: "dela-gothic-one" }]]), "none", [], {});
+    await fonts.prepare("test", "2026");
+    const style = defaultTextStyle({ font: "test", fontSize: 10 });
+    const horizontal = layoutText("2026", { ...style, writing: "horizontal" }, fonts);
+    const result = layoutText("<tcy>2026</tcy>", style, fonts);
+    expect(ink(result.glyphs[0].path).w / ink(horizontal.glyphs[0].path).w).toBeCloseTo(0.5);
+    expect(ink(result.glyphs[0].path).h).toBeCloseTo(ink(horizontal.glyphs[0].path).h);
+    expect(result.infos.some((info) => info.code === "TEXT_TCY_TOO_LONG")).toBe(true);
+  });
+  it("keeps a Dela dash pair within its shaped 14.22mm advance", async () => {
+    const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id: "dela-gothic-one" }]]), "none", [], {});
+    await fonts.prepare("test", "――");
+    const result = layoutText("――", { ...defaultTextStyle({ font: "test", fontSize: 10 }), maxExtent: 16, wrap: "char", kinsoku: "none" }, fonts);
+    expect(result.lines).toHaveLength(1);
+    expect(result.lines[0].rect.h).toBeCloseTo(14.22);
+    expect(ink(result.glyphs[0].path).h).toBeCloseTo(7.11);
+  });
+  it("keeps mixed TCY marks in one cell with ASCII-only font fallback", async () => {
+    const fonts = new FontRegistry(new Map<string, FontDef>([
+      ["ascii", { kind: "file", path: "assets/fonts/Lato-Regular.ttf" }],
+      ["jp", { kind: "catalog", id: "dela-gothic-one" }],
+      ["mixed", { kind: "compose", items: [{ font: "ascii", ranges: ["U+0000-007F"] }, { font: "jp" }] }],
+    ]), "none", [], {});
+    for (const font of ["ascii", "mixed"]) {
+      await fonts.prepare(font, "！!?！！");
+      for (const text of ["！!?", "！！", "<tcy>！！</tcy>"]) {
+        const result = layoutText(text, defaultTextStyle({ font, fontSize: 10 }), fonts);
+        expect(result.missing).toEqual([]);
+        expect(new Set(result.glyphs.map((g) => g.cy)).size).toBe(1);
+        expect(result.lines[0].rect.h).toBeCloseTo(10);
+      }
+    }
+  });
+  it.each(["dela-gothic-one", "noto-sans-jp"])("keeps TCY marks full height and vertical dashes thin with %s", async (id) => {
+    const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id }]]), "none", [], {});
+    await fonts.prepare("test", "──っ！！!?勝");
+    const style = defaultTextStyle({ font: "test", fontSize: 10 });
+    const body = ink(layoutText("勝", style, fonts).glyphs[0].path);
+    for (const text of ["！！", "!!", "！？", "<tcy>！！！</tcy>"]) {
+      const result = layoutText(text, style, fonts);
+      expect(result.errors).toEqual([]);
+      expect(result.missing).toEqual([]);
+      const rects = result.glyphs.map((g) => ink(g.path));
+      for (const rect of rects) {
+        expect(rect.h / body.h).toBeGreaterThan(0.8);
+        expect(rect.h / body.h).toBeLessThan(1.2);
+      }
+      expect(Math.max(...rects.map((r) => r.x + r.w)) - Math.min(...rects.map((r) => r.x))).toBeLessThanOrEqual(10 + 1e-8);
+    }
+    const dashes = layoutText("──っ！！", style, fonts).glyphs.slice(0, 2).map((g) => ink(g.path));
+    const fontDash = ink(layoutText("─", { ...style, writing: "horizontal" }, fonts).glyphs[0].path);
+    const thickness = Math.max(0.5, Math.min(1.2, fontDash.h / 2));
+    for (const dash of dashes) {
+      expect(dash.w).toBeCloseTo(thickness);
+      expect(dash.w).toBeGreaterThanOrEqual(0.5 - 1e-8);
+      expect(dash.w).toBeLessThanOrEqual(1.2 + 1e-8);
+      if (id === "dela-gothic-one") expect(dash.w).toBeGreaterThan(0.7);
+      expect(dash.h).toBeCloseTo(id === "dela-gothic-one" ? fontDash.w : 10);
+    }
+    expect(dashes[0].y + dashes[0].h).toBeCloseTo(dashes[1].y);
+    expect(layoutText("", style, fonts).glyphs).toEqual([]);
+    expect(layoutText("<unknown>！！</unknown>", style, fonts).errors[0]?.code).toBe("TEXT_UNKNOWN_TAG");
+  });
   it.each(["noto-sans-jp", "dela-gothic-one"])("compresses scaled nonokagi exactly once with %s", async (id) => {
     const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id }]]), "none", [], {});
     await fonts.prepare("test", "〝ヤ〟あ");
@@ -292,6 +375,67 @@ describe("typesetting", () => {
       const { x, w, h } = ink(path);
       expect(h).toBeGreaterThan(2 * w);
       expect(x + w / 2).toBeCloseTo(cx, 1);
+    }
+  });
+  it("balances the default antique-kana / gothic-kanji dialogue mix", async () => {
+    await reg.prepare("dialogue", "見たア、");
+    const kanji = reg.pick("dialogue", "見".codePointAt(0)!)!;
+    expect(kanji.font.key).toBe("cat:noto-sans-jp@600");
+    expect(kanji.scale).toBe(1);
+    for (const ch of "たア、") {
+      const kana = reg.pick("dialogue", ch.codePointAt(0)!)!;
+      expect(kana.font.key).toMatch(/zen-antique/i);
+      expect(kana.scale).toBe(1.04);
+      expect(kana.face).toBe(true);
+    }
+  });
+  it("prefers an installed 中ゴシックBBB for dialogue kanji", async () => {
+    const path = await ensureCatalogFont(findCatalogFont("zen-kaku-gothic-new", 700)!);
+    const fonts = new FontRegistry(new Map() as never, "manga-basic", [], {});
+    const bbb: SystemFontFace = { path, index: 0, families: ["A-OTF 中ゴシックBBB Pr6N"], fullNames: [], postScriptNames: ["GothicBBBPr6N-Medium"], regular: true };
+    (fonts as unknown as { systemFonts: Promise<SystemFontFace[]> }).systemFonts = Promise.resolve([bbb]);
+    await fonts.prepare("dialogue", "見た");
+    expect(fonts.pick("dialogue", "見".codePointAt(0)!)!.font.label).toBe("GothicBBBPr6N-Medium");
+    expect(fonts.pick("dialogue", "た".codePointAt(0)!)!.font.key).toMatch(/zen-antique/);
+  });
+  it("falls back to Zen Kaku Gothic New 500 when Noto Sans JP cannot be fetched", async () => {
+    const src = dirname(await ensureCatalogFont(findCatalogFont("zen-kaku-gothic-new", 500)!));
+    await ensureCatalogFont(findCatalogFont("zen-antique", 400)!);
+    const dir = mkdtempSync(join(tmpdir(), "mangacli-fonts-"));
+    for (const f of readdirSync(src)) if (!f.startsWith("noto-sans-jp")) cpSync(join(src, f), join(dir, f));
+    const errors: string[] = [];
+    const fonts = new FontRegistry(new Map() as never, "manga-basic", [], { fontCacheDir: dir, fontDownload: "never", onError: (code) => errors.push(code) });
+    (fonts as unknown as { systemFonts: Promise<SystemFontFace[]> }).systemFonts = Promise.resolve([]);
+    await fonts.prepare("dialogue", "見た");
+    expect(fonts.pick("dialogue", "見".codePointAt(0)!)!.font.key).toBe("cat:zen-kaku-gothic-new@500");
+    expect(errors).toContain("FONT_DOWNLOAD_DISABLED");
+  });
+  it("skips a missing 中ゴシックBBB without a diagnostic", async () => {
+    const errors: string[] = [];
+    const fonts = new FontRegistry(new Map() as never, "manga-basic", [], { onError: (code) => errors.push(code) });
+    (fonts as unknown as { systemFonts: Promise<SystemFontFace[]> }).systemFonts = Promise.resolve([]);
+    await fonts.prepare("dialogue", "見た");
+    expect(fonts.pick("dialogue", "見".codePointAt(0)!)!.font.key).toBe("cat:noto-sans-jp@600");
+    expect(errors).toEqual([]);
+  });
+  it.each(["vertical", "horizontal"] as const)("enlarges composed kana faces without changing the pitch (%s)", async (writing) => {
+    const text = "見たた見";
+    const plain = new FontRegistry(new Map<string, FontDef>([
+      ["antique", { kind: "catalog", id: "zen-antique" }],
+      ["gothic", { kind: "catalog", id: "noto-sans-jp", weight: 600 }],
+      ["mix", { kind: "compose", items: [{ font: "antique", ranges: ["kana", "punct"] }, { font: "gothic" }] }],
+    ]), "none", [], {});
+    await plain.prepare("mix", text);
+    await reg.prepare("dialogue", text);
+    const [base, scaled] = ([[plain, "mix"], [reg, "dialogue"]] as const).map(([fonts, font]) =>
+      layoutText(text, { ...defaultTextStyle({ font, fontSize: 10 }), writing, maxChars: 8 } as never, fonts)
+    );
+    expect(scaled.lines[0].length).toBeCloseTo(base.lines[0].length, 6);
+    for (const k of [0, 1, 2, 3]) {
+      const [a, b] = [base, scaled].map((l) => ink(l.glyphs[k].path));
+      const ratio = k === 1 || k === 2 ? 1.04 : 1;
+      expect(b.w / a.w).toBeCloseTo(ratio, 3);
+      expect(b.h / a.h).toBeCloseTo(ratio, 3);
     }
   });
 });
