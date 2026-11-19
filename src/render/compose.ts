@@ -936,8 +936,8 @@ async function renderScatter(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[
   }
   const assetGroups = nodes.filter((node): node is GroupNode => node.kind === "group" && node.children.length === 1 && node.children[0].kind === "image");
   const commonBlend = assetGroups.length > 0 && assetGroups.length === nodes.length && assetGroups.every((node) => node.blend === assetGroups[0].blend) ? assetGroups[0].blend : undefined;
-  const children = commonBlend ? assetGroups.map((node) => ({ ...node, blend: undefined })) : nodes;
-  return { nodes: [{ kind: "group", opacity: typeof p.opacity === "number" ? p.opacity : undefined, blend: (p.blend as GroupNode["blend"]) ?? commonBlend, clip: reg.path, children, tag: tag(el, "ink") }], bbox: b };
+  const blend = p.blend && p.blend !== "normal" ? p.blend as GroupNode["blend"] : commonBlend;
+  return { nodes: [{ kind: "group", opacity: typeof p.opacity === "number" ? p.opacity : undefined, blend, clip: reg.path, children: nodes, tag: tag(el, "ink") }], bbox: b };
 }
 
 // ---- balloon placement ------------------------------------------------------------

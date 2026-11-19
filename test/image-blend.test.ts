@@ -3,6 +3,40 @@ import sharp from "sharp";
 import { render } from "../src/api.js";
 
 describe("image blend precedence", () => {
+  it("keeps multiply between overlapping scatter items before layer opacity", async () => {
+    const asset = await sharp({ create: { width: 32, height: 32, channels: 4, background: "#808080" } }).png().toBuffer();
+    const result = await render({ yaml: `mangacli: 1
+page: { size: [20mm, 20mm], bleed: 0mm }
+book: { pageNumbers: { enabled: false } }
+assets:
+  art: { src: art.png, kind: lineart }
+pages:
+  - panels:
+      - layers:
+          - { type: scatter, count: 2, opacity: 0.5, region: { rect: [20%, 20%, 60%, 60%] }, itemScale: [1, 1], itemRotate: [0deg, 0deg], items: [{ asset: art, size: 4mm }] }
+` }, { profile: "print-gray", width: 100, format: "png", assets: { art: asset } });
+    const pixels = await sharp(Buffer.from(result.pages[0].data)).extract({ left: 15, top: 15, width: 70, height: 70 }).removeAlpha().raw().toBuffer();
+    expect(Math.min(...pixels)).toBeGreaterThanOrEqual(159);
+    expect(Math.min(...pixels)).toBeLessThanOrEqual(161);
+  });
+
+  it("preserves an item's multiply when scatter blend is normal", async () => {
+    const asset = await sharp({ create: { width: 32, height: 32, channels: 4, background: "white" } }).png().toBuffer();
+    const result = await render({ yaml: `mangacli: 1
+page: { size: [20mm, 20mm], bleed: 0mm }
+book: { pageNumbers: { enabled: false } }
+assets:
+  art: { src: art.png, kind: lineart }
+pages:
+  - panels:
+      - background: ink
+        layers:
+          - { type: scatter, count: 1, blend: normal, itemScale: [1, 1], itemRotate: [0deg, 0deg], items: [{ asset: art, size: 4mm, blend: multiply }] }
+` }, { profile: "print-gray", width: 100, format: "png", assets: { art: asset } });
+    const pixels = await sharp(Buffer.from(result.pages[0].data)).extract({ left: 10, top: 10, width: 80, height: 80 }).removeAlpha().raw().toBuffer();
+    expect(Math.max(...pixels)).toBe(0);
+  });
+
   it.each(["art", "lineart", "mixed"])("applies scatter opacity once across overlapping %s assets", async (kind) => {
     const asset = await sharp({ create: { width: 32, height: 32, channels: 4, background: "black" } }).png().toBuffer();
     const result = await render({ yaml: `mangacli: 1
