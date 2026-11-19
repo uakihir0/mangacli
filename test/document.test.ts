@@ -51,6 +51,19 @@ describe("layout", () => {
 
 describe("rendering", () => {
   const doc = "mangacli: 1\npage: { size: [60mm, 40mm], bleed: 0 }\npages:\n  - panels:\n      - layers:\n          - effect: focus-lines\n          - balloon: こんにちは\n";
+  async function renderMonoToneLayers(...tones: string[]) {
+    const probe = `mangacli: 1
+meta: { lang: en }
+page: { size: [25.4mm, 25.4mm], bleed: 0, baseFrame: trim, color: mono }
+pages:
+  - panels:
+      - border: none
+        layers:
+${tones.map(tone => `          - { type: fill, paint: { tone: ${tone} } }`).join("\n")}
+`;
+    const r = await render(yaml(probe), { profile: "print-mono", crop: "trim" });
+    return sharp(r.pages[0].data).extract({ left: 25, top: 25, width: 550, height: 550 }).greyscale().raw().toBuffer();
+  }
   it("is deterministic", async () => {
     const a = await render(yaml(doc), { profile: "preview" });
     const b = await render(yaml(doc), { profile: "preview" });
@@ -110,6 +123,12 @@ ${screens.map(({ lpi, angle }) => `      - background: { tone: { density: 35%, l
       }
     }
   }, 15000);
+  it("nests lighter round tones inside darker tones across the midtone", async () => {
+    const light = "{ density: 50%, lpi: 60, angle: 45deg }";
+    const dark = "{ density: 50.1%, lpi: 60, angle: 45deg }";
+    const [nested, darker] = await Promise.all([renderMonoToneLayers(light, dark), renderMonoToneLayers(dark)]);
+    expect(nested.equals(darker)).toBe(true);
+  });
   it("writes PDF with trim and bleed boxes", async () => {
     const r = await render(yaml(doc.replace("bleed: 0", "bleed: 3mm")), { profile: "print-mono", dpi: 100, format: "pdf" });
     const pdf = Buffer.from(r.pages[0].data).toString("latin1");

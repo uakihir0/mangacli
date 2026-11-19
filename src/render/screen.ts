@@ -97,8 +97,6 @@ export function makeBinaryRoundToneSampler(spec: ToneSpec, cellPx: number, origi
   const density = spec.invert ? 1 - spec.density : spec.density;
   if (density <= 0.0005 || (density < 0.5 && 2 * cellPx * Math.sqrt(density / Math.PI) < 1)) return () => 0;
   if (density >= 0.9995) return () => 1;
-  const holes = density > 0.5;
-  const ink = holes ? 1 - density : density;
   const ux = cellPx * Math.cos(spec.angle);
   const uy = cellPx * Math.sin(spec.angle);
   let a = 0, b = 0, cells = 0, best = Infinity;
@@ -129,25 +127,31 @@ export function makeBinaryRoundToneSampler(spec: ToneSpec, cellPx: number, origi
   const oy = Math.floor(originY);
   const fx = originX - ox;
   const fy = originY - oy;
-  const dots: { index: number; distance: number }[][] = Array.from({ length: cells * cells }, () => []);
+  const dots: { index: number; distance: number; rank: number }[][] = Array.from({ length: cells * cells }, () => []);
   for (let y = 0; y < g; y++) {
     for (let x = 0; x < width; x++) {
-      const u = mod(((x + fx) * a + (y + fy) * b) * cells / area - (holes ? 0.5 : 0), cells);
-      const v = mod((-(x + fx) * b + (y + fy) * a) * cells / area - (holes ? 0.5 : 0), cells);
+      const u = mod(((x + fx) * a + (y + fy) * b) * cells / area, cells);
+      const v = mod((-(x + fx) * b + (y + fy) * a) * cells / area, cells);
       const i = Math.floor(u);
       const j = Math.floor(v);
-      dots[j * cells + i].push({ index: y * width + x, distance: (u - i - 0.5) ** 2 + (v - j - 0.5) ** 2 });
+      dots[j * cells + i].push({ index: y * width + x, distance: spot("round", 2 * (u - i) - 1, 2 * (v - j) - 1), rank: 0 });
     }
   }
 
-  const tile = new Uint8Array(area);
-  if (holes) tile.fill(1);
-  const quota = ink * area / dots.length;
-  for (let i = 0; i < dots.length; i++) {
-    const pixels = dots[i].sort((p, q) => p.distance - q.distance);
-    const count = Math.round((i + 1) * quota) - Math.round(i * quota);
-    for (let j = 0; j < count && j < pixels.length; j++) tile[pixels[j].index] = holes ? 0 : 1;
+  const dotArea = area / dots.length;
+  const mid = Math.floor(dotArea / 2);
+  for (const pixels of dots) {
+    pixels.sort((p, q) => p.distance - q.distance);
+    for (let i = 0; i < pixels.length; i++) {
+      // Grow all dots one pixel at a time through the midtones, then
+      // account for unequal cell populations as the last white gaps close.
+      pixels[i].rank = i < mid ? i : mid + (i - mid) * (dotArea - mid) / (pixels.length - mid);
+    }
   }
+  const ordered = dots.flat().sort((p, q) => p.rank - q.rank || p.distance - q.distance);
+  const tile = new Uint8Array(area);
+  const count = Math.round(density * area);
+  for (let i = 0; i < count; i++) tile[ordered[i].index] = 1;
   return (px: number, py: number) => {
     const y = py + oy;
     return tile[mod(y, g) * width + mod(px + ox - Math.floor(y / g) * shift, width)];
