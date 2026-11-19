@@ -1,15 +1,18 @@
 import { cpSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as hb from "harfbuzzjs";
+import { load } from "../src/api.js";
 import { resolveTextStyle } from "../src/elements/textstyle.js";
 import { findCatalogFont } from "../src/fonts/catalog.js";
 import { ensureCatalogFont } from "../src/fonts/download.js";
 import { type FontDef, FontRegistry } from "../src/fonts/registry.js";
+import * as system from "../src/fonts/system.js";
 import type { SystemFontFace } from "../src/fonts/system.js";
 import { type PathData, flattenPath, pathFromJson } from "../src/geom/path.js";
 import { boundsOf } from "../src/geom/vec.js";
+import { resolveDocument } from "../src/model/resolve.js";
 import { defaultTextStyle, layoutText } from "../src/text/layout.js";
 import { noEnd, noStart } from "../src/text/linebreak.js";
 import { parseMarkup } from "../src/text/markup.js";
@@ -48,6 +51,51 @@ describe("typesetting", () => {
     expect(layout({ shape: { kind: "rect" } }).lines[0].rect.y).toBe(0);
     expect(layout({ shape: { kind: "burst" } }).lines[0].rect.y).toBe(0);
     expect(layout({ fontSize: "13bQ" }).fontSize).toBe(3.25);
+  });
+  it.each([
+    ["prefers Gothic MB101 U over Shin Go U", ["ShinGoPro-U", "ゴシックMB101 U"], "ゴシックMB101 U"],
+    ["uses installed Shin Go U if Gothic MB101 U is absent", ["ShinGoPro-U"], "ShinGoPro-U"],
+    ["falls back to Zen Kaku Gothic New Black", ["ShinGoPro-B"], "Zen Kaku Gothic New 900"],
+  ] as const)("%s for Japanese shout and scream", async (_, names, expected) => {
+    const { doc, bag } = load({
+      filename: "/virtual/shouts.yaml",
+      yaml: `mangacli: 1
+pages:
+  - panels:
+      - dialogue:
+          - { text: "絶対だ！", as: shout }
+          - { text: "絶対だ！", as: scream }
+`,
+    });
+    const shouts = resolveDocument(doc, bag).pages[0].panels[0].elements.map((e) => e.props);
+    expect(bag.items).toEqual([]);
+    expect(shouts.map((e) => e.shape)).toMatchObject([{ kind: "spike" }, { kind: "burst" }]);
+
+    const path = await ensureCatalogFont(findCatalogFont("zen-kaku-gothic-new", 700)!);
+    const list = vi.spyOn(system, "listSystemFonts").mockResolvedValue(names.map((name) => ({
+      path, index: 0, regular: false,
+      families: name.startsWith("ゴ") ? [name] : [],
+      fullNames: [],
+      postScriptNames: name.startsWith("ShinGo") ? [name] : [],
+    })));
+    try {
+      const onError = vi.fn();
+      const onSystemFont = vi.fn();
+      const fonts = new FontRegistry(new Map(), "manga-basic", [], { onError, onSystemFont });
+      const text = "絶対だ！";
+      for (const font of shouts.map((e) => String(e.font))) {
+        await fonts.prepare(font, text);
+        expect(fonts.primary(font)?.label).toBe(expected);
+        expect([...text].map((ch) => fonts.pick(font, ch.codePointAt(0)!)?.font.label)).toEqual(Array(text.length).fill(expected));
+      }
+      await fonts.prepare("sfx", text);
+      expect(fonts.primary("sfx")?.key).toBe("cat:dela-gothic-one@400");
+      expect(onError).not.toHaveBeenCalled();
+      expect(list).toHaveBeenCalledTimes(1);
+      expect(onSystemFont.mock.calls).toEqual(expected === "Zen Kaku Gothic New 900" ? [] : [[path]]);
+    } finally {
+      list.mockRestore();
+    }
   });
   it("selects the standalone full-width punctuation font for dialogue TCY", async () => {
     const fonts = new FontRegistry(new Map() as never, "manga-basic", [], {});
