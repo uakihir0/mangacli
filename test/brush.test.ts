@@ -16,6 +16,16 @@ const widthAt = (pts: typeof rectangle, y: number) => {
 };
 
 describe("brush pressure", () => {
+  it.each([1, 42, 753])("keeps short dot-like strokes convex for seed %s", seed => {
+    const dot = polyPath([{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1.6 }, { x: 0, y: 1.6 }], true);
+    const pts = flattenPath(brushGlyph(dot, 10, seed), 0.001)[0].pts;
+    const turns = pts.map((b, i) => {
+      const a = pts[(i + pts.length - 1) % pts.length], c = pts[(i + 1) % pts.length];
+      return (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+    }).filter(t => Math.abs(t) > 1e-8);
+    expect(turns.every(t => t > 0) || turns.every(t => t < 0)).toBe(true);
+    expect(brushGlyph(dot, 10, seed, { taper: 0 })).toEqual(dot);
+  });
   it.each([{ pts: rectangle }, { pts: [...rectangle].reverse() }])("detects the entry and exit of a rectangle stroke regardless of winding", ({ pts }) => {
     const terminals = detectBrushTerminals(pts, 10);
     expect(terminals).toHaveLength(2);

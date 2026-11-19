@@ -28,9 +28,9 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
   sfx: {
     font: "sfx",
     fontSize: "12bmm",
-    letterSpacing: "-0.22em",
-    perChar: { rotate: ["-10deg", "10deg"] },
-    distort: { roughen: 0, warp: 0.08, skew: "-8deg" },
+    letterSpacing: "-0.03em",
+    perChar: { rotate: ["-7deg", "7deg"] },
+    distort: { roughen: 0, warp: 0.08, skew: "-3deg" },
     color: "black",
     lettering: { mode: "hand" },
     clip: "none",

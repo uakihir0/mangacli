@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createRenderer } from "../src/api.js";
 import { BUILTIN_DEFAULTS } from "../src/model/defaults.js";
-import { sfxInkGap, sfxScale, sfxShifts } from "../src/text/sfx.js";
+import { sfxScale, sfxShifts } from "../src/text/sfx.js";
 import { flattenPath } from "../src/geom/path.js";
 import { boundsOf } from "../src/geom/vec.js";
 import type { Node, PathNode } from "../src/render/ir.js";
@@ -27,7 +27,7 @@ describe("SFX lettering", () => {
     expect(sfxScale(0, 1, char, undefined, 1)).toBe(1.3);
   });
   it("packs scaled glyphs with overlapping negative tracking", () => {
-    expect(BUILTIN_DEFAULTS.sfx.letterSpacing).toBe("-0.22em");
+    expect(BUILTIN_DEFAULTS.sfx.letterSpacing).toBe("-0.03em");
     const scales = [0.85, 1, 1.15];
     const shift = sfxShifts(scales, 10);
     for (let i = 1; i < scales.length; i++) {
@@ -66,23 +66,21 @@ describe("SFX lettering", () => {
     expect(widths[1] / widths[0]).toBeCloseTo(1.3 / 0.95, 2);
     expect(widths[2] / widths[1]).toBeCloseTo(0.7, 2);
   });
-  it.each(["vertical", "horizontal"])("overlaps actual glyph extents in %s writing", async writing => {
-    const list = await renderer.displayList(input(`writing: ${writing}`), 1);
+  it.each(["vertical", "horizontal"].flatMap(writing => ["バンッ", "ダッ", "ブンッ", "ガシッ"].map(text => ({ writing, text }))))("limits small kana ink bbox overlap in $writing $text", async ({ writing, text }) => {
+    const list = await renderer.displayList(input(`writing: ${writing}`, text), 1);
     const paths: PathNode[] = [];
     const walk = (node: Node) => {
       if (node.kind === "group") node.children.forEach(walk);
       if (node.kind === "path" && node.tag?.elementId === "sfx" && node.stroke) paths.push(node);
     };
     walk(list.root);
-    expect(paths).toHaveLength(3);
+    expect(paths).toHaveLength(Array.from(text).length);
     const boxes = paths.map(p => boundsOf(flattenPath(p.path, 0.01).flatMap(c => c.pts)));
     for (let i = 1; i < boxes.length; i++) {
       const prev = boxes[i - 1], next = boxes[i];
-      expect(next.x).toBeLessThan(prev.x + prev.w);
-      expect(next.y).toBeLessThan(prev.y + prev.h);
-      expect(next.x + next.w).toBeGreaterThan(prev.x);
-      expect(next.y + next.h).toBeGreaterThan(prev.y);
-      expect(sfxInkGap(paths[i - 1].path, paths[i].path, writing === "vertical", 10)).toBeLessThan(0);
+      const overlap = writing === "vertical" ? prev.y + prev.h - next.y : prev.x + prev.w - next.x;
+      expect(overlap).toBeLessThanOrEqual(0.5);
+      if (i === boxes.length - 1) expect(overlap).toBeLessThanOrEqual(0);
     }
   });
   it.each(["バンッ", "ダッ", "ブンッ", "ガシッ"])("preserves the original footprint for %s", async text => {

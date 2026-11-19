@@ -25,7 +25,7 @@
 | `color` | Paint | `black`（吹き出しでは塗りに応じて自動、[6.5](06-balloons.md#65-塗りfill)） | 文字の塗り。トーンやグラデーションも使える |
 | `writing` | `vertical` \| `horizontal` | レンダリング時の言語（[3.10](03-document-format.md#310-meta)）が `ja` なら `vertical`、それ以外は `horizontal` | 縦書き（右から左へ列を進める）・横書き |
 | `lineHeight` | 数値 \| Length | 縦書き 1.45、横書き 1.4 | 行送り。数値は文字サイズの倍数、長さは絶対値（`H` 単位も使える） |
-| `letterSpacing` | Length（`em`） | `0`（`sfx` は `-0.22em`） | 字間（ベタ組みが 0） |
+| `letterSpacing` | Length（`em`） | `0`（`sfx` は `-0.03em`） | 字間（ベタ組みが 0） |
 | `align` | `start` \| `center` \| `end` \| `justify` | 吹き出しの縦書きは `start`、吹き出しの横書きは `center`、その他は `start` | 行の揃え。縦書きの `start` は天揃え |
 | `blockAlign` | `start` \| `center` \| `end` | `center` | 箱の中での文字のかたまりの位置（`text` で `size` を固定した場合） |
 | `wrap` | `auto` \| `none` \| `char` \| `phrase` \| `balanced` | `auto` | 改行の方法（[7.6](#76-改行と禁則処理)） |
@@ -599,14 +599,14 @@ ruby:
 | `fontSize` | Length | 12 mm | 基準の文字サイズ |
 | `bleed` | 真偽値 | `false` | 意図的なはみ出しの安全領域警告だけを抑制する |
 | `writing` | `vertical` \| `horizontal` | 本文と同じ（言語が `ja` なら `vertical`、それ以外は `horizontal`） | 並べる向き |
-| `letterSpacing` | Length（`em`） | `-0.22em` | 字間。文字を重ねて一体の描き文字にする |
+| `letterSpacing` | Length（`em`） | `-0.03em` | 負の字間は字送りを詰めた後、インク外接矩形の間に最低 0.03em、小書き仮名の前は 0.04em 空け、点画が隣の文字と融合しないようにする |
 | `path` | SfxPath | - | 文字を並べる経路（下表） |
 | `grow` | 数値 | 自動 | 省略時は通常サイズの仮名を先頭 95% → 末尾 130%（1 文字なら 130%）にし、詰めた後も元の面積以上を確保する。指定時は 1 + `grow` × (n − 1)。`0` で等サイズ・面積補正なし |
 | `smallKanaScale` | 数値（0.1〜1） | `0.7` | 促音・拗音などの小書き仮名は直前の通常文字の倍率にこれを掛ける。`1` で縮小を無効 |
-| `perChar` | `{ rotate, scale, jitter }` | `{ rotate: [-10deg, 10deg], scale: [0.96, 1.06] }` | シードから再現可能な文字ごとの不規則な変形。既定では組み方向に直交する ±0.08em の位置揺れも付ける。`rotate`（Angle の Range）、`scale`（倍率の Range）、`jitter`（両軸のずれ、Length。`0mm` で位置揺れなし） |
+| `perChar` | `{ rotate, scale, jitter }` | `{ rotate: [-7deg, 7deg], scale: [0.96, 1.06] }` | シードから再現可能な文字ごとの不規則な変形。既定では組み方向に直交する ±0.08em の位置揺れも付ける。`rotate`（Angle の Range）、`scale`（倍率の Range）、`jitter`（両軸のずれ、Length。`0mm` で位置揺れなし） |
 | `chars` | CharOverride[] | - | 文字の番号ごとの上書き（`{ index, rotate, scale, offset, color }`） |
 | `brush` | `false` \| `{ taper, entry, wobble }` | `{ taper: 1, entry: 1, wobble: 0.04 }` | 骨格の輪郭を筆圧加工する。`taper`（0〜2）は抜きの強さ、`entry`（0〜2）は入りの強さ、`wobble`（0〜0.2）は筆画幅に対する低周波の幅揺れ。`false` で加工なし |
-| `distort` | Distort | `{ roughen: 0, warp: 0.08, skew: -8deg }` | 全体の歪み（下表）。既定では細かなギザギザを付けず、筆先の形を保持する |
+| `distort` | Distort | `{ roughen: 0, warp: 0.08, skew: -3deg }` | 全体の歪み（下表）。既定では細かなギザギザを付けず、筆先の形を保持する |
 | `color` | Paint | `black` | 文字の塗り |
 | `outline` | Outline[] | 白、各文字サイズの 6% | 太い白フチ（太字の筆画幅の約 35%）。大小変形・面積補正後の文字サイズに比例し、全ての縁を全ての塗りより先に描く。`none` で無効、明示した幅で上書き可能 |
 | `edge` | Stroke | `none` | 字形の輪郭を手描きの線でなぞる（例: 白抜き文字の黒い輪郭） |
@@ -632,7 +632,7 @@ ruby:
 描画の手順:
 
 1. 字形の輪郭を取得し、`path` に沿って並べる。
-2. `brush` で短い終端の凸角を検出し、下・右・左下向きの抜きを尖らせ、最後の約 1/4 を細くする。上・左向きの入りは 14% 広げ、斜めに押し込む。長辺には低周波の幅揺れを付ける。その後 `grow`、`perChar`、`chars` の変形を文字ごとに適用する。
+2. `brush` で両端が凸角で局所的な筆画幅に近い終端だけを検出し、下・右・左下向きの抜きを筆画方向へ伸ばし、最後の約 1/4 を滑らかに細くする。上・左向きの入りは 14% 広げ、斜めに押し込む。長辺には低周波の幅揺れを付ける。長さが幅の約 2 倍未満の点画は入りや幅揺れを付けず、凸形状を保つ弱い片側の抜きだけにする。その後 `grow`、`perChar`、`chars` の変形を文字ごとに適用する。
 3. `distort` の歪みを、全体の座標に対する変換として適用する。
 4. `roughen` と `lettering` の揺らぎを輪郭に適用する（[9.10](09-hand-drawn.md#910-文字の手描き化)）。
 5. 縁取り（`outline`）を、歪めた後の輪郭のオフセットで作り、外側から描く。

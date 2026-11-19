@@ -16,7 +16,7 @@ import { type TextLayout, layoutText } from "../text/layout.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
 import { parseMarkup } from "../text/markup.js";
-import { isSmallKana, sfxInkGap, sfxScale, sfxShifts } from "../text/sfx.js";
+import { isSmallKana, sfxScale, sfxShifts } from "../text/sfx.js";
 import { brushGlyph, type BrushSpec } from "../text/brush.js";
 
 type Obj = Record<string, unknown>;
@@ -264,18 +264,15 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   }
   if (!pathSpec && style.letterSpacing < 0) {
     let end: number | undefined;
-    let previous: PathData | undefined;
     for (const unit of units) {
       const indices = tl.glyphs.flatMap((g, i) => g.unit === unit ? [i] : []);
       const points = indices.flatMap(i => flattenPath(paths[i], 0.05).flatMap(c => c.pts));
       if (!points.length) continue;
       const bb = boundsOf(points);
       const start = vertical ? bb.y : bb.x;
-      const current = indices.flatMap(i => paths[i]);
-      const gap = previous ? sfxInkGap(previous, current, vertical, em) : undefined;
-      const delta = gap !== undefined ? -gap + style.letterSpacing * em * 0.4 : end === undefined ? 0 : end + style.letterSpacing * em * 0.4 - start;
+      const spacing = isSmallKana(unitChars[idxOf.get(unit)!]) ? 0.04 : Math.max(0.03, style.letterSpacing);
+      const delta = end === undefined ? 0 : end + spacing * em - start;
       for (const i of indices) paths[i] = transformPath(paths[i], matTranslate(vertical ? 0 : delta, vertical ? delta : 0));
-      previous = indices.flatMap(i => paths[i]);
       end = start + delta + (vertical ? bb.h : bb.w);
     }
   }
