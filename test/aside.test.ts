@@ -26,6 +26,35 @@ const overlap = (a: Rect, b: Rect) => Math.max(0, Math.min(a.x + a.w, b.x + b.w)
 const flatten = (nodes: Node[]): Node[] => nodes.flatMap(n => n.kind === "group" ? flatten(n.children) : [n]);
 
 describe("aside", () => {
+  it("wraps auto-sized asides to fit beside a face without shrinking", async () => {
+    const doc = {
+      filename: input("").filename,
+      yaml: `mangacli: 1
+page: { size: [100mm, 25mm], bleed: 0, baseFrame: trim }
+characters: { taro: {} }
+assets:
+  taro: { src: ./assets/taro/normal.png, character: taro, anchors: { mouth: [500, 530] }, regions: { face: [300, 120, 400, 540] } }
+pages:
+  - panels:
+      - layers:
+          - { image: taro, id: figure, fit: contain }
+          - { balloon: そんなこと言われても困るよ, as: aside, id: aside, who: taro, writing: horizontal, fontSize: 5mm, rotate: 0deg, maxSize: [50mm, 70mm] }
+`,
+    };
+    const r = await render(doc, { layoutOnly: true });
+    const page = r.layout[0];
+    const figure = page.elements.find(e => e.id === "figure")!.bbox;
+    const scale = Math.min(figure.w / 1000, figure.h / 1400);
+    const face = { x: figure.x + (figure.w - 1000 * scale) / 2 + 300 * scale, y: figure.y + (figure.h - 1400 * scale) / 2 + 120 * scale, w: 400 * scale, h: 540 * scale };
+    const aside = page.elements.find(e => e.id === "aside")!.bbox;
+    const text = page.text.find(t => t.id === "aside")!;
+    expect(text.lines).toEqual(["そんなこと", "言われても困るよ"]);
+    expect(text.fontSize).toBe(3.75);
+    expect(aside.w).toBeLessThanOrEqual(50);
+    expect(overlap(aside, face)).toBe(0);
+    expect(Math.min(Math.abs(aside.x + aside.w - face.x), Math.abs(aside.x - face.x - face.w))).toBeLessThan(3);
+    expect(r.diagnostics.filter(d => ["BALLOON_NO_SPACE", "TEXT_SHRUNK", "TEXT_OVERFLOW"].includes(d.code))).toEqual([]);
+  });
   it("normalizes element and dialogue syntax and resolves handwriting defaults", () => {
     const p = load(input("          - { aside: ボソッ, who: taro, id: aside }", "{ taro: 小声, as: aside }"));
     expect(p.bag.hasErrors).toBe(false);

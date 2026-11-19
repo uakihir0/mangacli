@@ -129,7 +129,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
   const kind = params.kind === "flash" ? "ellipse" : params.kind;
 
   let scale = 1;
-  let constrainAuto = false;
+  let constrainAuto = p.as === "aside";
   for (let attempt = 0; attempt < 12; attempt++) {
     const style = resolveTextStyle({ ...p, fontScale: ((p.fontScale as number) ?? 1) * scale }, u, ctx.lang, true, el.seed);
     const emCtx = { ...u, em: style.fontSize };
