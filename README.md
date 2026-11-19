@@ -19,7 +19,7 @@ The B5 and color examples use a matched set of school illustrations; some other 
 
 - Japanese manga conventions by default: right-to-left reading, vertical text, mixed antique/gothic fonts (アンチゴチ), ruby, emphasis dots, tate-chu-yoko, kinsoku line breaking, gutters, bleed panels, page numbers.
 - Balloons in many styles: ellipse, thought cloud, shout spikes, scream burst, trembling, whisper (dashed), narration box, electronic voice, inverted, connected balloons. Tails aim at the speaker's mouth and stop short of the face; off-panel speakers get tails cut by the frame. Balloons are sized to the text and placed automatically in reading order, avoiding faces and figures.
-- Effects: focus lines, beta flash, uni flash, speed lines, gloom lines, swirl lines, rain, hatching, kakeami, impact, vignette, and screentones (dots, lines, noise, gradient tones).
+- Effects: focus lines, beta flash, uni flash, speed lines, gloom lines, swirl lines, rain, hatching, kakeami, impact, vignette, contour-following flame auras and lightning arcs, and screentones (dots, lines, noise, gradient tones).
 - Sound effects with per-character rotation, growth, warping, roughening, and outlines; manpu marks such as sweat, anger veins, sparkles, and hearts.
 - Output as PNG, JPEG, WebP, AVIF, TIFF, SVG, or PDF (with trim and bleed boxes), optionally with crop marks. Color, grayscale, or 1-bit monochrome for print (600 dpi B5 by default), with bleed and separations.
 - Deterministic: the same input always produces the same output. Change the seed to get a "redrawn" take.
