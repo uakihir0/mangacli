@@ -327,6 +327,7 @@ const textProps = {
 
 const sfxProps = {
   ...textProps,
+  bleed: z.boolean().optional(),
   path: z.object({ kind: z.enum(["line", "arc", "wave", "points"]), angle: Angle.optional(), radius: Length.optional(), amplitude: Length.optional(), wavelength: Length.optional(), points: z.array(z.tuple([Length, Length])).optional() }).strict().optional(),
   grow: z.number().optional(),
   perChar: z.object({ rotate: RangeOf(Angle).optional(), scale: RangeOf(z.number()).optional(), jitter: Length.optional() }).strict().optional(),

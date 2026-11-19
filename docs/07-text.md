@@ -548,6 +548,7 @@ ruby:
 ## 7.14 描き文字（sfx）
 
 描き文字も安全領域外では `TEXT_OUTSIDE_SAFE_AREA`、見開きののど付近では `TEXT_NEAR_FOLD` を警告する。意図的なはみ出しを妨げず、警告があっても描画する。
+断ち切りなどで意図的にはみ出す描き文字には `bleed: true` を指定すると、その要素の `TEXT_OUTSIDE_SAFE_AREA` だけを抑制できる。`TEXT_NEAR_FOLD` や描画・クリップには影響しない。
 
 （P1）
 
@@ -578,6 +579,7 @@ ruby:
 |---|---|---|---|
 | `text` | 文字列 | 必須 | 文字（マークアップは `<size>`、`<color>`、`<font>`、`<space>` のみ有効） |
 | `fontSize` | Length | 12 mm | 基準の文字サイズ |
+| `bleed` | 真偽値 | `false` | 意図的なはみ出しの安全領域警告だけを抑制する |
 | `writing` | `vertical` \| `horizontal` | 本文と同じ（言語が `ja` なら `vertical`、それ以外は `horizontal`） | 並べる向き |
 | `letterSpacing` | Length（`em`） | `-0.05em` | 字間（描き文字は詰め気味にする） |
 | `path` | SfxPath | - | 文字を並べる経路（下表） |
