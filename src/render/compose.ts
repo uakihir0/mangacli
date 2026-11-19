@@ -334,7 +334,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     const { nodes } = await layoutImage(el, baseCtx(), box, "background");
     pageBackground.push({ kind: "group", clip: polyPath(rectPts(box), true), children: nodes, tag: bgTag });
     if (page.settings.gutterFill !== "none") {
-      const path = gutterPath(area, panels);
+      const path = gutterPath(area, panels, geom);
       if (path.length) pageBackground.push({ kind: "path", path, fillRule: "evenodd", paint: { type: "solid", color: WHITE }, tag: bgTag });
     }
   }
@@ -369,11 +369,16 @@ function rectPts(r: Rect): Vec[] {
   return [{ x: r.x, y: r.y }, { x: r.x + r.w, y: r.y }, { x: r.x + r.w, y: r.y + r.h }, { x: r.x, y: r.y + r.h }];
 }
 
-function gutterPath(area: Rect, panels: PanelGeom[]) {
+function gutterPath(area: Rect, panels: PanelGeom[], geom: PageGeom) {
   const ring = (poly: Vec[]): polygonClipping.Ring => poly.map(({ x, y }) => [x, y]);
-  const slots = panels.filter(({ panel, polygon }) => panel.props.visible !== false && polygon.length >= 3);
-  if (slots.length === 0) return [];
-  const gaps = polygonClipping.difference([ring(rectPts(area))], ...slots.map(({ polygon }) => [ring(polygon)]));
+  const outlines = panels.filter(({ panel }) => panel.props.visible !== false).flatMap((pg) => {
+    const poly = panelShapePoly(pg, geom);
+    if (poly.length < 3) return [];
+    const contour = poly === pg.polygon ? poly : flattenPath(panelClip(pg, poly), 0.05)[0].pts;
+    return [[ring(contour)]];
+  });
+  if (outlines.length === 0) return [];
+  const gaps = polygonClipping.difference([ring(rectPts(area))], ...outlines);
   return gaps.flatMap((poly) => poly.flatMap((r) => polyPath(r.slice(0, -1).map(([x, y]) => ({ x, y })), true)));
 }
 
@@ -450,13 +455,17 @@ function panelShapePoly(pg: PanelGeom, geom: PageGeom): Vec[] {
   return pg.polygon;
 }
 
+function panelClip(pg: PanelGeom, poly: Vec[]) {
+  return poly === pg.polygon ? polyPath(poly, true) : smoothPath(poly, true);
+}
+
 function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: ReturnType<typeof parsePaint>, hasPageArt: boolean, bag: DiagnosticBag): Node[] {
   const u = geom.units;
   const p = pg.panel.props;
   const out: Node[] = [];
   const poly = panelShapePoly(pg, geom);
   const isShaped = poly !== pg.polygon;
-  const clip = isShaped ? smoothPath(poly, true) : polyPath(poly, true);
+  const clip = panelClip(pg, poly);
   if (p.knockout !== undefined) {
     const kw = toMm(p.knockout as string, u);
     if (hasPageArt && kw > 0) {

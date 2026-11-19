@@ -66,6 +66,14 @@ describe("full-page background images", () => {
     expect(at(2, 40)).toBe(0);
   });
 
+  it.each(["ellipse", "cloud", "{ kind: rounded, radius: 10mm }"])("masks the corners outside a transparent %s panel", async (shape) => {
+    const { yaml } = document(underlay, "gutterFill: paper");
+    const result = await render({ yaml: yaml.replace("id: reveal,", `id: reveal, shape: ${shape},`) }, options);
+    const at = await pixels(result.pages[0].data);
+    expect(at(11, 11)).toBe(255);
+    expect(at(50, 22)).toBe(0);
+  });
+
   it("leaves automatically positioned balloons and their reading order unchanged", async () => {
     const place = (background: string) => {
       const { yaml } = document(background, "gutterFill: none");
