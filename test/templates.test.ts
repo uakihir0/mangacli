@@ -8,16 +8,27 @@ import { createRenderer } from "../src/api.js";
 
 const templates = ["impact-diagonal", "cascade", "zoom-in", "splash-with-insets", "vertical-strip", "spread-hero"];
 const numbers = [2, 4, 4, 3, 3, 5];
-function compose(name: string, size = "B5", spread = false, params: Record<string, unknown> = {}, rtl = true, panelCount?: number) {
+function compose(name: string, size = "B5", spread = false, params: Record<string, unknown> = {}, rtl = true, panelCount?: number, area?: string[]) {
   const bag = new DiagnosticBag();
   const n = panelCount ?? (name === "spread-hero" && spread ? 9 : numbers[templates.indexOf(name)]);
-  const doc = resolveDocument({ mangacli: 1, page: { size }, pages: [{ id: "demo", type: spread ? "spread" : "single", layout: { template: name, params }, panels: Array.from({ length: n }, () => ({})) }] }, bag);
+  const doc = resolveDocument({ mangacli: 1, page: { size }, pages: [{ id: "demo", type: spread ? "spread" : "single", layout: { template: name, params, ...(area ? { area } : {}) }, panels: Array.from({ length: n }, () => ({})) }] }, bag);
   const page = doc.pages[0];
   const geom = computePageGeom(page, 2, { readingDirection: rtl ? "rtl" : "ltr" }, bag);
   return { panels: layoutPanels(page, geom, bag), bag, geom };
 }
 
 describe("dynamic panel templates", () => {
+  it.each([true, false])("keeps asymmetric spread tiers off the physical fold with rtl=%s", (rtl) => {
+    for (const area of [["40mm", "20mm", "300mm", "210mm"], ["10mm", "20mm", "150mm", "210mm"], ["200mm", "20mm", "150mm", "210mm"]]) {
+      const { panels, bag, geom } = compose("spread-hero", "B5", true, { counts: [1, 1] }, rtl, 5, area);
+      expect(bag.items.filter((d) => d.severity === "error")).toEqual([]);
+      expect(panels).toHaveLength(5);
+      for (const p of panels.filter((_, i) => i !== 2)) {
+        expect(Math.abs(polygonArea(p.polygon))).toBeGreaterThan(10);
+        expect(p.polygon.every((v) => v.x <= geom.trimW / 2) || p.polygon.every((v) => v.x >= geom.trimW / 2)).toBe(true);
+      }
+    }
+  });
   it.each([true, false])("orders three selected insets top-to-bottom with rtl=%s", (rtl) => {
     const { panels, bag, geom } = compose("splash-with-insets", "B5", false, { count: 3 }, rtl, 4);
     expect(bag.hasErrors).toBe(false);

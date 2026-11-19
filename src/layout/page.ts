@@ -262,7 +262,7 @@ export function layoutPanels(page: RPage, geom: PageGeom, bag: DiagnosticBag): P
   const someFree = slotPanels.some((p) => p.props.box || p.props.polygon);
   let mode: "rows" | "split" | "free" | "single" = "single";
   let layoutObj = L;
-  if (typeof L.template === "string") layoutObj = expandTemplate(L.template, (L.params ?? {}) as Obj, page, bag, geom, area, L.area === undefined);
+  if (typeof L.template === "string") layoutObj = expandTemplate(L.template, (L.params ?? {}) as Obj, page, bag, geom, area, L.area === undefined, gCol);
   if (layoutObj.__edgeArea && L.area === undefined) area = geom.trim;
   if (Array.isArray(layoutObj.rows)) mode = "rows";
   else if (layoutObj.split) mode = "split";
@@ -351,7 +351,10 @@ export function layoutPanels(page: RPage, geom: PageGeom, bag: DiagnosticBag): P
       p = { id: `${page.id}-slot${i + 1}`, index: -1, props: { border: { width: "0.5bmm", color: "black", pen: { preset: "kabura-pen" }, style: "solid", ruler: true }, background: "paper" }, elements: [], path: page.path, seed: i };
     }
     if (lf.overlay || (layoutObj.__autoBleed && p.props.bleed === undefined)) {
-      p = { ...p, props: { ...p.props, ...(lf.overlay ? { overlay: true } : { bleed: ["top", "bottom", "left", "right"] }) } };
+      const box = boundsOf(lf.poly);
+      const edges = { top: [box.y, geom.trim.y], bottom: [box.y + box.h, geom.trimH], left: [box.x, geom.trim.x], right: [box.x + box.w, geom.trimW] };
+      const bleed = Object.entries(edges).filter(([, [edge, trim]]) => Math.abs(edge - trim) < 0.01).map(([side]) => side);
+      p = { ...p, props: { ...p.props, ...(lf.overlay ? { overlay: true } : { bleed }) } };
     }
     out.push(makePanelGeom(p, lf.poly, geom, area, bag, i));
   });
@@ -602,7 +605,7 @@ export function xyCutOrder<T>(ps: T[], boxOf: (t: T) => Rect, rtl: boolean): T[]
   });
 }
 
-function expandTemplate(name: string, params: Obj, page: RPage, bag: DiagnosticBag, geom: PageGeom, initialArea: Rect, defaultArea: boolean): Obj {
+function expandTemplate(name: string, params: Obj, page: RPage, bag: DiagnosticBag, geom: PageGeom, initialArea: Rect, defaultArea: boolean, gCol: number): Obj {
   const dynamic = ["impact-diagonal", "cascade", "zoom-in", "splash-with-insets", "vertical-strip", "spread-hero"].includes(name);
   const edge = ["impact-diagonal", "splash-with-insets", "vertical-strip", "spread-hero"].includes(name);
   const area = edge && params.bleed !== false && defaultArea ? geom.trim : initialArea;
@@ -641,9 +644,15 @@ function expandTemplate(name: string, params: Obj, page: RPage, bag: DiagnosticB
       }
       case "spread-hero": {
         const cs = counts([2, 2]);
-        const tier = (n: number): Obj => page.type === "spread"
-          ? { split: "cols", children: [0, 1].map(() => ({ split: "cols", children: cols(n).map(() => "panel") })) }
-          : { split: "cols", children: cols(n).map(() => "panel") };
+        const tier = (n: number): Obj => {
+          if (page.type !== "spread") return { split: "cols", children: cols(n).map(() => "panel") };
+          const left = Math.max(0, Math.min(area.w, geom.trimW / 2 - area.x));
+          const right = area.w - left;
+          if (left === 0 || right === 0) return { split: "cols", children: cols(2 * n).map(() => "panel") };
+          const gutter = Math.min(gCol, left, right);
+          const sizes = [left - gutter / 2, right - gutter / 2];
+          return { split: "cols", gutter: `${gutter}mm`, sizes: geom.rtl ? sizes.reverse() : sizes, children: [0, 1].map(() => ({ split: "cols", children: cols(n).map(() => "panel") })) };
+        };
         return wrap({ split: "rows", sizes: [(1 - ratio) / 2, ratio, (1 - ratio) / 2], slant: [angle(0, area.w), angle(0, area.w)], children: [tier(cs[0]), "panel", tier(cs[1] ?? cs[0])] });
       }
       case "splash-with-insets": {
