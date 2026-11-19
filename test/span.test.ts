@@ -71,6 +71,20 @@ describe("spanning elements", () => {
     expect(data[(20 * info.width + 250) * info.channels]).toBeLessThan(10);
   });
 
+  it.each(["png", "svg"] as const)("keeps overlapping target frames above open art spans in %s", async (format) => {
+    const doc = parse(scene("top", "art"));
+    delete doc.pages[0].layout;
+    doc.page.baseFrame = "trim";
+    doc.pages[0].panels = [
+      { id: "a", box: ["10mm", "20mm", "50mm", "50mm"], border: { width: "2mm", color: "black" } },
+      { id: "b", box: ["30mm", "10mm", "50mm", "50mm"], border: { width: "2mm", color: "black" } },
+    ];
+    doc.pages[0].layers[0].paint = "white";
+    const result = await render(doc, { format, dpi: 127, colorMode: "gray" });
+    const { data, info } = await sharp(result.pages[0].data).resize(500, 400).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    expect(data[(100 * info.width + 200) * info.channels]).toBeLessThan(10);
+  });
+
   it.each(["over", "art"])("puts %s spans in the intended frame layer", async (stack) => {
     const list = await createRenderer().displayList({ yaml: scene("", stack) }, 1);
     const all = groups(list.root);

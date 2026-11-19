@@ -1,4 +1,5 @@
 // Page composition: layout all elements and build the display list (spec 4.12).
+import polygonClipping from "polygon-clipping";
 import { BLACK, WHITE, parseColor } from "../core/color.js";
 import { DiagnosticBag } from "../core/diagnostics.js";
 import { Rng } from "../core/random.js";
@@ -331,13 +332,17 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       else bag.error("REF_NOT_FOUND", `unknown panel ${id}`, { path: [...it.el.path, "clip", "to"], elementId: it.el.id, pageId: page.id });
     }
     it.openClip = targets.flatMap((pg) => openClipPath(pg, clip, geom, u));
+    const panelPolys = targets.map((pg) => {
+      const poly = panelShapePoly(pg, geom);
+      const pts = poly !== pg.polygon ? flattenPath(smoothPath(poly, true), 0.02)[0].pts : poly;
+      return [pts.map((p) => [p.x, p.y] as [number, number])];
+    });
+    const panelUnion = panelPolys.length ? polygonClipping.union(panelPolys[0], ...panelPolys.slice(1)) : [];
+    const bleedPoly = [rectPts(geom.bleedBox).map((p) => [p.x, p.y] as [number, number])];
     if ((clip.open as string[] | undefined)?.length && targets.length) {
       const envelope = boundsOf(targets.flatMap((pg) => pg.polygon));
-      const withoutGutters = [
-        ...polyPath(rectPts(geom.bleedBox), true),
-        ...polyPath(rectPts(envelope).reverse(), true),
-        ...targets.flatMap((pg) => polyPath(panelShapePoly(pg, geom), true)),
-      ];
+      const envelopePoly = [rectPts(envelope).map((p) => [p.x, p.y] as [number, number])];
+      const withoutGutters = multiPolyPath(polygonClipping.union(polygonClipping.difference(bleedPoly, envelopePoly), panelUnion));
       it.nodes = [{ kind: "group", clip: withoutGutters, clipRule: "nonzero", children: it.nodes }];
     }
     if (it.el.props.stack !== "art") continue;
@@ -347,8 +352,8 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       group.clipped.sort((a, b) => a.z - b.z || a.listIdx - b.listIdx);
     }
     if ((clip.open as string[] | undefined)?.length) {
-      const outside = [...polyPath(rectPts(geom.bleedBox), true), ...targets.flatMap((pg) => polyPath(panelShapePoly(pg, geom), true))];
-      it.nodes = [{ kind: "group", clip: outside, clipRule: "evenodd", children: it.nodes }];
+      const outside = multiPolyPath(polygonClipping.difference(bleedPoly, panelUnion));
+      it.nodes = [{ kind: "group", clip: outside, clipRule: "nonzero", children: it.nodes }];
     } else it.nodes = [];
   }
 
@@ -383,6 +388,10 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
 
 function rectPts(r: Rect): Vec[] {
   return [{ x: r.x, y: r.y }, { x: r.x + r.w, y: r.y }, { x: r.x + r.w, y: r.y + r.h }, { x: r.x, y: r.y + r.h }];
+}
+
+function multiPolyPath(polys: polygonClipping.MultiPolygon) {
+  return polys.flatMap((poly) => poly.flatMap((ring) => polyPath(ring.map(([x, y]) => ({ x, y })), true)));
 }
 
 function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listIdx: number, source: number, ctx: ElemCtx): Item {
