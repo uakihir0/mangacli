@@ -7,17 +7,17 @@ assets:
   hero:
     src: ./art/effect-hero.png
     character: taro
-    regions: { face: [285, 155, 430, 490] }
+    regions: { face: [440, 397, 715, 650] }
   opaque:
-    src: ./art/p4-2.png
+    src: ./art/effect-hero-opaque.jpg
     character: taro
-    regions: { face: [330, 240, 250, 260] }
+    regions: { face: [440, 397, 715, 650] }
 pages:
   - id: focused
     layout: { rows: [{ cols: [1, 1, 1] }] }
     panels:
       - layers:
-          - { image: hero, id: focus-hero, size: [64mm, 90mm], fit: contain }
+          - { image: hero, id: focus-hero, size: [54mm, 76mm], fit: contain }
           - effect: focus-lines
             center: focus-hero.face
             inner: [3mm, 3mm]
@@ -25,14 +25,14 @@ pages:
             thickness: [0.12mm, 0.55mm]
             clear: { element: focus-hero, mode: alpha, margin: 1mm }
       - layers:
-          - { image: hero, id: speed-hero, size: [64mm, 90mm], fit: contain }
+          - { image: hero, id: speed-hero, size: [54mm, 76mm], fit: contain }
           - effect: speed-lines
             angle: 0deg
             spacing: [0.6mm, 1.6mm]
             length: [65%, 100%]
             thickness: [0.12mm, 0.55mm]
       - layers:
-          - { image: opaque, id: opaque-hero }
+          - { image: opaque, id: opaque-hero, size: [54mm, 76mm], fit: contain }
           - effect: focus-lines
             center: opaque-hero.face
             inner: [30%, 30%]

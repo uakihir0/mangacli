@@ -211,8 +211,8 @@ function focusLines(f: FxCtx, over: Obj = {}): InkPoly[] {
   const per = 2 * (b.w + b.h);
   const count = p.count === "auto" || p.count === undefined ? Math.round(Math.min(400, Math.max(80, per / (2.2 * f.k))) * ((p.density as number) ?? 1)) : Math.round(Number(p.count) * ((p.density as number) ?? 1));
   const jit = (p.angleJitter as number) ?? 0.8;
-  const cl = (p.cluster as number) ?? 0.35;
-  const ij = (p.innerJitter as number) ?? 0.35;
+  const cl = (p.cluster as number) ?? 0.65;
+  const ij = (p.innerJitter as number) ?? 0.5;
   const spikes = (isObj(p.spikes) ? p.spikes : { ratio: 0.06, depth: 0.45 }) as Obj;
   const th = R(f, p.thickness, { min: 0.12 * f.k, max: 0.5 * f.k, dist: "low" });
   const taper = (p.taper as string) ?? "in";
@@ -221,11 +221,13 @@ function focusLines(f: FxCtx, over: Obj = {}): InkPoly[] {
   const out: InkPoly[] = [];
   for (const a of angles) {
     const d = { x: Math.cos(a), y: Math.sin(a) };
-    let rin = ellipseR(rx, ry, a - rot0) * (1 + ij * Math.pow(f.rng.next(), 1.5));
-    if (f.rng.chance((spikes.ratio as number) ?? 0.06)) rin *= 1 - ((spikes.depth as number) ?? 0.45) * f.rng.next();
+    const offset = f.rng.next();
+    const spike = f.rng.chance((spikes.ratio as number) ?? 0.06) ? ((spikes.depth as number) ?? 0.45) * f.rng.next() : 0;
+    const w = sampleR(f, th);
+    const weight = th.max > th.min ? (w - th.min) / (th.max - th.min) : 0.5;
+    const rin = ellipseR(rx, ry, a - rot0) * (1 + ij * Math.pow(offset, 0.35 + 2.3 * weight)) * (1 - spike);
     const outerP = { x: c.x + d.x * far, y: c.y + d.y * far };
     const innerP = { x: c.x + d.x * rin, y: c.y + d.y * rin };
-    const w = sampleR(f, th);
     const vis = Math.max(1, rayExit(innerP, d, b));
     let pts: Vec[] = [outerP, innerP];
     if (curve) {

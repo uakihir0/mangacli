@@ -1,0 +1,147 @@
+{
+  "style": "One Japanese shonen manga panel, continuous single image edge to edge. Crisp bold black ink on white paper, fine tapered G-pen hatching and clean printed dot screentone, no painted gray or color. No letters, symbols, balloons, frame, or extra panels. Use character sheets solely for likeness and costume, not their composition or weapon; render only the scene below.",
+  "model": "flux3_image_klein_sd_int8_convrot",
+  "steps": 16,
+  "guidance": 1,
+  "hayato": "Hayato is the same slim teenage boy as the reference: messy black fringe, narrow eyes, black high-collared gakuran with round buttons.",
+  "mio": "Mio is the same athletic teenage girl as the reference: black bangs, high black ponytail, large white hair bow, a dark sailor uniform with white stripes. Her practice weapon if present is a solid unsharpened wooden bokken, not a metal blade or segmented bamboo shinai.",
+  "refs": {
+    "hayato": "../chars/hayato.1.png",
+    "mio": "../chars/mio.1.png"
+  },
+  "panels": [
+    {
+      "id": "p1-1",
+      "w": 4096,
+      "h": 2304,
+      "chars": [],
+      "prompt": "Very wide school rooftop establishing shot from ground level: chain-link fence, stairwell hut with a steel door, school skyline behind the fence, luminous late-afternoon clouds. Tiny silhouette of a boy at the fence on the left. Keep the upper right simple for the caption."
+    },
+    {
+      "id": "p1-2",
+      "w": 1856,
+      "h": 2080,
+      "chars": [
+        "hayato"
+      ],
+      "prompt": "Extreme close-up of Hayato turning his gaze to the left, face just left of center and high in the frame, shoulder below, a few fence lines softly inked behind him. Give the right side of the crop quiet space for lettering."
+    },
+    {
+      "id": "p1-3",
+      "w": 1856,
+      "h": 2112,
+      "chars": [
+        "mio"
+      ],
+      "prompt": "Mio bursts through a swinging steel stairwell door onto a flat fenced rooftop. Put her face high, her figure in the middle and the solid wooden sword in one hand. White sky at each side, hard perspective, splinters of light around the opening but no lettering."
+    },
+    {
+      "w": 1760,
+      "h": 2208,
+      "context": [
+        "../chars/mio-face.png"
+      ],
+      "prompt": "Draw the same teenage girl as the face reference, with a large white hair bow, high black ponytail and dark sailor uniform with two thin white collar stripes and white knotted scarf. Low-angle waist-up challenge on fenced rooftop, face high slightly left of center, mouth open. She holds a plain dark one-piece wooden training stick with rounded end, gently curved and bokken shaped, completely without a guard or wrapping or shiny blade, pointed toward us in foreshortening. Clear open sky on right.",
+      "id": "p2-1",
+      "style": "alternateStyle"
+    },
+    {
+      "id": "p2-2",
+      "w": 1760,
+      "h": 2208,
+      "chars": [
+        "hayato"
+      ],
+      "prompt": "Hayato leans against the rooftop fence with hands in pockets, bored and calm, looking to the viewer's right. Waist-up. Place face and collar high on right half; leave clear sky on the left."
+    },
+    {
+      "id": "p2-3",
+      "w": 2752,
+      "h": 1376,
+      "chars": [
+        "mio"
+      ],
+      "prompt": "Comedic tight portrait of Mio gritting her teeth, fist raised, exaggerated irritation, a tiny ink steam puff. Head on the left third and above center, with simple pale dotted screen and open space all the way to the right edge."
+    },
+    {
+      "w": 4096,
+      "h": 2048,
+      "prompt": "Dynamic 2:1 horizontal tracking panel across a fenced Japanese high school rooftop. A short teenage girl with black straight bangs, a long high black ponytail and a distinct large white bow sprints full tilt to the left. Dark sailor school uniform with two white collar stripes, black pleated skirt, white knotted scarf. She holds a single unsharpened solid dark wood training bokken low beside her with no hand guard or wrapping, never a forged blade. Pure silhouette reads cleanly, body large, centered at 40 percent from left and stays in middle 70 percent of the height, lower right mostly empty for lettering. Dense, decisive manga motion lines run horizontally from subject to frame edges, not vertical. Midday ink-on-paper, no panels, text, numerals, sound effects, border or colored areas.",
+      "id": "p2-4",
+      "style": "alternateStyle"
+    },
+    {
+      "id": "p3-1",
+      "w": 2432,
+      "h": 1600,
+      "chars": [
+        "mio",
+        "hayato"
+      ],
+      "prompt": "Wide low-angle action panel: Mio lunges through the air, bringing her wooden bokken down in a two-handed overhead arc. Hayato stands on the ground on the lower right, calm, hands in pockets. Frame her whole pose and the sword tip with black ink radial motion lines. Leave breathing room on the left edge."
+    },
+    {
+      "id": "p3-2",
+      "w": 1856,
+      "h": 2080,
+      "chars": [
+        "hayato"
+      ],
+      "prompt": "Calm Hayato makes a tiny evasion, upper body leaning right, both hands still in pockets. Wooden bokken tip misses him and slices downward through air on left. Face high just right of center; quiet white on left, black motion ticks on right."
+    },
+    {
+      "id": "p3-3",
+      "w": 1856,
+      "h": 2080,
+      "chars": [
+        "mio"
+      ],
+      "prompt": "Mio has overbalanced and tumbles forward toward a low parapet, eyes wide, arms thrown out, wooden bokken slipping out of her hands. Frame her face slightly left of center, cropped motion lines around her; clear upper-right sky beyond the chain-link fence."
+    },
+    {
+      "w": 4096,
+      "h": 1728,
+      "prompt": "An extreme close-up Japanese black and white manga action insert, wide 2.37:1. On the right, a teenage boy's right hand comes into the picture from the upper right, dark black gakuran jacket sleeve with a small round cuff button. The hand is visibly closed AROUND another person's thin bare wrist and tightly stops that person falling. The bare wrist and forearm run diagonally down toward the lower left edge, with the caught person's open palm and relaxed curved fingers just above the grip. Only two forearms and two hands: no weapons, no objects, no face, no full people. Put the gripping hand and bare wrist to the right of center; leave the left third clear for sound effect lettering added later. A few bold manga impact lines radiate out from the contact, unbroken white background. Silhouette legibility like a graphic ink drawing, correct human hand anatomy, no text, no border.",
+      "id": "p3-4",
+      "style": "alternateStyle"
+    },
+    {
+      "id": "p4-1",
+      "w": 1760,
+      "h": 2208,
+      "chars": [
+        "hayato",
+        "mio"
+      ],
+      "prompt": "Breathing room after the near fall. Close two-shot, Hayato on the left and Mio on the right, both faces high in the crop. He gently holds her wrist low in the foreground; their expressions are calm and stunned respectively. Clear soft halftone at the upper left."
+    },
+    {
+      "id": "p4-2",
+      "w": 1760,
+      "h": 2208,
+      "chars": [
+        "mio"
+      ],
+      "prompt": "A narrow, sharply inked comic reaction shot: Mio looks away flustered, her white ribbon unmistakable, one hand raised defensively. Face high at right, eyes darting left; keep left edge spare."
+    },
+    {
+      "id": "p4-3",
+      "w": 2752,
+      "h": 1376,
+      "chars": [
+        "hayato"
+      ],
+      "prompt": "Quiet wide view from the rooftop stairwell door, Hayato walking away from camera, raising one hand in a lazy wave, long hard shadows. Show his whole figure in the middle-right with ample clear space left for lettering."
+    },
+    {
+      "id": "p4-4",
+      "w": 2432,
+      "h": 1600,
+      "chars": [
+        "mio"
+      ],
+      "prompt": "Mio alone on the school rooftop shouting into the evening sky, bright comic finish, fists clenched, side view in center-right, ribbon and ponytail clearly visible. Place her head high. Leave clear pale sky at left; simple speed hatching and dotted screen behind her."
+    }
+  ],
+  "alternateStyle": "One full-bleed Japanese shonen manga panel. Confident tapered brush and G-pen inking, pure black inks on white paper, clean printed halftone dots for shade. No lettering, no sound effects, no balloons, no frame. Single continuous scene."
+}

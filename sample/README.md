@@ -3,8 +3,9 @@
 mangacli の作例として、生成 AI（Sogni）で描いた絵に mangacli で吹き出し・写植・効果を載せた 4 ページの漫画です。
 
 - `manga.yaml` — 原稿（コマ割り・セリフ・効果）
-- `effect-figure-clear.yaml` — 透明な人物画像の輪郭で集中線・水平な流線を入り抜きし、不透明な一枚絵では集中線が消えないことを示す比較用作例。`art/effect-hero.png` は `scripts/make-sample-assets.ts` の CC0 テスト用人物画（`docs/examples/assets/taro/surprised.png` と同じ）
-- `art/` — コマの絵（`art/prompts.json` の指示で Sogni の Relaxed ネットワークの `qwen_image_2512_lightning` で生成。文字・吹き出しなしで描かせ、候補から選んでいる。`p1-1` は `qwen_image_edit_2511_lightning_8bit` で絵の中の枠を消している）
+- `shonen-proof.yaml` — 同じ絵を使った少年誌向けの原稿見本。斜めのコマ割りで最後の裁ち切りへ視線を誘導し、アンチゴチ・ゴシック・明朝で声を区別する。
+- `effect-figure-clear.yaml` — 透明な人物画像の輪郭で集中線・水平な流線を入り抜きし、不透明な画像では集中線が消えないことを示す比較用作例。同じ人物画を透過 PNG と白地の JPEG にして比べる。
+- `art/` — コマの絵。Sogni の Fast ネットワークで FLUX 3 Image Klein を使い、`art/print-prompts.json` の指示と設定画から生成。元のピクセル寸法のままグレースケールに変換しています。
 - `chars/` — キャラクターの設定画（同じく Sogni で生成）
 - `refs/` — 吹き出しの参考に Sogni で生成した、吹き出し付きの漫画のページ
 - `out/` — 描画結果
@@ -13,13 +14,18 @@ mangacli の作例として、生成 AI（Sogni）で描いた絵に mangacli �
 
 ```bash
 cd sample/tools && npm install && cd ../..
-(while :; do node sample/tools/daemon.mjs; sleep 5; done) &   # Relaxed で生成を流し続ける（接続が切れたら繋ぎ直す）
-node sample/tools/enqueue.mjs sample/art/prompts.json     # 足りない絵をジョブとして積む（--n 3 で候補を 3 枚ずつ）
+(while :; do SOGNI_NETWORK=fast node sample/tools/daemon.mjs; sleep 5; done) &   # SOGNI_API_KEY・SOGNI_APP_ID が必要
+node sample/tools/enqueue.mjs sample/art/print-prompts.json    # 足りない絵を積む（--n 3 で候補を 3 枚ずつ）
 npx mangacli render sample/manga.yaml -p print-mono
+npx mangacli render sample/shonen-proof.yaml -p print-mono --crop marks
 npx mangacli render sample/effect-figure-clear.yaml -p preview
 ```
 
-`SOGNI_API_KEY` と `SOGNI_APP_ID` は環境変数または `sample/.env` に設定する（環境変数を優先）。同じ `SOGNI_APP_ID` の接続は 1 本までなので、デーモンは 1 つだけ動かす。
+原稿は 600 dpi で出力され、コマ絵は掲載寸法で 300 ppi 以上です。線画の目標は 600 ppi ですが、生成時の上限（長辺 4096 px、参照画像付きの場合は約 4 メガピクセル）により、すべてのコマが 600 ppi に達するわけではありません。拡大補間はしていません。
+
+改稿では、冒頭の屋上と最後のミオのカットを描き直しました。人物の再生成には既存のコマと `chars/` の設定画・顔の参照画像を使い、一部のコマでは木刀に見えるよう元の画素寸法のまま加筆しています。3 ページ目の最後は、二人の位置関係と木刀を受け止める手が分かる引きの絵にしました。最後のコマは目線と表情を残すよう切り出しています。
+
+`SOGNI_API_KEY` と `SOGNI_APP_ID` は環境変数に設定する。同じ `SOGNI_APP_ID` の接続は 1 本までなので、デーモンは 1 つだけ動かす。
 
 新しい作品を作る場合は [漫画制作スキル](../.agents/skills/manga-production/SKILL.md) も参照。
 

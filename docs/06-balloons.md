@@ -31,7 +31,7 @@
 | `who` | キャラクター ID | - | 話者。キャラクターの設定を適用し、しっぽの向き先を決める |
 | `as` | 発話の種類 | `say` | 組み込みスタイルの選択（[6.13](#613-組み込みスタイル)） |
 | `shape` | Shape | `{ kind: ellipse }` | 本体の形（[6.3](#63-形状shape)） |
-| `stroke` | Stroke | `{ width: 0.25mm, pen: g-pen }` | 本体としっぽの線（[6.4](#64-線stroke)） |
+| `stroke` | Stroke | `{ width: 0.34bmm, pen: g-pen }` | 本体としっぽの線（[6.4](#64-線stroke)） |
 | `fill` | Paint | `paper` | 本体の塗り（[6.5](#65-塗りfill)） |
 | `autoConnect` | 真偽値 | `true` | 同じ話者の続けての自動配置の吹き出しが 4 bmm 以内に並んだ場合、`connect: { to: 直前の吹き出し, style: neck }` として 1 つのしっぽにまとめる |
 | `halo` | Length \| `none` | `0.3bmm` | 線の外側に付ける塗り色（不透明な単色のときのみ）のふち。黒い絵やベタに重なっても輪郭が見えるようにする |
@@ -42,7 +42,7 @@
 | `maxSize` | Size | `[75%, 80%]` | `auto` のときの最大（コマの表示領域に対する割合） |
 | `aspect` | 数値 \| `auto` | `auto` | 本体の縦横比（幅 / 高さ）の希望値 |
 | `aspectRange` | `[最小, 最大]` | `[0.55, 1.8]` | `aspect: auto` のときに許す縦横比の範囲 |
-| `padding` | Length \| `[縦, 横]` | `[0.6em, 0.8em]` | 本文と本体の内側の安全領域との間隔 |
+| `padding` | Length \| `[縦, 横]` | `[0.7em, 0.65em]` | 本文と本体の内側の安全領域との間隔。ナレーション枠は `[0.75em, 0.7em]` |
 | `textOffset` | `[dx, dy]` | `[0, 0]` | 本文の位置の微調整 |
 | `textOutline` | Outline[] | - | 本文の縁取り。`shape: none` で絵の上に直接文字を置く場合に使う |
 | `overflow` | `shrink` \| `grow` \| `clip` \| `error` | `auto` のときは `grow`、固定サイズのときは `shrink` | 本文が収まらない場合の処理（[6.7.4](#674-収まらない場合)） |
@@ -88,7 +88,7 @@
 
 | パラメータ | 型 | 既定値 | 説明 |
 |---|---|---|---|
-| `squareness` | 0〜1 | 本文から決める | 0 で楕円、1 に近いほど角丸四角に近づく（超楕円の指数 n = 2 + 3 × squareness）。指定しない場合は本文の形から決める: 短い本文は 0（楕円）、行（列）が多く長さのそろった塊ほど大きく（中心に四角い領域がある形）、1 列の細長い本文は 0.25 前後（カプセル形）。0〜0.3 に制限 |
+| `squareness` | 0〜1 | 本文から決める | 0 で楕円、1 に近いほど角丸四角に近づく（超楕円の指数 n = 2 + 3 × squareness）。自動では 0〜0.22。短い本文は楕円に近く、列数や単列の細長さに応じて少し角を張らせる |
 | `egg` | -1〜1 | `0.06` | 上下の非対称。正で上側が膨らむ |
 
 手描きの楕円は真円や数学的な楕円にならない。半径を角度 θ の関数として、低次の調和成分でわずかに歪める（[9.3.1](09-hand-drawn.md#931-形状レベルの不規則さ)）。
@@ -182,7 +182,7 @@
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---|---|
-| `width` | Length | `0.25mm` | 線幅（筆圧による変化の基準） |
+| `width` | Length | `0.34bmm` | 線幅（筆圧による変化の基準）。心の声は `0.3bmm`、ナレーション枠は `0.45bmm` |
 | `color` | Color | `black` | 線の色 |
 | `pen` | Pen | `g-pen` | ペン（[9.7](09-hand-drawn.md#97-ペンプリセット)） |
 | `style` | `solid` \| `dashed` \| `dotted` \| `double` \| `none` | `solid` | 線の種類。`dotted`、`double` は P1 |
@@ -233,20 +233,20 @@ tail: none
 | `kind` | `wedge` \| `bubbles` \| `line` \| `zigzag` \| `none` | 形状と `as` による | しっぽの種類（下表） |
 | `to` | Point | 話者 | 向き先。`who` があり、同じコマに話者の画像があれば、その画像（[3.7.2](03-document-format.md#372-参照)） |
 | `direction` | Angle | `100deg`（下やや左） | `to` がない場合の向き |
-| `length` | Length | `to` までの距離から決める（4.5 bmm 以上。話者の顔が本体のすぐ横にあっても、しっぽが向きを示せる長さを保つ） / 4.5 bmm（`zigzag` は 11 bmm） | しっぽの長さ（本体の縁から先端まで）。話者の顔（`face` の楕円）の手前で止める |
+| `length` | Length | `to` までの距離から決める / 向き先がない場合は `wedge` 6 bmm、`zigzag` 11 bmm、その他 4.5 bmm（泡は列が収まるよう延長） | 本体の縁から先端まで。自動計算時は向き先や話者の顔の手前で止める |
 | `maxLength` | Length | 本体の短辺の 40 %（4.5〜9 bmm に制限） | 長さの上限。向き先が遠い場合は、向きだけを合わせてこの長さで止める |
 | `gap` | Length | `2mm` | 先端と向き先の点の間に残す距離（しっぽは口元に触れない） |
 | `width` | Length | 本体の短辺の 13 %（1.6〜2.8 bmm に制限）。`wedge` は本体の短辺の 30 %（`length` の 1.2 倍以下） | 付け根の幅。漫画のしっぽは付け根から細く鋭い。しっぽは細い線にならず、ひと目で三角形に見える |
 | `curl` | 真偽値 | `true` | 話者がいる `wedge` のしっぽの中心線を円弧にする。円の中心は話者の顔（`face` 領域、なければ向き先）の側に置き、しっぽは本体から出た向きから顔の方へ曲がる（曲がりは顔の方向との角度の 0.85 倍、最大 1 rad）。`false` で `bend` による曲がりに戻す |
-| `allowVertical` | 真偽値 | `false` | `false` では、真下・真上（鉛直から 40° 以内）を向くしっぽを左下・右下（左上・右上）の 40° へ回し、本体の横（既定は左寄り）から出す。雲形・画面外のしっぽには適用しない |
+| `allowVertical` | 真偽値 | 向き先があれば `true`、なければ `false` | `false` では、鉛直から 40° 以内のしっぽを斜めに出す。雲形・画面外のしっぽには適用しない |
 | `widthScale` | 数値 | `1` | 付け根の幅の倍率。カスケードの後に掛ける（`as: shout` などで使う） |
-| `bend` | -1〜1 | `0.15` | しっぽ全体の曲がり。正で時計回りに曲がる |
-| `sideCurve` | 0〜1 | `0.25` | 両側の辺の内側への反り。大きいほど先端が鋭く見える |
+| `bend` | -1〜1 | `0.08` | しっぽ全体の曲がり。正で時計回りに曲がる |
+| `sideCurve` | 0〜1 | `0.35` | 両側の辺の内側への反り。大きいほど先端が鋭く見える |
 | `root` | `auto` \| Angle | `auto` | 本体のどこから出すか。`auto` は本体の中心から向き先への方向。角度は本体の中心から見た方向 |
 | `offscreen` | `top` \| `right` \| `bottom` \| `left` | - | 画面外の話者。`as: offscreen` で辺を省略すると最も近い辺を使う。`length` を指定するとその長さで止まり、省略すると `maxLength` まで伸ばす。枠に届かなければ短い三角形になり、届いた場合は `clip: auto` でコマ間の枠でも切る（P1） |
 | `count` | 整数 | `3` | `bubbles` の泡の数 |
-| `bubbleSize` | Length | 本体の短辺の 20 %（1.5〜5 mm に制限）。顔までの距離に収まらない場合は 55 % まで縮める | `bubbles` の最初の泡の直径 |
-| `shrink` | 0〜1 | `0.62` | `bubbles` の泡ごとの縮小率 |
+| `bubbleSize` | Length | 短辺の 20 %（1.5〜5 bmm）。短いしっぽでは泡が重ならないよう、列全体を縮める | `bubbles` の最初の泡の直径 |
+| `shrink` | 0〜1 | `0.66` | `bubbles` の泡ごとの縮小率 |
 | `segments` | 整数 | `3` | `zigzag` の折れの数 |
 
 | `kind` | 形 | 既定で使う形状・`as` | 優先度 |
@@ -462,12 +462,12 @@ panels:
 
 | `as` | 用途 | `shape` | `stroke` | `tail` | `font` ロール | その他 | 優先度 |
 |---|---|---|---|---|---|---|---|
-| `say` | 通常のセリフ | `ellipse` | 0.25 mm、G ペン | `wedge` | `dialogue` | | P0 |
-| `think` | 心の声 | `cloud` | 0.2 mm、丸ペン | `bubbles` | `thought` | | P0 |
+| `say` | 通常のセリフ | `ellipse` | 0.34 bmm、G ペン | `wedge` | `dialogue` | | P0 |
+| `think` | 心の声 | `cloud`（`depth: 0.23`） | 0.3 bmm、丸ペン | `bubbles` | `thought` | | P0 |
 | `shout` | 叫び | `spike` | 0.3 mm、G ペン | `wedge`（`widthScale: 1.3`、`bend: 0`、`sideCurve: 0`） | `shout` | `fontScale: 1.4` | P0 |
 | `whisper` | 小声 | `ellipse` | 0.2 mm、`dashed` | `wedge`（`widthScale: 0.7`） | `whisper` | `fontScale: 0.85` | P0 |
 | `tremble` | 震える声 | `wavy` | 0.22 mm | `wedge` | `dialogue` | | P0 |
-| `narration` | ナレーション | `rect` | 0.2 mm、定規 | `none` | `narration` | 既定の位置 `place: top-<読み始め側>` | P0 |
+| `narration` | ナレーション | `rect` | 0.45 bmm、定規 | `none` | `narration` | 既定の位置 `place: top-<読み始め側>` | P0 |
 | `monologue` | モノローグ | `none` | - | `none` | `narration` | `textOutline: 0.8mm white` | P0 |
 | `aside` | ボソッ・ツッコミ・小さな独り言 | `none` | - | `none` | `hand` | 小さめの手書き文字、白フチ、±5°の傾き | P1 |
 | `inverted` | 恐ろしい声・邪悪な声 | `ellipse` | 0.25 mm | `wedge` | `dialogue` | `fill: black`、`color: white` | P0 |

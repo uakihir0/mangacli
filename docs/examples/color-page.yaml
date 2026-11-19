@@ -8,10 +8,10 @@ mangacli: 1
 meta: { title: 雨の日, lang: ja }
 page: { size: B5, color: color }
 assets:
-  taro: { src: ./assets/taro/normal.png, character: taro, anchors: { mouth: [500, 535] }, regions: { face: [285, 155, 430, 490] } }
-  taro-s: { src: ./assets/taro/surprised.png, character: taro, anchors: { mouth: [500, 550] }, regions: { face: [285, 155, 430, 490] } }
-  hanako: { src: ./assets/hanako/smile.png, character: hanako, anchors: { mouth: [500, 535] }, regions: { face: [285, 155, 430, 490] } }
-  room: ./assets/bg/classroom.png
+  taro: { src: ./assets/school/taro-normal.png, character: taro, anchors: { mouth: [800, 872] }, regions: { face: [430, 420, 740, 628] } }
+  taro-s: { src: ./assets/school/taro-shock.png, character: taro, anchors: { mouth: [784, 892] }, regions: { face: [440, 397, 715, 650] } }
+  hanako: { src: ./assets/school/hanako-smile.png, character: hanako, anchors: { mouth: [841, 925] }, regions: { face: [535, 440, 622, 675] } }
+  room: ./assets/school/classroom.jpg
 characters:
   taro: { name: 太郎 }
   hanako: { name: 花子 }

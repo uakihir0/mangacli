@@ -18,10 +18,10 @@ import { resolveTextStyle, textValue } from "./textstyle.js";
 
 type Obj = Record<string, unknown>;
 
-function outlineNodes(path: PathData, outlines: unknown, ctx: ElemCtx, el: RElement): Node[] {
+function outlineNodes(path: PathData, outlines: unknown, ctx: ElemCtx, el: RElement, em: number): Node[] {
   const list = Array.isArray(outlines) ? (outlines as Obj[]) : [];
   return list
-    .map((o) => ({ w: toMm(o.width as string, ctx.u), c: parseColor((o.color as string) ?? "white") ?? WHITE, j: o.join === "miter" ? ("miter" as const) : ("round" as const) }))
+    .map((o) => ({ w: toMm(o.width as string, { ...ctx.u, em }), c: parseColor((o.color as string) ?? "white") ?? WHITE, j: o.join === "miter" ? ("miter" as const) : ("round" as const) }))
     .sort((a, b) => b.w - a.w)
     .map((o) => ({ kind: "path" as const, path, fillRule: "nonzero" as const, paint: null, stroke: { width: o.w * 2, paint: { type: "solid" as const, color: o.c }, join: o.j, ...(o.j === "miter" ? { miterLimit: 2 } : {}) }, tag: tag(el, "text") }));
 }
@@ -86,7 +86,7 @@ export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
     nodes.push({ kind: "path", path: polyPath(corners, true), fillRule: "nonzero", paint: bg, tag: tag(el, "fill") });
   }
   const corners = [applyMat(pl.matrix, { x: 0, y: 0 }), applyMat(pl.matrix, { x: bw, y: 0 }), applyMat(pl.matrix, { x: bw, y: bh }), applyMat(pl.matrix, { x: 0, y: bh })];
-  const textNodes: Node[] = [...outlineNodes(glyphPath, p.outline, ctx, el)];
+  const textNodes: Node[] = [...outlineNodes(glyphPath, p.outline, ctx, el, tl.fontSize)];
   const color = textPaint(p.color, ctx, el, pl.bbox);
   textNodes.push(...glyphNodes(tl.glyphs, (g) => transformPath(g, m), color, tl.fontSize, tag(el, "text")));
   if (fixed && p.overflow === "clip") nodes.push({ kind: "group", clip: polyPath(corners, true), children: textNodes });
@@ -282,7 +282,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const pl = place(p, boxW, boxH, pc);
   const placed = transformPath(allPath, pl.matrix);
   const nodes: Node[] = [];
-  nodes.push(...outlineNodes(placed, p.outline, ctx, el));
+  nodes.push(...outlineNodes(placed, p.outline, ctx, el, em));
   const paint = textPaint(p.color, ctx, el, pl.bbox);
   // hollow letters keep only the traced outline (black by default)
   const edge = (p.edge as Obj | undefined) ?? (p.hollow ? { width: "0.35bmm", color: (p.color as string) ?? "black" } : undefined);

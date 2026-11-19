@@ -34,6 +34,17 @@ describe("loading and validation", () => {
 });
 
 describe("layout", () => {
+  it("separates right-to-left panels with gutters twice as wide between tiers", async () => {
+    const input = "mangacli: 1\npage: { size: B5 }\npages:\n  - layout: { rows: [[1, 1], [1, 1]] }\n    panels: [{}, {}, {}, {}]\n";
+    const gaps = async (document: string) => {
+      const { layout, diagnostics, ok } = await validate(yaml(document));
+      expect(ok, JSON.stringify(diagnostics)).toBe(true);
+      const [right, left, lower] = layout[0].panels.map((p) => p.box);
+      return [right.x - (left.x + left.w), lower.y - (right.y + right.h)];
+    };
+    expect(await gaps(input)).toEqual([3.5, 7]);
+    expect(await gaps(input.replace("size: B5", "size: B5, gutter: { col: 2mm, row: 4mm }"))).toEqual([2, 4]);
+  });
   it("lays out yonkoma with a title slot", async () => {
     const r = await validate(
       yaml("mangacli: 1\nmeta: { title: テスト }\npages:\n  - layout: { template: yonkoma, params: { title: true } }\n    panels:\n      - {}\n      - {}\n      - {}\n      - {}\n"),

@@ -51,28 +51,28 @@ fonts:                               # カタログのフォント（必要な�
 
 assets:
   corridor:
-    src: ./assets/bg/corridor.png
+    src: ./assets/school/corridor.jpg
     kind: background
   classroom:
-    src: ./assets/bg/classroom.png
+    src: ./assets/school/classroom.jpg
     kind: background
   taro-normal:
-    src: ./assets/taro/normal.png
+    src: ./assets/school/taro-normal.png
     character: taro
-    anchors: { mouth: [500, 535] }
-    regions: { face: [285, 155, 430, 490] }
+    anchors: { mouth: [800, 872] }
+    regions: { face: [430, 420, 740, 628] }
   taro-shock:
-    src: ./assets/taro/shock.png
+    src: ./assets/school/taro-shock.png
     character: taro
-    anchors: { mouth: [500, 550] }
-    regions: { face: [285, 155, 430, 490] }
+    anchors: { mouth: [784, 892] }
+    regions: { face: [440, 397, 715, 650] }
   hanako-smile:
-    src: ./assets/hanako/smile.png
+    src: ./assets/school/hanako-smile.png
     character: hanako
-    anchors: { mouth: [500, 520] }
-    regions: { face: [285, 155, 430, 490] }
+    anchors: { mouth: [841, 925] }
+    regions: { face: [535, 440, 622, 675] }
   hanako-back:
-    src: ./assets/hanako/back.png
+    src: ./assets/school/hanako-back.png
     kind: lineart                    # 白背景の線画（乗算で重ねる）
     character: hanako
 

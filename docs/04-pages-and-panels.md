@@ -50,6 +50,23 @@ page:
 ```
 
 - `size` と `margins` は同時に指定できない。
+
+商業誌向けに、B4 原稿用紙を想定した設定例。ここでの `size` は用紙の外寸ではなく**仕上がり寸法**。基本枠にセリフや表情を収め、裁ち切りコマの絵は塗り足しまで伸ばす。これは汎用の作例であり、投稿・入稿時は[出版社の最新の原稿案内](https://tips.clip-studio.com/ja-jp/articles/1375)と担当編集者の指定を優先する。
+
+```yaml
+page:
+  size: [220mm, 310mm]
+  baseFrame: { size: [180mm, 270mm] }
+  bleed: 5mm
+  gutter: { col: 3.5mm, row: 7mm }
+  color: mono
+  dpi: 600
+defaults:
+  panel:
+    border: { width: 0.7mm }
+```
+
+`mangacli render manuscript.yaml --profile print-mono --crop marks` でトンボ付きの原稿を確認する。
 - `margins` の `inner`（のど）と `outer`（小口）は、ページが左右どちらにあるか（[4.3](#43-本の設定)）によって左右に割り当てる。左ページではのどが右、右ページではのどが左である。
 - 基本枠は安全領域の内側になければならない。はみ出す場合は警告（`PAGE_BASEFRAME_OUTSIDE_SAFE`）。
 
@@ -146,7 +163,7 @@ book:
 | `bleed` | Length | 3 mm / 0 | ✓ | 塗り足しの幅 |
 | `baseFrame` | BaseFrame \| `trim` | 4.1 | ✓ | 基本枠 |
 | `safeArea` | `{ inset: Length }` | `{ inset: 5mm }` | ✓ | 安全領域 |
-| `gutter` | Length \| `{ col, row }` | `{ col: 2.5mm, row: 5mm }` | ✓ | 間白（[4.6.6](#466-間白gutter)） |
+| `gutter` | Length \| `{ col, row }` | `{ col: 3.5bmm, row: 7bmm }` | ✓ | 間白（[4.6.6](#466-間白gutter)） |
 | `background` | Paint \| `{ image, fit?, bleed? }` | `paper` | ✓ | ページの地の塗り、または下敷きの画像 |
 | `gutterFill` | `paper` \| `none` | `paper` | ✓ | 下敷きの画像の上で間白を白く塗るか、そのまま見せるか |
 | `color` | `mono` \| `color` | `mono` | ✓ | 色の意図（[10.1](10-color-and-output.md#101-カラーモデル)） |
@@ -293,8 +310,8 @@ layout:
 
 | キー | 意味 | 既定値（B5 基準） |
 |---|---|---|
-| `col` | 左右に並んだコマの間（縦の帯） | 2.5 mm |
-| `row` | 上下に並んだコマの間（横の帯） | 5 mm |
+| `col` | 左右に並んだコマの間（縦の帯） | 3.5 mm |
+| `row` | 上下に並んだコマの間（横の帯） | 7 mm |
 
 日本の漫画の慣習に合わせ、上下の間白を左右の間白より広くするのを既定とする。`gutter: 3mm` のように 1 つの値を書くと両方に適用する。
 
@@ -367,7 +384,7 @@ defaults:
 | キー | 型 | 既定値 | 説明 |
 |---|---|---|---|
 | `style` | `solid` \| `none` \| `double` \| `dashed` \| `wavy` \| `blur` | `solid` | 線の種類。`double`、`dashed`、`wavy`、`blur` は P1 |
-| `width` | Length | 0.5 mm | 線幅 |
+| `width` | Length | 0.7 bmm | 線幅 |
 | `color` | Color | `black` | 線の色 |
 | `pen` | Pen | `kabura-pen` | ペン（[9.7](09-hand-drawn.md#97-ペンプリセット)） |
 | `ruler` | 真偽値 | `true` | 定規で引いた線にする（[9.6](09-hand-drawn.md#96-定規モード)） |

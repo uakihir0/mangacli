@@ -1,0 +1,56 @@
+mangacli: 1
+meta: { title: 三十一戦目 — 少年誌向け原稿見本, lang: ja }
+book: { binding: right }
+fontSet: manga-basic
+seed: 31
+
+page:
+  size: [220mm, 310mm]
+  baseFrame: { size: [180mm, 270mm] }
+  bleed: 5mm
+  color: mono
+  dpi: 600
+  gutter: { col: 3.5mm, row: 7mm }
+defaults:
+  panel:
+    border: { width: 0.7mm }
+  balloon:
+    fontSize: 18Q
+
+assets:
+  challenge: ./art/p2-1.png
+  reply: ./art/p2-2.png
+  resolve: ./art/p2-3.png
+  dash: ./art/p2-4.png
+
+pages:
+  - id: challenge
+    layout:
+      rows:
+        - { cols: [1.13, 1], height: 94mm, colSlant: [-7mm] }
+        - { cols: [1], height: 61mm, slant: -10mm }
+        - { cols: [1] }
+    panels:
+      - layers:
+          - { image: challenge, focus: [0.52, 0.4] }
+          - balloon: "今日こそ\n決着を\nつけるわ!!"
+            as: shout
+            fontScale: 1.05
+            at: [78%, 52%]
+            tail: { to: [38%, 48%], root: 145deg }
+      - layers:
+          - { image: reply, focus: [0.55, 0.34] }
+          - balloon: "……\nまたかよ"
+            as: think
+            at: [22%, 23%]
+            tail: { to: [46%, 40%] }
+      - layers:
+          - { image: resolve, focus: [0.5, 0.05] }
+          - balloon: "三十一回目は、\n私が勝つの！"
+            at: [79%, 46%]
+            tail: { to: [43%, 45%] }
+      - bleed: [left, right, bottom]
+        layers:
+          - { image: dash, focus: [0.47, 0.38] }
+          - { sfx: ダッ, at: [80%, 48%], fontSize: 24mm, grow: -0.12, rotate: -9deg }
+          - { balloon: "放課後、\n屋上にて。", as: narration, at: [16%, 60%] }
