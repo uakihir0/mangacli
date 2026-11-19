@@ -41,6 +41,8 @@ export interface FontPick {
   font: LoadedFont;
   scale: number;
   baselineShift: number;
+  /** `scale` enlarges the face inside the cell and keeps the character pitch (compose items) */
+  face?: boolean;
 }
 
 export const ROLE_CHAINS: Record<string, string[]> = {
@@ -58,23 +60,22 @@ export const ROLE_CHAINS: Record<string, string[]> = {
 
 const UI_FONT = join(PACKAGE_ROOT, "assets", "fonts", "Lato-Regular.ttf");
 
-type SystemFontData = { data: Uint8Array; index: number; label: string; path: string };
-
 /** A physical font descriptor */
 interface Phys {
   key: string;
-  load: () => Promise<Uint8Array | SystemFontData | undefined>;
-  optional?: boolean;
+  load: () => Promise<Uint8Array | { data: Uint8Array; index: number; label: string; path: string }>;
   index: number;
   variations?: Record<string, number>;
   /** cheap coverage check before loading */
   coverage?: (cp: number) => boolean;
   label: string;
+  /** a missing font is skipped without a diagnostic */
+  optional?: boolean;
 }
 
 interface Chain {
   /** ordered candidates with optional range predicates */
-  items: { phys: Phys; ranges?: string[]; scale: number; baselineShift: number }[];
+  items: { phys: Phys; ranges?: string[]; scale: number; baselineShift: number; face?: boolean }[];
 }
 
 export class FontRegistry {
@@ -138,16 +139,6 @@ export class FontRegistry {
     };
   }
 
-  private async loadSystemFace(names: string[], index?: number): Promise<SystemFontData | undefined> {
-    const faces = await (this.systemFonts ??= listSystemFonts());
-    for (const name of names) {
-      const face = findSystemFont(faces, name, index);
-      if (!face) continue;
-      const label = face.postScriptNames[0] ?? face.fullNames[0] ?? face.families[0];
-      return { data: await readFile(face.path), index: face.index, label, path: face.path };
-    }
-  }
-
   private physOf(def: FontDef, name: string): Phys | null {
     switch (def.kind) {
       case "file":
@@ -156,10 +147,11 @@ export class FontRegistry {
         return {
           key: `system:${name}`, label: name, index: def.index ?? 0, variations: def.variations,
           load: async () => {
-            const loaded = await this.loadSystemFace([def.name], def.index);
-            if (loaded) return loaded;
             const query = JSON.stringify(def.name) + (def.index === undefined ? "" : ` (face ${def.index})`);
-            throw Object.assign(new Error(`system font ${query} not found`), { code: "ENOENT" });
+            const face = findSystemFont(await (this.systemFonts ??= listSystemFonts()), def.name, def.index);
+            if (!face) throw Object.assign(new Error(`system font ${query} not found`), { code: "ENOENT" });
+            const label = face.postScriptNames[0] ?? face.fullNames[0] ?? face.families[0];
+            return { data: await readFile(face.path), index: face.index, label, path: face.path };
           },
         };
       case "bytes":
@@ -171,6 +163,22 @@ export class FontRegistry {
     }
   }
 
+  /** the first installed font of `names` (font set entries such as commercial faces) */
+  private optionalSystemPhys(names: string[]): Phys {
+    const label = names[0];
+    return {
+      key: `system?:${names.join("|")}`, label, index: 0, optional: true,
+      load: async () => {
+        const faces = await (this.systemFonts ??= listSystemFonts());
+        for (const n of names) {
+          const face = findSystemFont(faces, n);
+          if (face) return { data: await readFile(face.path), index: face.index, label: face.postScriptNames[0] ?? face.fullNames[0] ?? n, path: face.path };
+        }
+        throw Object.assign(new Error(`none of ${names.join(", ")} is installed`), { code: "ENOENT" });
+      },
+    };
+  }
+
   private pushSetRole(name: string, items: Chain["items"], fallbackOnly: boolean) {
     let role: SetRole | undefined;
     try {
@@ -180,18 +188,18 @@ export class FontRegistry {
       return;
     }
     if (!role || typeof role === "string") return;
-    const add = (phys: Phys, ranges?: Chain["items"][number]["ranges"], scale = 1) => {
-      if (!items.some((i) => i.phys.key === phys.key && !i.ranges)) items.push({ phys, ranges, scale, baselineShift: 0 });
+    const add = (font: string, ranges?: Chain["items"][number]["ranges"], scale = 1, face = false) => {
+      const phys = this.catalogPhys(font);
+      if (!items.some((i) => i.phys.key === phys.key && !i.ranges)) items.push({ phys, ranges, scale, baselineShift: 0, face });
     };
     if (!fallbackOnly) {
-      for (const names of role.system ?? []) {
-        const label = names[0];
-        add({ key: `optional-system:${label}`, label, index: 0, optional: true, load: () => this.loadSystemFace(names) }, undefined, role.scale ?? 1);
+      if (role.compose) for (const it of role.compose) {
+        if (it.font) add(it.font, it.ranges, it.scale ?? 1, true);
+        else if (it.system?.length) items.push({ phys: this.optionalSystemPhys(it.system), ranges: it.ranges, scale: it.scale ?? 1, baselineShift: 0, face: true });
       }
-      if (role.compose) for (const it of role.compose) add(this.catalogPhys(it.font), it.ranges);
-      if (role.font) add(this.catalogPhys(role.font), undefined, role.scale ?? 1);
+      if (role.font) add(role.font, undefined, role.scale ?? 1);
     }
-    for (const f of role.fallback ?? []) add(this.catalogPhys(f));
+    for (const f of role.fallback ?? []) add(f);
   }
 
   /** Build a candidate chain for a font name (role or registered name). */
@@ -209,7 +217,7 @@ export class FontRegistry {
       else if (def.kind === "compose") {
         for (const it of def.items) {
           for (const c of this.chain(it.font, seen).items)
-            items.push({ ...c, ranges: it.ranges ?? c.ranges, scale: (it.scale ?? 1) * c.scale, baselineShift: (it.baselineShift ?? 0) + c.baselineShift });
+            items.push({ ...c, ranges: it.ranges ?? c.ranges, scale: (it.scale ?? 1) * c.scale, baselineShift: (it.baselineShift ?? 0) + c.baselineShift, face: true });
         }
         for (const f of def.fallback ?? []) pushName(f);
       } else {
@@ -249,13 +257,21 @@ export class FontRegistry {
     const ch = this.chain(name);
     const cps = new Set<number>();
     for (const ch2 of text) cps.add(ch2.codePointAt(0)!);
+    // a font that fails to load (offline, not installed) hands its characters to the next candidate
+    for (let failed = -1; failed !== this.failed.size; ) {
+      failed = this.failed.size;
+      await this.prepareRound(ch, cps);
+    }
+  }
+
+  private async prepareRound(ch: Chain, cps: Set<number>): Promise<void> {
     const need = new Set<string>();
     const pending: Phys[] = [];
     for (const cp of cps) {
       if (cp < 0x20 || cp === 0x200b) continue;
       for (const it of ch.items) {
         if (it.ranges && !it.ranges.some((r) => inRange(r, cp))) continue;
-        if (it.phys.optional && this.failed.has(it.phys.key)) continue;
+        if (this.failed.has(it.phys.key)) continue;
         const lf = this.loaded.get(it.phys.key);
         const ok = lf ? lf.has(cp) : it.phys.coverage ? it.phys.coverage(cp) : true;
         if (!lf && !it.phys.coverage) {
@@ -279,14 +295,8 @@ export class FontRegistry {
       }
     }
     // always load the primary (first unrestricted) font for metrics
-    const unrestricted = ch.items.filter((i) => !i.ranges);
-    for (const { phys } of unrestricted.length ? unrestricted : ch.items.slice(0, 1)) {
-      if (phys.optional) {
-        if (!this.loaded.has(phys.key)) await this.loadPending([phys]);
-        if (!this.loaded.has(phys.key)) continue;
-      } else if (!this.loaded.has(phys.key) && !need.has(phys.key)) pending.push(phys);
-      break;
-    }
+    const primary = ch.items.find((i) => !i.ranges && !this.failed.has(i.phys.key)) ?? ch.items[0];
+    if (primary && !this.loaded.has(primary.phys.key) && !need.has(primary.phys.key)) pending.push(primary.phys);
     await this.loadPending(pending);
   }
 
@@ -305,10 +315,6 @@ export class FontRegistry {
         let system: { index: number; path: string } | undefined;
         try {
           const loaded = await p.load();
-          if (!loaded) {
-            this.failed.add(p.key);
-            return;
-          }
           if (loaded instanceof Uint8Array) lf = makeLoaded(p, loaded);
           else {
             system = loaded;
@@ -363,8 +369,8 @@ export class FontRegistry {
       if (it.ranges && !it.ranges.some((r) => inRange(r, cp))) continue;
       const lf = this.loaded.get(it.phys.key);
       if (!lf) continue;
-      if (!firstLoaded) firstLoaded = { font: lf, scale: it.scale, baselineShift: it.baselineShift };
-      if (lf.has(cp)) return { font: lf, scale: it.scale, baselineShift: it.baselineShift };
+      if (!firstLoaded) firstLoaded = { font: lf, scale: it.scale, baselineShift: it.baselineShift, face: it.face };
+      if (lf.has(cp)) return { font: lf, scale: it.scale, baselineShift: it.baselineShift, face: it.face };
     }
     return null;
   }

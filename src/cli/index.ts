@@ -248,7 +248,7 @@ async function cmdRender(file: string, o: Obj, onSystemFont?: (path: string) => 
     process.stdout.write(r.pages[0].data);
   }
   if (o.contactSheet && r.pages.length && opts.outDir) {
-    const sheet = await contactSheet(r.pages.filter((p) => p.format !== "pdf" && p.format !== "svg" && !p.separation), !!(opts.config as Obj | undefined) && false);
+    const sheet = await contactSheet(r.pages.filter((p) => p.format !== "pdf" && p.format !== "svg" && p.format !== "psd" && !p.separation), !!(opts.config as Obj | undefined) && false);
     if (sheet) {
       const base = typeof input === "string" ? basename(input).replace(/\.[^.]+$/, "") : "manga";
       const f = join(opts.outDir, `${base}-contact.png`);
@@ -494,18 +494,28 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
   const entry = resolve(file);
   const port = o.port !== undefined ? Number(o.port) : 4173;
   const host = (o.host as string) ?? "127.0.0.1";
-  let pages: { id: string; data: Uint8Array; mime: string; ext: string }[] = [];
+  type PreviewPage = { id: string; side: string; separation?: string; data: Uint8Array; mime: string; ext: string; width: number; height: number; elements: { id: string; x: number; y: number; width: number; height: number }[] };
+  let pages: PreviewPage[] = [];
   let diags: Diagnostic[] = [];
   let version = 0;
+  // pages with the safe line and fold band drawn on top, rendered on first request per version
+  let guided: { version: number; pages: Promise<PreviewPage[]> } | undefined;
   const clients = new Set<import("node:http").ServerResponse>();
   const watcher = watch(collectDeps(entry), { ignoreInitial: true });
+  const renderPages = async (debug?: string[]) => {
+    const opts = await renderOptions({ ...o, profile: o.profile ?? "preview" }, file);
+    opts.onSystemFont = (path) => watcher.add(path);
+    if (debug) opts.debug = Array.isArray(opts.debug) ? [...new Set([...opts.debug, ...debug])] : (opts.debug ?? debug);
+    const r = await render(entry, opts);
+    return { pages: r.pages.map((p) => ({ id: p.id, side: p.side, separation: p.separation, data: p.data, mime: p.mimeType, ext: p.format, width: p.width, height: p.height, elements: p.elements })), diags: r.diagnostics };
+  };
+  const guidedPages = () => {
+    if (guided?.version !== version) guided = { version, pages: renderPages(["guides"]).then((r) => r.pages, () => pages) };
+    return guided.pages;
+  };
   const build = async () => {
     try {
-      const opts = await renderOptions({ ...o, profile: o.profile ?? "preview" }, file);
-      opts.onSystemFont = (path) => watcher.add(path);
-      const r = await render(entry, opts);
-      pages = r.pages.map((p) => ({ id: p.id, data: p.data, mime: p.mimeType, ext: p.format }));
-      diags = r.diagnostics;
+      ({ pages, diags } = await renderPages());
     } catch (e) {
       diags = [{ code: "RENDER_FAILED", severity: "error", message: (e as Error).message }];
     }
@@ -515,14 +525,41 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
     log("info", `${paint("2", new Date().toLocaleTimeString())} ${pages.length} page(s)${errors ? `, ${errors} error(s)` : ""}${warnings ? `, ${warnings} warning(s)` : ""}`);
   };
   const html = () => `<!doctype html><meta charset="utf-8"><title>mangacli preview</title>
-<style>body{margin:0;background:#3a3a3a;font:13px system-ui;color:#ddd}header{padding:8px 12px;background:#222;position:sticky;top:0}
-main{display:flex;flex-wrap:wrap;flex-direction:row-reverse;gap:16px;padding:16px;justify-content:center}figure{margin:0}
+<style>body{margin:0;background:#3a3a3a;font:13px system-ui;color:#ddd}header{padding:8px 12px;background:#222;position:sticky;top:0;display:flex;gap:16px;align-items:center}header label{margin-left:auto;cursor:pointer}
+main{display:flex;flex-wrap:wrap;flex-direction:row-reverse;gap:16px;padding:16px;justify-content:center}figure{margin:0;position:relative}
 img{max-height:85vh;box-shadow:0 2px 12px #0008;background:#fff}figcaption{text-align:center;padding:4px}
-.d{padding:2px 12px}.error{color:#ff8080}.warning{color:#ffd480}</style>
-<header>${esc(relative(process.cwd(), entry))} — ${pages.length} page(s)</header>
-<section>${diags.filter((d) => d.severity !== "info").map((d) => `<div class="d ${d.severity}">${esc(d.code)} ${d.location ? `${d.location.line}:${d.location.column} ` : ""}${esc(d.message)}</div>`).join("")}</section>
-<main>${pages.map((p, i) => `<figure><img src="/page/${i}.${p.ext}?v=${version}"><figcaption>${i + 1} · ${esc(p.id)}</figcaption></figure>`).join("")}</main>
-<script>new EventSource("/events").onmessage=()=>location.reload()</script>`;
+.d{padding:2px 12px}.error{color:#ff8080}.warning{color:#ffd480}.d[data-page]{cursor:pointer}.d.selected{background:#665020}header{z-index:2}.highlight{position:absolute;border:3px solid #ff36b1;box-shadow:0 0 0 1px #fff;pointer-events:none;box-sizing:border-box;z-index:1}</style>
+<header>${esc(relative(process.cwd(), entry))} — ${pages.length} page(s)
+<label title="${esc(t("安全領域の線と見開き中央の危険帯を重ねて表示", "Overlay the safe line and the spread fold danger band"))}"><input type="checkbox" id="guides"> ${esc(t("ガイド（安全線・ノド）", "Guides (safe line, fold)"))}</label></header>
+<section>${diags.filter((d) => d.severity !== "info").map((d) => {
+    let i = -1;
+    let overlap = 0;
+    if (d.elementId) pages.forEach((p, index) => {
+      if (d.pageId && p.id !== d.pageId) return;
+      const b = p.elements.find((e) => e.id === d.elementId);
+      if (!b) return;
+      const area = Math.max(0, Math.min(p.width, b.x + b.width) - Math.max(0, b.x)) * Math.max(0, Math.min(p.height, b.y + b.height) - Math.max(0, b.y));
+      if (area > overlap) { overlap = area; i = index; }
+    });
+    const page = i >= 0 ? i : d.elementId && d.pageId ? pages.findIndex((p) => p.id === d.pageId) : -1;
+    const b = pages[i]?.elements.find((e) => e.id === d.elementId);
+    const attrs = page < 0 ? "" : ` tabindex="0" role="button" data-page="${page}" data-key="${esc(JSON.stringify([d.code, d.elementId]))}"${b ? ` data-box="${esc(JSON.stringify(b))}"` : ""}`;
+    return `<div class="d ${d.severity}"${attrs}>${esc(d.code)} ${d.location ? `${d.location.line}:${d.location.column} ` : ""}${esc(d.message)}</div>`;
+  }).join("")}</section>
+<main>${pages.map((p, i) => `<figure><img data-width="${p.width}" data-height="${p.height}" data-src="/page/${i}.${p.ext}?v=${version}"><figcaption>${i + 1} · ${esc(p.id)}</figcaption></figure>`).join("")}</main>
+<script>const box=document.getElementById("guides"),saved=localStorage.getItem("mangacli-guides");
+box.checked=saved===null?${o.guides ? "true" : "false"}:saved==="1";
+const show=()=>{for(const img of document.querySelectorAll("img[data-src]"))img.src=img.dataset.src+(box.checked?"&guides=1":"")};
+box.onchange=()=>{localStorage.setItem("mangacli-guides",box.checked?"1":"0");show()};show();
+const rows=[...document.querySelectorAll('.d[data-page]')],figures=[...document.querySelectorAll('figure')];
+const frame=document.createElement('div');frame.className='highlight';let selected=null;
+const clear=()=>{if(selected)selected.classList.remove('selected');selected=null;frame.remove();sessionStorage.removeItem('mangacli-selection')};
+const position=()=>{if(!selected||!selected.dataset.box)return;const img=figures[Number(selected.dataset.page)].querySelector('img');if(!img.naturalWidth)return;const b=JSON.parse(selected.dataset.box),sx=img.clientWidth/Number(img.dataset.width),sy=img.clientHeight/Number(img.dataset.height);Object.assign(frame.style,{left:(img.offsetLeft+b.x*sx-3)+'px',top:(img.offsetTop+b.y*sy-3)+'px',width:(b.width*sx+6)+'px',height:(b.height*sy+6)+'px'})};
+const select=(row,scroll=true)=>{clear();selected=row;row.classList.add('selected');sessionStorage.setItem('mangacli-selection',row.dataset.key);const fig=figures[Number(row.dataset.page)];if(row.dataset.box){fig.append(frame);position()}if(scroll)fig.scrollIntoView({block:'center',behavior:'smooth'})};
+for(const row of rows){row.onclick=()=>selected===row?clear():select(row);row.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();row.click()}}}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')clear()});window.addEventListener('resize',position);for(const img of document.querySelectorAll('img'))img.addEventListener('load',position);
+const previous=sessionStorage.getItem('mangacli-selection'),restored=rows.find(r=>r.dataset.key===previous);if(restored)select(restored,false);else clear();
+new EventSource("/events").onmessage=()=>location.reload()</script>`;
   const esc = (x: string) => x.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://x");
@@ -535,9 +572,19 @@ img{max-height:85vh;box-shadow:0 2px 12px #0008;background:#fff}figcaption{text-
     }
     const m = url.pathname.match(/^\/page\/(\d+)\.\w+$/);
     if (m && pages[Number(m[1])]) {
-      const p = pages[Number(m[1])];
-      res.writeHead(200, { "content-type": p.mime, "cache-control": "no-store" });
-      res.end(p.data);
+      const send = (p: PreviewPage | undefined) => {
+        if (!p) return void res.writeHead(404).end();
+        res.writeHead(200, { "content-type": p.mime, "cache-control": "no-store" });
+        res.end(p.data);
+      };
+      if (url.searchParams.get("guides") === "1") {
+        // guided pages are PNG only, so match the same page, separation and half; svg keeps a split spread joined, so it stays plain then
+        const cur = pages[Number(m[1])]!;
+        void guidedPages().then((g) => {
+          const same = g.filter((p) => p.id === cur.id && p.separation === cur.separation);
+          send((cur.ext === "svg" ? (same.length === 1 ? same[0] : undefined) : same.find((p) => p.side === cur.side)) ?? cur);
+        });
+      } else send(pages[Number(m[1])]);
       return;
     }
     if (url.pathname === "/") {
@@ -832,7 +879,7 @@ const renderOpts = (c: ReturnType<typeof cli.command>) =>
   common(c)
     .option("-o, --out <dir>", "Output directory")
     .option("-p, --profile <name>", "Output profile (print-mono, print-gray, print-color, web, sns, preview, draft)")
-    .option("-f, --format <fmt>", "png, jpeg, webp, avif, tiff, pdf, svg (comma separated)")
+    .option("-f, --format <fmt>", "png, jpeg, webp, avif, tiff, pdf, svg, psd (comma separated)")
     .option("--pdf-x <version>", "Monochrome print PDF: 1a (PDF/X-1a:2001) or 4 (PDF/X-4)")
     .option("--pdf-x-icc <path>", "CMYK printer ICC profile for PDF/X")
     .option("--pdf-x-condition <name>", "Printer's output condition for PDF/X")
@@ -924,6 +971,7 @@ renderOpts(cli.command("preview <file>", "Live preview in the browser"))
   .option("--port <n>", "Port (default 4173)")
   .option("--host <host>", "Host (default 127.0.0.1)")
   .option("--open", "Open the browser")
+  .option("--guides", "Start with the safe line and fold band overlay on")
   .action(wrap((file: string, o: Obj) => cmdPreview(file, o)));
 common(cli.command("schema", "Print the JSON Schema"))
   .option("--out <file>", "Write to a file")
