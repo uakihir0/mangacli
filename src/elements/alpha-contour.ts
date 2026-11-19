@@ -1,5 +1,7 @@
 import type { Vec } from "../geom/vec.js";
-import { applyMat } from "../geom/vec.js";
+import { applyMat, boundsOf, invertMat } from "../geom/vec.js";
+import { flattenPath } from "../geom/path.js";
+import polygonClipping, { type Ring } from "polygon-clipping";
 import type { RElement } from "../model/resolve.js";
 import type { ElemCtx } from "./context.js";
 
@@ -47,9 +49,20 @@ export async function prepareAlphaContours(els: RElement[], ctx: ElemCtx): Promi
     const target = typeof el.props.target === "string" ? ctx.refs.target(el.props.target, ctx.panel?.panel.id) : undefined;
     if (!target?.imagePx || out.has(target.id)) continue;
     const { w, h, matrix, assetKey } = target.imagePx;
-    const scale = 256 / Math.max(w, h);
-    const gw = Math.max(1, Math.round(w * scale)), gh = Math.max(1, Math.round(h * scale));
-    const px = await ctx.assets.pixels(assetKey, gw, gh, { x: 0, y: 0, w, h });
+    const silhouette = target.imageSilhouette;
+    const image = silhouette?.kind === "group" ? silhouette.children.find(n => n.kind === "image") : undefined;
+    let src = image?.kind === "image" && image.sourceRect ? image.sourceRect : { x: 0, y: 0, w, h };
+    const clip = silhouette?.kind === "group" ? silhouette.clip : undefined;
+    if (clip) {
+      const inv = invertMat(matrix);
+      const box = boundsOf(flattenPath(clip).flatMap(p => p.pts.map(q => applyMat(inv, q))));
+      const x = Math.max(src.x, box.x), y = Math.max(src.y, box.y);
+      src = { x, y, w: Math.min(src.x + src.w, box.x + box.w) - x, h: Math.min(src.y + src.h, box.y + box.h) - y };
+    }
+    if (src.w <= 0 || src.h <= 0) continue;
+    const scale = 256 / Math.max(src.w, src.h);
+    const gw = Math.max(1, Math.round(src.w * scale)), gh = Math.max(1, Math.round(src.h * scale));
+    const px = await ctx.assets.pixels(assetKey, gw, gh, src);
     if (!px) continue;
     const pad = 4, W = gw + pad * 2, H = gh + pad * 2;
     const mask = new Uint8Array(W * H);
@@ -57,7 +70,13 @@ export async function prepareAlphaContours(els: RElement[], ctx: ElemCtx): Promi
     for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) if (px.data[(y * gw + x) * 4 + 3] > 0) {
       for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) mask[(y + pad + dy) * W + x + pad + dx] = 1;
     }
-    out.set(target.id, traceAlpha(mask, W, H).map(loop => loop.map(p => applyMat(matrix, { x: (p.x - pad + 0.5) * w / gw, y: (p.y - pad + 0.5) * h / gh }))));
+    const ring = (points: Vec[]): Ring => points.map(p => [p.x, p.y]);
+    const visible = ring([{ x: src.x, y: src.y }, { x: src.x + src.w, y: src.y }, { x: src.x + src.w, y: src.y + src.h }, { x: src.x, y: src.y + src.h }].map(p => applyMat(matrix, p)));
+    const loops = traceAlpha(mask, W, H).flatMap(loop => {
+      const mapped = ring(loop.map(p => applyMat(matrix, { x: src.x + (p.x - pad + 0.5) * src.w / gw, y: src.y + (p.y - pad + 0.5) * src.h / gh })));
+      return polygonClipping.intersection([mapped], [visible]).map(poly => poly[0].slice(0, -1).map(([x, y]) => ({ x, y })));
+    });
+    out.set(target.id, loops);
   }
   return out;
 }

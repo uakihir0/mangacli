@@ -26,6 +26,18 @@ async function raster(effect = "", empty = false) {
 }
 
 describe("alpha tracing", () => {
+  it.each(["crop", "cover"])("ignores alpha outside the visible %s rectangle", async mode => {
+    const input = scene("effect: aura, target: figure, seed: 21");
+    input.yaml = input.yaml.replace("character: hero,", mode === "crop" ? "crop: [24, 0, 48, 128]," : "fit: cover,");
+    if (mode === "cover") input.yaml = input.yaml.replace("24mm, 32mm", "24mm, 24mm");
+    const image = async (full: boolean) => sharp(Buffer.from(`<svg width="96" height="128" xmlns="http://www.w3.org/2000/svg"><rect ${full ? 'width="96" height="128"' : mode === "crop" ? 'x="24" width="48" height="128"' : 'y="16" width="96" height="96"'} fill="#777"/></svg>`)).png().toBuffer();
+    const result = async (full: boolean) => {
+      const list = await createRenderer({ assets: { cutout: await image(full) } }).displayList(input, 1);
+      const effects = (node: Node): Node[] => node.tag?.elementType === "effect" ? [node] : node.kind === "group" ? node.children.flatMap(effects) : [];
+      return JSON.stringify(effects(list.root));
+    };
+    expect(await result(true) === await result(false)).toBe(true);
+  });
   it("handles empty grids, disconnected contours and diagonal saddles", () => {
     expect(traceAlpha(new Uint8Array(25), 5, 5)).toEqual([]);
     const mask = new Uint8Array(36);
