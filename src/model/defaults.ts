@@ -87,6 +87,7 @@ export const BUILTIN_MARK_DEFAULTS: Record<string, Obj> = {
 
 /** Built-in speech styles selected by `as` (spec 6.13). */
 export const BUILTIN_STYLES: Record<string, Obj> = {
+  aside: { shape: { kind: "none" }, font: "hand", fontScale: 0.75, lettering: { mode: "hand" }, textOutline: [{ width: "0.65bmm", color: "paper" }], minSize: ["0bmm", "0bmm"], padding: ["0.25em", "0.3em"], autoConnect: false, tail: { kind: "none", maxLength: "3bmm", gap: "1bmm", bend: 0, curl: false, allowVertical: true } },
   say: { shape: { kind: "ellipse" }, stroke: { width: "0.25bmm", pen: { preset: "g-pen" }, style: "solid" }, tail: { kind: "wedge" }, font: "dialogue" },
   think: { shape: { kind: "cloud" }, stroke: { width: "0.2bmm", pen: { preset: "maru-pen" }, style: "solid" }, tail: { kind: "bubbles" }, font: "thought" },
   shout: { shape: { kind: "spike" }, stroke: { width: "0.3bmm", pen: { preset: "g-pen" }, style: "solid" }, tail: { kind: "wedge", widthScale: 1.3 }, font: "shout", fontScale: 1.4 },

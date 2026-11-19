@@ -922,6 +922,7 @@ function silhouetteCover(r: Rect, sils: Silhouette[]): number {
 }
 
 function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, processed: Map<string, { bbox: Rect }>, sils: Silhouette[] = [], replan?: (pl: BalloonPlan, props: Obj) => BalloonPlan | null) {
+  plans = [...plans].sort((a, b) => Number(a.props.as === "aside") - Number(b.props.as === "aside"));
   const u = ctx.u;
   const geom = ctx.geom;
   const rtl = geom.rtl;
@@ -1060,11 +1061,14 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const who = pl.props.who as string | undefined;
     const offSide = isObj(pl.props.tail) ? ((pl.props.tail as Obj).offscreen as string | undefined) : undefined;
     const speaker = who && !offSide ? refs.point(who, pid) : null;
+    const aside = pl.props.as === "aside";
+    const face = aside && who ? refs.target(who, pid)?.regions.face?.bbox : undefined;
     // cost weights (spec 6.12.2), overridable per balloon with autoPlace.weights
     const W = { order: 120, rise: 30, flow: 3, start: 4, overlap: 50, avoid: 60, figure: 25, speaker: 1.5, tail: 4, top: 1, outside: 30, offscreen: 8, reshape: 3, ...((apOf(pl).weights as Record<string, number> | undefined) ?? {}) };
+    if (aside) Object.assign(W, { order: 0, rise: 0, flow: 0, start: 0, top: 0, figure: 0, speaker: face ? 0 : 1.5, overlap: 10000, avoid: 10000, outside: 10000 });
     // the balloon may also be set with shorter or longer lines when that finds it a free place
     const variants: { vp: BalloonPlan; extra: number }[] = [{ vp: pl, extra: 0 }];
-    if (replan && apOf(pl).reshape !== false && pl.props.maxChars === undefined && Array.from(pl.text.plain ?? "").length > 5) {
+    if (!aside && replan && apOf(pl).reshape !== false && pl.props.maxChars === undefined && Array.from(pl.text.plain ?? "").length > 5) {
       const base = pl.text.lines.length ? Math.max(...pl.text.lines.map((l) => Array.from(l.text ?? "").length)) : 8;
       for (const m of [Math.max(3, Math.round(base * 0.6)), Math.round(base * 1.5)]) {
         if (m === base) continue;
@@ -1085,6 +1089,17 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
           const rect = { x: x - w / 2, y: y - h / 2, w, h };
           const A = w * h;
           let cost = extra;
+          const clearance = aside ? rectInset(rect, -Math.max(w, h) * 0.05 - 0.7 * u.k) : rect;
+          if (aside) {
+            for (const ob of obstacles) if (rectOverlapArea(clearance, ob.r) > 0) cost += 10000;
+            if (face) {
+              const gap = 2 * u.k;
+              const left = Math.abs(rect.x + w - (face.x - gap));
+              const right = Math.abs(rect.x - (face.x + face.w + gap));
+              const dy = Math.abs(c.y - (face.y + face.h * 0.6));
+              cost += (Math.min(left, right) + dy * 1.5) / Math.max(1, u.k);
+            }
+          }
           // lettering keeps a little air around it: text and SFX boxes count with a margin
           for (const ob of obstacles) cost += (ob.w === 60 ? W.avoid : ob.w) * (ob.ellipse ? ellipseOverlap(rect, ob.r) : rectOverlapArea(rect, rectInset(ob.r, -air)) / A);
           for (const hr of hard) if (rectOverlapArea(rect, hr) > 0) cost += 1000;
@@ -1121,7 +1136,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         }
         const A = cell.w * cell.h;
         // balloons that touch read as one shape: keep about 2 mm between them
-        for (const pr of st.rects) cost += W.overlap * (rectOverlapArea(cell.rect, pr) / A) + W.overlap * 0.3 * (rectOverlapArea(cell.rect, rectInset(pr, -air)) / A);
+        for (const pr of st.rects) cost += W.overlap * (rectOverlapArea(cell.rect, pr) / A) + W.overlap * 0.3 * (rectOverlapArea(cell.rect, rectInset(pr, -air)) / A) + (aside && rectOverlapArea(rectInset(cell.rect, -Math.max(cell.w, cell.h) * 0.05 - 0.7 * u.k), pr) > 0 ? 10000 : 0);
         // tail path crossing other balloons
         if (speaker) for (const pr of st.rects) if (segRect(cell.c, speaker, pr)) cost += W.tail;
         return { cell, cost };
@@ -1160,7 +1175,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   // reading-order and overlap checks over the final positions
   const rects = plans.filter((pl) => pl.center).map((pl) => ({ pl, r: { x: pl.center!.x + pl.outer.x, y: pl.center!.y + pl.outer.y, w: pl.outer.w, h: pl.outer.h } }));
   // each balloon must read after the one before it, by the same row rule the placement uses (spec 6.12.3)
-  const unlinked = rects.filter((r) => !r.pl.props.connect);
+  const unlinked = rects.filter((r) => !r.pl.props.connect && r.pl.props.as !== "aside");
   for (let i = 1; i < unlinked.length; i++) {
     if (orderCost(unlinked[i - 1].r, unlinked[i].r, 1, 0) > 0.3) {
       ctx.bag.info("BALLOON_ORDER_MISMATCH", `balloon ${unlinked[i].pl.el.id} reads before ${unlinked[i - 1].pl.el.id} by its position`, { path: unlinked[i].pl.el.path, elementId: unlinked[i].pl.el.id });
@@ -1177,6 +1192,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     }
   }
   for (const a of rects) {
+    if ((a.pl.props.tail as Obj | undefined)?.kind === "none" && !a.pl.props.tails) continue;
     if (linked.has(a.pl.el.id)) continue;
     const who = a.pl.props.who as string | undefined;
     const sp = who ? refs.point(who, pid) : null;

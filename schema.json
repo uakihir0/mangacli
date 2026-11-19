@@ -5099,6 +5099,11 @@
             },
             {
               "required": [
+                "aside"
+              ]
+            },
+            {
+              "required": [
                 "sfx"
               ]
             },
