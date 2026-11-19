@@ -25,6 +25,19 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
+  it("selects the standalone full-width punctuation font for dialogue TCY", async () => {
+    const fonts = new FontRegistry(new Map() as never, "manga-basic", [], {});
+    await fonts.prepare("dialogue", "！？!?");
+    const style = defaultTextStyle({ font: "dialogue", fontSize: 10 });
+    for (const text of ["！！", "？？", "！!?", "<tcy>！！</tcy>"]) {
+      const mark = text.includes("？") ? "？" : "！";
+      const selected = fonts.pick("dialogue", mark.codePointAt(0)!)!;
+      const result = layoutText(text, style, fonts);
+      const expected = layoutText(text, { ...style, font: "selected" }, { pick: () => selected, boldName: () => undefined } as never);
+      expect(result.glyphs.map((g) => normalizedOutline(g.path))).toEqual(expected.glyphs.map((g) => normalizedOutline(g.path)));
+      expect(result.lines[0].rect.h).toBeCloseTo(10);
+    }
+  });
   it("retains the documented half-width minimum for non-mark TCY", async () => {
     const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id: "dela-gothic-one" }]]), "none", [], {});
     await fonts.prepare("test", "2026");

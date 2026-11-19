@@ -366,7 +366,15 @@ function buildBoxes(parsed: ParsedText, style: TextStyle, reg: FontRegistry, mis
     const bold = !!st.bold && !reg.boldName(st.font ?? style.font);
     const first = boxes.length;
     // split run by font pick (per char) for shaping
-    const picks: (FontPick | null)[] = chars.map((c) => reg.pick(fname, c.codePointAt(0)!));
+    let picks: (FontPick | null)[] = chars.map((c) => reg.pick(fname, c.codePointAt(0)!));
+    if (o === "tcy" && chars.every((c) => /^[!?！？]$/.test(c))) {
+      const full = chars.map((c) => c === "!" ? "！" : c === "?" ? "？" : c);
+      const fullPicks = full.map((c) => reg.pick(fname, c.codePointAt(0)!));
+      const fullPick = fullPicks.find((p) => p && full.every((c) => p.font.has(c.codePointAt(0)!)));
+      const forms = fullPick ? full : chars.map((c) => c === "！" ? "!" : c === "？" ? "?" : c);
+      const groupPick = fullPick ?? forms.map((c) => reg.pick(fname, c.codePointAt(0)!)).find((p) => p && forms.every((c) => p.font.has(c.codePointAt(0)!))) ?? null;
+      picks = chars.map(() => groupPick);
+    }
     let s0 = 0;
     while (s0 < chars.length) {
       let s1 = s0 + 1;
