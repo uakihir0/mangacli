@@ -1,0 +1,12 @@
+mangacli: 1
+page: { size: [100mm, 140mm], bleed: 0, baseFrame: { size: [90mm, 130mm] }, color: mono }
+output: { metadata: false }
+assets:
+  hero-art: { src: ./assets/aura-hero.png, kind: art }
+pages:
+  - panels:
+      - layers:
+          - { tone: black }
+          - { image: hero-art, id: hero, size: [auto, 68%], at: [50%, 56%] }
+          - { effect: aura, target: hero, length: 10mm, tongues: 28, upwardBias: 0.95, layers: 3, fill: 'tone(8%)', color: white, seed: 42 }
+          - { effect: arcs, target: hero, length: 5mm, count: 16, color: white, density: 2, seed: 17 }
