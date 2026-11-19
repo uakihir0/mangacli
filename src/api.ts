@@ -470,13 +470,14 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   const outDir = options.outDir ? resolvePath(options.outDir) : undefined;
   const nameTpl = options.name ?? (docOutput.name as string) ?? prof.name ?? "{name}-{page:03}";
   const emitted = new Set<string>();
-  const seps0 = normalizeSeparations(options.separate ?? prof.separate);
+  const separate = options.separate ?? prof.separate;
+  const seps0 = normalizeSeparations(separate);
   const regularFormats = formats.filter((f) => f !== "psd");
   const regularRuns: { name?: string; list?: string[]; formats: OutputFormat[] }[] =
     regularFormats.length ? (seps0 ?? [{}]).map((run) => ({ ...run, formats: regularFormats })) : [];
-  const psdLayers = formats.includes("psd") ? (seps0?.length ? seps0 : normalizeSeparations("all")!) : [];
+  const hasPsd = formats.includes("psd");
   const psdFormats: OutputFormat[] = ["psd"];
-  const outputRuns = psdLayers.length ? [...regularRuns, { name: undefined, formats: psdFormats }] : regularRuns;
+  const outputRuns = hasPsd ? [...regularRuns, { name: undefined, formats: psdFormats }] : regularRuns;
   // Transparent output omits the page ground (panel grounds stay; spec 10.15).
   const bgOverride = options.background ?? (typeof docOutput.background === "string" ? docOutput.background : undefined);
   const transparentOut = options.transparent ?? (bgOverride === "transparent" ? true : undefined) ?? prof.transparent ?? false;
@@ -605,6 +606,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       if (dpi > lim.maxDpi) throw new Error(`SECURITY_LIMIT_EXCEEDED: ${Math.round(dpi)} dpi exceeds maxDpi (${lim.maxDpi})`);
       const splitMarks = geom.type === "spread" && spreadMode === "split" && crop === "marks";
       const rasterCrop = splitMarks ? "bleed" : crop;
+      const psdLayers = hasPsd ? (separate === "all" || !seps0?.length ? allSeparations(list.root) : seps0) : [];
       const runs = [
         ...regularRuns.map((run) => ({ ...run, layer: undefined, transparent: transparentOut || !!run.list, drawMarks: true })),
         ...psdLayers.map((layer, index) => ({
@@ -789,10 +791,19 @@ function errorFor(items: Diagnostic[]): MangaError {
   return new MangaValidationError(items);
 }
 
+function allSeparations(root?: Node): { name: string; list: string[] }[] {
+  const names = new Set(["background", "art", "fx", "frame", "balloon", "text", "sfx", "furniture"]);
+  const visit = (node: Node) => {
+    if (node.tag) names.add(node.tag.separation);
+    if (node.kind === "group") node.children.forEach(visit);
+  };
+  if (root) visit(root);
+  return Array.from(names, (name) => ({ name, list: [name] }));
+}
+
 function normalizeSeparations(s: RenderOptions["separate"]): { name: string; list: string[] }[] | null {
   if (!s) return null;
-  const all = ["background", "art", "fx", "frame", "balloon", "text", "sfx", "furniture"];
-  if (s === "all") return all.map((n) => ({ name: n, list: [n] }));
+  if (s === "all") return allSeparations();
   if (Array.isArray(s)) return s.map((n) => ({ name: n, list: [n] }));
   return Object.entries(s).map(([name, list]) => ({ name, list }));
 }

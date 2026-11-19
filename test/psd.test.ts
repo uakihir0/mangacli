@@ -58,6 +58,24 @@ describe("layered PSD export", () => {
     expect(hidden.equals(composeMono(proofLayers, psd.width, psd.height))).toBe(true);
   });
 
+  it.each([undefined, "all"] as const)("includes custom separations in first-appearance order with separate=%s", async (separate) => {
+    const { pages: [page] } = await render({
+      mangacli: 1,
+      page: { size: ["20mm", "15mm"], bleed: 0 },
+      pages: [{ layers: [
+        { type: "fill", paint: "red", region: { rect: ["0%", "0%", "50%", "50%"] }, separation: "ink" },
+        { type: "fill", paint: "blue", region: { rect: ["50%", "0%", "50%", "50%"] }, separation: "accents" },
+        { type: "fill", paint: "red", region: { rect: ["0%", "50%", "50%", "50%"] }, separation: "ink" },
+      ] }],
+    }, { format: "psd", colorMode: "color", dpi: 127, separate });
+    const psd = read(page.data);
+    expect(psd.children?.map(({ name }) => name)).toEqual([...order, "ink", "accents"]);
+    for (const [x, y, expected] of [[25, 18, [255, 0, 0, 255]], [75, 18, [0, 0, 255, 255]], [25, 56, [255, 0, 0, 255]]] as const) {
+      const offset = (y * psd.width + x) * 4;
+      expect(Array.from(psd.imageData!.data.slice(offset, offset + 4))).toEqual(expected);
+    }
+  });
+
   it.each([{ mode: "color", fileMode: 3 }, { mode: "gray", fileMode: 1 }] as const)(
     "groups custom layers in a $mode PSD from config without changing separate PNG output", async ({ mode, fileMode }) => {
       const result = await render({
