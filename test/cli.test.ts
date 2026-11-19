@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -44,5 +44,15 @@ describe("cli", () => {
     expect(cli(...mono, "--max-output-bytes", "40000000", "--max-output-pixels", "1").status).toBe(0);
     expect(cli(...mono, "--max-output-bytes", "nope").status).toBe(3);
     expect(cli(...mono, "--max-output-bytes", "0").status).toBe(3);
+  });
+  it("exports print dimensions and rejects unknown output sizes", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mc-"));
+    const file = join(dir, "print.yaml");
+    writeFileSync(file, "mangacli: 1\npage: { size: [100mm, 150mm], printScale: 0.8 }\npages: [{}]\n");
+    const r = cli("render", file, "-p", "preview", "--output-size", "print", "--format", "svg", "-o", dir, "--name", "print", "-q");
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+    expect(readFileSync(join(dir, "print.svg"), "utf8")).toContain('width="80mm" height="120mm"');
+    expect(cli("render", file, "--output-size", "unknown").status).toBe(3);
   });
 });

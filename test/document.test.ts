@@ -55,6 +55,7 @@ describe("rendering", () => {
     const probe = `mangacli: 1
 meta: { lang: en }
 page: { size: [25.4mm, 25.4mm], bleed: 0, baseFrame: trim, color: mono }
+book: { pageNumbers: { show: never } }
 pages:
   - panels:
       - border: none
@@ -137,6 +138,34 @@ ${screens.map(({ lpi, angle }) => `      - background: { tone: { density: 35%, l
     ]);
     expect(uniform.equals(gradient)).toBe(true);
   });
+  it("keeps the 85 LPI, 30-degree midtone checker cells from merging along pixel edges", async () => {
+    const tone = "density: 50%, lpi: 85, angle: 30deg";
+    const [uniform, gradient] = await Promise.all([
+      renderMonoToneLayers(`{ ${tone} }`),
+      renderMonoToneLayers(`{ ${tone}, gradient: { stops: [[0%, 50%], [100%, 50%]] } }`),
+    ]);
+    expect(uniform.equals(gradient)).toBe(true);
+    expect(Math.abs(uniform.filter(p => p === 0).length / uniform.length - 0.5)).toBeLessThan(0.001);
+    const width = 550;
+    const visited = new Uint8Array(uniform.length);
+    let largest = 0;
+    for (let i = 0; i < uniform.length; i++) {
+      if (visited[i]) continue;
+      visited[i] = 1;
+      const component = [i];
+      for (let j = 0; j < component.length; j++) {
+        const p = component[j];
+        const col = p % width;
+        for (const q of [col > 0 ? p - 1 : -1, col < width - 1 ? p + 1 : -1, p - width, p + width]) {
+          if (q < 0 || q >= uniform.length || visited[q] || uniform[q] !== uniform[p]) continue;
+          visited[q] = 1;
+          component.push(q);
+        }
+      }
+      largest = Math.max(largest, component.length);
+    }
+    expect(largest).toBeLessThan(32);
+  });
   it("writes PDF with trim and bleed boxes", async () => {
     const r = await render(yaml(doc.replace("bleed: 0", "bleed: 3mm")), { profile: "print-mono", dpi: 100, format: "pdf" });
     const pdf = Buffer.from(r.pages[0].data).toString("latin1");
@@ -165,8 +194,8 @@ ${screens.map(({ lpi, angle }) => `      - background: { tone: { density: 35%, l
         const trim = page[2].split(" ").map(Number);
         const box = page[3].split(" ").map(Number);
         const width = spread === "joined" && i === 1 ? 364 : 182;
-        const left = spread === "split" && i === 1 ? bleed : outer;
-        const right = spread === "split" && i === 2 ? bleed : outer;
+        const left = outer;
+        const right = outer;
         const pt = (mm: number) => mm * 72 / 25.4;
         const expected = [left, outer, left + width, outer + 257];
         expected.forEach((v, j) => expect(trim[j]).toBeCloseTo(pt(v), 2));
@@ -177,6 +206,23 @@ ${screens.map(({ lpi, angle }) => `      - background: { tone: { density: 35%, l
         expect(media[2]).toBeCloseTo(Number(images[i][1]) * 72 / 254, 2);
         expect(media[3]).toBeCloseTo(Number(images[i][2]) * 72 / 254, 2);
       });
+    }
+  });
+  it("places B5 split PDF boxes inside symmetric mark margins at 600 dpi", async () => {
+    const source = "mangacli: 1\npage: { size: B5, bleed: 3mm }\npages:\n  - type: spread\n    panels: []\n";
+    const r = await render(yaml(source), { profile: "print-mono", dpi: 600, format: "pdf", crop: "marks", spread: "split" });
+    const pdf = Buffer.from(r.pages[0]!.data).toString("latin1");
+    expect([...pdf.matchAll(/\/Subtype \/Image \/Width 4913 \/Height 6685/g)]).toHaveLength(2);
+    const pages = [...pdf.matchAll(/\/TrimBox \[([^\]]+)\] \/BleedBox \[([^\]]+)\]/g)];
+    expect(pages).toHaveLength(2);
+    const px = (pt: number) => Math.round(pt * 600 / 72);
+    for (const page of pages) {
+      const trim = page[1].split(" ").map(Number).map(px);
+      const bleed = page[2].split(" ").map(Number).map(px);
+      expect(trim).toEqual([307, 307, 4606, 6378]);
+      expect(bleed).toEqual([236, 236, 4677, 6449]);
+      expect((trim[2] - trim[0]) * 25.4 / 600).toBeCloseTo(182, 1);
+      expect((trim[3] - trim[1]) * 25.4 / 600).toBeCloseTo(257, 1);
     }
   });
   it("throws on errors by default", async () => {

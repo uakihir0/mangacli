@@ -5,11 +5,13 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { cac } from "cac";
 import { parse as parseYaml } from "yaml";
 import { type RenderOptions, render, validate } from "../api.js";
+import { PDF_X_VERSIONS } from "../output/pdfx.js";
 import { type MangaConfig, findConfig, loadConfig } from "../config.js";
 import { type Diagnostic, MangaError, MangaValidationError } from "../core/diagnostics.js";
 import { defaultFontSet, loadCatalog } from "../fonts/catalog.js";
 import { defaultFontCacheDir, findLocalCatalogFont } from "../fonts/download.js";
 import { installFonts } from "../fonts/install.js";
+import { listSystemFonts } from "../fonts/system.js";
 import { PACKAGE_ROOT } from "../fonts/catalog.js";
 import { jsonSchema } from "../schema/jsonschema.js";
 import { collectDeps } from "./deps.js";
@@ -141,13 +143,25 @@ async function renderOptions(o: Obj, entry: string): Promise<RenderOptions> {
   const config = await configFor(o, entry);
   const debug = o.debug === undefined ? undefined : o.debug === true ? true : list(o.debug);
   const format = list(o.format) as import("../output/encode.js").OutputFormat[] | undefined;
+  const pdfXVersion = oneOf(o.pdfX, "--pdf-x", PDF_X_VERSIONS);
+  const iccPath = o["pdfX-icc"];
+  const condition = o["pdfX-condition"];
+  let pdfX: RenderOptions["pdfX"];
+  if (pdfXVersion || iccPath !== undefined || condition !== undefined) {
+    if (!pdfXVersion || typeof iccPath !== "string" || !iccPath || typeof condition !== "string" || !condition.trim()) {
+      throw new UsageError("--pdf-x, --pdf-x-icc and --pdf-x-condition must be supplied together");
+    }
+    pdfX = { version: pdfXVersion, iccProfile: readFileSync(resolve(iccPath)), outputCondition: condition };
+  }
   const opts: RenderOptions = {
     config: config as Obj | undefined,
     profile: o.profile as string | undefined,
     format: format && format.length === 1 ? format[0] : format,
+    pdfX,
     colorMode: oneOf(o.color === true ? undefined : o.color, "--color", ["color", "gray", "mono"] as const),
     dpi: parsePositiveNumber(o.dpi, "--dpi"),
     limits: { ...config?.limits, ...(o.maxOutputPixels === undefined ? {} : { maxOutputPixels: parsePositiveNumber(o.maxOutputPixels, "--max-output-pixels") }), ...(o.maxOutputBytes === undefined ? {} : { maxOutputBytes: parsePositiveNumber(o.maxOutputBytes, "--max-output-bytes") }) },
+    output: oneOf(o.outputSize, "--output-size", ["manuscript", "print"] as const),
     scale: parsePositiveNumber(o.scale, "--scale"),
     width: parsePositiveNumber(o.width, "--width"),
     height: parsePositiveNumber(o.height, "--height"),
@@ -195,10 +209,11 @@ function summarize(diags: Diagnostic[]) {
 
 // ---- commands ----------------------------------------------------------------------
 
-async function cmdRender(file: string, o: Obj): Promise<number> {
+async function cmdRender(file: string, o: Obj, onSystemFont?: (path: string) => void): Promise<number> {
   const cwd = process.cwd();
   const input = readInput(file, o);
   const opts = await renderOptions(o, file);
+  opts.onSystemFont = onSystemFont;
   const cfgOut = ((opts.config as Obj | undefined)?.output ?? {}) as Obj;
   const toStdout = !!o.stdout;
   if (!toStdout) {
@@ -222,11 +237,11 @@ async function cmdRender(file: string, o: Obj): Promise<number> {
   };
   const conc = Math.max(1, Math.round(Number(o.concurrency ?? process.env.MANGACLI_CONCURRENCY ?? (opts.config as Obj | undefined)?.concurrency ?? 1)) || 1);
   const formats = ([] as unknown[]).concat(opts.format ?? []);
-  const canSplit = conc > 1 && !toStdout && !formats.includes("pdf") && !(opts.emit ?? []).some((k) => k === "transcript" || k === "manifest");
+  const canSplit = conc > 1 && !toStdout && !opts.pdfX && !formats.includes("pdf") && !(opts.emit ?? []).some((k) => k === "transcript" || k === "manifest");
   const r = canSplit ? await renderParallel(input, opts, conc) : await render(input, opts);
   for (const d of r.diagnostics) reportDiagnostic(d, cwd);
   const { errors, warnings } = summarize(r.diagnostics);
-  if (toStdout) {
+  if (toStdout && !(opts.pdfX && (errors || r.failures.length))) {
     if (r.pages.length !== 1) {
       log("error", t("--stdout は出力が 1 ファイルの場合だけ使えます", "--stdout requires exactly one output image"));
       return 3;
@@ -234,7 +249,7 @@ async function cmdRender(file: string, o: Obj): Promise<number> {
     process.stdout.write(r.pages[0].data);
   }
   if (o.contactSheet && r.pages.length && opts.outDir) {
-    const sheet = await contactSheet(r.pages.filter((p) => p.format !== "pdf" && p.format !== "svg" && !p.separation), !!(opts.config as Obj | undefined) && false);
+    const sheet = await contactSheet(r.pages.filter((p) => p.format !== "pdf" && p.format !== "svg" && p.format !== "psd" && !p.separation), !!(opts.config as Obj | undefined) && false);
     if (sheet) {
       const base = typeof input === "string" ? basename(input).replace(/\.[^.]+$/, "") : "manga";
       const f = join(opts.outDir, `${base}-contact.png`);
@@ -307,16 +322,17 @@ async function renderParallel(input: string | { yaml: string; baseDir: string },
   const here = new URL(import.meta.url);
   const ts = here.pathname.endsWith(".ts");
   const workerUrl = new URL(ts ? "./render-worker.ts" : "./render-worker.js", here);
-  const { onProgress, config, ...plain } = opts;
+  const { onProgress, onSystemFont, config, ...plain } = opts;
   const configPath = (config as { __file?: string } | undefined)?.__file;
   let done = 0;
   const results = await Promise.all(
     groups.map(
       (ids) =>
         new Promise<Obj>((ok, ng) => {
-          const w = new Worker(workerUrl, { workerData: { input, opts: { ...plain, pages: ids }, configPath }, execArgv: ts ? ["--import", "tsx"] : [] });
+          const w = new Worker(workerUrl, { workerData: { input, opts: { ...plain, pages: ids }, configPath, trackSystemFonts: !!onSystemFont }, execArgv: ts ? ["--import", "tsx"] : [] });
           w.on("message", (m: Obj) => {
             if (m.type === "progress") onProgress?.({ ...(m.e as { phase: string; pageId?: string }), done: ++done, total: wanted.length });
+            else if (m.type === "systemFont") onSystemFont?.(m.path as string);
             else if (m.type === "done") ok(m);
           });
           w.on("error", ng);
@@ -437,6 +453,11 @@ async function cmdWatch(file: string, o: Obj): Promise<number> {
   let timer: NodeJS.Timeout | undefined;
   const watched = new Set<string>();
   const watcher = watch([entry], { ignoreInitial: true });
+  const addDep = (path: string) => {
+    if (watched.has(path)) return;
+    watched.add(path);
+    watcher.add(path);
+  };
   const run = async () => {
     if (running) {
       again = true;
@@ -446,14 +467,9 @@ async function cmdWatch(file: string, o: Obj): Promise<number> {
     try {
       if (!out.json && process.stderr.isTTY) process.stderr.write("\x1bc");
       log("info", paint("2", new Date().toLocaleTimeString()));
-      await cmdRender(file, o);
+      await cmdRender(file, o, addDep);
       // watch imports, includes and assets referenced by the document
-      for (const f of collectDeps(entry)) {
-        if (!watched.has(f)) {
-          watched.add(f);
-          watcher.add(f);
-        }
-      }
+      for (const f of collectDeps(entry)) addDep(f);
     } catch (e) {
       reportError(e);
     } finally {
@@ -483,9 +499,11 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
   let diags: Diagnostic[] = [];
   let version = 0;
   const clients = new Set<import("node:http").ServerResponse>();
+  const watcher = watch(collectDeps(entry), { ignoreInitial: true });
   const build = async () => {
     try {
       const opts = await renderOptions({ ...o, profile: o.profile ?? "preview" }, file);
+      opts.onSystemFont = (path) => watcher.add(path);
       const r = await render(entry, opts);
       pages = r.pages.map((p) => ({ id: p.id, data: p.data, mime: p.mimeType, ext: p.format }));
       diags = r.diagnostics;
@@ -532,7 +550,6 @@ img{max-height:85vh;box-shadow:0 2px 12px #0008;background:#fff}figcaption{text-
   });
   await build();
   let timer: NodeJS.Timeout | undefined;
-  const watcher = watch(collectDeps(entry), { ignoreInitial: true });
   watcher.on("all", () => {
     clearTimeout(timer);
     timer = setTimeout(async () => {
@@ -582,6 +599,17 @@ async function cmdFonts(sub: string | undefined, args: string[], o: Obj): Promis
     return 0;
   }
   if (sub === "list") {
+    if (o.system) {
+      if (o.catalog || args.length) throw new UsageError(t("--system は --catalog やファイル指定と併用できません", "--system cannot be combined with --catalog or a document"));
+      for (const { path, index, families, fullNames, postScriptNames } of await listSystemFonts()) {
+        emitJson({ type: "font", source: "system", path, index, families, fullNames, postScriptNames });
+        if (!out.json) {
+          const names = [...new Set([...families, ...fullNames, ...postScriptNames])];
+          process.stdout.write(`${names.join(" / ")}\t${path}#${index}\n`);
+        }
+      }
+      return 0;
+    }
     const config = await configFor(o, args[0]);
     const fetchOpts = { fontDir: config?.fontDir, fontCacheDir: config?.fontCacheDir };
     if (o.catalog || !args[0]) {
@@ -805,11 +833,15 @@ const renderOpts = (c: ReturnType<typeof cli.command>) =>
   common(c)
     .option("-o, --out <dir>", "Output directory")
     .option("-p, --profile <name>", "Output profile (print-mono, print-gray, print-color, web, sns, preview, draft)")
-    .option("-f, --format <fmt>", "png, jpeg, webp, avif, tiff, pdf, svg (comma separated)")
+    .option("-f, --format <fmt>", "png, jpeg, webp, avif, tiff, pdf, svg, psd (comma separated)")
+    .option("--pdf-x <version>", "Monochrome print PDF: 1a (PDF/X-1a:2001) or 4 (PDF/X-4)")
+    .option("--pdf-x-icc <path>", "CMYK printer ICC profile for PDF/X")
+    .option("--pdf-x-condition <name>", "Printer's output condition for PDF/X")
     .option("--color <mode>", "color | gray | mono")
     .option("--dpi <n>", "Resolution")
     .option("--max-output-pixels <n>", "Maximum pixels per output page (split spreads: per side)")
     .option("--max-output-bytes <n>", "Estimated memory budget for packed 1-bit output (default: 402653184 bytes)")
+    .option("--output-size <size>", "manuscript | print")
     .option("--scale <n>", "Scale factor on the design resolution")
     .option("--width <px>", "Output width")
     .option("--height <px>", "Output height")
@@ -841,6 +873,7 @@ const STRING_OPTS: [string, string[]][] = [
   ["template", ["--template"]], ["dir", ["--dir"]], ["set", ["--set"]], ["for", ["--for"]], ["host", ["--host"]], ["page", ["--page"]],
   ["element", ["--element"]], ["format", ["--format", "-f"]], ["emit", ["--emit"]], ["root", ["--root"]], ["cwd", ["--cwd"]],
   ["baseDir", ["--base-dir"]], ["config", ["--config"]], ["separate", ["--separate"]],
+  ["pdfX", ["--pdf-x"]], ["pdfX-icc", ["--pdf-x-icc"]], ["pdfX-condition", ["--pdf-x-condition"]],
 ];
 
 function rawStrings(o: Obj) {
@@ -915,7 +948,7 @@ common(cli.command("migrate <file>", "Convert an older document to the current v
   .option("--write", "Write the result")
   .action(wrap((file: string, o: Obj) => cmdMigrate(file, o)));
 common(cli.command("cache [sub]", "Font cache: info | clean")).action(wrap((sub: string | undefined, _o: Obj) => cmdCache(sub)));
-common(cli.command("fonts <sub> [...args]", "Catalog fonts: install [ids...] | list [file] | check <file> | verify | licenses [file]"))
+common(cli.command("fonts <sub> [...args]", "Fonts: install [ids...] | list [--catalog | --system | file] | check <file> | verify | licenses [file]"))
   .option("-o, --out <file>", "Write licenses to a file")
   .option("--set <name>", "Font set")
   .option("--for <file>", "Fonts used by a document")
@@ -923,6 +956,7 @@ common(cli.command("fonts <sub> [...args]", "Catalog fonts: install [ids...] | l
   .option("--dir <dir>", "Install into a directory")
   .option("--force", "Download again")
   .option("--catalog", "List the catalog")
+  .option("--system", "List installed fonts; check their licenses before use")
   .action(wrap((sub: string, args: string[], o: Obj) => cmdFonts(sub, args, o)));
 
 cli.help();
