@@ -216,7 +216,7 @@ macOS では `~/Library/Fonts`、`/Library/Fonts`、`/System/Library/Fonts`、Wi
 | `zen-antique` | Zen Antique | 400 | アンチック体（アンチゴチのかな） |
 | `zen-kaku-gothic-new` | Zen Kaku Gothic New | 400、700、900 | ゴシック体（アンチゴチの漢字） |
 | `shippori-mincho` | Shippori Mincho | 400、500、700 | 明朝体（ナレーション） |
-| `dela-gothic-one` | Dela Gothic One | 400 | 極太ゴシック体（叫び、描き文字） |
+| `dela-gothic-one` | Dela Gothic One | 400 | 極太ゴシック体（ギャグ・ポップ調の叫び、描き文字） |
 | `zen-maru-gothic` | Zen Maru Gothic | 500、700、900 | 丸ゴシック体（題、やわらかいセリフ） |
 | `rampart-one` | Rampart One | 400 | 立体的な描き文字 |
 | `yomogi` | Yomogi | 400 | 手書き風 |
@@ -249,7 +249,8 @@ fonts:
 | `dialogue` | 混植: かな・約物は `zen-antique`、その他は `zen-kaku-gothic-new@700`（アンチゴチ）。フォールバックは `noto-sans-jp@700` |
 | `thought`、`whisper` | `dialogue` と同じ |
 | `narration` | `shippori-mincho@500` |
-| `shout`、`sfx` | `dela-gothic-one` |
+| `shout` | `zen-kaku-gothic-new@900`（`as: shout`、`as: scream`） |
+| `sfx` | `dela-gothic-one` |
 | `hand` | `yomogi` |
 | `title` | `zen-maru-gothic@900` |
 

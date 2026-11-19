@@ -85,7 +85,7 @@ export const BUILTIN_MARK_DEFAULTS: Record<string, Obj> = {
   "dizzy-stars": { size: "12bmm", count: 4 },
 };
 
-/** Built-in speech styles selected by `as` (spec 6.13). */
+/** Built-in balloon styles (spec 6.13). */
 export const BUILTIN_STYLES: Record<string, Obj> = {
   say: { shape: { kind: "ellipse" }, stroke: { width: "0.25bmm", pen: { preset: "g-pen" }, style: "solid" }, tail: { kind: "wedge" }, font: "dialogue" },
   think: { shape: { kind: "cloud" }, stroke: { width: "0.2bmm", pen: { preset: "maru-pen" }, style: "solid" }, tail: { kind: "bubbles" }, font: "thought" },
@@ -96,6 +96,7 @@ export const BUILTIN_STYLES: Record<string, Obj> = {
   monologue: { shape: { kind: "none" }, tail: { kind: "none" }, font: "narration", textOutline: [{ width: "0.8bmm", color: "white" }] },
   inverted: { shape: { kind: "ellipse" }, stroke: { width: "0.25bmm" }, tail: { kind: "wedge" }, font: "dialogue", fill: "black", color: "white" },
   scream: { shape: { kind: "burst" }, stroke: { width: "0.35bmm" }, tail: { kind: "wedge", widthScale: 1.5 }, font: "shout", fontScale: 1.5 },
+  "gag-pop": { for: "balloon", font: "catalog:dela-gothic-one@400" },
   shock: { shape: { kind: "flash" }, stroke: { style: "none" }, tail: { kind: "none" }, font: "thought" },
   electronic: { shape: { kind: "electronic" }, stroke: { width: "0.25bmm" }, tail: { kind: "zigzag" }, font: "dialogue" },
   offscreen: { shape: { kind: "ellipse" }, stroke: { width: "0.25bmm" }, tail: { kind: "wedge" }, font: "dialogue" },

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import * as hb from "harfbuzzjs";
+import { load } from "../src/api.js";
 import { type FontDef, FontRegistry } from "../src/fonts/registry.js";
 import { type PathData, flattenPath, pathFromJson } from "../src/geom/path.js";
 import { boundsOf } from "../src/geom/vec.js";
+import { resolveDocument } from "../src/model/resolve.js";
 import { defaultTextStyle, layoutText } from "../src/text/layout.js";
 import { noEnd, noStart } from "../src/text/linebreak.js";
 import { parseMarkup } from "../src/text/markup.js";
@@ -25,6 +27,33 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
+  it.each([["shout", "spike"], ["scream", "burst"]])("uses heavy gothic for %s with an opt-in pop face", async (as, kind) => {
+    const { doc, bag } = load({
+      filename: "/virtual/shouts.yaml",
+      yaml: `mangacli: 1
+pages:
+  - panels:
+      - dialogue:
+          - { text: "絶対だ！", as: ${as} }
+          - { text: "絶対だ！", as: ${as}, style: gag-pop }
+`,
+    });
+    const [regular, pop] = resolveDocument(doc, bag).pages[0].panels[0].elements.map((e) => e.props);
+    expect(bag.items).toEqual([]);
+    expect(regular.shape).toMatchObject({ kind });
+    expect(pop.shape).toEqual(regular.shape);
+    expect(pop.fontScale).toBe(regular.fontScale);
+
+    for (const [font, key] of [
+      [String(regular.font), "cat:zen-kaku-gothic-new@900"],
+      [String(pop.font), "cat:dela-gothic-one@400"],
+      ["sfx", "cat:dela-gothic-one@400"],
+    ]) {
+      const text = "絶対だ！";
+      await reg.prepare(font, text);
+      expect([...text].map((ch) => reg.pick(font, ch.codePointAt(0)!)?.font.key)).toEqual(Array(text.length).fill(key));
+    }
+  });
   it("detects active vertical forms when OpenType features change on the same font", async () => {
     const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id: "noto-sans-jp" }]]), "none", [], {});
     await fonts.prepare("test", "〟");
