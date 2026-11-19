@@ -2,6 +2,9 @@ import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { createRenderer, render, validate } from "../src/api.js";
 import { traceAlpha } from "../src/elements/alpha-contour.js";
+import { tonguePositions } from "../src/elements/aura.js";
+import { Rng } from "../src/core/random.js";
+import { flattenPath, pointInPolygon } from "../src/geom/path.js";
 import type { Node } from "../src/render/ir.js";
 
 const scene = (effect = "", image = true) => ({ yaml: `mangacli: 1
@@ -162,6 +165,77 @@ describe.each(["aura", "arcs"])("%s", kind => {
 });
 
 describe("aura controls", () => {
+  it("uses seeded irregular tongue bases, with even spacing at zero", () => {
+    const bases = tonguePositions(new Rng(42), 24, 0.65);
+    expect(bases).toEqual(tonguePositions(new Rng(42), 24, 0.65));
+    expect(bases).not.toEqual(tonguePositions(new Rng(43), 24, 0.65));
+    expect(bases[0]).toBe(0);
+    expect(bases.at(-1)).toBeCloseTo(1);
+    const gaps = bases.slice(1).map((v, i) => v - bases[i]);
+    expect(Math.min(...gaps)).toBeGreaterThan(0);
+    expect(Math.max(...gaps) / Math.min(...gaps)).toBeGreaterThan(2);
+    const even = tonguePositions(new Rng(42), 24, 0);
+    expect(even).toEqual(Array.from({ length: 25 }, (_, i) => i / 24));
+  });
+  it("preserves the legacy flame geometry with margin and irregularity disabled", async () => {
+    const renderer = createRenderer({ assets: { cutout: await cutout() } });
+    const list = await renderer.displayList(scene("effect: aura, target: figure, margin: 0, spacingIrregularity: 0, seed: 42"), 1);
+    const leaves = (n: Node): Node[] => n.kind === "group" ? n.children.flatMap(leaves) : [n];
+    const fills = leaves(list.root).filter(n => n.kind === "path" && n.tag?.elementType === "effect" && n.tag.role === "fill");
+    expect(fills.map(n => n.kind === "path" ? n.path.length : 0)).toEqual([444, 118, 456, 118, 461, 118]);
+    const starts = [[19.33399816052607, 36.006226282111115], [37.7483308893953, 48.566427340920846], [20.289538396192146, 36.53847769135937], [38.593764858152525, 48.797215164229286], [21.24507863185823, 37.070729100607615], [39.439198826909745, 49.02800298753772]];
+    fills.forEach((node, i) => {
+      if (node.kind !== "path" || node.path[0][0] !== "M") throw new Error("expected flame path");
+      expect(node.path[0][1]).toBeCloseTo(starts[i][0], 8);
+      expect(node.path[0][2]).toBeCloseTo(starts[i][1], 8);
+    });
+  });
+  it.each(["png", "svg"] as const)("keeps the margin paper-white without tone or ink in %s", async format => {
+    const renderer = createRenderer({ profile: "preview", dpi: 254, colorMode: "color", assets: { cutout: await cutout() } });
+    const input = scene("effect: aura, target: figure, margin: 1mm, length: 10mm, fill: 'tone(80%)', seed: 42");
+    const list = await renderer.displayList(input, 1);
+    const groups = (n: Node): Node[] => n.kind === "group" ? [n, ...n.children.flatMap(groups)] : [];
+    const protection = groups(list.root).find(n => n.kind === "group" && n.tag?.elementType === "effect" && n.clipRule === "evenodd");
+    if (protection?.kind !== "group" || !protection.clip) throw new Error("expected figure hole");
+    const holes = flattenPath(protection.clip).slice(1).map(p => p.pts);
+    const pixels = async (yaml: typeof input) => {
+      const result = await renderer.render(yaml, { format });
+      expect(result.diagnostics.filter(d => d.severity === "error")).toEqual([]);
+      const data = format === "svg" ? Buffer.from(Buffer.from(result.pages[0].data).toString().replace('width="64mm" height="72mm"', 'width="640" height="720"')) : result.pages[0].data;
+      return sharp(data).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    };
+    const band = await pixels(input);
+    const disabled = await pixels({ yaml: input.yaml.replace("margin: 1mm", "margin: 0") });
+    let checked = 0, nonwhite = 0, disabledInk = 0;
+    for (let y = 200; y < 530; y++) for (let x = 180; x < 460; x++) {
+      const p = { x: (x + 0.5) / 10, y: (y + 0.5) / 10 };
+      if (holes.some(hole => pointInPolygon(p, hole))) continue;
+      let distance = Infinity;
+      for (const hole of holes) for (const [i, a] of hole.entries()) {
+        const b = hole[(i + 1) % hole.length], dx = b.x - a.x, dy = b.y - a.y;
+        const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+        distance = Math.min(distance, Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy));
+      }
+      if (distance < 0.2 || distance > 0.8) continue;
+      const i = (y * band.info.width + x) * band.info.channels;
+      if (band.data[i] !== 255 || band.data[i + 1] !== 255 || band.data[i + 2] !== 255) nonwhite++;
+      if (disabled.data[i] < 200) disabledInk++;
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(500);
+    expect(nonwhite).toBe(0);
+    expect(disabledInk).toBeGreaterThan(100);
+  });
+  it.each(["margin: -1mm", "margin: nonsense", "spacingIrregularity: -0.1", "spacingIrregularity: 1.1"])("rejects %s", async props => {
+    const result = await validate(scene(`effect: aura, target: figure, ${props}`), { assets: { cutout: await cutout() } });
+    expect(result.diagnostics.some(d => d.severity === "error")).toBe(true);
+  });
+  it("does not apply aura margin or spacing props to arcs", async () => {
+    const renderer = createRenderer({ assets: { cutout: await cutout() } });
+    const original = await renderer.displayList(scene("effect: arcs, target: figure, seed: 42"), 1);
+    const withAuraProps = await renderer.displayList(scene("effect: arcs, target: figure, seed: 42, margin: 20mm, spacingIrregularity: 1"), 1);
+    expect(withAuraProps).toEqual(original);
+  });
   it("extends farther above than below with upward bias", async () => {
     const { data, info } = await raster("effect: aura, target: figure, upwardBias: 1, seed: 42");
     const baseline = await raster();

@@ -4,7 +4,7 @@ import { Rng } from "../core/random.js";
 import { toMm } from "../core/units.js";
 import { isObj } from "../load/normalize.js";
 import { polyPath } from "../geom/path.js";
-import { type Vec, boundsOf } from "../geom/vec.js";
+import { type Vec, boundsOf, lerp } from "../geom/vec.js";
 import type { RElement } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolveStroke } from "../model/values.js";
 import { inkShape } from "../ink/shape.js";
@@ -14,6 +14,16 @@ import { type ElemCtx, tag } from "./context.js";
 import { inksToNodes } from "./inkir.js";
 import { lightningOutline, lightningPoints } from "./lightning.js";
 import type { ResolvedRegion } from "./region.js";
+
+export function tonguePositions(rng: Rng, count: number, irregularity: number): number[] {
+  if (irregularity === 0) return Array.from({ length: count + 1 }, (_, i) => i / count);
+  const widths = Array.from({ length: count }, () => Math.exp(rng.range(-1, 1) * irregularity));
+  const total = widths.reduce((a, b) => a + b, 0);
+  const positions = [0];
+  let distance = 0;
+  for (const width of widths) positions.push((distance += width) / total);
+  return positions;
+}
 
 function samples(loop: Vec[], count: number): { p: Vec; n: Vec }[] {
   const lengths = loop.map((p, i) => Math.hypot(p.x - loop[(i + 1) % loop.length].x, p.y - loop[(i + 1) % loop.length].y));
@@ -48,6 +58,8 @@ export function renderAura(el: RElement, ctx: ElemCtx, region: ResolvedRegion): 
   const b = loops.length ? boundsOf(loops.flat()) : target.bbox;
   const length = toMm(p.length as string, { ...ctx.u, base: Math.max(b.w, b.h) });
   if (!Number.isFinite(length) || length <= 0) return bad("length", "SCHEMA_TYPE", "length must be positive");
+  const margin = p.kind === "aura" ? toMm(p.margin as string, { ...ctx.u, base: Math.max(b.w, b.h) }) : 0;
+  if (!Number.isFinite(margin) || margin < 0) return bad("margin", "SCHEMA_TYPE", "margin must be nonnegative");
   if (!loops.length) return [];
   const density = (p.density as number) ?? 1;
   if (density <= 0) return [];
@@ -76,7 +88,16 @@ export function renderAura(el: RElement, ctx: ElemCtx, region: ResolvedRegion): 
       const r = new Rng(el.seed).fork(`component-${component}`);
       const factor = 1 - layer * 0.26;
       const count = Math.max(4, Math.round(tongues * Math.sqrt(Math.abs(signedArea(loop)) / Math.max(1e-9, b.w * b.h))));
-      const contour = samples(loop, count * 16);
+      const irregularity = Number(p.spacingIrregularity);
+      const bases = tonguePositions(new Rng(el.seed).fork(`spacing-${component}`), count, irregularity);
+      const even = samples(loop, count * 16);
+      const contour = irregularity === 0 ? even : bases.slice(0, -1).flatMap((start, i) => Array.from({ length: 16 }, (_, j) => {
+        const position = (start + (bases[i + 1] - start) * j / 16) * even.length;
+        const a = even[Math.floor(position)], b = even[(Math.floor(position) + 1) % even.length];
+        const t = position - Math.floor(position), normal = lerp(a.n, b.n, t);
+        const size = Math.hypot(normal.x, normal.y) || 1;
+        return { p: lerp(a.p, b.p, t), n: { x: normal.x / size, y: normal.y / size } };
+      }));
       const heights = Array.from({ length: count }, () => r.range(0.65, 1.25));
       const flame = contour.map(({ p: q, n }, i) => {
         const t = (i % 16) / 16;
@@ -98,6 +119,9 @@ export function renderAura(el: RElement, ctx: ElemCtx, region: ResolvedRegion): 
       const pts = lightningPoints(r, start, angle, length * r.range(0.65, 1.2), 1);
       draw(lightningOutline(pts, length * 0.14), paint, r.fork("ink"));
     }
+  }
+  if (p.kind === "aura" && margin > 0 && nodes.length) {
+    nodes.push({ kind: "path", path: pathOf(subject), fillRule: "evenodd", paint: null, stroke: { width: margin * 2, paint: solid(WHITE), join: "round" }, tag: tag(el, "fill") });
   }
   return nodes.length ? [{ kind: "group", clip, clipRule: "evenodd", children: nodes, tag: tag(el, "ink") }] : [];
 }
