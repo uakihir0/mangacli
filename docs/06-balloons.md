@@ -34,7 +34,7 @@
 | `stroke` | Stroke | `{ width: 0.25mm, pen: g-pen }` | 本体としっぽの線（[6.4](#64-線stroke)） |
 | `fill` | Paint | `paper` | 本体の塗り（[6.5](#65-塗りfill)） |
 | `autoConnect` | 真偽値 | `true` | 同じ話者の続けての自動配置の吹き出しが 4 bmm 以内に並んだ場合、`connect: { to: 直前の吹き出し, style: neck }` として 1 つのしっぽにまとめる |
-| `halo` | Length \| `none` | `0.3bmm` | 線の外側に付ける塗り色（不透明な単色のときのみ）のふち。黒い絵やベタに重なっても輪郭が見えるようにする |
+| `halo` | Length `[Color]` \| `{ width: Length, color?: Color }` \| `none` \| `false` | 幅 `0.3bmm` | 吹き出しの線の外側のふち。色は不透明な単色の本体塗りと同じ、それ以外は `paper`。`none`・`false`・幅 `0` で無効 |
 | `tail` | Tail \| Point \| `none` | 下記 | しっぽ（[6.6](#66-しっぽtail)） |
 | `tails` | Tail[] | - | 複数のしっぽ（P1）。`tail` と同時に指定できない |
 | `size` | Size \| `auto` | `auto` | 本体の外接矩形の大きさ。`auto` は本文に合わせる（[6.7](#67-サイズの決定)） |
@@ -44,7 +44,7 @@
 | `aspectRange` | `[最小, 最大]` | `[0.55, 1.8]` | `aspect: auto` のときに許す縦横比の範囲 |
 | `padding` | Length \| `[縦, 横]` | `[0.6em, 0.8em]` | 本文と本体の内側の安全領域との間隔 |
 | `textOffset` | `[dx, dy]` | `[0, 0]` | 本文の位置の微調整 |
-| `textOutline` | Outline[] | - | 本文の縁取り。`shape: none` で絵の上に直接文字を置く場合に使う |
+| `textOutline` | Outline[] | - | 本文の縁取り。`join`・`miterLimit`・`fillHoles` は地の文字と共通（[5.7.1](05-elements-and-images.md#571-縁取りoutline)）。`shape: none` で絵の上に直接文字を置く場合にも使う |
 | `overflow` | `shrink` \| `grow` \| `clip` \| `error` | `auto` のときは `grow`、固定サイズのときは `shrink` | 本文が収まらない場合の処理（[6.7.4](#674-収まらない場合)） |
 | `minFontScale` | 0〜1 | `0.75` | `shrink` で縮める下限 |
 | `connect` | Connect \| Connect[] | - | 連結（[6.9](#69-連結と重なり)、P1） |
@@ -53,6 +53,8 @@
 | 共通プロパティ | - | - | `at`、`place`、`anchor`、`offset`、`rotate`、`z`、`clip`（既定 `auto`）など（[5.2](05-elements-and-images.md#52-共通プロパティ)） |
 
 `rotate` は本体と本文をまとめて回転する。本体だけを傾ける場合は `shape.tilt` を使う。
+
+`halo: 0.6mm white` と `halo: { width: 0.6mm, color: white }` は同じ意味になる。`halo: 0.6mm` は色だけを既定にする。本体と一体化したしっぽだけでなく、思考の小さな丸（`bubbles`）、線のしっぽ（`line`）、別々に描く連結吹き出しと連結線にも適用する。各吹き出しでは、すべての halo を本体・しっぽの線より先に描き、自分の線を白で消さない。
 
 ## 6.3 形状（shape）
 

@@ -115,7 +115,8 @@ export const Stroke = z
   })
   .strict();
 
-const Outline = z.array(z.object({ width: Length, color: z.union([ColorStr, Paint]).optional(), join: z.enum(["round", "miter"]).optional(), threshold: z.number().optional() }).strict());
+const NonnegativeLength = Length.refine((v) => parseFloat(String(v)) >= 0, "length must be nonnegative");
+const Outline = z.array(z.object({ width: Length, color: Paint.optional(), join: z.enum(["round", "miter"]).optional(), miterLimit: z.number().min(1).optional(), fillHoles: NonnegativeLength.optional(), threshold: z.number().min(0).max(1).optional() }).strict());
 
 const RegionBase: z.ZodType = z.lazy(() =>
   z.union([
@@ -286,7 +287,7 @@ const balloonProps = {
   textOutline: Outline.optional(),
   overflow: z.enum(["shrink", "grow", "clip", "error"]).optional(),
   minFontScale: z.number().min(0).max(1).optional(),
-  halo: z.union([Length, z.literal("none"), z.literal(false)]).optional(),
+  halo: z.union([z.object({ width: NonnegativeLength, color: ColorStr.optional() }).strict(), z.literal("none"), z.literal(false)]).optional(),
   autoConnect: z.boolean().optional(),
   connect: z.union([z.object({ to: z.string(), style: z.enum(["neck", "overlap", "line"]).optional(), width: Length.optional() }).strict(), z.array(z.object({ to: z.string(), style: z.enum(["neck", "overlap", "line"]).optional(), width: Length.optional() }).strict())]).optional(),
   autoPlace: z.union([z.enum(["auto", "flow"]), z.object({ mode: z.enum(["auto", "flow"]).optional(), inset: Length.optional(), weights: z.record(z.string(), z.number()).optional(), threshold: z.number().optional(), reshape: z.boolean().optional() }).strict()]).optional(),

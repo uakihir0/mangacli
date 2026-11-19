@@ -19,6 +19,7 @@ import { type ElemCtx, silhouetteHit, tag } from "./context.js";
 import { fillNode, inksToNodes, polysToPath } from "./inkir.js";
 import { glyphNodes } from "./glyphs.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
+import { outlineNodes } from "./outline.js";
 import { resolvePoint, sizeValue } from "../layout/place.js";
 
 type Obj = Record<string, unknown>;
@@ -814,6 +815,11 @@ function buildBody(plan: BalloonPlan, ctx: ElemCtx, skipTails = false): BodyBuil
 function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeContour): { nodes: Node[]; fill: Vec[] } {
   const el = plan.el;
   const nodes: Node[] = [];
+  const halos: Node[] = [];
+  const halo = balloonHalo(plan, ctx);
+  const addHalo = (pts: Vec[], closed: boolean, width: number) => {
+    if (halo) halos.push({ kind: "path", path: polyPath(pts, closed), fillRule: "nonzero", paint: null, stroke: { width: width + halo.width * 2, paint: halo.paint, join: "round" }, tag: tag(el, "fill") });
+  };
   const t = tag(el, "ink");
   const isNone = plan.params.kind === "none";
   const isFlash = plan.params.kind === "flash";
@@ -822,9 +828,7 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
     const res = inkShape(contour, { line: isFlash ? { ...bb.stroke, style: "none" } : bb.stroke, hand: plan.hand, rng: bb.rng.fork("body"), ruler: bb.ruler, join: plan.params.join ?? (bb.ruler ? "clean" : "overshoot"), strokes: plan.params.strokes, sizeHint: Math.min(plan.outer.w, plan.outer.h) });
     fillPoly = res.fill;
     const fn = fillNode(res.fill, plan.fill, tag(el, "fill"));
-    // a thin rim of the fill colour outside the outline keeps it readable over black art
-    const halo = plan.props.halo === "none" || plan.props.halo === false ? 0 : plan.props.halo !== undefined ? toMm(plan.props.halo as string, ctx.u) : 0.3 * ctx.u.k;
-    if (fn && halo > 0 && !isFlash && fn.kind === "path" && fn.paint?.type === "solid" && fn.paint.color.a > 0.99) nodes.push({ kind: "path", path: polyPath(res.fill, true), fillRule: "nonzero", paint: null, stroke: { width: bb.stroke.width + halo * 2, paint: fn.paint, join: "round" }, tag: tag(el, "fill") });
+    if (!isFlash) addHalo(res.fill, true, bb.stroke.width);
     if (fn) nodes.push(fn);
     if (isFlash) {
       const compact = plan.text.lines.length <= 1 && Math.max(plan.text.width, plan.text.height) <= plan.text.fontSize * 3.5 && !Array.isArray(plan.props.size);
@@ -835,15 +839,32 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
   for (const ex of bb.extra) {
     if (ex.kind === "bubble") {
       const res = inkShape({ pts: ex.pts, closed: true, smooth: true }, { line: bb.stroke, hand: plan.hand, rng: bb.rng.fork("bub"), strokes: 1 });
+      addHalo(res.fill, true, bb.stroke.width);
       const fn = fillNode(res.fill, plan.fill, tag(el, "fill"));
       if (fn) nodes.push(fn);
       nodes.push(...inksToNodes(res.inks, bb.stroke.color, t));
     } else {
       const res = inkShape({ pts: ex.pts, closed: false, smooth: true }, { line: { ...bb.stroke, width: bb.stroke.width * 1.1 }, hand: plan.hand, rng: bb.rng.fork("lt") });
+      addHalo(res.fill, false, bb.stroke.width * 1.1);
       nodes.push(...inksToNodes(res.inks, bb.stroke.color, t));
     }
   }
-  return { nodes, fill: fillPoly };
+  return { nodes: [...halos, ...nodes], fill: fillPoly };
+}
+
+function balloonHalo(plan: BalloonPlan, ctx: ElemCtx): { width: number; paint: Paint } | null {
+  const value = plan.props.halo;
+  if (value === "none" || value === false) return null;
+  const props = isObj(value) ? value : { width: value ?? `${0.3 * ctx.u.k}mm` };
+  const width = toMm(props.width as string, ctx.u);
+  if (width <= 0) return null;
+  const fallback: Paint = plan.fill?.type === "solid" && plan.fill.color.a > 0.99 ? plan.fill : { type: "solid", color: WHITE };
+  const paint = props.color === undefined ? fallback : parsePaint(props.color, { u: ctx.u, box: plan.outer, seed: plan.el.seed, bag: ctx.bag, path: [...plan.el.path, "halo", "color"] });
+  if (paint && paint.type !== "solid") {
+    ctx.bag.error("PAINT_INVALID", "halo color must be solid", { path: [...plan.el.path, "halo", "color"] });
+    return null;
+  }
+  return paint ? { width, paint } : null;
 }
 
 function textNodes(plan: BalloonPlan, ctx: ElemCtx): Node[] {
@@ -859,7 +880,6 @@ function textNodes(plan: BalloonPlan, ctx: ElemCtx): Node[] {
 function textNodesFlat(plan: BalloonPlan, ctx: ElemCtx): Node[] {
   const el = plan.el;
   const p = plan.props;
-  const u = ctx.u;
   const center = plan.center!;
   const tl = plan.text;
   const ox = center.x + plan.innerCenter.x - tl.width / 2 + plan.textOffset.x;
@@ -867,11 +887,7 @@ function textNodesFlat(plan: BalloonPlan, ctx: ElemCtx): Node[] {
   const color = parseColor(plan.textColor) ?? BLACK;
   const shift = (path: PathData): PathData => path.map((c) => (c[0] === "Z" ? c : (c.map((v, i) => (i === 0 ? v : i % 2 === 1 ? (v as number) + ox : (v as number) + oy)) as typeof c)));
   const glyphs = tl.glyphs.map((g) => shift(g.path));
-  const textNode: Node = { kind: "path", path: glyphs.flat(), fillRule: "nonzero", paint: { type: "solid", color }, tag: tag(el, "text", "text") };
-  const nodes: Node[] = [];
-  const outlines = Array.isArray(p.textOutline) ? (p.textOutline as Obj[]) : [];
-  const ow = outlines.map((o) => ({ w: toMm(o.width as string, u), c: parseColor((o.color as string) ?? "white") ?? WHITE })).sort((a, b) => b.w - a.w);
-  for (const o of ow) nodes.push({ kind: "path", path: textNode.path, fillRule: "nonzero", paint: null, stroke: { width: o.w * 2, paint: { type: "solid", color: o.c }, join: "round" }, tag: tag(el, "text", "text") });
+  const nodes: Node[] = outlineNodes(glyphs.flat(), p.textOutline, ctx, el, "textOutline");
   nodes.push(...glyphNodes(p.as === "aside" ? tl.glyphs.map(g => ({ ...g, bold: true })) : tl.glyphs, shift, { type: "solid", color }, tl.fontSize, tag(el, "text", "text")));
   return nodes;
 }
@@ -938,6 +954,8 @@ export function renderConnected(a: BalloonPlan, b: BalloonPlan, style: string, w
       const p0 = { x: ca.x + dir.x * ha.t, y: ca.y + dir.y * ha.t };
       const p1 = { x: cb.x - dir.x * hb.t, y: cb.y - dir.y * hb.t };
       const st = resolveStroke(a.props.stroke, a.hand, ctx.u);
+      const halo = balloonHalo(a, ctx);
+      if (halo) nodes.unshift({ kind: "path", path: polyPath([p0, p1], false), fillRule: "nonzero", paint: null, stroke: { width: st.width + halo.width * 2, paint: halo.paint, join: "round" }, tag: tag(a.el, "fill") });
       const inks = inkShape({ pts: [p0, p1], closed: false }, { line: st, hand: a.hand, rng: new Rng(a.el.seed ^ 0x3c), taper: false }).inks;
       nodes.push(...inksToNodes(inks, st.color, tag(a.el, "ink")));
     }

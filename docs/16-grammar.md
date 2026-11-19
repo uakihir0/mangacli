@@ -93,12 +93,16 @@ stroke-style  = "solid" | "dashed" | "dotted" | "double" ;
 
 outline-short = "none" | outline-token { ws1 outline-token } ;
 outline-token = length | color ;
+
+halo-short = "none" | length [ ws1 color ] ;
 ```
 
 - 長さ・スタイル・色は、それぞれ 1 回まで、任意の順で書ける。
 - `none` は単独でのみ書ける。
 - 線のスタイルの名前は CSS の色の名前と重ならないため、トークンの種類は一意に決まる。
 - 縁取りの省略記法は、長さを必須とする。
+- `halo` は長さを先に書く。YAML の `false` でも無効にできる。正規形は `{ width: <length>, color?: <color> }`（幅は非負、色を省略したときは本体の不透明な単色、または `paper`）。
+- `outline` / `textOutline` の正規形は `{ width, color?, join?, miterLimit?, fillHoles?, threshold? }` の配列。`join` は `round` または `miter`、`miterLimit` は 1 以上（既定 2）、`fillHoles` は非負の長さ（既定 0）。この 3 項目は省略記法ではなくオブジェクトで指定する。文字の縁は単色のみ。`threshold` は画像用の 0〜1 の数値。
 
 ## 16.6 フィルタ
 

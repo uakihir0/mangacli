@@ -6,7 +6,7 @@ import { type Matrix, type Rect, applyMat, matMul, rectInset } from "../geom/vec
 import type { AssetRegistry } from "./assets.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
 import { makeBinaryRoundToneSampler, makeToneSampler } from "./screen.js";
-import { distanceSquared } from "./edt.js";
+import { closeAlpha, distanceSquared } from "./edt.js";
 import { applyFilters } from "./filters.js";
 import { imageInkMask } from "./image-ink.js";
 import { cropMarkLines } from "./marks.js";
@@ -105,7 +105,7 @@ function nodeBounds(n: Node, m: Matrix): Rect | null {
   if (n.kind === "path") {
     const b = pathBounds(n.path, m);
     if (b && n.stroke) {
-      const s = n.stroke.width * Math.hypot(m[0], m[1]);
+      const s = n.stroke.width * Math.max(Math.hypot(m[0], m[1]), Math.hypot(m[2], m[3])) * (n.stroke.join === "miter" ? Math.max(1, (n.stroke.miterLimit ?? 2) / 2) : 1);
       return { x: b.x - s, y: b.y - s, w: b.w + 2 * s, h: b.h + 2 * s };
     }
     return b;
@@ -472,16 +472,19 @@ export class RasterBackend {
   private async drawPath(dev: Dev, n: PathNode, m: Matrix): Promise<void> {
     const ctx = dev.ctx;
     if (n.stroke) {
-      ctx.save();
-      setM(ctx, m);
-      const st = this.paintStyle(dev, n.stroke.paint);
-      if (st) ctx.strokeStyle = st as string;
-      ctx.lineWidth = n.stroke.width;
-      ctx.lineJoin = n.stroke.join;
-      ctx.miterLimit = n.stroke.miterLimit ?? 10;
-      ctx.lineCap = "round";
-      ctx.stroke(buildPath(n.path));
-      ctx.restore();
+      if ((n.stroke.fillHoles ?? 0) > 0) this.drawClosedStroke(dev, n, m);
+      else {
+        ctx.save();
+        setM(ctx, m);
+        const st = this.paintStyle(dev, n.stroke.paint);
+        if (st) ctx.strokeStyle = st as string;
+        ctx.lineWidth = n.stroke.width;
+        ctx.lineJoin = n.stroke.join;
+        ctx.miterLimit = n.stroke.miterLimit ?? 10;
+        ctx.lineCap = "round";
+        ctx.stroke(buildPath(n.path));
+        ctx.restore();
+      }
     }
     const p = n.paint;
     if (!p) return;
@@ -492,6 +495,51 @@ export class RasterBackend {
     if (st) ctx.fillStyle = st as string;
     ctx.fill(buildPath(n.path), n.fillRule);
     ctx.restore();
+  }
+
+  private drawClosedStroke(dev: Dev, n: PathNode, m: Matrix): void {
+    const stroke = n.stroke!;
+    const b = nodeBounds(n, m);
+    if (!b || stroke.paint.type !== "solid") return;
+    const scale = Math.max(Math.hypot(m[0], m[1]), Math.hypot(m[2], m[3]));
+    const radius = (stroke.fillHoles ?? 0) * scale / 2;
+    const pad = Math.ceil(radius) + 2;
+    const x = Math.floor(b.x) - pad;
+    const y = Math.floor(b.y) - pad;
+    const w = Math.ceil(b.x + b.w) + pad - x;
+    const h = Math.ceil(b.y + b.h) + pad - y;
+    if (w <= 0 || h <= 0) return;
+    if (w * h > (dev.opts.maxPixels ?? 200_000_000)) throw new Error(`OUTPUT_TOO_LARGE: outline ${w}x${h} exceeds maxOutputPixels`);
+    const canvas = createCanvas(w, h);
+    const ctx = canvas.getContext("2d");
+    setM(ctx, matMul([1, 0, 0, 1, -x, -y], m));
+    ctx.strokeStyle = "white";
+    ctx.fillStyle = "white";
+    ctx.lineWidth = stroke.width;
+    ctx.lineJoin = stroke.join;
+    ctx.miterLimit = stroke.miterLimit ?? 2;
+    ctx.lineCap = "round";
+    const path = buildPath(n.path);
+    ctx.stroke(path);
+    ctx.fill(path, n.fillRule);
+    const pixels = ctx.getImageData(0, 0, w, h);
+    const alpha = new Uint8Array(w * h);
+    for (let i = 0; i < alpha.length; i++) alpha[i] = pixels.data[i * 4 + 3];
+    const closed = closeAlpha(alpha, w, h, radius);
+    const color = grayize(stroke.paint.color, dev.opts.colorMode);
+    for (let i = 0; i < closed.length; i++) {
+      pixels.data[i * 4] = Math.round(color.r * 255);
+      pixels.data[i * 4 + 1] = Math.round(color.g * 255);
+      pixels.data[i * 4 + 2] = Math.round(color.b * 255);
+      pixels.data[i * 4 + 3] = Math.round(closed[i] * color.a);
+    }
+    ctx.resetTransform();
+    ctx.clearRect(0, 0, w, h);
+    ctx.putImageData(pixels, 0, 0);
+    dev.ctx.save();
+    dev.ctx.resetTransform();
+    dev.ctx.drawImage(canvas, x, y);
+    dev.ctx.restore();
   }
 
   private async drawTone(dev: Dev, n: PathNode, m: Matrix, p: Paint): Promise<void> {

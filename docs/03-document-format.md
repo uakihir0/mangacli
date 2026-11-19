@@ -316,7 +316,7 @@ stroke:
 
 要素のプロパティの値は、次の順に重ね合わせて決める。後のものが優先する。
 
-1. 組み込みの既定値
+1. 組み込みの既定値と、吹き出しの `as` に対応する組み込みスタイル
 2. 設定ファイルの `defaults`
 3. ドキュメントの `defaults`（インポートしたファイルの `defaults` を合成したもの）
 4. インクルードしたファイルの `defaults`（そのファイルのページのみ）
@@ -324,12 +324,14 @@ stroke:
 6. ページの `defaults`
 7. コマの `defaults`（グループの子では、さらに外側から内側へグループの `defaults`）
 8. キャラクターの設定（`who` を持つ吹き出しには `balloon`、`who` を持つ地の文字には `text`）
-9. 発話の種類 `as` に対応するスタイル（[6.13](06-balloons.md#613-組み込みスタイル)）
+9. 発話の種類 `as` に対応するスタイルの利用者による定義・上書き（[6.13](06-balloons.md#613-組み込みスタイル)）
 10. キャラクターの `voice` の、その発話の種類の設定
 11. `style` に列挙したスタイル（列挙順に重ねる）
 12. 要素自身に書いたプロパティ
 
 スタイルの定義は、組み込みスタイル → 設定ファイルの `styles` → ドキュメントの `styles`（インポートを含む）→ ロケールの `styles` の順に、同じ名前ごとに合成したものを使う。フォントの登録も同様に、設定ファイル → ドキュメント → ロケールの順に、同じ名前を上書きする。
+
+吹き出しでは、各 `defaults` 階層で `defaults.balloon` の後に `defaults.<as名>` を重ねる。たとえば `as: monologue` には `defaults.monologue` が適用される。外側の発話別既定値より、内側の `defaults.balloon` が優先する。組み込みの発話スタイルは利用者の既定値を上書きしないため、`defaults.balloon.textOutline: 2mm white` も組み込み `monologue` の白フチより優先する。
 
 #### 手描き設定とシード
 
@@ -370,7 +372,7 @@ pages:
             as: shout
 ```
 
-この吹き出しの値は、組み込みの既定値 → ドキュメントの `defaults.balloon` → コマの `defaults.balloon` → スタイル `shout`（`as` による）→ スタイル `big` → 要素自身の順に重ねて決まる。結果は次のとおりである。
+この吹き出しの値は、組み込みの既定値と `shout` → ドキュメントの `defaults.balloon` → コマの `defaults.balloon` → スタイル `big` → 要素自身の順に重ねて決まる。結果は次のとおりである。
 
 | プロパティ | 値 | 由来 |
 |---|---|---|
@@ -378,7 +380,7 @@ pages:
 | `stroke.width` | 0.35 mm | `big` |
 | `stroke.pen` | G ペン | ドキュメントの `defaults.balloon` |
 | `fontSize` × `fontScale` | 18 Q × 1.25 = 22.5 Q | `fontSize` は `big`、`fontScale` は `shout` |
-| `font` | `shout` ロール（未登録なら `dialogue`、[7.3.3](07-text.md#733-ロール)） | `shout`（コマの `defaults.balloon.font` より後の段階） |
+| `font` | `dialogue` ロール（[7.3.3](07-text.md#733-ロール)） | コマの `defaults.balloon.font`（組み込み `shout` より優先） |
 
 ## 3.9 省略記法
 
@@ -421,6 +423,7 @@ pages:
 | `hand` | `false` | `{ preset: clean }` |
 | `pen` | `g-pen` | `{ preset: g-pen }` |
 | `outline` | `1mm white` | `[{ width: 1mm, color: white }]` |
+| `halo` | `0.6mm white` | `{ width: 0.6mm, color: white }` |
 | `bleed`（コマ） | `top` | `[top]` |
 | `bleed`（コマ） | `all` | `[top, right, bottom, left]` |
 | `padding` | `1em` | `[1em, 1em]`（縦, 横） |
@@ -555,7 +558,7 @@ styles:
 
 ## 3.17 defaults
 
-要素の種類ごとの既定値を書く。トップレベル、ページ、コマに書ける。
+要素の種類と吹き出しの発話の種類ごとの既定値を書く。設定ファイル、トップレベル、インクルード、ロケール、ページ、コマ、グループに書ける。
 
 ```yaml
 defaults:
@@ -566,6 +569,13 @@ defaults:
     fontSize: 13Q
   text:
     font: narration
+    outline: 1mm white
+  sfx:
+    outline: 0.8mm white
+  monologue:
+    textOutline: 2mm white
+  narration:
+    halo: 0.6mm white
   effect:
     "*": { color: black }
     focus-lines: { count: 180 }
@@ -577,6 +587,7 @@ defaults:
 |---|---|
 | `panel` | コマ（枠線、背景など） |
 | `image`、`balloon`、`text`、`sfx`、`fill`、`draw`、`group`、`scatter` | 各種類の要素 |
+| `say`、`monologue`、`narration`、`think` などの `as` 名 | その `as` を持つ吹き出し。同じ階層の `balloon` の後に適用 |
 | `effect` | 効果。`"*"` は全種類、それ以外は `kind` ごと |
 | `mark` | 漫符。`"*"` は全種類、それ以外は `kind` ごと |
 
