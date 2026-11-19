@@ -415,12 +415,12 @@ book:
 | `enabled` | 真偽値 | `true` | ノンブルを使うか |
 | `show` | `print` \| `always` \| `never` | `print` | 描画する条件。`print` は印刷用プロファイル（[10.7](10-color-and-output.md#107-出力プロファイル)）でのみ描画する |
 | `start` | 整数 | `1` | 1 ページ目の番号 |
-| `position` | `bottom-outer` \| `bottom-center` \| `bottom-inner` \| `top-outer` \| `top-center` \| `outer-middle` | `bottom-outer` | 位置。`outer` / `inner` はページの左右（[4.3.1](#431-ページの左右)）で左右に読み替える |
-| `margin` | `[天地からの距離, 小口・のどからの距離]` | `[8mm, 12mm]` | 仕上がりの端からの距離 |
+| `position` | `bottom-outer` \| `bottom-center` \| `bottom-inner` \| `top-outer` \| `top-center` \| `outer-middle` | `bottom-outer` | 位置。`outer` / `inner` はページの左右（[4.3.1](#431-ページの左右)）で左右に読み替える。`outer-middle` は小口側の上下中央 |
+| `margin` | `[天地からの距離, 小口・のどからの距離]` | `[8mm, 12mm]` | 仕上がりの端からの距離。`outer-middle` で省略した場合、収まる幅があれば小口の仕上がり線と基本枠の間の中央に置く |
 | `font` | フォント名 | `ui` ロール | フォント |
 | `fontSize` | Length | 8 pt | 文字サイズ |
 | `color` | Color | `black` | 色 |
-| `format` | 文字列 | `"{n}"` | 書式。`{n}` が番号 |
+| `format` | 文字列 | `"{n}"` | 書式。文字列中のすべての `{n}` をページ番号に置き換える |
 | `writing` | `horizontal` \| `vertical` | `horizontal` | 向き |
 | `hidden` | 真偽値 | `false` | 隠しノンブル。`true` にすると、のど側の仕上がりの端から 3 mm 以内に 5 pt で置く |
 | `autoHide` | 真偽値 | `true` | ノンブルの位置が断ち切りのコマ（裁ち落としまで伸ばしたコマ）に重なるページでは、自動で隠しノンブルにする |

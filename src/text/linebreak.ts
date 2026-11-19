@@ -2,13 +2,13 @@
 
 export type KinsokuLevel = "strict" | "normal" | "loose" | "none";
 
-const CLOSING = new Set(Array.from("、。，．）］｝」』】〕〉》〙〗’”｠»),.]}>"));
+const CLOSING = new Set(Array.from("、。，．）］｝」』】〕〉》〙〗’”〟｠»),.]}>"));
 const MARKS = new Set(Array.from("？！‼⁇⁈⁉?!"));
 const MIDDLE = new Set(Array.from("・：；:;"));
 const ITER = new Set(Array.from("々〻ゝゞヽヾ"));
 const HYPHEN = new Set(Array.from("‐–〜～゠"));
 const SMALL = new Set(Array.from("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶーㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ"));
-const OPENING = new Set(Array.from("（［｛「『【〔〈《〘〖‘“｟«([{<"));
+const OPENING = new Set(Array.from("（［｛「『【〔〈《〘〖‘“〝｟«([{<"));
 const INSEP = new Set(Array.from("…‥―"));
 
 export function noStart(ch: string, level: KinsokuLevel): boolean {

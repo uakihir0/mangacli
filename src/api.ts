@@ -82,6 +82,8 @@ export interface RenderOptions {
   emit?: ("layout" | "ir" | "transcript" | "manifest")[];
   onProgress?: (e: { phase: string; pageId?: string; done: number; total: number }) => void;
   onDiagnostic?: (d: Diagnostic) => void;
+  /** internal: an installed font was loaded from this path */
+  onSystemFont?: (path: string) => void;
   signal?: AbortSignal;
   finish?: Finish | false;
   /** URL assets (spec 2.13): true, or limits */
@@ -282,6 +284,7 @@ function buildFonts(p: Project, o: RenderOptions): FontRegistry {
       }
       if (!isObj(v)) continue;
       if (typeof v.src === "string") defs.set(k, { kind: "file", path: v.src, index: v.index as number, variations: v.variations as Record<string, number>, bold: v.bold as string, fallback: v.fallback as string[] });
+      else if (typeof v.system === "string") defs.set(k, { kind: "system", name: v.system, index: v.index as number, variations: v.variations as Record<string, number>, bold: v.bold as string, fallback: v.fallback as string[] });
       else if (typeof v.alias === "string") defs.set(k, { kind: "alias", name: v.alias });
       else if (typeof v.catalog === "string") defs.set(k, { kind: "catalog", id: v.catalog, weight: v.weight as number, bold: v.bold as string, fallback: v.fallback as string[] });
       else if (Array.isArray(v.compose)) defs.set(k, { kind: "compose", items: v.compose as never, fallback: v.fallback as string[], bold: v.bold as string });
@@ -305,6 +308,7 @@ function buildFonts(p: Project, o: RenderOptions): FontRegistry {
     fontDir: o.fontDir,
     fontCacheDir: o.fontCacheDir,
     fontMirror: o.fontMirror,
+    onSystemFont: o.onSystemFont,
     onInfo: (code, message) => p.bag.info(code, message),
     onError: (code, message) => p.bag.error(code, message),
   }, o.fontCache);
@@ -570,8 +574,10 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const dpi = dpiFor(geom);
       if (dpi > lim.maxDpi) throw new Error(`SECURITY_LIMIT_EXCEEDED: ${Math.round(dpi)} dpi exceeds maxDpi (${lim.maxDpi})`);
       const runs: { name?: string; list?: string[] }[] = seps0 ? seps0 : [{}];
+      const splitMarks = geom.type === "spread" && spreadMode === "split" && crop === "marks";
+      const rasterCrop = splitMarks ? "bleed" : crop;
       for (const run of runs) {
-        const backend = new RasterBackend({ maxPixels: lim.maxOutputPixels, dpi, crop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
+        const backend = new RasterBackend({ maxPixels: lim.maxOutputPixels, dpi, crop: rasterCrop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
         const needRaster = formats.some((f) => f !== "svg");
         let full = needRaster ? await backend.render(list) : { data: new Uint8ClampedArray(0), width: 0, height: 0, dpi };
         if (plugins && needRaster) full = { ...full, ...(plugins.hook("afterRender", { data: full.data, width: full.width, height: full.height }) as object) };
@@ -581,28 +587,39 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         const quiet = prof.print || profName === "preview" || profName === "draft" || draft;
         const finish = options.finish === false ? undefined : (options.finish ?? profOwn ?? (quiet ? undefined : (prof.finish as Finish | undefined)));
         if (finish && needRaster && !run.list) full = { ...full, ...(await applyFinish(full, finish, { dpi, colorMode: colorMode as "color", seed: resolved.seed, bag })) };
-        if (options.debug) drawDebug(full, list, info, dpi, crop, options.debug, prof.marks?.margin ?? 10);
+        if (options.debug) drawDebug(full, list, info, dpi, rasterCrop, options.debug, prof.marks?.margin ?? 10);
         // spreads: one joined image, or two pages each with bleed on all sides (spec 10.9)
-        const parts: { raster: { data: Uint8ClampedArray; width: number; height: number }; side: string; nombre: number | null }[] = [];
+        const trimWidth = Math.round((geom.trimW * dpi) / 25.4 + 1e-6);
+        const trimHeight = Math.round((geom.trimH * dpi) / 25.4 + 1e-6);
+        const fullTrim = { x: Math.round((full.width - trimWidth) / 2), y: Math.round((full.height - trimHeight) / 2), w: trimWidth, h: trimHeight };
+        const parts: { raster: { data: Uint8ClampedArray; width: number; height: number }; trim: typeof fullTrim; side: string; nombre: number | null }[] = [];
         if (geom.type === "spread" && spreadMode === "split" && needRaster) {
           const trimPx = Math.round((geom.trimW * dpi) / 25.4 + 1e-6);
           const edge = Math.round((full.width - trimPx) / 2);
           const half = Math.round(trimPx / 2);
-          // the fold gets bleed only (crop marks stay on the outer edges)
+          // Preserve artwork past the fold for each page's bleed.
           const inner = crop === "trim" ? 0 : Math.round((geom.bleed * dpi) / 25.4 + 1e-6);
           const leftW = edge + half + inner;
           const slice = (x0: number, w: number) => {
             const out = new Uint8ClampedArray(w * full.height * 4);
             for (let y = 0; y < full.height; y++) out.set(full.data.subarray((y * full.width + x0) * 4, (y * full.width + x0 + w) * 4), y * w * 4);
-            return { data: out, width: w, height: full.height };
+            const raster = { data: out, width: w, height: full.height };
+            return splitMarks ? backend.addMarks(raster, geom.bleed) : raster;
           };
-          const left = { raster: slice(0, leftW), side: "left" };
+          const left = { raster: slice(0, leftW), trim: { ...fullTrim, w: half }, side: "left" };
           const rightW = inner + (trimPx - half) + edge;
-          const right = { raster: slice(full.width - rightW, rightW), side: "right" };
+          const right = { raster: slice(full.width - rightW, rightW), trim: { ...fullTrim, x: fullTrim.x + half - (full.width - rightW), w: trimPx - half }, side: "right" };
+          if (splitMarks) {
+            for (const part of [left, right]) {
+              const margin = (part.raster.height - full.height) / 2;
+              part.trim.x += margin;
+              part.trim.y += margin;
+            }
+          }
           const first = geom.rtl ? right : left;
           const second = geom.rtl ? left : right;
           parts.push({ ...first, nombre: pl.nombre }, { ...second, nombre: pl.nombre === null ? null : pl.nombre + 1 });
-        } else parts.push({ raster: full, side: geom.side, nombre: pl.nombre });
+        } else parts.push({ raster: full, trim: fullTrim, side: geom.side, nombre: pl.nombre });
         for (const part of parts)
         for (const fmt of formats) {
           const raster = part.raster;
@@ -613,10 +630,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
               pw = { writer: new PdfWriter({ title: typeof meta.title === "string" ? meta.title : undefined, author: typeof meta.author === "string" ? meta.author : undefined, date: sde ? new Date(Number(sde) * 1000) : undefined }), colorMode, dpi };
               pdfs.set(key, pw);
             }
-            const trimH = Math.round((geom.trimH * dpi) / 25.4 + 1e-6);
-            const edge = Math.round((raster.height - trimH) / 2);
             const bleedPx = crop === "trim" ? 0 : Math.round((geom.bleed * dpi) / 25.4 + 1e-6);
-            const trim = { x: edge, y: edge, w: raster.width - 2 * edge, h: raster.height - 2 * edge };
+            const trim = part.trim;
             pw.writer.addPage({ rgba: raster.data, width: raster.width, height: raster.height, dpi, colorMode: (options.debug ? "color" : colorMode) as "color", transparent: transparentOut || !!run.list, trim, bleed: { x: trim.x - bleedPx, y: trim.y - bleedPx, w: trim.w + 2 * bleedPx, h: trim.h + 2 * bleedPx } });
             continue;
           }
