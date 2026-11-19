@@ -499,13 +499,15 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
   let pages: PreviewPage[] = [];
   let diags: Diagnostic[] = [];
   let version = 0;
-  // pages with the safe line and fold band drawn on top, rendered on first request per version
+  // pages with the trim, bleed and safe lines and fold band drawn on top, rendered on first request per version
   let guided: { version: number; pages: Promise<PreviewPage[]> } | undefined;
   const clients = new Set<import("node:http").ServerResponse>();
   const watcher = watch(collectDeps(entry), { ignoreInitial: true });
   const renderPages = async (debug?: string[]) => {
     const opts = await renderOptions({ ...o, profile: o.profile ?? "preview" }, file);
     opts.onSystemFont = (path) => watcher.add(path);
+    // guides show where the paper is cut, so include the bleed around the trim unless marks are already shown
+    if (debug?.includes("guides")) opts.includeBleed = true;
     if (debug) opts.debug = Array.isArray(opts.debug) ? [...new Set([...opts.debug, ...debug])] : (opts.debug ?? debug);
     const r = await render(entry, opts);
     return { pages: r.pages.map((p) => ({ id: p.id, side: p.side, separation: p.separation, data: p.data, mime: p.mimeType, ext: p.format, width: p.width, height: p.height, elements: p.elements })), diags: r.diagnostics };
@@ -513,6 +515,12 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
   const guidedPages = () => {
     if (guided?.version !== version) guided = { version, pages: renderPages(["guides"]).then((r) => r.pages, () => pages) };
     return guided.pages;
+  };
+  // guided pages are PNG only, so match the same page, separation and half; svg keeps a split spread joined, so it stays plain then
+  const guidedFor = async (i: number) => {
+    const cur = pages[i]!;
+    const same = (await guidedPages()).filter((p) => p.id === cur.id && p.separation === cur.separation);
+    return (cur.ext === "svg" ? (same.length === 1 ? same[0] : undefined) : same.find((p) => p.side === cur.side)) ?? cur;
   };
   const build = async () => {
     try {
@@ -531,7 +539,7 @@ main{display:flex;flex-wrap:wrap;flex-direction:row-reverse;gap:16px;padding:16p
 img{max-height:85vh;box-shadow:0 2px 12px #0008;background:#fff}figcaption{text-align:center;padding:4px}
 .d{padding:2px 12px}.error{color:#ff8080}.warning{color:#ffd480}.d[data-page]{cursor:pointer}.d.selected{background:#665020}header{z-index:2}.highlight{position:absolute;border:3px solid #ff36b1;box-shadow:0 0 0 1px #fff;pointer-events:none;box-sizing:border-box;z-index:1}</style>
 <header>${esc(relative(process.cwd(), entry))} — ${pages.length} page(s)
-<label title="${esc(t("安全領域の線と見開き中央の危険帯を重ねて表示", "Overlay the safe line and the spread fold danger band"))}"><input type="checkbox" id="guides"> ${esc(t("ガイド（安全線・ノド）", "Guides (safe line, fold)"))}</label></header>
+<label title="${esc(t("断裁位置・塗り足し・安全領域の線と見開き中央の危険帯を重ねて表示（塗り足しまで表示）", "Overlay the trim, bleed and safe lines and the spread fold danger band (shows the bleed area)"))}"><input type="checkbox" id="guides"> ${esc(t("ガイド（断裁・塗り足し・安全線・ノド）", "Guides (trim, bleed, safe line, fold)"))}</label></header>
 <section>${diags.filter((d) => d.severity !== "info").map((d) => {
     let i = -1;
     let overlap = 0;
@@ -555,7 +563,8 @@ box.onchange=()=>{localStorage.setItem("mangacli-guides",box.checked?"1":"0");sh
 const rows=[...document.querySelectorAll('.d[data-page]')],figures=[...document.querySelectorAll('figure')];
 const frame=document.createElement('div');frame.className='highlight';let selected=null;
 const clear=()=>{if(selected)selected.classList.remove('selected');selected=null;frame.remove();sessionStorage.removeItem('mangacli-selection')};
-const position=()=>{if(!selected||!selected.dataset.box)return;const img=figures[Number(selected.dataset.page)].querySelector('img');if(!img.naturalWidth)return;const b=JSON.parse(selected.dataset.box),sx=img.clientWidth/Number(img.dataset.width),sy=img.clientHeight/Number(img.dataset.height);Object.assign(frame.style,{left:(img.offsetLeft+b.x*sx-3)+'px',top:(img.offsetTop+b.y*sy-3)+'px',width:(b.width*sx+6)+'px',height:(b.height*sy+6)+'px'})};
+const guideBoxes={};
+const position=()=>{if(!selected||!selected.dataset.box)return;const page=Number(selected.dataset.page),img=figures[page].querySelector('img');if(!img.naturalWidth)return;let b=JSON.parse(selected.dataset.box),w=Number(img.dataset.width),h=Number(img.dataset.height);if(box.checked){const gb=guideBoxes[page];if(!gb){guideBoxes[page]=fetch('/boxes/'+page+'?v=${version}').then(r=>r.json()).then(j=>{guideBoxes[page]=j;position()});return}if(gb.then)return;const e=gb.elements.find(e=>e.id===JSON.parse(selected.dataset.key)[1]);frame.hidden=!e;if(!e)return;b=e;w=gb.width;h=gb.height}else frame.hidden=false;const sx=img.clientWidth/w,sy=img.clientHeight/h;Object.assign(frame.style,{left:(img.offsetLeft+b.x*sx-3)+'px',top:(img.offsetTop+b.y*sy-3)+'px',width:(b.width*sx+6)+'px',height:(b.height*sy+6)+'px'})};
 const select=(row,scroll=true)=>{clear();selected=row;row.classList.add('selected');sessionStorage.setItem('mangacli-selection',row.dataset.key);const fig=figures[Number(row.dataset.page)];if(row.dataset.box){fig.append(frame);position()}if(scroll)fig.scrollIntoView({block:'center',behavior:'smooth'})};
 for(const row of rows){row.onclick=()=>selected===row?clear():select(row);row.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();row.click()}}}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')clear()});window.addEventListener('resize',position);for(const img of document.querySelectorAll('img'))img.addEventListener('load',position);
@@ -578,14 +587,17 @@ new EventSource("/events").onmessage=()=>location.reload()</script>`;
         res.writeHead(200, { "content-type": p.mime, "cache-control": "no-store" });
         res.end(p.data);
       };
-      if (url.searchParams.get("guides") === "1") {
-        // guided pages are PNG only, so match the same page, separation and half; svg keeps a split spread joined, so it stays plain then
-        const cur = pages[Number(m[1])]!;
-        void guidedPages().then((g) => {
-          const same = g.filter((p) => p.id === cur.id && p.separation === cur.separation);
-          send((cur.ext === "svg" ? (same.length === 1 ? same[0] : undefined) : same.find((p) => p.side === cur.side)) ?? cur);
-        });
-      } else send(pages[Number(m[1])]);
+      if (url.searchParams.get("guides") === "1") void guidedFor(Number(m[1])).then(send);
+      else send(pages[Number(m[1])]);
+      return;
+    }
+    // element boxes in the guided image, which can differ in size and offset from the plain one
+    const bm = url.pathname.match(/^\/boxes\/(\d+)$/);
+    if (bm && pages[Number(bm[1])]) {
+      void guidedFor(Number(bm[1])).then((p) => {
+        res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+        res.end(JSON.stringify({ width: p.width, height: p.height, elements: p.elements }));
+      });
       return;
     }
     if (url.pathname === "/") {
@@ -974,7 +986,7 @@ renderOpts(cli.command("preview <file>", "Live preview in the browser"))
   .option("--port <n>", "Port (default 4173)")
   .option("--host <host>", "Host (default 127.0.0.1)")
   .option("--open", "Open the browser")
-  .option("--guides", "Start with the safe line and fold band overlay on")
+  .option("--guides", "Start with the trim, bleed and safe lines and fold band overlay on")
   .action(wrap((file: string, o: Obj) => cmdPreview(file, o)));
 common(cli.command("schema", "Print the JSON Schema"))
   .option("--out <file>", "Write to a file")
