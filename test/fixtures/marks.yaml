@@ -1,0 +1,56 @@
+# Feature catalog: docs/14-quality.md §14.3.1
+mangacli: 1
+meta: { lang: ja }
+page: { size: [100mm, 144mm], bleed: 0, color: color }
+output: { metadata: false }
+pages:
+  - layout: { template: grid, params: { cols: 4, rows: 6 } }
+    panels:
+      - layers:
+          - { mark: sweat, size: 7mm }
+      - layers:
+          - { mark: sweat-burst, size: 7mm }
+      - layers:
+          - { mark: anger, size: 7mm }
+      - layers:
+          - { mark: blush, size: 7mm }
+      - layers:
+          - { mark: surprise, size: 7mm }
+      - layers:
+          - { mark: sparkle, size: 7mm }
+      - layers:
+          - { mark: heart, size: 7mm }
+      - layers:
+          - { mark: note, size: 7mm }
+      - layers:
+          - { mark: exclamation, size: 7mm }
+      - layers:
+          - { mark: question, size: 7mm }
+      - layers:
+          - { mark: steam, size: 7mm }
+      - layers:
+          - { mark: zzz, size: 7mm }
+      - layers:
+          - { mark: motion, size: 7mm }
+      - layers:
+          - { mark: tremble, size: 7mm }
+      - layers:
+          - { mark: spiral, size: 7mm }
+      - layers:
+          - { mark: dots, size: 7mm }
+      - layers:
+          - { mark: tears, size: 7mm }
+      - layers:
+          - { mark: shine, size: 7mm }
+      - layers:
+          - { mark: pop, size: 7mm }
+      - layers:
+          - { mark: idea, size: 7mm }
+      - layers:
+          - { mark: snot-bubble, size: 7mm }
+      - layers:
+          - { mark: sigh, size: 7mm }
+      - layers:
+          - { mark: pale, size: 7mm }
+      - layers:
+          - { mark: dizzy-stars, size: 7mm }

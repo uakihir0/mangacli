@@ -56,7 +56,7 @@ describe("preview", () => {
   it("re-renders when an inline image is added and when it changes", async () => {
     const dir = project({ "manga.yaml": "mangacli: 1\npages:\n  - panels:\n      - layers: [{ image: art/1.png }]\n" });
     const port = 41000 + Math.floor(Math.random() * 10000);
-    const child = spawn(join(root, "node_modules/.bin/tsx"), [join(root, "src/cli/index.ts"), "preview", join(dir, "manga.yaml"), "--port", String(port), "--no-config"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(process.execPath, ["--import", "tsx", join(root, "src/cli/index.ts"), "preview", join(dir, "manga.yaml"), "--port", String(port), "--no-config"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
     let log = "";
     child.stdout.on("data", (d) => (log += d));
     child.stderr.on("data", (d) => (log += d));

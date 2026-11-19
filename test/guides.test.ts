@@ -74,7 +74,7 @@ describe("preview guides overlay", () => {
     const f = join(dir, "guides.yaml");
     writeFileSync(f, doc("spread").yaml);
     const port = 41000 + Math.floor(Math.random() * 2000);
-    const proc = spawn(join(root, "node_modules/.bin/tsx"), [join(root, "src/cli/index.ts"), "preview", f, "--port", String(port), "--no-config"], { cwd: root });
+    const proc = spawn(process.execPath, ["--import", "tsx", join(root, "src/cli/index.ts"), "preview", f, "--port", String(port), "--no-config"], { cwd: root });
     try {
       await new Promise<void>((ok, ng) => {
         const timer = setTimeout(() => ng(new Error("preview did not start")), 60_000);
