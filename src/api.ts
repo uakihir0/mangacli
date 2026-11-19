@@ -117,6 +117,7 @@ export interface RenderedPage {
   height: number;
   dpi: number;
   separation?: string;
+  elements: { id: string; x: number; y: number; width: number; height: number }[];
   data: Uint8Array;
   path?: string;
 }
@@ -644,7 +645,12 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
             return { w: Math.round((bw * dpi) / 25.4), h: Math.round((bh * dpi) / 25.4) };
           };
           const size = fmt === "svg" ? svgSize() : { w: raster.width, h: raster.height };
-          const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: size.w, height: size.h, dpi, separation: run.name, data };
+          const scale = dpi / 25.4;
+          const origin = fmt === "svg" ? { x: crop === "trim" ? 0 : -geom.bleedBox.x * scale, y: crop === "trim" ? 0 : -geom.bleedBox.y * scale } : part.trim;
+          const trimX = fmt !== "svg" && parts.length > 1 && part.side === "right" ? Math.round(trimWidth / 2) : 0;
+          const elements = info.elements.map(({ id, bbox }) => ({ id, x: bbox.x * scale + origin.x - trimX, y: bbox.y * scale + origin.y, width: bbox.w * scale, height: bbox.h * scale }))
+            .filter((b) => b.x < size.w && b.y < size.h && b.x + b.width > 0 && b.y + b.height > 0);
+          const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: size.w, height: size.h, dpi, separation: run.name, elements, data };
           if (outDir) {
             const file = outName(page, pl.idx, part.side, part.nombre, geom.type === "spread" && parts.length === 1, parts.length > 1, run.name, EXT[fmt]);
             if (emitted.has(file)) {
@@ -685,7 +691,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   for (const [sep, pw] of pdfs) {
     if (!pw.writer.pageCount) continue;
     const data = pw.writer.build();
-    const rp: RenderedPage = { id: resolved.pages[0]?.id ?? "document", index: 0, number: null, side: "document", format: "pdf", mimeType: MIME.pdf, colorMode: pw.colorMode, width: 0, height: 0, dpi: pw.dpi, separation: sep || undefined, data };
+    const rp: RenderedPage = { id: resolved.pages[0]?.id ?? "document", index: 0, number: null, side: "document", format: "pdf", mimeType: MIME.pdf, colorMode: pw.colorMode, width: 0, height: 0, dpi: pw.dpi, separation: sep || undefined, elements: [], data };
     if (outDir) {
       const file = join(outDir, `${p.name}${sep ? `-${sep}` : ""}.pdf`);
       mkdirSync(dirname(file), { recursive: true });
