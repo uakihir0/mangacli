@@ -120,7 +120,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
   const maxSz = Array.isArray(p.maxSize) ? p.maxSize : ["70%", "70%"];
   const maxW = sizeValue(maxSz[0], ctx.coordsBox.w, pc);
   const maxH = sizeValue(maxSz[1], ctx.coordsBox.h, pc);
-  const minSz = Array.isArray(p.minSize) ? p.minSize : ["8bmm", "8bmm"];
+  const minSz = Array.isArray(p.minSize) ? p.minSize : ["auto", "auto"];
   const minW = sizeValue(minSz[0], ctx.coordsBox.w, pc);
   const minH = sizeValue(minSz[1], ctx.coordsBox.h, pc);
   const overflow = (p.overflow as string) ?? (fixedSize ? "shrink" : "grow");
@@ -133,8 +133,8 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
     const style = resolveTextStyle({ ...p, fontScale: ((p.fontScale as number) ?? 1) * scale }, u, ctx.lang, true, el.seed);
     const emCtx = { ...u, em: style.fontSize };
     const pad = Array.isArray(p.padding) ? p.padding : ["0.45em", "0.9em"];
-    const padV = toMm(pad[0] as string, emCtx);
-    const padH = toMm(pad[1] as string, emCtx);
+    let padV = toMm(pad[0] as string, emCtx);
+    let padH = toMm(pad[1] as string, emCtx);
     let boxLimit: number | undefined;
     let fixedBase: { w: number; h: number } | undefined;
     if (fixedSize) {
@@ -155,6 +155,12 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       if (isFinite(lim)) boxLimit = Math.min(boxLimit ?? Infinity, Math.max(lim, style.fontSize * 4.5));
     }
     const tl = layoutText(text, style, ctx.fonts, boxLimit);
+    const compact = kind === "ellipse" && !fixedBase && tl.lines.length <= 1 && Math.max(tl.width, tl.height) <= style.fontSize * 3.5;
+    if (compact) {
+      // Curvature supplies the remaining clearance beyond these corner insets.
+      padV = Math.min(padV, style.fontSize * 0.14);
+      padH = Math.min(padH, style.fontSize * 0.14);
+    }
     // a size limit that forces breaks inside phrases: set the text smaller before breaking it badly
     if (boxLimit !== undefined && !fixedBase && scale > minFontScale + 1e-6 && attempt < 11 && breakFaults(tl, ctx.lang) > breakFaults(layoutText(text, style, ctx.fonts), ctx.lang)) {
       scale = Math.max(minFontScale, scale - 0.05);
@@ -168,6 +174,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       const fill = lens.reduce((a, b) => a + b, 0) / (L * maxL);
       const elong = Math.max(tl.width, tl.height) / Math.max(1e-6, Math.min(tl.width, tl.height));
       params.squareness = Math.max(0, Math.min(0.3, 0.03 * (L - 1) + (fill - 0.7) * 0.1 + (elong > 2.5 ? 0.25 : 0)));
+      if (compact) params.squareness = 0.3;
     }
     // points relative to text block center
     const cx = tl.width / 2;
@@ -195,6 +202,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       fits = withMargin.every((q) => pointInPolygon({ x: q.x + ic.x, y: q.y + ic.y }, body.inner));
     } else {
       let ar = (p.aspectRange as [number, number]) ?? [0.55, 1.8];
+      if (compact) ar = [0.15, 6.7];
       // a box follows its text block; horizontal lines make wider balloons than vertical columns
       if (kind === "rect" || kind === "none") ar = [0.05, 20];
       else if (style.writing === "horizontal") ar = [ar[0], Math.max(ar[1], 2.6)];
