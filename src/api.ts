@@ -799,9 +799,10 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
 function withPageBackground(list: DisplayList, paint: DisplayList["background"]): DisplayList {
   let found = false;
   const replace = (nodes: Node[]): Node[] => nodes.flatMap((node): Node[] => {
-    if (node.kind === "path" && node.tag?.elementType === "page" && node.tag.role === "background") {
+    if (node.tag?.elementType === "page" && node.tag.role === "background") {
+      if (found) return [];
       found = true;
-      return paint ? [{ ...node, paint }] : [];
+      return paint && node.kind === "path" ? [{ ...node, paint }] : [];
     }
     return [node.kind === "group" ? { ...node, children: replace(node.children) } : node];
   });

@@ -79,7 +79,8 @@ export interface PathNode {
   fillRule: "nonzero" | "evenodd";
   paint: Paint | null;
   /** outline stroke (used for text outlines / faux bold); drawn before fill */
-  stroke?: { width: number; paint: Paint; join: "round" | "miter" };
+  /** `miterLimit`: miter length / width beyond which a corner is bevelled */
+  stroke?: { width: number; paint: Paint; join: "round" | "miter"; miterLimit?: number };
   tag?: NodeTag;
 }
 
