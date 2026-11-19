@@ -11,6 +11,7 @@
 | [gallery-balloons.yaml](gallery-balloons.yaml) | 組み込みの吹き出しのスタイル（`as`）の一覧 | P0・P1 |
 | [gallery-effects.yaml](gallery-effects.yaml) | 効果・トーン・漫符・描き文字の一覧 | P0・P1 |
 | [light-effects.yaml](light-effects.yaml) | 黒ベタの上の後光、人物の背後の光線、舞台のスポットライト（カラー・1 ビット） | P1 |
+| [aura.yaml](aura.yaml) | 透明な人物画像の輪郭に沿う闘気と短い放電 | P1 |
 | [en-comic.yaml](en-comic.yaml) | 英語のページ（`lang: en`）。左から右へ読む順、`comic-basic` フォントセットの大文字の横書きの吹き出し、行の均等化 | P0・P1 |
 
 - フォントはカタログのものを使うため、初回のレンダリング時に自動でダウンロードする。事前に取得する場合は `npx mangacli fonts install --for docs/examples/b5-mono.yaml` を実行する。

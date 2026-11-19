@@ -1,0 +1,12 @@
+# 輪郭に沿う闘気。効果を画像の後に置いても、人物内部は保護される。
+mangacli: 1
+page: { size: [100mm, 140mm], bleed: 0, baseFrame: { size: [90mm, 130mm] }, color: mono }
+assets:
+  hero-art: { src: ./assets/taro/shock.png, kind: art }
+pages:
+  - panels:
+      - layers:
+          - { tone: 'tone(12%)' }
+          - { image: hero-art, id: hero, size: [auto, 68%], at: [50%, 56%] }
+          - { effect: aura, target: hero, length: 10mm, tongues: 28, upwardBias: 0.95, layers: 3, fill: 'tone(8%)', seed: 42 }
+          - { effect: arcs, target: hero, length: 5mm, count: 16, seed: 17 }

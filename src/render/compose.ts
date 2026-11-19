@@ -7,6 +7,7 @@ import { parseAngle, toMm } from "../core/units.js";
 import { type ElemCtx, type Silhouette, placeCtx, tag } from "../elements/context.js";
 import { type BalloonPlan, planBalloon, renderBalloon, renderConnected } from "../elements/balloon.js";
 import { renderEffect } from "../elements/effects.js";
+import { prepareAlphaContours } from "../elements/alpha-contour.js";
 import { layoutImage } from "../elements/image.js";
 import { inksToNodes } from "../elements/inkir.js";
 import { renderMark } from "../elements/marks.js";
@@ -205,7 +206,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       }
     };
     placeBalloons(plans.map((p) => p.plan), ctx, refs, processed, sils, replan);
-    ctx = { ...ctx, silhouettes: sils };
+    ctx = { ...ctx, silhouettes: sils, alphaContours: await prepareAlphaContours(els, ctx) };
     // consecutive auto-placed lines of one speaker that end up side by side are joined (one tail)
     const linkedIds = new Set<string>();
     for (const x of plans) if (x.plan.props.connect) {
