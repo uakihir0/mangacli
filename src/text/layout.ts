@@ -688,7 +688,6 @@ interface Line {
 function canBreakBetween(a: Box, b: Box, wrap: string, style: TextStyle): boolean {
   if (b.breakBefore === "forced") return true;
   if (wrap === "none") return false;
-  if (b.space) return false;
   if (noEnd(a.lastChar, style.kinsoku)) return false;
   if (noStart(b.firstChar, style.kinsoku)) return false;
   if (inseparable(a.lastChar, b.firstChar)) return false;
@@ -725,15 +724,7 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
     }
     if (b.chars === "" && b.breakBefore === "forced") continue;
     const adv = b.adv + (cur.length ? ls : 0);
-    let trailingSpace = !!b.space;
-    if (trailingSpace) for (let j = i + 1; j < boxes.length; j++) {
-      if (boxes[j].breakBefore === "forced") break;
-      if (!boxes[j].space) {
-        trailingSpace = false;
-        break;
-      }
-    }
-    if (cur.length && !trailingSpace && len + adv > Lmax + 1e-6) {
+    if (cur.length && len + adv > Lmax + 1e-6) {
       const prohibited = noStart(b.firstChar, style.kinsoku);
       // hanging: 、。，． hang outside the line end
       if (prohibited && style.hanging && /^[、。，．,.]$/.test(b.firstChar)) {

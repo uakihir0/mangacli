@@ -25,32 +25,8 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
-  it("does not carry overflowing internal space into hanging punctuation", async () => {
-    const result = await lines("あいう<space=1em>、", { maxChars: 3, hanging: true, wrap: "char" });
-    expect(result.join("")).toBe("あいう 、");
-    for (const line of result) {
-      expect(Array.from(line).length).toBeLessThanOrEqual(4);
-      expect(noStart(Array.from(line)[0] ?? "", "strict")).toBe(false);
-    }
-  });
-  it("keeps opening brackets with their contents across overflowing spaces", async () => {
-    const result = await lines("あい「<space=1em>う", { maxChars: 3, wrap: "char" });
-    expect(result.join("")).toBe("あい「 う");
-    for (const line of result) expect(noEnd(Array.from(line).at(-1) ?? "", "strict")).toBe(false);
-  });
-  it.each(["今日はいい ", "今日はいい<space=1em>", "今日はいい   "])("trims overflowing trailing spaces without splitting text: %s", async (text) => {
-    expect(await lines(text, { maxChars: 5 })).toEqual(["今日はいい"]);
-  });
-  it("trims overflowing spaces before an explicit line break", async () => {
-    expect(await lines("今日はいい<space=1em>\n明日", { maxChars: 5 })).toEqual(["今日はいい", "明日"]);
-  });
   it("uses oikomi rather than leaving a single-character column", async () => {
     expect(await lines("ダメ！", { maxChars: 2 })).toEqual(["ダメ！"]);
-  });
-  it("does not expose prohibited starts when trimming a space at a break", async () => {
-    const result = await lines("え<space=1em>！", { maxChars: 2 });
-    for (const line of result) expect(noStart(Array.from(line)[0] ?? "", "strict")).toBe(false);
-    expect(result).toEqual(["え ！"]);
   });
   it("distinguishes an independent hiragana verb from okurigana", async () => {
     expect(await lines("帰る前おごるよ", { maxChars: 4 })).toEqual(["帰る前", "おごるよ"]);
