@@ -18,13 +18,13 @@ describe("print image ink preservation", () => {
     expect(imageInkMask(rgba, size, size, 324).some(Boolean)).toBe(false);
   });
 
-  it.each([false, true])("preserves blurred diamond mesh through crossings (light=%s)", (light) => {
+  it.each([[false, 36], [true, 36], [false, 60], [true, 60]] as const)("preserves blurred diamond mesh through crossings (light=%s, spacing=%s)", (light, spacing) => {
     const size = 240;
     const rgba = new Uint8Array(size * size * 4);
     const centers: number[] = [];
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
-        const wrap = (v: number) => Math.abs(((v % 60) + 90) % 60 - 30);
+        const wrap = (v: number) => Math.abs(((v % spacing) + spacing * 1.5) % spacing - spacing / 2);
         const distance = Math.min(wrap(x + y), wrap(x - y)) / Math.SQRT2;
         const background = light ? 0.01 : 0.96;
         const contrast = light ? 0.4 * (0.8 + 0.2 * Math.sin(x / 12)) : 0.25;
