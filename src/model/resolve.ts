@@ -93,28 +93,7 @@ function overlay(a: Obj, b: Obj | undefined): Obj {
   return out;
 }
 
-export interface ResolveOptions {
-  configDefaults?: Obj;
-  configStyles?: Record<string, Obj>;
-  seedOverride?: number;
-  lang?: string;
-}
-
-export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptions = {}): ResolvedDoc {
-  const seed = opts.seedOverride ?? (typeof doc.seed === "number" ? doc.seed : 1);
-  const characters = (isObj(doc.characters) ? doc.characters : {}) as Record<string, Obj>;
-  const lang = opts.lang ?? ((doc.meta as Obj | undefined)?.lang as string | undefined) ?? "ja";
-  const locale = isObj(doc.locales) ? (doc.locales as Obj)[lang] as Obj | undefined : undefined;
-
-  // styles: builtin <- config <- doc <- locale
-  const rawStyles: Record<string, Obj> = {};
-  const userStyles: Record<string, Obj> = {};
-  for (const src of [opts.configStyles ?? {}, (doc.styles ?? {}) as Record<string, Obj>, ((locale?.styles ?? {}) as Record<string, Obj>)]) {
-    for (const [k, v] of Object.entries(src)) userStyles[k] = userStyles[k] ? overlay(userStyles[k], v) : deepClone(v);
-  }
-  for (const src of [BUILTIN_STYLES, opts.configStyles ?? {}, (doc.styles ?? {}) as Record<string, Obj>, ((locale?.styles ?? {}) as Record<string, Obj>)]) {
-    for (const [k, v] of Object.entries(src)) rawStyles[k] = rawStyles[k] ? overlay(rawStyles[k], v) : deepClone(v);
-  }
+function resolveStyles(rawStyles: Record<string, Obj>, bag: DiagnosticBag): Record<string, Obj> {
   const styles: Record<string, Obj> = {};
   const resolving = new Set<string>();
   const resolveStyle = (name: string, path: Path): Obj | undefined => {
@@ -141,6 +120,33 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
     return acc;
   };
   for (const k of Object.keys(rawStyles)) resolveStyle(k, ["styles", k]);
+  return styles;
+}
+
+export interface ResolveOptions {
+  configDefaults?: Obj;
+  configStyles?: Record<string, Obj>;
+  seedOverride?: number;
+  lang?: string;
+}
+
+export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptions = {}): ResolvedDoc {
+  const seed = opts.seedOverride ?? (typeof doc.seed === "number" ? doc.seed : 1);
+  const characters = (isObj(doc.characters) ? doc.characters : {}) as Record<string, Obj>;
+  const lang = opts.lang ?? ((doc.meta as Obj | undefined)?.lang as string | undefined) ?? "ja";
+  const locale = isObj(doc.locales) ? (doc.locales as Obj)[lang] as Obj | undefined : undefined;
+
+  // styles: builtin <- config <- doc <- locale
+  const rawStyles: Record<string, Obj> = {};
+  const userStyles: Record<string, Obj> = {};
+  for (const src of [opts.configStyles ?? {}, (doc.styles ?? {}) as Record<string, Obj>, ((locale?.styles ?? {}) as Record<string, Obj>)]) {
+    for (const [k, v] of Object.entries(src)) userStyles[k] = userStyles[k] ? overlay(userStyles[k], v) : deepClone(v);
+  }
+  for (const src of [BUILTIN_STYLES, opts.configStyles ?? {}, (doc.styles ?? {}) as Record<string, Obj>, ((locale?.styles ?? {}) as Record<string, Obj>)]) {
+    for (const [k, v] of Object.entries(src)) rawStyles[k] = rawStyles[k] ? overlay(rawStyles[k], v) : deepClone(v);
+  }
+  const builtinStyles = resolveStyles(BUILTIN_STYLES, bag);
+  const styles = resolveStyles(rawStyles, bag);
 
   // collect explicit ids
   const ids = new Set<string>();
@@ -214,7 +220,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
             ? merge(deepClone(BUILTIN_MARK_DEFAULTS["*"]), kind ? BUILTIN_MARK_DEFAULTS[kind] : undefined)
             : deepClone(BUILTIN_DEFAULTS[type] ?? {});
       const as = type === "balloon" ? (typeof raw.as === "string" ? raw.as : "say") : undefined;
-      let acc: Obj = as ? merge(deepClone(builtin), BUILTIN_STYLES[as], builtin) : deepClone(builtin);
+      let acc: Obj = as ? merge(deepClone(builtin), builtinStyles[as], builtin) : deepClone(builtin);
       const builtinArrays = Object.keys(acc).filter((k) => Array.isArray(acc[k]));
       const builtinProps = new Set(builtinArrays);
       const mergeProps = (props: Obj | undefined) => {

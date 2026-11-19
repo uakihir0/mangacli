@@ -5,6 +5,7 @@ import { BLACK, WHITE } from "../src/core/color.js";
 import { DiagnosticBag } from "../src/core/diagnostics.js";
 import { type PathData, flattenPath, polyPath } from "../src/geom/path.js";
 import { normalizeDocument } from "../src/load/normalize.js";
+import { BUILTIN_STYLES } from "../src/model/defaults.js";
 import { resolveDocument } from "../src/model/resolve.js";
 import { AssetRegistry } from "../src/render/assets.js";
 import { closeAlpha } from "../src/render/edt.js";
@@ -18,6 +19,28 @@ const yaml = (s: string) => ({ yaml: s, filename: "/v/outline.yaml" });
 const paths = (n: Node): PathNode[] => n.kind === "group" ? n.children.flatMap(paths) : n.kind === "path" ? [n] : [];
 
 describe("speech-role defaults", () => {
+  it.each([{ extendsStyle: "narration" }, { extendsStyle: ["narration"] }])("resolves builtin-only inheritance %j before user defaults without leaking extends", ({ extendsStyle }) => {
+    const monologue = BUILTIN_STYLES.monologue;
+    const narration = BUILTIN_STYLES.narration;
+    try {
+      BUILTIN_STYLES.monologue = { ...monologue, extends: extendsStyle };
+      BUILTIN_STYLES.narration = { ...narration, extends: "whisper" };
+      const input = { mangacli: 1, pages: [{ panels: [{ layers: [{ balloon: "文", as: "monologue" }] }] }] };
+      const inherited = resolve(input).pages[0].panels[0].elements[0].props;
+      expect(inherited).toMatchObject({ autoPlace: "flow", fontScale: 0.85, shape: { kind: "none" }, tail: { kind: "none", widthScale: 0.7 } });
+      expect(inherited).not.toHaveProperty("extends");
+      const overridden = resolve({ ...input,
+        defaults: { balloon: { fontScale: 1.25 }, monologue: { textOutline: "2mm white" } },
+        styles: { narration: { autoPlace: "none" }, whisper: { fontScale: 9 } },
+      }).pages[0].panels[0].elements[0].props;
+      expect(overridden).toMatchObject({ autoPlace: "flow", fontScale: 1.25, textOutline: [{ width: "2mm", color: "white" }] });
+      expect(overridden).not.toHaveProperty("extends");
+    } finally {
+      BUILTIN_STYLES.monologue = monologue;
+      BUILTIN_STYLES.narration = narration;
+    }
+  });
+
   it.each(["config", "document", "include", "locale", "page", "panel", "group"])("applies %s role defaults after built-in speech styles", (level) => {
     const defaults = { monologue: { textOutline: "2mm white" }, narration: { fontSize: "7mm" } };
     const group: Obj = { type: "group", children: [{ balloon: "地の文", as: "monologue" }, { balloon: "説明", as: "narration" }] };
