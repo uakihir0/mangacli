@@ -123,7 +123,18 @@ export function computePageGeom(page: RPage, physicalIndex: number, book: Obj, b
   }
   // base frame
   let baseFrame: Rect;
-  const bf = s.baseFrame;
+  let bf = s.baseFrame;
+  if (raw.baseFrame === undefined && s.orientation === "landscape" && isObj(bf)) {
+    const original = pageSize({ ...s, orientation: undefined }, bag, page.path);
+    if (original.w < original.h) {
+      bf = {
+        ...bf,
+        ...(Array.isArray(bf.size) ? { size: [bf.size[1], bf.size[0]] } : {}),
+        ...(Array.isArray(bf.offset) ? { offset: [bf.offset[1], bf.offset[0]] } : {}),
+        ...(isObj(bf.margins) ? { margins: { top: bf.margins.inner, bottom: bf.margins.outer, inner: bf.margins.top, outer: bf.margins.bottom } } : {}),
+      };
+    }
+  }
   const pctx = (base: number): UnitContext => ({ ...units, base });
   if (bf === "trim") baseFrame = { ...trim };
   else if (isObj(bf) && isObj(bf.margins)) {
@@ -144,10 +155,6 @@ export function computePageGeom(page: RPage, physicalIndex: number, book: Obj, b
     if (isObj(bf) && Array.isArray(bf.size)) {
       bw = toMm((bf.size as string[])[0], pctx(singleW));
       bh = toMm((bf.size as string[])[1], pctx(trimH));
-      if (raw.baseFrame === undefined && s.orientation === "landscape") {
-        const original = pageSize({ ...s, orientation: undefined }, bag, page.path);
-        if (original.w < original.h) [bw, bh] = [bh, bw];
-      }
     }
     if (page.type === "spread") bw = trimW - (singleW - bw);
     let ox = 0;

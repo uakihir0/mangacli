@@ -40,6 +40,23 @@ describe("print-basis units", () => {
 });
 
 describe("print geometry", () => {
+  it("orients unresolved preset frame dimensions before resolving percentages", async () => {
+    const pageSizes: Record<string, PluginPageSize> = {
+      relative: { width: 100, height: 150, baseFrame: { size: ["80%", "80%"] } },
+      offset: { width: 100, height: 150, baseFrame: { size: ["70%", "80%"], offset: ["2mm", "3mm"] } },
+      margins: { width: 100, height: 150, baseFrame: { margins: { top: "10%", bottom: "20%", inner: "30%", outer: "40%" } } },
+    };
+    for (const [size, frame] of [
+      ["relative", { x: 15, y: 10, w: 120, h: 80 }],
+      ["offset", { x: 18, y: 17, w: 120, h: 70 }],
+      ["margins", { x: 30, y: 30, w: 105, h: 30 }],
+    ] as const) {
+      const r = await validate(input(`size: ${size}, orientation: landscape`), { plugins: [{ name: "frames", pageSizes }] });
+      expect(r.layout[0].geom).toMatchObject({ trimW: 150, trimH: 100, baseFrame: frame });
+      expect(r.diagnostics.filter((d) => d.code === "PAGE_BASEFRAME_OUTSIDE_SAFE")).toEqual([]);
+    }
+  });
+
   it("orients preset base frames and print sizes without rotating explicit frames", async () => {
     const r = await validate(input("size: manga-b4, orientation: landscape"));
     expect(r.layout[0].geom).toMatchObject({ trimW: 310, trimH: 220, baseFrame: { x: 20, y: 20, w: 270, h: 180 } });
