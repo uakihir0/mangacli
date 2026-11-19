@@ -191,7 +191,7 @@ export function inkShape(c: ShapeContour, o: InkShapeOptions): InkResult {
   for (let pass = 0; pass < passes; pass++) {
     const prng = rng.fork(`pass${pass}`);
     let inks: InkPoly[];
-    if (line.style === "dashed") inks = dashed(dense, line, hand, prng, ruler);
+    if (line.style === "dashed") inks = dashed(dense, c, line, o, prng, ruler);
     else if (line.style === "dotted") inks = dotted(dense, line, prng);
     else inks = solid(dense, c, line, o, prng);
     if (line.style === "double" && line.double) {
@@ -417,8 +417,10 @@ function solid(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, r
   return inks;
 }
 
-function dashed(d: Dense, line: LineStyle, hand: HandSpec, rng: Rng, ruler: boolean): InkPoly[] {
+function dashed(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, rng: Rng, ruler: boolean): InkPoly[] {
+  const hand = o.hand;
   const [on, off] = line.dash ?? [1.6, 1.0];
+  if (!(on > 0 && off > 0) || !Number.isFinite(on + off)) return solid(d, c, { ...line, style: "solid" }, o, rng);
   const inks: InkPoly[] = [];
   let s = rng.range(0, on + off);
   const end = d.total + (d.closed ? 0 : 0);
@@ -429,7 +431,9 @@ function dashed(d: Dense, line: LineStyle, hand: HandSpec, rng: Rng, ruler: bool
     if (!d.closed && e - s < l * 0.3) break;
     const pts = slice(d, s, e, step);
     inks.push(...strokeOutline(pts, { width: line.width, pen: line.pen, hand, rng: rng.fork("d"), taperInLen: l * 0.3, taperOutLen: l * 0.35, ruler, inkPool: false }));
-    s = e + off * rng.range(0.8, 1.2);
+    const next = e + off * rng.range(0.8, 1.2);
+    if (!(next > s)) break;
+    s = next;
     if (d.closed && s > d.total - off * 0.5) break;
   }
   return inks;
