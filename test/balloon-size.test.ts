@@ -25,6 +25,20 @@ async function plan(text: string, writing = "vertical", props: Record<string, un
 }
 
 describe("balloon text extent sizing", () => {
+  it.each(["vertical", "horizontal"])("treats null aspectRange and padding resets as builtins in %s text", async (writing) => {
+    const baseline = await plan("あいう", writing);
+    for (const key of ["aspectRange", "padding"]) {
+      const value = key === "aspectRange" ? [0.9, 1.1] : ["2em", "2em"];
+      for (const props of [{ [key]: null }, { style: "reset" }]) {
+        const p = await plan("あいう", writing, props, {
+          defaults: { balloon: { [key]: value } },
+          styles: { reset: { [key]: null } },
+        });
+        expect(p.el.builtinProps).toContain(key);
+        expect(p.outer).toEqual(baseline.outer);
+      }
+    }
+  });
   it.each(["element", "defaults", "style"])("honors explicit aspectRange from %s", async (source) => {
     for (const writing of ["vertical", "horizontal"]) for (const aspectRange of [[0.9, 1.1], [0.55, 1.8]]) {
       const p = await plan("あいう", writing, source === "element" ? { aspectRange } : source === "style" ? { style: "custom" } : {},

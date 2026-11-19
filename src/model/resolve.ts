@@ -210,31 +210,40 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
             ? merge(deepClone(BUILTIN_MARK_DEFAULTS["*"]), kind ? BUILTIN_MARK_DEFAULTS[kind] : undefined)
             : deepClone(BUILTIN_DEFAULTS[type] ?? {});
       let acc: Obj = deepClone(builtin);
-      const builtinArrays = Object.entries(acc).filter(([, v]) => Array.isArray(v));
+      const builtinArrays = Object.keys(acc).filter((k) => Array.isArray(acc[k]));
+      const builtinProps = new Set(builtinArrays);
+      const mergeProps = (props: Obj | undefined) => {
+        for (const k of builtinArrays) {
+          if (props?.[k] === undefined) continue;
+          if (props[k] === null) builtinProps.add(k);
+          else builtinProps.delete(k);
+        }
+        acc = merge(acc, props, builtin);
+      };
       for (const lv of levels) {
-        if (lv.hand) acc = merge(acc, { hand: lv.hand }, builtin);
+        if (lv.hand) mergeProps({ hand: lv.hand });
         const d = lv.d[type];
         if (type === "effect" || type === "mark") {
           if (isObj(d)) {
-            acc = merge(acc, (d as Obj)["*"] as Obj | undefined, builtin);
-            if (kind) acc = merge(acc, (d as Obj)[kind] as Obj | undefined, builtin);
+            mergeProps((d as Obj)["*"] as Obj | undefined);
+            if (kind) mergeProps((d as Obj)[kind] as Obj | undefined);
           }
-        } else if (isObj(d)) acc = merge(acc, d as Obj, builtin);
+        } else if (isObj(d)) mergeProps(d as Obj);
       }
       const who = typeof raw.who === "string" ? raw.who : undefined;
       if (who) {
         const ch = characters[who];
         if (!ch) bag.error("REF_NOT_FOUND", `unknown character "${who}"`, { path: [...path, "who"], hint: suggestHint(who, Object.keys(characters)) });
-        else if (type === "balloon" && isObj(ch.balloon)) acc = merge(acc, ch.balloon as Obj, builtin);
-        else if (type === "text" && isObj(ch.text)) acc = merge(acc, ch.text as Obj, builtin);
+        else if (type === "balloon" && isObj(ch.balloon)) mergeProps(ch.balloon as Obj);
+        else if (type === "text" && isObj(ch.text)) mergeProps(ch.text as Obj);
       }
       if (type === "balloon") {
         const as = typeof raw.as === "string" ? raw.as : "say";
         const st = styles[as];
         if (!st) bag.error("REF_NOT_FOUND", `unknown speech type "${as}"`, { path: [...path, "as"], hint: suggestHint(as, Object.keys(BUILTIN_STYLES)) });
-        else acc = merge(acc, st, builtin);
+        else mergeProps(st);
         const voice = who ? (characters[who]?.voice as Obj | undefined) : undefined;
-        if (voice && isObj(voice[as])) acc = merge(acc, voice[as] as Obj, builtin);
+        if (voice && isObj(voice[as])) mergeProps(voice[as] as Obj);
         acc.as = as;
       }
       const styleNames = Array.isArray(raw.style) ? raw.style : raw.style ? [raw.style] : [];
@@ -251,14 +260,14 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
         }
         const s2 = { ...st };
         delete s2.for;
-        acc = merge(acc, s2, builtin);
+        mergeProps(s2);
       }
       const own = { ...raw };
       delete own.style;
-      acc = merge(acc, own, builtin);
+      mergeProps(own);
       acc.id = id;
       const elSeedBase = typeof raw.seed === "number" ? raw.seed : baseSeed;
-      const el: RElement = { id, type, props: acc, path, seed: deriveSeed(elSeedBase, id, "element"), fromDialogue, builtinProps: builtinArrays.filter(([k, v]) => acc[k] === v).map(([k]) => k) };
+      const el: RElement = { id, type, props: acc, path, seed: deriveSeed(elSeedBase, id, "element"), fromDialogue, builtinProps: [...builtinProps] };
       if (type === "group" && Array.isArray(raw.children)) {
         const gDefaults = isObj(raw.defaults) ? (raw.defaults as Obj) : undefined;
         const lv2 = gDefaults ? [...levels, { d: gDefaults, hand: undefined }] : levels;
