@@ -1,4 +1,4 @@
-/** Separate narrow dark ridges from continuous tones at the final device resolution. */
+/** Separate narrow dark (1) and light (2) ridges from continuous tones. */
 export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number, dpi: number): Uint8Array {
   const gray = new Float32Array(width * height);
   const mask = new Uint8Array(width * height);
@@ -12,14 +12,17 @@ export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number
     for (let x = 0; x < width; x++) {
       const i = y * width + x;
       const v = gray[i];
-      if (v <= 0.12) { mask[i] = 1; continue; }
-      if (v > 0.5) continue;
       for (const [dx, dy] of directions) {
         const x0 = x - dx * radius, x1 = x + dx * radius;
         const y0 = y - dy * radius, y1 = y + dy * radius;
         if (x0 < 0 || x1 >= width || y0 < 0 || y0 >= height || y1 < 0 || y1 >= height) continue;
-        if (Math.min(gray[y0 * width + x0], gray[y1 * width + x1]) - v >= 0.12) {
+        const a = gray[y0 * width + x0], b = gray[y1 * width + x1];
+        if (v <= 0.5 && Math.min(a, b) - v >= 0.12) {
           mask[i] = 1;
+          break;
+        }
+        if (v > 0.5 && v - Math.max(a, b) >= 0.12) {
+          mask[i] = 2;
           break;
         }
       }
