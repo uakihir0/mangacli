@@ -1313,13 +1313,27 @@ function checkTextSafety(items: Item[], geom: PageGeom, bag: DiagnosticBag, page
     if (!["balloon", "text", "sfx"].includes(it.el.type)) continue;
     const b = it.bbox;
     const s = geom.safe;
-    if (b.x < s.x - 0.5 || b.y < s.y - 0.5 || b.x + b.w > s.x + s.w + 0.5 || b.y + b.h > s.y + s.h + 0.5) {
-      bag.warn("TEXT_OUTSIDE_SAFE_AREA", `${it.el.id} extends outside the safe area`, { path: it.el.path, elementId: it.el.id, pageId: page.id });
+    const t = geom.trim;
+    const edges = [
+      { side: "上", safe: s.y - b.y, trim: t.y - b.y },
+      { side: "下", safe: b.y + b.h - s.y - s.h, trim: b.y + b.h - t.y - t.h },
+      { side: "左", safe: s.x - b.x, trim: t.x - b.x },
+      { side: "右", safe: b.x + b.w - s.x - s.w, trim: b.x + b.w - t.x - t.w },
+    ];
+    const crossed = edges.filter((e) => e.safe > 0.5);
+    if (crossed.length) {
+      const details = crossed.map((e) => `${e.side}の${e.trim > 0 ? "断裁線" : "安全線"}を ${(e.trim > 0 ? e.trim : e.safe).toFixed(1)}mm 越えています、安全線まで ${e.safe.toFixed(1)}mm 内側に入れてください`);
+      bag.warn("TEXT_OUTSIDE_SAFE_AREA", `${it.el.id}: ${details.join("；")}`, { path: it.el.path, elementId: it.el.id, pageId: page.id });
     }
     if (geom.type === "spread") {
       const fm = page.settings.foldMargin !== undefined ? toMm(page.settings.foldMargin as string, geom.units) : 10;
       const cx = geom.trimW / 2;
-      if (b.x < cx + fm && b.x + b.w > cx - fm) bag.warn("TEXT_NEAR_FOLD", `${it.el.id} is near the spread fold`, { path: it.el.path, elementId: it.el.id });
+      if (b.x < cx + fm && b.x + b.w > cx - fm) {
+        const relation = b.x <= cx && b.x + b.w >= cx
+          ? `のどをまたいでいます（左側 ${(cx - b.x).toFixed(1)}mm、右側 ${(b.x + b.w - cx).toFixed(1)}mm）`
+          : `のどまで ${Math.max(b.x - cx, cx - b.x - b.w).toFixed(1)}mm です`;
+        bag.warn("TEXT_NEAR_FOLD", `${it.el.id}: ${relation}。警告帯（のどから左右 ${fm.toFixed(1)}mm）を避けるには左へ ${(b.x + b.w - cx + fm).toFixed(1)}mm または右へ ${(cx + fm - b.x).toFixed(1)}mm 移動してください`, { path: it.el.path, elementId: it.el.id, pageId: page.id });
+      }
     }
   }
 }

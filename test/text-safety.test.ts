@@ -4,6 +4,7 @@ import { createRenderer } from "../src/api.js";
 const renderer = createRenderer({ profile: "preview" });
 const input = (type: "page" | "spread", at: string, layers = true) => ({
   yaml: `mangacli: 1
+meta: { lang: en }
 page: { size: B5, bleed: 3mm }
 pages:
   - type: ${type}
@@ -41,6 +42,53 @@ describe("sfx text safety", () => {
 
   it("does not warn for an empty page", async () => {
     const result = await renderer.render(input("page", "0, 0", false), { format: "svg" });
+    expect(result.diagnostics.filter((d) => safetyCodes.includes(d.code))).toEqual([]);
+  });
+
+  it("reports right trim overflow and the full safe-line movement in mm", async () => {
+    const doc = input("page", "180mm, 70mm");
+    doc.yaml = doc.yaml.replace("sfx: CRASH", "sfx: CUT");
+    const result = await renderer.render(doc, { format: "svg" });
+    expect(result.diagnostics.find((d) => d.code === "TEXT_OUTSIDE_SAFE_AREA")?.message)
+      .toBe("sfx: 右の断裁線を 4.6mm 越えています、安全線まで 9.6mm 内側に入れてください");
+  });
+
+  it("reports every crossed side", async () => {
+    const result = await renderer.render(input("page", "0mm, 0mm"), { format: "svg" });
+    expect(result.diagnostics.find((d) => d.code === "TEXT_OUTSIDE_SAFE_AREA")?.message)
+      .toBe("sfx: 上の断裁線を 6.0mm 越えています、安全線まで 11.0mm 内側に入れてください；左の断裁線を 11.7mm 越えています、安全線まで 16.7mm 内側に入れてください");
+  });
+
+  it("distinguishes safe-line-only overflow", async () => {
+    const result = await renderer.render(input("page", "170mm, 70mm"), { format: "svg" });
+    expect(result.diagnostics.find((d) => d.code === "TEXT_OUTSIDE_SAFE_AREA")?.message)
+      .toBe("sfx: 右の安全線を 4.7mm 越えています、安全線まで 4.7mm 内側に入れてください");
+  });
+
+  it("reports fold overlap and both escape directions", async () => {
+    const result = await renderer.render(input("spread", "185mm, 90mm"), { format: "svg" });
+    expect(result.diagnostics.find((d) => d.code === "TEXT_NEAR_FOLD")?.message)
+      .toBe("sfx: のどをまたいでいます（左側 8.7mm、右側 14.7mm）。警告帯（のどから左右 10.0mm）を避けるには左へ 24.7mm または右へ 18.7mm 移動してください");
+  });
+
+  it("reports distance to the fold for sfx entirely on one side", async () => {
+    const result = await renderer.render(input("spread", "165mm, 90mm"), { format: "svg" });
+    expect(result.diagnostics.find((d) => d.code === "TEXT_NEAR_FOLD")?.message)
+      .toBe("sfx: のどまで 5.3mm です。警告帯（のどから左右 10.0mm）を避けるには左へ 4.7mm または右へ 38.7mm 移動してください");
+  });
+
+  it("reports mm for documents using cm", async () => {
+    const doc = input("page", "18, 7");
+    doc.yaml = doc.yaml.replace("size: B5", "units: cm, size: B5").replace("sfx: CRASH", "sfx: CUT");
+    const result = await renderer.render(doc, { format: "svg" });
+    expect(result.diagnostics.find((d) => d.code === "TEXT_OUTSIDE_SAFE_AREA")?.message)
+      .toBe("sfx: 右の断裁線を 4.6mm 越えています、安全線まで 9.6mm 内側に入れてください");
+  });
+
+  it("continues to skip px documents", async () => {
+    const doc = input("page", "0, 0");
+    doc.yaml = doc.yaml.replace("size: B5", "units: px, size: B5");
+    const result = await renderer.render(doc, { format: "svg" });
     expect(result.diagnostics.filter((d) => safetyCodes.includes(d.code))).toEqual([]);
   });
 });
