@@ -196,18 +196,9 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
   const lineData = lines.map((ln) => {
     const offsets = ln.boxes.map(() => 0);
     const advs = ln.boxes.map((b, i) => {
-      let a = b.adv;
-      if (style.punctCompress && i + 1 < ln.boxes.length) {
-        const nx = ln.boxes[i + 1];
-        // only full-width punctuation has the half-em of space that compression removes
-        if (isClosingPunct(b.lastChar) && (isClosingPunct(nx.firstChar) || isOpeningPunct(nx.firstChar)) && b.orient !== "sideways" && b.adv > b.size * 0.8) a -= b.size * 0.5;
-      }
-      if (style.punctCompress && i > 0 && isOpeningPunct(b.firstChar) && isClosingPunct(ln.boxes[i - 1].lastChar) && b.orient !== "sideways" && b.adv > b.size * 0.8) {
-        a -= b.size * 0.5;
-        // Opening punctuation loses leading space, not the space occupied by its ink.
-        offsets[i] = -b.size * 0.5;
-      }
-      return a + (i + 1 < ln.boxes.length ? ls : 0);
+      const compressed = compressPunctuation(b, ln.boxes[i - 1], ln.boxes[i + 1], style);
+      offsets[i] = compressed.offset;
+      return compressed.advance + (i + 1 < ln.boxes.length ? ls : 0);
     });
     const len = advs.reduce((x, y) => x + y, 0);
     const size = Math.max(em, ...ln.boxes.map((b) => b.size));
@@ -465,6 +456,24 @@ function fitDashes(per: Box[], vertical: boolean) {
   }
 }
 
+function compressPunctuation(b: Box, previous: Box | undefined, next: Box | undefined, style: TextStyle) {
+  let advance = b.adv;
+  let offset = 0;
+  // Only full-width punctuation has the half-em of space that compression removes.
+  if (style.punctCompress && b.orient !== "sideways" && b.adv > b.size * 0.8) {
+    if (style.writing === "vertical" && (b.chars === "〝" || b.chars === "〟")) advance -= b.size * 0.5;
+    else {
+      if (next && isClosingPunct(b.lastChar) && (isClosingPunct(next.firstChar) || isOpeningPunct(next.firstChar))) advance -= b.size * 0.5;
+      if (previous && isOpeningPunct(b.firstChar) && isClosingPunct(previous.lastChar)) {
+        advance -= b.size * 0.5;
+        // Opening punctuation loses leading space, not the space occupied by its ink.
+        offset = -b.size * 0.5;
+      }
+    }
+  }
+  return { advance, offset };
+}
+
 function positionNonokagi(b: Box, lang: string, baselineShift: number) {
   if ((b.chars !== "〝" && b.chars !== "〟") || b.glyphs.length !== 1) return;
   const g = b.glyphs[0];
@@ -552,7 +561,10 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
     }
     for (const b of per) if (b.adv === 0) b.adv = size;
     fitDashes(per, true);
-    for (const b of per) positionNonokagi(b, style.lang, bshift);
+    for (const b of per) {
+      b.adv = compressPunctuation(b, undefined, undefined, style).advance;
+      positionNonokagi(b, style.lang, bshift);
+    }
     // fonts without vertical forms for small kana and 、。 get them moved toward the upper right
     // (judged from where the glyph's ink actually sits: some fonts map them to centred forms)
     for (const b of style.smallKanaFix === false ? [] : per) {
