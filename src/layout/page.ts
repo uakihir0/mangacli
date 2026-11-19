@@ -28,6 +28,7 @@ export interface PageGeom {
   rtl: boolean;
   color: "mono" | "color";
   dpi: number;
+  printScale: number;
   k: number;
 }
 
@@ -49,9 +50,9 @@ export function pageSize(settings: Obj, bag: DiagnosticBag, path: (string | numb
   const size = settings.size;
   if (typeof size === "string") {
     const p = PAGE_PRESETS[size];
-    const plug = p ? undefined : activePlugins()?.pageSizes.get(size);
-    if (p) ({ w, h, unit } = p);
-    else if (plug) ({ width: w, height: h, unit = "mm" } = plug);
+    const plug = activePlugins()?.pageSizes.get(size);
+    if (plug) ({ width: w, height: h, unit = "mm" } = plug);
+    else if (p) ({ w, h, unit } = p);
     else bag.error("SCHEMA_ENUM", `unknown page size "${size}"`, { path: [...path, "size"] });
   } else if (Array.isArray(size)) {
     const a = parseLength(size[0] as string);
@@ -81,7 +82,10 @@ export function bookOf(doc: Obj): Obj {
 }
 
 export function computePageGeom(page: RPage, physicalIndex: number, book: Obj, bag: DiagnosticBag): PageGeom {
-  const s = page.settings;
+  const raw = page.settings;
+  const preset = typeof raw.size === "string" ? activePlugins()?.pageSizes.get(raw.size) ?? PAGE_PRESETS[raw.size] : undefined;
+  const s: Obj = { ...preset, ...raw };
+  if (raw.printScale !== undefined && raw.printSize === undefined) delete s.printSize;
   const sz = pageSize(s, bag, page.path);
   const color = (s.color as "mono" | "color") ?? "mono";
   const dpi = typeof s.dpi === "number" ? s.dpi : sz.unit === "px" ? 96 : color === "mono" ? 600 : 350;
@@ -91,7 +95,17 @@ export function computePageGeom(page: RPage, physicalIndex: number, book: Obj, b
   const singleW = trimW;
   if (page.type === "spread") trimW *= 2;
   const k = Math.min(singleW, trimH) / 182;
-  const units: UnitContext = { units: unitsName, dpi, k };
+  let printScale = typeof s.printScale === "number" ? s.printScale : 1;
+  if (s.printSize !== undefined) {
+    const printed = pageSize({ size: s.printSize, orientation: s.orientation, units: unitsName }, bag, [...page.path, "printSize"]);
+    printScale = (printed.unit === "px" ? printed.w * 25.4 / dpi : printed.w) / singleW;
+  }
+  if (raw.printScale !== undefined && raw.printSize !== undefined) bag.error("SCHEMA_VALUE", "printScale and printSize are mutually exclusive", { path: page.path });
+  if (!(printScale > 0 && printScale <= 1)) {
+    bag.error("SCHEMA_VALUE", "resolved printScale must be greater than 0 and at most 1", { path: page.path });
+    printScale = 1;
+  }
+  const units: UnitContext = { units: unitsName, dpi, k, printScale };
   const bleed = s.bleed !== undefined ? toMm(s.bleed as string, units) : sz.unit === "px" ? 0 : 3;
   const trim: Rect = { x: 0, y: 0, w: trimW, h: trimH };
   const bleedBox: Rect = { x: -bleed, y: -bleed, w: trimW + 2 * bleed, h: trimH + 2 * bleed };
@@ -144,7 +158,7 @@ export function computePageGeom(page: RPage, physicalIndex: number, book: Obj, b
     if (sz.unit !== "px") bag.warn("PAGE_BASEFRAME_OUTSIDE_SAFE", "base frame extends outside the safe area", { path: [...page.path, "baseFrame"], pageId: page.id });
   }
   const physical = page.type === "spread" ? [physicalIndex, physicalIndex + 1] : [physicalIndex];
-  return { id: page.id, index: page.index, type: page.type, trimW, trimH, bleed, trim, bleedBox, baseFrame, safe, units, side, physical, rtl, color, dpi, k };
+  return { id: page.id, index: page.index, type: page.type, trimW, trimH, bleed, trim, bleedBox, baseFrame, safe, units, side, physical, rtl, color, dpi, k, printScale };
 }
 
 // ---- polygon clipping with half planes -----------------------------------------

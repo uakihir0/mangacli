@@ -121,6 +121,8 @@
 
 ## 10.5 解像度とサイズ
 
+通常は原稿サイズで出力する。CLI の `--output-size print`、API の `render(input, { output: "print", dpi: 600 })` で、同じ描画を `page.printScale`（または `printSize` から求めた倍率）で縮小して出力できる。既定は `--output-size manuscript` / `{ output: "manuscript" }`。塗り足しも同じ倍率で縮小する。PNG などの DPI メタデータは指定 DPI のまま、印刷寸法に対応する画素数になる。SVG/PDF の物理寸法も縮小する。`width` / `height` を指定すると印刷後の出力範囲に対して画素数を合わせる。`page.dpi` は原稿上の px 単位の解釈に使われ、出力指定では変わらない。
+
 | キー | 型 | 説明 |
 |---|---|---|
 | `dpi` | 数値 | 出力解像度。既定は `page.dpi` |

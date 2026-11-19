@@ -338,7 +338,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
 }
 
 function pickPageSettings(pg: Obj): Obj {
-  const keys = ["size", "orientation", "units", "dpi", "bleed", "baseFrame", "safeArea", "gutter", "background", "color", "foldMargin"];
+  const keys = ["size", "orientation", "units", "dpi", "bleed", "baseFrame", "safeArea", "gutter", "background", "color", "foldMargin", "printScale", "printSize"];
   const o: Obj = {};
   for (const k of keys) if (pg[k] !== undefined) o[k] = pg[k];
   return o;

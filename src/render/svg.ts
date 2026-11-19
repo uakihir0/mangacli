@@ -8,6 +8,7 @@ import { applyFilters } from "./filters.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
 
 export interface SvgOptions {
+  outputScale?: number;
   crop: "trim" | "bleed" | "marks";
   assets: AssetRegistry;
   /** resolution of embedded images */
@@ -156,7 +157,7 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
   const body = await node(list.root);
   return [
     `<?xml version="1.0" encoding="UTF-8"?>`,
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${n(box.w)}mm" height="${n(box.h)}mm" viewBox="${n(box.x)} ${n(box.y)} ${n(box.w)} ${n(box.h)}" data-page="${esc(list.page.id)}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${n(box.w * (o.outputScale ?? 1))}mm" height="${n(box.h * (o.outputScale ?? 1))}mm" viewBox="${n(box.x)} ${n(box.y)} ${n(box.w)} ${n(box.h)}" data-page="${esc(list.page.id)}">`,
     `<rect x="${n(box.x)}" y="${n(box.y)}" width="${n(box.w)}" height="${n(box.h)}" fill="#ffffff"/>`,
     defs.length ? `<defs>${defs.join("")}</defs>` : "",
     body,
