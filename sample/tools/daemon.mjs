@@ -1,4 +1,4 @@
-// Sogni の Relaxed ネットワークへ画像の生成を流し続けるデーモン
+// Sogni へ画像の生成を流し続けるデーモン（既定は Relaxed）
 //   node sample/tools/daemon.mjs            （sample/gen/queue/*.json を順に処理する）
 //   while :; do node sample/tools/daemon.mjs; sleep 5; done   （接続が切れたら終了するので、ループで動かす）
 // ジョブ: { out, model, prompt, negative?, w, h, steps?, guidance?, context?: [画像], seed? }（パスは sample/ から）
@@ -10,6 +10,8 @@ import { SogniClient } from "@sogni-ai/sogni-client";
 const root = resolve(dirname(new URL(import.meta.url).pathname), "..");
 const { SOGNI_API_KEY, SOGNI_APP_ID } = process.env;
 if (!SOGNI_API_KEY || !SOGNI_APP_ID) throw new Error("Set SOGNI_API_KEY and SOGNI_APP_ID in the environment.");
+const network = process.env.SOGNI_NETWORK ?? "relaxed";
+if (network !== "relaxed" && network !== "fast") throw new Error("SOGNI_NETWORK must be relaxed or fast.");
 const Q = join(root, "gen");
 for (const d of ["queue", "running", "done", "failed"]) mkdirSync(join(Q, d), { recursive: true });
 // a crashed run leaves jobs in running/: put them back
@@ -18,7 +20,7 @@ const CONC = +(process.env.CONC ?? 4);
 const TIMEOUT = 45 * 60e3;
 const log = (s) => { const line = `${new Date().toISOString().slice(11, 19)} ${s}`; console.log(line); appendFileSync(join(Q, "log.txt"), line + "\n"); };
 
-const sogni = await SogniClient.createInstance({ appId: SOGNI_APP_ID, appSource: "mangacli-sample", network: "relaxed", apiKey: SOGNI_API_KEY });
+const sogni = await SogniClient.createInstance({ appId: SOGNI_APP_ID, appSource: "mangacli-sample", network, apiKey: SOGNI_API_KEY });
 await sogni.projects.waitForModels();
 log("connected");
 
@@ -49,7 +51,7 @@ async function run(name) {
     const project = await sogni.projects.create({
       type: "image", modelId: job.model, positivePrompt: job.prompt, negativePrompt: job.negative,
       numberOfMedia: 1, steps: job.steps, guidance: job.guidance, seed: job.seed,
-      sizePreset: "custom", width: job.w, height: job.h, outputFormat: "png", network: "relaxed",
+      sizePreset: "custom", width: job.w, height: job.h, outputFormat: "png", network,
       ...(context.length ? { contextImages: context } : {}),
     });
     let last = -1;

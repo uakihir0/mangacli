@@ -16,6 +16,16 @@ describe("examples", () => {
     const r = await validate(join(dir, "minimal.yaml"));
     expect(r.diagnostics.filter((d) => d.severity === "warning")).toEqual([]);
   });
+  it.each([
+    join(dir, "minimal.yaml"),
+    join(dir, "b5-mono.yaml"),
+    join(dir, "..", "..", "sample", "manga.yaml"),
+    join(dir, "..", "..", "sample", "shonen-proof.yaml"),
+  ])("has no low-resolution rooftop art in print: %s", async (file) => {
+    const r = await validate(file, { profile: "print-mono" });
+    expect(r.ok).toBe(true);
+    expect(r.diagnostics.filter((d) => d.code === "ASSET_LOW_RESOLUTION")).toEqual([]);
+  });
   it("lays out the whole rooftop story without placement warnings", async () => {
     const r = await validate(join(dir, "..", "..", "sample", "manga.yaml"), { profile: "preview" });
     expect(r.diagnostics.filter((d) => d.severity !== "info")).toEqual([]);
