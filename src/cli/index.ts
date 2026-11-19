@@ -481,7 +481,7 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
   const entry = resolve(file);
   const port = o.port !== undefined ? Number(o.port) : 4173;
   const host = (o.host as string) ?? "127.0.0.1";
-  type PreviewPage = { id: string; data: Uint8Array; mime: string; ext: string };
+  type PreviewPage = { id: string; side: string; data: Uint8Array; mime: string; ext: string };
   let pages: PreviewPage[] = [];
   let diags: Diagnostic[] = [];
   let version = 0;
@@ -496,7 +496,7 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
     if (debug?.includes("guides") && opts.crop !== "marks") opts.crop = "bleed";
     if (debug) opts.debug = Array.isArray(opts.debug) ? [...new Set([...opts.debug, ...debug])] : (opts.debug ?? debug);
     const r = await render(entry, opts);
-    return { pages: r.pages.map((p) => ({ id: p.id, data: p.data, mime: p.mimeType, ext: p.format })), diags: r.diagnostics };
+    return { pages: r.pages.map((p) => ({ id: p.id, side: p.side, data: p.data, mime: p.mimeType, ext: p.format })), diags: r.diagnostics };
   };
   const guidedPages = () => {
     if (guided?.version !== version) guided = { version, pages: renderPages(["guides"]).then((r) => r.pages, () => pages) };
@@ -545,10 +545,12 @@ new EventSource("/events").onmessage=()=>location.reload()</script>`;
         res.end(p.data);
       };
       if (url.searchParams.get("guides") === "1") {
-        // guided pages are PNG only: with several formats, pick by position among pages of the same format
+        // guided pages are PNG only, so match the same page and half; svg keeps a split spread joined, so it stays plain then
         const cur = pages[Number(m[1])]!;
-        const k = pages.filter((p) => p.ext === cur.ext).indexOf(cur);
-        void guidedPages().then((g) => send(g[k]));
+        void guidedPages().then((g) => {
+          const same = g.filter((p) => p.id === cur.id);
+          send((cur.ext === "svg" ? (same.length === 1 ? same[0] : undefined) : same.find((p) => p.side === cur.side)) ?? cur);
+        });
       } else send(pages[Number(m[1])]);
       return;
     }
