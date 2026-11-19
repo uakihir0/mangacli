@@ -68,8 +68,15 @@ export function normStroke(v: unknown, path: Path, bag: DiagnosticBag): unknown 
   return out;
 }
 
+/** named outlines for title lettering: a thick rim edged with a thin rim of the other colour */
+export const OUTLINE_PRESETS: Record<string, Obj[]> = {
+  "thick-white": [{ width: "1.4mm", color: "white" }, { width: "1.9mm", color: "black" }],
+  "thick-black": [{ width: "1.4mm", color: "black" }, { width: "1.9mm", color: "white" }],
+};
+
 export function normOutline(v: unknown, path: Path, bag: DiagnosticBag): unknown {
   if (v === "none") return [];
+  if (typeof v === "string" && v in OUTLINE_PRESETS) return OUTLINE_PRESETS[v].map((o) => ({ ...o }));
   if (typeof v === "string" || typeof v === "number") {
     const toks = String(v).trim().split(/\s+/);
     const o: Obj = {};

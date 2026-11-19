@@ -98,7 +98,7 @@ const catalog = {
       shout: { font: "dela-gothic-one@400", fallback: ["noto-sans-jp@700"] },
       sfx: { font: "dela-gothic-one@400", fallback: ["noto-sans-jp@700"] },
       hand: { font: "yomogi@400", fallback: ["noto-sans-jp@400"] },
-      title: { font: "zen-maru-gothic@900", fallback: ["noto-sans-jp@700"] },
+      title: { font: "zen-kaku-gothic-new@900", fallback: ["dela-gothic-one@400", "noto-sans-jp@700"] },
     },
     // western comic lettering (spec 7.3.10): used by default for documents whose language is not CJK
     "comic-basic": {

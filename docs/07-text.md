@@ -251,7 +251,7 @@ fonts:
 | `narration` | `shippori-mincho@500` |
 | `shout`、`sfx` | `dela-gothic-one` |
 | `hand` | `yomogi` |
-| `title` | `zen-maru-gothic@900` |
+| `title` | `zen-kaku-gothic-new@900`（扉の題字向けの極太ゴシック。ない字は `dela-gothic-one`） |
 
 | ロール | `comic-basic` のフォント（欧米のコミックの写植） |
 |---|---|
