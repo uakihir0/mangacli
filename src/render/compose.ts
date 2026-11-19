@@ -14,6 +14,7 @@ import { resolveRegion } from "../elements/region.js";
 import { renderSfx, renderText } from "../elements/textel.js";
 import { textValue } from "../elements/textstyle.js";
 import type { FontRegistry } from "../fonts/registry.js";
+import { miterFrameEdges } from "../geom/miter.js";
 import { flattenPath, parseSvgPath, polyPath, smoothPath, transformPath } from "../geom/path.js";
 import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
 import { inkLine, inkShape } from "../ink/shape.js";
@@ -474,6 +475,16 @@ function borderNodes(pg: PanelGeom, poly: Vec[], shaped: boolean, geom: PageGeom
   const cy = pg.polygon.reduce((a, q) => a + q.y, 0) / n;
   const sideName = (d: Vec, nrm: Vec) => (Math.abs(d.x) >= Math.abs(d.y) ? (nrm.y > 0 ? "top" : "bottom") : nrm.x > 0 ? "left" : "right");
   const L = (v: unknown, fb: string) => toMm((v as string) ?? fb, u);
+  const edges = pg.polygon.map((a, i) => {
+    const c = pg.polygon[(i + 1) % n];
+    const d = { x: c.x - a.x, y: c.y - a.y };
+    let nrm = { x: -d.y, y: d.x };
+    if (nrm.x * (cx - a.x) + nrm.y * (cy - a.y) < 0) nrm = { x: -nrm.x, y: -nrm.y };
+    const sides = isObj(b0.sides) ? (b0.sides as Obj) : {};
+    const sv = sides[sideName(d, nrm)];
+    return sv === undefined ? main : sv === "none" ? null : resolveB({ ...b0, ...(isObj(sv) ? sv : {}), sides: undefined }, [...pg.panel.path, "border", "sides"]);
+  });
+  const miters = miterFrameEdges(pg.polygon, edges.map((e) => e?.st.width ?? main.st.width));
   for (let i = 0; i < n; i++) {
     const a = pg.polygon[i];
     const c = pg.polygon[(i + 1) % n];
@@ -485,13 +496,17 @@ function borderNodes(pg: PanelGeom, poly: Vec[], shaped: boolean, geom: PageGeom
     let nrm = { x: -dir.y, y: dir.x };
     if (nrm.x * (cx - a.x) + nrm.y * (cy - a.y) < 0) nrm = { x: -nrm.x, y: -nrm.y };
     // per-side overrides (spec 4.9 sides)
-    const sides = isObj(b0.sides) ? (b0.sides as Obj) : {};
-    const sv = sides[sideName(dir, nrm)];
-    const E = sv === undefined ? main : sv === "none" ? null : resolveB({ ...b0, ...(isObj(sv) ? sv : {}), sides: undefined }, [...pg.panel.path, "border", "sides"]);
+    const E = edges[i];
     if (!E || E.style === "none" || E.st.width <= 0) continue;
     const { st, hand, b } = E;
     const ruler = b.ruler !== false;
     const join = (b.join as string) ?? "clean";
+    if (join === "clean" && E.style === "solid" && ruler) {
+      const node: Node = { kind: "path", path: polyPath(miters[i], true), fillRule: "nonzero", paint: { type: "solid", color: st.color }, tag: t };
+      const opacity = st.pen.opacity ?? 1;
+      nodes.push(opacity >= 0.999 ? node : { kind: "group", opacity, children: [node], tag: t });
+      continue;
+    }
     let e0 = st.width / 2;
     let e1 = st.width / 2;
     if (join === "overshoot") {
@@ -1295,7 +1310,7 @@ function collectTranscript(el: RElement, panel: string | undefined, info: PageLa
 function checkTextSafety(items: Item[], geom: PageGeom, bag: DiagnosticBag, page: RPage) {
   if (geom.units.units === "px") return;
   for (const it of items) {
-    if (!["balloon", "text"].includes(it.el.type)) continue;
+    if (!["balloon", "text", "sfx"].includes(it.el.type)) continue;
     const b = it.bbox;
     const s = geom.safe;
     if (b.x < s.x - 0.5 || b.y < s.y - 0.5 || b.x + b.w > s.x + s.w + 0.5 || b.y + b.h > s.y + s.h + 0.5) {
