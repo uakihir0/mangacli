@@ -243,7 +243,7 @@ tail: none
 | `bend` | -1〜1 | `0.08` | しっぽ全体の曲がり。正で時計回りに曲がる |
 | `sideCurve` | 0〜1 | `0.35` | 両側の辺の内側への反り。大きいほど先端が鋭く見える |
 | `root` | `auto` \| Angle | `auto` | 本体のどこから出すか。`auto` は本体の中心から向き先への方向。角度は本体の中心から見た方向 |
-| `offscreen` | `top` \| `right` \| `bottom` \| `left` | - | 画面外の話者。コマの指定した辺の外へ向け、枠で切る（P1） |
+| `offscreen` | `top` \| `right` \| `bottom` \| `left` | - | 画面外の話者。`as: offscreen` で辺を省略すると最も近い辺を使う。`length` を指定するとその長さで止まり、省略すると `maxLength` まで伸ばす。枠に届かなければ短い三角形になり、届いた場合は `clip: auto` でコマ間の枠でも切る（P1） |
 | `count` | 整数 | `3` | `bubbles` の泡の数 |
 | `bubbleSize` | Length | 短辺の 20 %（1.5〜5 bmm）。短いしっぽでは泡が重ならないよう、列全体を縮める | `bubbles` の最初の泡の直径 |
 | `shrink` | 0〜1 | `0.66` | `bubbles` の泡ごとの縮小率 |

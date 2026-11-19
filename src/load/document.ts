@@ -34,6 +34,12 @@ function absolutize(data: Obj, baseDir: string) {
   };
   absFonts(data.fonts);
   if (isObj(data.locales)) for (const l of Object.values(data.locales)) if (isObj(l)) absFonts(l.fonts);
+  const absBackground = (page: unknown) => {
+    if (!isObj(page) || !isObj(page.background)) return;
+    const image = page.background.image;
+    if (typeof image === "string" && looksLikePath(image)) page.background.image = abs(image);
+  };
+  absBackground(data.page);
   const walkEls = (els: unknown) => {
     if (!Array.isArray(els)) return;
     for (const e of els) {
@@ -47,6 +53,7 @@ function absolutize(data: Obj, baseDir: string) {
     for (const pg of data.pages) {
       if (!isObj(pg)) continue;
       if (typeof pg.include === "string") pg.include = abs(pg.include);
+      absBackground(pg);
       walkEls(pg.layers);
       if (Array.isArray(pg.panels)) for (const pn of pg.panels) if (isObj(pn)) walkEls(pn.layers);
     }

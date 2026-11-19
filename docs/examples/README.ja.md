@@ -13,10 +13,11 @@
 | [gallery-effects.yaml](gallery-effects.yaml) | 効果・トーン・漫符・描き文字の一覧 | P0・P1 |
 | [light-effects.yaml](light-effects.yaml) | 黒ベタの上の後光、人物の背後の光線、舞台のスポットライト（カラー・1 ビット） | P1 |
 | [en-comic.yaml](en-comic.yaml) | 英語のページ（`lang: en`）。左から右へ読む順、`comic-basic` フォントセットの大文字の横書きの吹き出し、行の均等化 | P0・P1 |
+| [full-page-art.yaml](full-page-art.yaml) | 間白や枠なしゴマから塗り足しまでの絵が見えるぶち抜きゴマ。小ゴマに白い抜き縁を付ける（[出力画像](../images/full-page-art.png)） | P1 |
 
 - フォントはカタログのものを使うため、初回のレンダリング時に自動でダウンロードする。事前に取得する場合は `npx mangacli fonts install --for docs/examples/b5-mono.yaml` を実行する。
 - B5・最小例・カラーの作例には Sogni で生成した同じ絵柄の素材（`assets/school/`）を使用しています。B5 と最小例の作画は掲載寸法で 300 ppi 以上、入稿用プロファイルの文字・コマ線は 600 dpi です。
-- ほかの作例の仮の絵は `scripts/make-sample-assets.ts` で生成しています。自分の絵に差し替えて使えます。
+- ぶち抜きゴマの作例にも Sogni で生成したイラストを使用しています。ほかの作例の仮の絵は `scripts/make-sample-assets.ts` で生成しています。自分の絵に差し替えて使えます。
 - 描画結果は [../images](../images) にある。
 
 ```bash
