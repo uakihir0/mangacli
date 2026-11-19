@@ -158,4 +158,20 @@ describe("balloon tails", () => {
     const target = origin.x + 59;
     expect(target - tip(pts).x).toBeGreaterThan(0.4 * (target - rightOf(pts, origin.x + 40)));
   });
+  it("honors explicit off-screen lengths and caps automatic tails before a distant frame", async () => {
+    const balloon = 'balloon: "", id: b, as: offscreen, at: [26mm, 24mm], size: [18mm, 14mm], shape: { kind: ellipse, irregularity: 0 }';
+    const none = await outline(`{${balloon}, tail: none}`);
+    const auto = await outline(`{${balloon}, tail: { offscreen: left, bend: 0 }}`);
+    const capped = await outline(`{${balloon}, tail: { offscreen: left, bend: 0, maxLength: 3mm }}`);
+    const short = await outline(`{${balloon}, tail: { offscreen: left, bend: 0, length: 3.8mm }}`);
+    const left = (pts: Vec[]) => Math.min(...pts.map((p) => p.x));
+    expect(left(none.pts) - left(short.pts)).toBeCloseTo(3.8, 1);
+    expect(left(short.pts)).toBeGreaterThan(short.origin.x);
+    expect(left(none.pts) - left(auto.pts)).toBeGreaterThan(3.8);
+    expect(left(none.pts) - left(auto.pts)).toBeLessThan(5);
+    expect(left(auto.pts)).toBeGreaterThan(auto.origin.x);
+    expect(left(none.pts) - left(capped.pts)).toBeCloseTo(3, 1);
+    const near = await outline(`{${balloon.replace("26mm", "12mm")}, tail: { offscreen: left, bend: 0 }}`);
+    expect(left(near.pts)).toBeLessThan(near.origin.x);
+  });
 });

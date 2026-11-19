@@ -27,7 +27,7 @@ import { polyPath } from "./geom/path.js";
 import type { RElement, RPage } from "./model/resolve.js";
 import { RasterBackend } from "./render/raster.js";
 import { createCanvas } from "@napi-rs/canvas";
-import { renderSvg } from "./render/svg.js";
+import { renderSvg, svgBox } from "./render/svg.js";
 import { type MangaPlugin, PluginSet, withPlugins } from "./plugin.js";
 import { BODY_GENERATORS } from "./shapes/balloon.js";
 import { HAND_PRESETS, PEN_PRESETS } from "./ink/presets.js";
@@ -122,6 +122,7 @@ export interface RenderedPage {
   height: number;
   dpi: number;
   separation?: string;
+  elements: { id: string; x: number; y: number; width: number; height: number }[];
   data: Uint8Array;
   path?: string;
 }
@@ -575,18 +576,19 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const { list: list0, info } = await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor, characters: resolved.characters });
       info.number = pl.nombre;
       let list = plugins ? (plugins.hook("beforeRender", list0) as DisplayList) : list0;
+      const notPageBackground = (node: Node) => !(node.tag?.elementType === "page" && node.tag.role === "background");
       if (bgOverride && bgOverride !== "transparent") {
         // replace the page ground
         const paint = parsePaint(bgOverride, { u: info.geom.units, box: list.boxes.bleed, seed: resolved.seed, bag, path: ["output", "background"] });
         if (paint) {
-          const kids = list.root.children.filter((c) => !(c.kind === "path" && c.tag?.elementType === "page" && c.tag.role === "background"));
+          const kids = list.root.children.filter(notPageBackground);
           const bgNode: Node = { kind: "path", path: polyPath([{ x: list.boxes.bleed.x, y: list.boxes.bleed.y }, { x: list.boxes.bleed.x + list.boxes.bleed.w, y: list.boxes.bleed.y }, { x: list.boxes.bleed.x + list.boxes.bleed.w, y: list.boxes.bleed.y + list.boxes.bleed.h }, { x: list.boxes.bleed.x, y: list.boxes.bleed.y + list.boxes.bleed.h }], true), fillRule: "nonzero", paint, tag: { elementId: page.id, elementType: "page", role: "background", separation: "background" } };
           list = { ...list, background: paint, root: { ...list.root, children: [bgNode, ...kids] } };
         }
       }
       if (transparentOut && regularFormats.length && (options.colorMode ?? prof.colorMode) === "mono") bag.error("OUTPUT_MODE_UNSUPPORTED", "1-bit output cannot have a transparent background", { pageId: page.id });
       if (transparentOut && formats.some((f) => f === "jpeg")) bag.error("OUTPUT_MODE_UNSUPPORTED", "jpeg cannot store a transparent background", { pageId: page.id });
-      if (transparentOut) list = { ...list, background: null, root: { ...list.root, children: list.root.children.filter((c) => !(c.kind === "path" && c.tag?.elementType === "page" && c.tag.role === "background")) } };
+      if (transparentOut) list = { ...list, background: null, root: { ...list.root, children: list.root.children.filter(notPageBackground) } };
       result.layout.push(info);
       if (options.keepLists) (result.lists ??= []).push(list);
       if (bag.hasErrors && throwOnError) throw errorFor(bag.items);
@@ -600,6 +602,12 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const intent = geom.color;
       const colorMode = options.colorMode ?? (prof.colorMode === "intent" ? (intent === "mono" ? "gray" : "color") : prof.colorMode);
       const dpi = dpiFor(geom);
+      if (prof.print && colorMode === "mono" && formats.includes("svg")) bag.warn("SVG_MONO_APPROXIMATION", "SVG tones are a vector/gray approximation; use PNG/PDF for 1-bit print submission", { pageId: page.id });
+      if (bag.items.some((d) => d.code === "SVG_MONO_APPROXIMATION" && d.pageId === page.id && d.severity === "error")) {
+        if (throwOnError) throw errorFor(bag.items);
+        if (options.failFast) break;
+        continue;
+      }
       const outputScale = options.output === "print" ? geom.printScale : 1;
       const rasterDpi = dpi * outputScale;
       const marks = outputScale === 1 ? prof.marks : { margin: (prof.marks?.margin ?? 10) / outputScale, length: (prof.marks?.length ?? 9) / outputScale, width: (prof.marks?.width ?? 0.1) / outputScale };
@@ -636,7 +644,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         const trimHeight = Math.round((geom.trimH * rasterDpi) / 25.4 + 1e-6);
         const fullTrim = { x: Math.round((full.width - trimWidth) / 2), y: Math.round((full.height - trimHeight) / 2), w: trimWidth, h: trimHeight };
         const parts: { raster: { data: Uint8ClampedArray; width: number; height: number }; trim: typeof fullTrim; side: string; nombre: number | null }[] = [];
-        if (geom.type === "spread" && spreadMode === "split" && needRaster) {
+        const splitSvg = geom.type === "spread" && spreadMode === "split";
+        if (splitSvg && needRaster) {
           const trimPx = Math.round((geom.trimW * rasterDpi) / 25.4 + 1e-6);
           const edge = Math.round((full.width - trimPx) / 2);
           const half = Math.round(trimPx / 2);
@@ -662,6 +671,11 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           const first = geom.rtl ? right : left;
           const second = geom.rtl ? left : right;
           parts.push({ ...first, nombre: pl.nombre }, { ...second, nombre: pl.nombre === null ? null : pl.nombre + 1 });
+        } else if (splitSvg) {
+          parts.push(
+            { raster: full, trim: fullTrim, side: geom.rtl ? "right" : "left", nombre: pl.nombre },
+            { raster: full, trim: fullTrim, side: geom.rtl ? "left" : "right", nombre: pl.nombre === null ? null : pl.nombre + 1 },
+          );
         } else parts.push({ raster: full, trim: fullTrim, side: geom.side, nombre: pl.nombre });
         if (run.layer !== undefined) {
           for (const { raster, side } of parts) {
@@ -688,19 +702,23 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
             pw.writer.addPage({ rgba: raster.data, width: raster.width, height: raster.height, dpi, colorMode: (options.debug ? "color" : colorMode) as "color", transparent: transparentOut || !!run.list, trim, bleed: { x: trim.x - bleedPx, y: trim.y - bleedPx, w: trim.w + 2 * bleedPx, h: trim.h + 2 * bleedPx } });
             continue;
           }
-          if (fmt === "svg" && part !== parts[0]) continue;
           const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, compression: prof.compression, chroma: prof.chroma, tiffCompression: prof.tiffCompression, transparent: transparentOut || !!run.list, metadata: prof.metadata === false ? {} : { Software: `mangacli ${PKG_VERSION}`, Title: String(meta.title ?? ""), ...(meta.author ? { Author: String(meta.author) } : {}), ...(meta.copyright ? { Copyright: String(meta.copyright) } : {}), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed), ...(sourceHash ? { "mangacli:source-hash": sourceHash } : {}) } };
+          const svgOptions = { crop, marks, splitSide: splitSvg ? part.side as "left" | "right" : undefined, assets, colorMode, imageDpi: rasterDpi, maxImageDpi: 300, outputScale };
           const data = fmt === "psd" ? psds.get(part.side)!.build()
-            : fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: rasterDpi, maxImageDpi: 300, outputScale, marks }))
+            : fmt === "svg" ? Buffer.from(await renderSvg(list, svgOptions))
             : await encode(raster.data, raster.width, raster.height, enc);
           const svgSize = () => {
-            const margin = crop === "marks" ? 2 * (marks?.margin ?? 10) : 0;
-            const bw = (crop === "trim" ? geom.trimW : geom.bleedBox.w) + margin;
-            const bh = (crop === "trim" ? geom.trimH : geom.bleedBox.h) + margin;
+            const { w: bw, h: bh } = svgBox(list, svgOptions);
             return { w: Math.round((bw * rasterDpi) / 25.4), h: Math.round((bh * rasterDpi) / 25.4) };
           };
           const size = fmt === "svg" ? svgSize() : { w: raster.width, h: raster.height };
-          const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: size.w, height: size.h, dpi, separation: run.name, data };
+          const scale = rasterDpi / 25.4;
+          const svgMargin = crop === "marks" ? marks?.margin ?? 10 : 0;
+          const origin = fmt === "svg" ? { x: crop === "trim" ? 0 : (svgMargin - geom.bleedBox.x) * scale, y: crop === "trim" ? 0 : (svgMargin - geom.bleedBox.y) * scale } : part.trim;
+          const trimX = fmt !== "svg" && parts.length > 1 && part.side === "right" ? Math.round(trimWidth / 2) : 0;
+          const elements = info.elements.map(({ id, bbox }) => ({ id, x: bbox.x * scale + origin.x - trimX, y: bbox.y * scale + origin.y, width: bbox.w * scale, height: bbox.h * scale }))
+            .filter((b) => b.x < size.w && b.y < size.h && b.x + b.width > 0 && b.y + b.height > 0);
+          const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: size.w, height: size.h, dpi, separation: run.name, elements, data };
           if (outDir) {
             const file = outName(page, pl.idx, part.side, part.nombre, geom.type === "spread" && parts.length === 1, parts.length > 1, run.name, EXT[fmt]);
             if (emitted.has(file)) {
@@ -743,7 +761,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   for (const [sep, pw] of pdfs) {
     if (!pw.writer.pageCount) continue;
     const data = pw.writer.build();
-    const rp: RenderedPage = { id: resolved.pages[0]?.id ?? "document", index: 0, number: null, side: "document", format: "pdf", mimeType: MIME.pdf, colorMode: pw.colorMode, width: 0, height: 0, dpi: pw.dpi, separation: sep || undefined, data };
+    const rp: RenderedPage = { id: resolved.pages[0]?.id ?? "document", index: 0, number: null, side: "document", format: "pdf", mimeType: MIME.pdf, colorMode: pw.colorMode, width: 0, height: 0, dpi: pw.dpi, separation: sep || undefined, elements: [], data };
     if (outDir) {
       const file = join(outDir, `${p.name}${sep ? `-${sep}` : ""}.pdf`);
       mkdirSync(dirname(file), { recursive: true });

@@ -243,7 +243,7 @@ tail: none
 | `bend` | -1〜1 | `0.15` | しっぽ全体の曲がり。正で時計回りに曲がる |
 | `sideCurve` | 0〜1 | `0.25` | 両側の辺の内側への反り。大きいほど先端が鋭く見える |
 | `root` | `auto` \| Angle | `auto` | 本体のどこから出すか。`auto` は本体の中心から向き先への方向。角度は本体の中心から見た方向 |
-| `offscreen` | `top` \| `right` \| `bottom` \| `left` | - | 画面外の話者。コマの指定した辺の外へ向け、枠で切る（P1） |
+| `offscreen` | `top` \| `right` \| `bottom` \| `left` | - | 画面外の話者。`as: offscreen` で辺を省略すると最も近い辺を使う。`length` を指定するとその長さで止まり、省略すると `maxLength` まで伸ばす。枠に届かなければ短い三角形になり、届いた場合は `clip: auto` でコマ間の枠でも切る（P1） |
 | `count` | 整数 | `3` | `bubbles` の泡の数 |
 | `bubbleSize` | Length | 本体の短辺の 20 %（1.5〜5 mm に制限）。顔までの距離に収まらない場合は 55 % まで縮める | `bubbles` の最初の泡の直径 |
 | `shrink` | 0〜1 | `0.62` | `bubbles` の泡ごとの縮小率 |
@@ -469,14 +469,28 @@ panels:
 | `tremble` | 震える声 | `wavy` | 0.22 mm | `wedge` | `dialogue` | | P0 |
 | `narration` | ナレーション | `rect` | 0.2 mm、定規 | `none` | `narration` | 既定の位置 `place: top-<読み始め側>` | P0 |
 | `monologue` | モノローグ | `none` | - | `none` | `narration` | `textOutline: 0.8mm white` | P0 |
+| `aside` | ボソッ・ツッコミ・小さな独り言 | `none` | - | `none` | `hand` | 小さめの手書き文字、白フチ、±5°の傾き | P1 |
 | `inverted` | 恐ろしい声・邪悪な声 | `ellipse` | 0.25 mm | `wedge` | `dialogue` | `fill: black`、`color: white` | P0 |
 | `scream` | 絶叫 | `burst` | 0.35 mm | `wedge`（`widthScale: 1.5`、`bend: 0`、`sideCurve: 0`） | `shout` | `fontScale: 1.5` | P1 |
 | `shock` | 衝撃を受けた心の声 | `flash` | - | `none` | `thought` | | P1 |
 | `electronic` | 電話・機械の声 | `electronic` | 0.25 mm | `zigzag` | `dialogue` | | P1 |
 | `gruff` | ぶっきらぼうな声 | `hexagon` | 0.25 mm | `wedge` | `dialogue` | | P1 |
+
+`aside` は吹き出しの枠を描かず、通常のセリフの 0.75 倍の文字を使う。`who` があれば顔の左右を優先し、顔と他の吹き出しを避けて通常の吹き出しの後に配置する。空きが足りない場合は `BALLOON_NO_SPACE` を出す。顔は画像の `regions.face`、発話者は `character` で指定する。顔領域がなければ発話点を使い、発話者がなければコマ内に自動配置する。`at` で手動配置もできる。
+
+```yaml
+layers:
+  - { aside: ボソッ, who: taro }
+dialogue:
+  - { taro: 聞いてないし, as: aside, tail: { kind: line } }
+```
+
+しっぽは既定では描かない。`tail: { kind: line }` で文字の輪郭から顔へ向く短いほぼ直線の引き出し線（最大 3bmm）を付けられる。手書きの細い線を少し太らせ、白フチを重ねて絵の上でも読みやすくする。傾きは要素の ID とシードから左右いずれかの 3〜5°に決まり、`rotate: 0deg` などで上書きできる。[作例](examples/aside.yaml) / [描画結果](images/aside.png)。
 | `offscreen` | 画面外の声 | `ellipse` | 0.25 mm | `wedge`（`offscreen`） | `dialogue` | | P1 |
 
 キャラクターの `voice`（[3.15](03-document-format.md#315-characters)）で、キャラクターごとに発話の種類の見た目を上書きできる。
+
+`manga-basic` の叫び・絶叫は、インストール済みのゴシックMB101 U、新ゴ U、カタログの Zen Kaku Gothic New Black（900）の順に使う（[7.3.10](07-text.md#7310-フォントのカタログと取得)）。
 
 ## 6.14 検証
 

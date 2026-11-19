@@ -7,10 +7,11 @@ type Obj = Record<string, unknown>;
 type Path = (string | number)[];
 
 export const ELEMENT_TYPES = ["image", "balloon", "text", "sfx", "effect", "fill", "mark", "draw", "group", "scatter"] as const;
-const SHORTHAND_ORDER = ["image", "balloon", "sfx", "text", "effect", "mark", "draw", "tone", "group", "scatter"];
+const SHORTHAND_ORDER = ["image", "balloon", "aside", "sfx", "text", "effect", "mark", "draw", "tone", "group", "scatter"];
 const PRIMARY: Record<string, [string, string]> = {
   image: ["image", "src"],
   balloon: ["balloon", "text"],
+  aside: ["balloon", "text"],
   sfx: ["sfx", "text"],
   text: ["text", "text"],
   effect: ["effect", "kind"],
@@ -68,8 +69,15 @@ export function normStroke(v: unknown, path: Path, bag: DiagnosticBag): unknown 
   return out;
 }
 
+/** named outlines for title lettering: a thick rim edged with a thin rim of the other colour */
+export const OUTLINE_PRESETS: Record<string, Obj[]> = {
+  "thick-white": [{ width: "1.4mm", color: "white", join: "miter" }, { width: "1.9mm", color: "black", join: "miter" }],
+  "thick-black": [{ width: "1.4mm", color: "black", join: "miter" }, { width: "1.9mm", color: "white", join: "miter" }],
+};
+
 export function normOutline(v: unknown, path: Path, bag: DiagnosticBag): unknown {
   if (v === "none") return [];
+  if (typeof v === "string" && Object.hasOwn(OUTLINE_PRESETS, v)) return OUTLINE_PRESETS[v].map((o) => ({ ...o }));
   if (typeof v === "string" || typeof v === "number") {
     const toks = String(v).trim().split(/\s+/);
     const o: Obj = {};
@@ -113,10 +121,11 @@ function normElement(raw: unknown, path: Path, bag: DiagnosticBag): unknown {
     if (prim !== key && prim in el && key !== "text") {
       bag.error("SCHEMA_SHORTHAND_CONFLICT", `both "${key}" and "${prim}" are given`, { path });
     }
-    if (key === "balloon" || key === "sfx") {
+    if (key === "balloon" || key === "aside" || key === "sfx") {
       if ("text" in el) bag.error("SCHEMA_SHORTHAND_CONFLICT", `both "${key}" and "text" are given`, { path });
     }
     el = { type, ...el };
+    if (key === "aside") el.as = "aside";
     if (key === "tone") el.paint = typeof val === "string" && /^[\d.]+%$/.test(val.trim()) ? `tone(${val})` : val;
     else if (key === "scatter") el.items = Array.isArray(val) ? val : [val];
     else el[prim] = val;

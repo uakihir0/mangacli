@@ -1,0 +1,43 @@
+# ぶち抜きゴマ — 空中都市の配達人
+mangacli: 1
+seed: 31
+meta: { title: 最後の配達 }
+page: { size: B5, bleed: 3mm }
+assets:
+  storm: { src: assets/full-page-art.png, kind: background }
+  courier: { src: assets/full-page-art.png, kind: art, crop: [610, 920, 570, 400] }
+  rooftops: { src: assets/full-page-art.png, kind: art, crop: [115, 1350, 515, 405] }
+output: { profile: print-mono }
+pages:
+  - id: splash
+    background: { image: storm, fit: cover, bleed: all }
+    gutterFill: none
+    layout:
+      split: rows
+      sizes: [3, 1]
+      gutter: 8mm
+      children:
+        - panel
+        - { split: cols, sizes: [1, 1.2], gutter: 7mm, children: [panel, panel] }
+    panels:
+      - id: storm
+        background: none
+        border: none
+        layers:
+          - balloon: 雨が街を呑む前に——
+            as: narration
+            place: top-right
+      - id: resolve
+        knockout: 1.5mm
+        layers:
+          - image: courier
+          - balloon: まだ間に合う。
+            place: bottom-right
+            tail: none
+      - id: destination
+        knockout: 1.5mm
+        layers:
+          - image: rooftops
+          - balloon: あの灯りまで。
+            as: narration
+            place: bottom-left
