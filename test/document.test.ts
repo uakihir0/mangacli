@@ -129,6 +129,14 @@ ${screens.map(({ lpi, angle }) => `      - background: { tone: { density: 35%, l
     const [nested, darker] = await Promise.all([renderMonoToneLayers(light, dark), renderMonoToneLayers(dark)]);
     expect(nested.equals(darker)).toBe(true);
   });
+  it("uses the same 1-bit round screen for uniform and graduated tone fills", async () => {
+    const common = "density: 35%, lpi: 65, angle: 45deg";
+    const [uniform, gradient] = await Promise.all([
+      renderMonoToneLayers(`{ ${common} }`),
+      renderMonoToneLayers(`{ ${common}, gradient: { stops: [[0%, 35%], [100%, 35%]] } }`),
+    ]);
+    expect(uniform.equals(gradient)).toBe(true);
+  });
   it("writes PDF with trim and bleed boxes", async () => {
     const r = await render(yaml(doc.replace("bleed: 0", "bleed: 3mm")), { profile: "print-mono", dpi: 100, format: "pdf" });
     const pdf = Buffer.from(r.pages[0].data).toString("latin1");

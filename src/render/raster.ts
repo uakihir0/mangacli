@@ -521,8 +521,8 @@ export class RasterBackend {
     const target = this.target(dev, r);
     const gradDensity = flat && spec.gradient ? true : false;
     const origin = applyMat(dev.base, { x: spec.offset[0], y: spec.offset[1] });
-    const binaryRound = mode === "mono" && p.type === "tone" && spec.dot === "round" && !spec.gradient
-      ? makeBinaryRoundToneSampler(spec, cellPx, 0.5 - origin.x, 0.5 - origin.y)
+    const binaryRound = mode === "mono" && p.type === "tone" && spec.dot === "round"
+      ? makeBinaryRoundToneSampler(spec, cellPx, 0.5 - origin.x, 0.5 - origin.y, (x, y) => target.toMm(x - r.x, y - r.y))
       : undefined;
     const sampler = binaryRound ? (x: number, y: number) => binaryRound(x + r.x, y + r.y) : makeToneSampler(spec, target, densityFn);
     const alphaSampler = alphaFn ? makeToneSampler({ ...spec, angle: 0, seed: 11, grain: 0.15 }, target, alphaFn) : null;
