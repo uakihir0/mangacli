@@ -492,7 +492,7 @@ export class RasterBackend {
         if (st) ctx.strokeStyle = st as string;
         ctx.lineWidth = n.stroke.width;
         ctx.lineJoin = n.stroke.join;
-        ctx.miterLimit = n.stroke.miterLimit ?? 10;
+        ctx.miterLimit = n.stroke.miterLimit ?? 2;
         ctx.lineCap = "round";
         ctx.stroke(buildPath(n.path));
         ctx.restore();
