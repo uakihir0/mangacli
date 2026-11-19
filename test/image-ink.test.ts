@@ -2,8 +2,43 @@ import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { render } from "../src/api.js";
 import { imageInkMask } from "../src/render/image-ink.js";
+import { linearToSrgb } from "../src/core/color.js";
 
 describe("print image ink preservation", () => {
+  it("does not promote a single low-contrast crossing into a mesh", () => {
+    const size = 96;
+    const rgba = new Uint8Array(size * size * 4);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const line = x >= 30 && x <= 66 && (y === x || y === size - x);
+        const v = Math.round(linearToSrgb(line ? 0.72 : 0.96) * 255);
+        rgba.set([v, v, v, 255], (y * size + x) * 4);
+      }
+    }
+    expect(imageInkMask(rgba, size, size, 324).some(Boolean)).toBe(false);
+  });
+
+  it.each([false, true])("preserves blurred diamond mesh through crossings (light=%s)", (light) => {
+    const size = 240;
+    const rgba = new Uint8Array(size * size * 4);
+    const centers: number[] = [];
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const wrap = (v: number) => Math.abs(((v % 60) + 90) % 60 - 30);
+        const distance = Math.min(wrap(x + y), wrap(x - y)) / Math.SQRT2;
+        const background = light ? 0.01 : 0.96;
+        const contrast = light ? 0.4 * (0.8 + 0.2 * Math.sin(x / 12)) : 0.25;
+        const value = background + (light ? 1 : -1) * contrast * Math.exp(-distance * distance / (2 * 1.3 ** 2));
+        const v = Math.round(linearToSrgb(value) * 255);
+        const i = y * size + x;
+        rgba.set([v, v, v, 255], i * 4);
+        if (distance === 0 && x >= 20 && x < size - 20 && y >= 20 && y < size - 20) centers.push(i);
+      }
+    }
+    const mask = imageInkMask(rgba, size, size, 324);
+    for (const i of centers) expect(mask[i], `pixel=${i}`).toBe(light ? 2 : 1);
+  });
+
   it.each([300, 600])("preserves one- through three-pixel lines at %s ppi", (dpi) => {
     const size = 192;
     for (const light of [false, true]) {
