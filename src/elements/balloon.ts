@@ -157,7 +157,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
     }
     const tl = layoutText(text, style, ctx.fonts, boxLimit);
     const compact = kind === "ellipse" && !fixedBase && tl.lines.length <= 1 && Math.max(tl.width, tl.height) <= style.fontSize * 3.5;
-    if (compact) {
+    if (compact && (el.builtinProps?.includes("padding") ?? p.padding === undefined)) {
       const inset = (extent: number) => Math.max(0, (extent / 2 + style.fontSize * 0.65) / Math.SQRT2 - extent / 2 - margin);
       padV = Math.min(padV, inset(tl.height));
       padH = Math.min(padH, inset(tl.width));

@@ -7,9 +7,10 @@ import { pointInPolygon } from "../src/geom/path.js";
 import { resolveDocument } from "../src/model/resolve.js";
 
 const fonts = new FontRegistry(new Map() as never, "manga-basic", [], {});
-async function plan(text: string, writing = "vertical", props: Record<string, unknown> = {}) {
+async function plan(text: string, writing = "vertical", props: Record<string, unknown> = {}, doc: Record<string, unknown> = {}) {
   const bag = new DiagnosticBag();
   const resolved = resolveDocument({
+    ...doc,
     seed: 42,
     pages: [{ layers: [{ type: "balloon", id: "test", text, writing, fontSize: "4mm", ...props }] }],
   }, bag);
@@ -24,6 +25,21 @@ async function plan(text: string, writing = "vertical", props: Record<string, un
 }
 
 describe("balloon text extent sizing", () => {
+  it.each(["element", "defaults", "style"])("honors explicit padding from %s", async (source) => {
+    for (const padding of [["2em", "2em"], ["0.6em", "0.8em"]]) {
+      const p = await plan("えっ", "vertical", source === "element" ? { padding } : source === "style" ? { style: "custom" } : {},
+        source === "defaults" ? { defaults: { balloon: { padding } } } : source === "style" ? { styles: { custom: { padding } } } : {});
+      expect(p.el.builtinProps).not.toContain("padding");
+      for (const line of p.text.lines) {
+        const r = line.rect;
+        const padV = Number.parseFloat(padding[0]) * p.text.fontSize;
+        const padH = Number.parseFloat(padding[1]) * p.text.fontSize;
+        for (const x of [r.x - padH, r.x + r.w + padH]) for (const y of [r.y - padV, r.y + r.h + padV]) {
+          expect(pointInPolygon({ x: x - p.text.width / 2 + p.innerCenter.x, y: y - p.text.height / 2 + p.innerCenter.y }, p.body.inner)).toBe(true);
+        }
+      }
+    }
+  });
   it.each(["vertical", "horizontal"])("caps short %s balloon clearance and follows the text aspect", async (writing) => {
     for (const text of ["え", "えっ", "あいう"]) {
       const p = await plan(text, writing);

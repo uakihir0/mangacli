@@ -16,6 +16,7 @@ export interface RElement {
   seed: number;
   children?: RElement[];
   fromDialogue?: boolean;
+  builtinProps?: string[];
   /** inherited hand (after cascade, stored in props.hand) */
 }
 
@@ -209,6 +210,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
             ? merge(deepClone(BUILTIN_MARK_DEFAULTS["*"]), kind ? BUILTIN_MARK_DEFAULTS[kind] : undefined)
             : deepClone(BUILTIN_DEFAULTS[type] ?? {});
       let acc: Obj = deepClone(builtin);
+      const builtinArrays = Object.entries(acc).filter(([, v]) => Array.isArray(v));
       for (const lv of levels) {
         if (lv.hand) acc = merge(acc, { hand: lv.hand }, builtin);
         const d = lv.d[type];
@@ -256,7 +258,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       acc = merge(acc, own, builtin);
       acc.id = id;
       const elSeedBase = typeof raw.seed === "number" ? raw.seed : baseSeed;
-      const el: RElement = { id, type, props: acc, path, seed: deriveSeed(elSeedBase, id, "element"), fromDialogue };
+      const el: RElement = { id, type, props: acc, path, seed: deriveSeed(elSeedBase, id, "element"), fromDialogue, builtinProps: builtinArrays.filter(([k, v]) => acc[k] === v).map(([k]) => k) };
       if (type === "group" && Array.isArray(raw.children)) {
         const gDefaults = isObj(raw.defaults) ? (raw.defaults as Obj) : undefined;
         const lv2 = gDefaults ? [...levels, { d: gDefaults, hand: undefined }] : levels;
