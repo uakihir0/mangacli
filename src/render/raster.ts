@@ -172,7 +172,9 @@ function pixelBand(path: PathData, m: Matrix, W: number, H: number): PathData {
     const y = vertical ? major : minor;
     const w = vertical ? 2 : 1;
     const h = vertical ? 1 : 2;
-    for (const [i, p] of [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }].entries()) {
+    const corners = [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
+    if (det < 0) corners.reverse();
+    for (const [i, p] of corners.entries()) {
       const q = applyMat(inverse, p);
       out.push([i ? "L" : "M", q.x, q.y]);
     }

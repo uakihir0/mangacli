@@ -5,6 +5,7 @@ import { DiagnosticBag } from "../src/core/diagnostics.js";
 import { AssetRegistry } from "../src/render/assets.js";
 import type { DisplayList, PathNode } from "../src/render/ir.js";
 import { RasterBackend } from "../src/render/raster.js";
+import { inksToNodes } from "../src/elements/inkir.js";
 
 const renderer = createRenderer({ profile: "print-mono" });
 const input = (width: number) => ({ yaml: `mangacli: 1
@@ -27,8 +28,21 @@ function setup(width: number, dx: number, dy: number, slope: number, dpi = 600) 
 }
 
 describe("mono hairline protection", () => {
+  it.each([false, true])("unions corrected and opposite-winding wide ink (mirrored=%s)", async (mirrored) => {
+    const { backend, list } = setup(0.015, 0, 0, 0);
+    const s = 600 / 25.4;
+    const vec = (x: number, y: number) => ({ x: x / s, y: y / s });
+    list.root.children = inksToNodes([
+      { opacity: 1, pts: [vec(5, 19.8), vec(45, 19.8), vec(45, 20.2), vec(5, 20.2)], centerline: { width: 0.015, points: [vec(5, 20), vec(45, 20)] } },
+      { opacity: 1, pts: [vec(24, 5), vec(24, 45), vec(27, 45), vec(27, 5)], centerline: { width: 0.10, points: [vec(25.5, 5), vec(25.5, 45)] } },
+    ], { r: 0, g: 0, b: 0, a: 1 });
+    if (mirrored) list.root.transform = [-1, 0, 0, 1, 50 / s, 0];
+    const result = await backend.render(list);
+    for (let x = 24; x < 26; x++) for (let y = 19; y < 21; y++) expect(result.data[(y * 50 + x) * 4]).toBe(0);
+  });
   it("keeps both crossings of a thin ellipse outline", async () => {
     const result = await renderer.render({ yaml: `mangacli: 1
+book: { pageNumbers: { enabled: false } }
 page: { size: [25.4mm, 25.4mm], bleed: 0mm }
 pages:
   - layers:
