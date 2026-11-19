@@ -8,7 +8,8 @@ import { dirname, join, resolve } from "node:path";
 import { SogniClient } from "@sogni-ai/sogni-client";
 
 const root = resolve(dirname(new URL(import.meta.url).pathname), "..");
-const env = Object.fromEntries(readFileSync(join(root, ".env"), "utf8").split("\n").filter((l) => /^\w+=/.test(l)).map((l) => [l.split("=")[0], l.slice(l.indexOf("=") + 1).trim()]));
+const { SOGNI_API_KEY, SOGNI_APP_ID } = process.env;
+if (!SOGNI_API_KEY || !SOGNI_APP_ID) throw new Error("Set SOGNI_API_KEY and SOGNI_APP_ID in the environment.");
 const Q = join(root, "gen");
 for (const d of ["queue", "running", "done", "failed"]) mkdirSync(join(Q, d), { recursive: true });
 // a crashed run leaves jobs in running/: put them back
@@ -17,7 +18,7 @@ const CONC = +(process.env.CONC ?? 4);
 const TIMEOUT = 45 * 60e3;
 const log = (s) => { const line = `${new Date().toISOString().slice(11, 19)} ${s}`; console.log(line); appendFileSync(join(Q, "log.txt"), line + "\n"); };
 
-const sogni = await SogniClient.createInstance({ appId: env.SOGNI_APP_ID, appSource: "mangacli-sample", network: "relaxed", apiKey: env.SOGNI_API_KEY });
+const sogni = await SogniClient.createInstance({ appId: SOGNI_APP_ID, appSource: "mangacli-sample", network: "relaxed", apiKey: SOGNI_API_KEY });
 await sogni.projects.waitForModels();
 log("connected");
 
