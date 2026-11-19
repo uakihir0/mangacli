@@ -15,7 +15,6 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
     stroke: { width: "0.34bmm", color: "black", pen: { preset: "g-pen" }, style: "solid", dash: ["1.6bmm", "1.0bmm"], dot: { size: "0.45bmm", gap: "0.9bmm" }, double: { gap: "0.6bmm", inner: "0.2bmm" } },
     fill: "paper",
     tail: { kind: "wedge", gap: "2bmm", bend: 0.08, sideCurve: 0.35, root: "auto", count: 3, shrink: 0.66, segments: 3 },
-    minSize: ["8bmm", "8bmm"],
     maxSize: ["75%", "80%"],
     aspect: "auto",
     aspectRange: [0.55, 1.8],
