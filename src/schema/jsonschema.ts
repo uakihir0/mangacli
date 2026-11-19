@@ -7,7 +7,7 @@ import { Document } from "./schema.js";
 
 type J = Record<string, unknown>;
 
-const SHORTHAND_KEYS = ["image", "balloon", "sfx", "text", "effect", "mark", "draw", "tone", "group", "scatter"];
+const SHORTHAND_KEYS = ["image", "balloon", "aside", "sfx", "text", "effect", "mark", "draw", "tone", "group", "scatter"];
 
 export function jsonSchema(): J {
   const s = z.toJSONSchema(Document, { unrepresentable: "any", io: "input", reused: "ref" }) as J;
