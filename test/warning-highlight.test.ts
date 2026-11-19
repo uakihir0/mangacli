@@ -16,6 +16,29 @@ pages:
       - { text: Hello, id: lettering, fontSize: 4mm, writing: horizontal, at: [${at}], anchor: top-left }
 `;
 const renderer = createRenderer({ profile: "preview" });
+const groupedYaml = yaml().replace(/    layers:[\s\S]*/, `    layers:
+      - type: group
+        id: outer
+        size: [40mm, 40mm]
+        at: [10mm, 10mm]
+        anchor: top-left
+        children:
+          - type: group
+            id: inner
+            size: [20mm, 20mm]
+            at: [3mm, 4mm]
+            anchor: top-left
+            scale: 2
+            children:
+              - {text: Hello, id: child, size: [2mm, 2mm], overflow: clip, fontSize: 4mm, writing: horizontal, at: [2mm, 5mm], anchor: top-left}
+`);
+
+it("registers nested children in page coordinates and supplies their diagnostic page", async () => {
+  const result = await renderer.render({ yaml: groupedYaml }, { format: "png", dpi: 254 });
+  expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "TEXT_CLIPPED", elementId: "child", pageId: "page-one" }));
+  expect(result.pages[0]!.elements).toContainEqual({ id: "child", x: 170, y: 240, width: 40, height: 40 });
+  expect(result.pages[0]!.elements.map((e) => e.id).sort()).toEqual(["child", "inner", "outer"]);
+});
 
 it.each(["trim", "bleed"] as const)("returns element boxes in %s output pixels, including split spreads", async (crop) => {
   const input = { yaml: yaml("spread", "100mm, 20mm"), filename: "/v/highlight.yaml" };
@@ -46,11 +69,16 @@ it.each(["png", "svg"] as const)("keeps %s boxes aligned with print-scaled outpu
   expect(marked.pages[0]!.elements[0]).toEqual({ ...p, x: p.x + 115, y: p.y + 115 });
 });
 
-it.each(["png", "svg"])("serves %s warning rows with correctly scaled frames", async (format) => {
+it.each([
+  { format: "png", source: yaml(), code: "TEXT_OUTSIDE_SAFE_AREA", id: "lettering", hasBox: true },
+  { format: "svg", source: yaml(), code: "TEXT_OUTSIDE_SAFE_AREA", id: "lettering", hasBox: true },
+  { format: "png", source: groupedYaml, code: "TEXT_CLIPPED", id: "child", hasBox: true },
+  { format: "png", source: groupedYaml.replace("at: [10mm, 10mm]", "at: [100mm, 100mm]"), code: "TEXT_CLIPPED", id: "child", hasBox: false },
+])("serves $format $id warning rows (box: $hasBox)", async ({ format, source, code, id, hasBox }) => {
   const root = join(import.meta.dirname, "..");
   const dir = mkdtempSync(join(tmpdir(), "mc-highlight-"));
   const file = join(dir, "warning.yaml");
-  writeFileSync(file, yaml());
+  writeFileSync(file, source);
   const port = 44000 + Math.floor(Math.random() * 2000);
   const proc = spawn(join(root, "node_modules/.bin/tsx"), [join(root, "src/cli/index.ts"), "preview", file, "--port", String(port), "--format", format, "--dpi", "254", "--no-config"], { cwd: root });
   try {
@@ -62,12 +90,16 @@ it.each(["png", "svg"])("serves %s warning rows with correctly scaled frames", a
       proc.on("exit", () => { clearTimeout(timer); fail(new Error("preview exited")); });
     });
     const html = await (await fetch(`http://127.0.0.1:${port}/`)).text();
-    const row = html.match(/<div class="d warning"[^>]*>TEXT_OUTSIDE_SAFE_AREA[^<]*<\/div>/)![0];
+    const row = html.match(new RegExp(`<div class="d warning"[^>]*>${code}[^<]*<\\/div>`))![0];
     expect(row).toContain('data-page="0"');
     expect(row).toContain('role="button"');
+    if (!hasBox) {
+      expect(row).not.toContain("data-box");
+      return;
+    }
     const box = JSON.parse(row.match(/data-box="([^"]+)"/)![1]!.replaceAll("&quot;", '"'));
     const rendered = await renderer.render(file, { format: format as "png" | "svg", dpi: 254 });
-    expect(box).toEqual(rendered.pages[0]!.elements.find((e) => e.id === "lettering"));
+    expect(box).toEqual(rendered.pages[0]!.elements.find((e) => e.id === id));
     const page = rendered.pages[0]!;
     expect(html).toContain(`data-width="${page.width}" data-height="${page.height}"`);
     const img = { naturalWidth: format === "svg" ? 302 : page.width, naturalHeight: format === "svg" ? 227 : page.height, clientWidth: 400, clientHeight: 300, offsetLeft: 0, offsetTop: 0, dataset: { width: String(page.width), height: String(page.height) } };

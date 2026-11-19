@@ -101,6 +101,7 @@ async function prepareFonts(page: RPage, o: ComposeOptions) {
 
 export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: number, o: ComposeOptions): Promise<{ list: DisplayList; info: PageLayoutInfo }> {
   const bag = o.bag;
+  const diagnosticStart = bag.items.length;
   const book = bookOf(doc.doc);
   const geom = computePageGeom(page, physicalIndex, book, bag);
   const u = geom.units;
@@ -269,6 +270,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       const c2 = { ...ctx, coordsBox: coordsFor(el, ctx, geom) };
       try {
         const nodes = renderMisc(el, c2);
+        info.elements.push(...(nodes.elements ?? []).map((e) => ({ ...e, panel: ctx.panel?.panel.id })));
         processed.set(el.id, mkItem(el, nodes.nodes, nodes.bbox, panelIdx, i, source, ctx));
       } catch (e) {
         bag.error("RENDER_FAILED", `${el.id}: ${(e as Error).message}`, { path: el.path, elementId: el.id });
@@ -339,6 +341,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   };
   // safe area / fold checks
   checkTextSafety(items.concat(panelNodes.flatMap((p) => p.clipped)), geom, bag, page);
+  for (const d of bag.items.slice(diagnosticStart)) d.pageId ??= page.id;
   return { list, info };
 }
 
@@ -617,7 +620,7 @@ function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["uni
 
 // ---- misc elements ---------------------------------------------------------------
 
-function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
+function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; elements?: PageLayoutInfo["elements"] } {
   const p = el.props;
   switch (el.type) {
     case "effect": {
@@ -698,9 +701,11 @@ function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
       const sized = gw !== "auto" && gh !== "auto";
       const cctx: ElemCtx = sized ? { ...ctx, coordsBox: { x: 0, y: 0, w: gw as number, h: gh as number }, localFrame: true } : ctx;
       const nodes: Node[] = [];
+      const elements: PageLayoutInfo["elements"] = [];
       for (const c of el.children ?? []) {
-        const r = c.type === "text" ? renderText(c, cctx) : c.type === "sfx" ? renderSfx(c, cctx) : renderMisc(c, cctx);
+        const r: ReturnType<typeof renderMisc> = c.type === "text" ? renderText(c, cctx) : c.type === "sfx" ? renderSfx(c, cctx) : renderMisc(c, cctx);
         nodes.push(...r.nodes);
+        elements.push({ id: c.id, type: c.type, bbox: r.bbox }, ...(r.elements ?? []));
       }
       let transform: [number, number, number, number, number, number] | undefined;
       let bbox = ctx.coordsBox;
@@ -713,7 +718,8 @@ function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
         const pl = place({ ...p, at: undefined, anchor: [0.5, 0.5] }, 0, 0, pc, c);
         transform = pl.matrix as typeof transform;
       }
-      return { nodes: [{ kind: "group", transform, children: nodes, tag: tag(el, "fill") }], bbox };
+      if (transform) for (const e of elements) e.bbox = boundsOf(rectPts(e.bbox).map((p) => applyMat(transform!, p)));
+      return { nodes: [{ kind: "group", transform, children: nodes, tag: tag(el, "fill") }], bbox, elements };
     }
   }
   return { nodes: [], bbox: ctx.coordsBox };
