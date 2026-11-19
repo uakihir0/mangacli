@@ -4345,12 +4345,12 @@
                     "clear": {
                       "anyOf": [
                         {
-                          "$ref": "#/$defs/__schema50"
+                          "$ref": "#/$defs/__schema56"
                         },
                         {
                           "type": "array",
                           "items": {
-                            "$ref": "#/$defs/__schema50"
+                            "$ref": "#/$defs/__schema56"
                           }
                         }
                       ]
@@ -4367,7 +4367,7 @@
                           "minItems": 2,
                           "type": "array",
                           "items": {
-                            "$ref": "#/$defs/__schema30"
+                            "$ref": "#/$defs/__schema36"
                           }
                         },
                         {
