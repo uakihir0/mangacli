@@ -149,6 +149,14 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   };
   for (const pg of drawOrder) await layoutGroup(pg.panel.elements, baseCtx(pg), drawOrder.indexOf(pg), 0);
   await layoutGroup(page.layers, baseCtx(), 0, 1);
+  for (const el of page.layers) {
+    if (el.type !== "image") continue;
+    const target = refs.get(el.id);
+    if (!target) continue;
+    const clip = el.props.clip;
+    const ids = isObj(clip) && Array.isArray(clip.to) ? clip.to : undefined;
+    for (const pg of panels) if (ids?.includes(pg.panel.id) || rectIntersect(target.bbox, pg.box)) refs.includeInPanel(el.id, pg.panel.id);
+  }
 
   // phase B: balloons plans, text, sfx, effects, fills, marks, draw
   const renderOthers = async (els: RElement[], ctx: ElemCtx, panelIdx: number, source: number) => {
@@ -289,7 +297,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       // the outer edge of the panel area is cut by the frame there, as lettering usually is
       if (it.free && el.type === "balloon" && el.props.clip === "auto" && !isOffscreen(el) && crossesOuterEdge(pg, it.bbox, u.k)) it.free = false;
       if (it.free) {
-        if (isObj(el.props.clip)) it.openClip = openClipPath(pg, el.props.clip as Obj, geom, u);
+        if (isObj(el.props.clip) && !Array.isArray(el.props.clip.to)) it.openClip = openClipPath(pg, el.props.clip as Obj, geom, u);
         items.push(it);
       } else {
         clipped.push(it);
@@ -313,10 +321,41 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     info.elements.push({ id: el.id, type: el.type, bbox: it.bbox });
   }
 
+  for (const it of items) {
+    const clip = it.el.props.clip;
+    if (!isObj(clip) || !Array.isArray(clip.to)) continue;
+    const targets: PanelGeom[] = [];
+    for (const id of new Set(clip.to)) {
+      const pg = panels.find((p) => p.panel.id === id);
+      if (pg) targets.push(pg);
+      else bag.error("REF_NOT_FOUND", `unknown panel ${id}`, { path: [...it.el.path, "clip", "to"], elementId: it.el.id, pageId: page.id });
+    }
+    it.openClip = targets.flatMap((pg) => openClipPath(pg, clip, geom, u));
+    if ((clip.open as string[] | undefined)?.length && targets.length) {
+      const envelope = boundsOf(targets.flatMap((pg) => pg.polygon));
+      const withoutGutters = [
+        ...polyPath(rectPts(geom.bleedBox), true),
+        ...polyPath(rectPts(envelope).reverse(), true),
+        ...targets.flatMap((pg) => polyPath(panelShapePoly(pg, geom), true)),
+      ];
+      it.nodes = [{ kind: "group", clip: withoutGutters, clipRule: "nonzero", children: it.nodes }];
+    }
+    if (it.el.props.stack !== "art") continue;
+    for (const pg of targets) {
+      const group = panelNodes.find((p) => p.pg === pg)!;
+      group.clipped.push({ ...it, nodes: [{ kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.nodes }] });
+      group.clipped.sort((a, b) => a.z - b.z || a.listIdx - b.listIdx);
+    }
+    if ((clip.open as string[] | undefined)?.length) {
+      const outside = [...polyPath(rectPts(geom.bleedBox), true), ...targets.flatMap((pg) => polyPath(panelShapePoly(pg, geom), true))];
+      it.nodes = [{ kind: "group", clip: outside, clipRule: "evenodd", children: it.nodes }];
+    } else it.nodes = [];
+  }
+
   // build tree
   const root: GroupNode = { kind: "group", children: [] };
   const bgPaint = parsePaint(page.settings.background ?? "paper", { u, box: geom.bleedBox, seed: page.seed, bag, path: [...page.path, "background"] });
-  for (const it of items.filter((i) => i.stackUnder)) root.children.push(...it.nodes);
+  for (const it of items.filter((i) => i.stackUnder)) root.children.push(it.openClip ? { kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.nodes } : { kind: "group", children: it.nodes });
   for (const { pg, clipped } of panelNodes) {
     if (pg.panel.props.visible === false) continue;
     root.children.push(...panelTree(pg, clipped, geom, bgPaint, bag));
@@ -324,7 +363,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   const free = items.filter((i) => !i.stackUnder);
   free.sort((a, b) => a.z - b.z || a.layer - b.layer || a.source - b.source || a.panelIdx - b.panelIdx || (a.layer === 1 && b.layer === 1 ? b.listIdx - a.listIdx : a.listIdx - b.listIdx));
   for (const it of free) {
-    if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, children: it.nodes });
+    if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.nodes });
     else root.children.push(...it.nodes);
   }
   // page numbers
@@ -936,10 +975,13 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   const pid = ctx.panel?.panel.id;
   const hard: Rect[] = [];
   for (const t of refs.all()) {
-    if (t.type !== "image" || (pid && t.panelId !== pid)) continue;
+    if (t.type !== "image" || (pid && t.panelId !== undefined && t.panelId !== pid)) continue;
     // faces are roughly elliptical: the corners of the face box are free space
-    for (const [k, rg] of Object.entries(t.regions)) if (k === "face" || k === "avoid") obstacles.push({ r: rg.bbox, w: 60, ellipse: k === "face" });
-    if (t.anchors.mouth) hard.push({ x: t.anchors.mouth.x - 2 * u.k, y: t.anchors.mouth.y - 2 * u.k, w: 4 * u.k, h: 4 * u.k });
+    for (const [k, rg] of Object.entries(t.regions)) if ((k === "face" || k === "avoid") && rectIntersect(rg.bbox, panelBox)) obstacles.push({ r: rg.bbox, w: 60, ellipse: k === "face" });
+    if (t.anchors.mouth) {
+      const mouth = { x: t.anchors.mouth.x - 2 * u.k, y: t.anchors.mouth.y - 2 * u.k, w: 4 * u.k, h: 4 * u.k };
+      if (rectIntersect(mouth, panelBox)) hard.push(mouth);
+    }
   }
   const placedRects: Rect[] = [];
   const setCenter = (pl: BalloonPlan, c: Vec) => {

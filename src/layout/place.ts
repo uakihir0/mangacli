@@ -33,6 +33,7 @@ export interface RefTarget {
 export class RefRegistry {
   private map = new Map<string, RefTarget>();
   private chars: { char: string; panelId?: string; target: RefTarget; order: number }[] = [];
+  private panels = new Map<string, Set<string>>();
   constructor(private anchorPriority: (char: string) => string[]) {}
   add(t: RefTarget, order = 0) {
     this.map.set(t.id, t);
@@ -41,8 +42,13 @@ export class RefRegistry {
   get(id: string): RefTarget | undefined {
     return this.map.get(id);
   }
+  includeInPanel(id: string, panelId: string) {
+    const ids = this.panels.get(id) ?? new Set<string>();
+    ids.add(panelId);
+    this.panels.set(id, ids);
+  }
   character(char: string, panelId?: string): RefTarget | undefined {
-    const inPanel = this.chars.filter((c) => c.char === char && (panelId === undefined || c.panelId === panelId));
+    const inPanel = this.chars.filter((c) => c.char === char && (panelId === undefined || c.panelId === panelId || (c.panelId === undefined && this.panels.get(c.target.id)?.has(panelId))));
     const pool = inPanel.length ? inPanel : panelId === undefined ? [] : [];
     pool.sort((a, b) => a.order - b.order);
     return pool[0]?.target;
