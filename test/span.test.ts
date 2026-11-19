@@ -149,4 +149,14 @@ pages:
     const explicit = await createRenderer(options).displayList({ yaml: yaml.replace("kind: line,", "kind: line, to: figure-image.mouth,") }, 1);
     expect(implicit).toEqual(explicit);
   });
+
+  it("does not register a clipped page speaker in an unlisted intersecting panel", async () => {
+    const doc = parse(scene("", "over", "a"));
+    doc.assets = { figure: { src: "figure.png", character: "hero", anchors: { mouth: [75, 40] } } };
+    doc.pages[0].layers = [{ image: "figure", size: ["100mm", "80mm"], at: ["0mm", "0mm"], anchor: "top-left", fit: "fill", clip: { to: ["a"] } }];
+    doc.pages[0].panels[1].layers = [{ balloon: "Hello", who: "hero", id: "unlisted-speech" }];
+    const data = await sharp({ create: { width: 100, height: 100, channels: 3, background: "white" } }).png().toBuffer();
+    const result = await validate(doc, { assets: { figure: data } });
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "DIALOGUE_SPEAKER_NOT_IN_PANEL", elementId: "unlisted-speech" }));
+  });
 });

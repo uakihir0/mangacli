@@ -155,7 +155,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     if (!target) continue;
     const clip = el.props.clip;
     const ids = isObj(clip) && Array.isArray(clip.to) ? clip.to : undefined;
-    for (const pg of panels) if (ids?.includes(pg.panel.id) || rectIntersect(target.bbox, pg.box)) refs.includeInPanel(el.id, pg.panel.id);
+    for (const pg of panels) if (ids ? ids.includes(pg.panel.id) : rectIntersect(target.bbox, pg.box)) refs.includeInPanel(el.id, pg.panel.id);
   }
 
   // phase B: balloons plans, text, sfx, effects, fills, marks, draw
