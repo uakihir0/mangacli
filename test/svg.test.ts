@@ -62,5 +62,25 @@ describe("SVG print output", () => {
   it("allows the SVG warning to be promoted to an error", async () => {
     const r = await render(input(), { profile: "print-mono", format: "svg", diagnostics: { SVG_MONO_APPROXIMATION: "error" }, throwOnError: false });
     expect(r.diagnostics).toContainEqual(expect.objectContaining({ code: "SVG_MONO_APPROXIMATION", severity: "error" }));
+    expect(r.pages).toEqual([]);
+    expect(r.files).toEqual([]);
+  });
+
+  it.each([1, 2])("rejects a %i-page error override before writing files", async (count) => {
+    const outDir = mkdtempSync(join(tmpdir(), "mangacli-svg-error-"));
+    try {
+      const doc = input();
+      if (count === 2) doc.yaml += "  - { id: second, panels: [] }\n";
+      await expect(render(doc, {
+        profile: "print-mono",
+        format: ["png", "svg"],
+        dpi: 25.4,
+        outDir,
+        diagnostics: { SVG_MONO_APPROXIMATION: "error" },
+      })).rejects.toMatchObject({ code: "SVG_MONO_APPROXIMATION" });
+      expect(readdirSync(outDir)).toEqual([]);
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
   });
 });
