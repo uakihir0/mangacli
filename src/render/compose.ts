@@ -1309,6 +1309,7 @@ function collectTranscript(el: RElement, panel: string | undefined, info: PageLa
 
 function checkTextSafety(items: Item[], geom: PageGeom, bag: DiagnosticBag, page: RPage) {
   if (geom.units.units === "px") return;
+  const movement = (mm: number) => (Math.ceil(mm * 10 - 1e-9) / 10).toFixed(1);
   for (const it of items) {
     if (!["balloon", "text", "sfx"].includes(it.el.type)) continue;
     const b = it.bbox;
@@ -1322,7 +1323,7 @@ function checkTextSafety(items: Item[], geom: PageGeom, bag: DiagnosticBag, page
     ];
     const crossed = edges.filter((e) => e.safe > 0.5);
     if (crossed.length) {
-      const details = crossed.map((e) => `${e.side}の${e.trim > 0 ? "断裁線" : "安全線"}を ${(e.trim > 0 ? e.trim : e.safe).toFixed(1)}mm 越えています、安全線まで ${e.safe.toFixed(1)}mm 内側に入れてください`);
+      const details = crossed.map((e) => `${e.side}の${e.trim > 0 ? "断裁線" : "安全線"}を ${(e.trim > 0 ? e.trim : e.safe).toFixed(1)}mm 越えています、安全線まで ${movement(e.safe)}mm 内側に入れてください`);
       bag.warn("TEXT_OUTSIDE_SAFE_AREA", `${it.el.id}: ${details.join("；")}`, { path: it.el.path, elementId: it.el.id, pageId: page.id });
     }
     if (geom.type === "spread") {
@@ -1332,7 +1333,7 @@ function checkTextSafety(items: Item[], geom: PageGeom, bag: DiagnosticBag, page
         const relation = b.x <= cx && b.x + b.w >= cx
           ? `のどをまたいでいます（左側 ${(cx - b.x).toFixed(1)}mm、右側 ${(b.x + b.w - cx).toFixed(1)}mm）`
           : `のどまで ${Math.max(b.x - cx, cx - b.x - b.w).toFixed(1)}mm です`;
-        bag.warn("TEXT_NEAR_FOLD", `${it.el.id}: ${relation}。警告帯（のどから左右 ${fm.toFixed(1)}mm）を避けるには左へ ${(b.x + b.w - cx + fm).toFixed(1)}mm または右へ ${(cx + fm - b.x).toFixed(1)}mm 移動してください`, { path: it.el.path, elementId: it.el.id, pageId: page.id });
+        bag.warn("TEXT_NEAR_FOLD", `${it.el.id}: ${relation}。警告帯（のどから左右 ${fm.toFixed(1)}mm）を避けるには左へ ${movement(b.x + b.w - cx + fm)}mm または右へ ${movement(cx + fm - b.x)}mm 移動してください`, { path: it.el.path, elementId: it.el.id, pageId: page.id });
       }
     }
   }
