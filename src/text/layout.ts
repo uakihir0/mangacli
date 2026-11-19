@@ -89,6 +89,7 @@ interface Box {
   chars: string;
   units: number[];
   adv: number; // along line (mm)
+  punctCompressed?: boolean;
   size: number; // em size mm
   orient: Orient;
   glyphs: { gid: number; font: LoadedFont; m: Matrix }[]; // matrix relative to box origin: vertical => (col center, box top); horizontal => (box left, baseline)
@@ -459,16 +460,15 @@ function fitDashes(per: Box[], vertical: boolean) {
 function compressPunctuation(b: Box, previous: Box | undefined, next: Box | undefined, style: TextStyle) {
   let advance = b.adv;
   let offset = 0;
+  if (b.punctCompressed || !style.punctCompress || b.orient === "sideways") return { advance, offset };
+  if (style.writing === "vertical" && (b.chars === "〝" || b.chars === "〟")) return { advance: advance / 2, offset };
   // Only full-width punctuation has the half-em of space that compression removes.
-  if (style.punctCompress && b.orient !== "sideways" && b.adv > b.size * 0.8) {
-    if (style.writing === "vertical" && (b.chars === "〝" || b.chars === "〟")) advance -= b.size * 0.5;
-    else {
-      if (next && isClosingPunct(b.lastChar) && (isClosingPunct(next.firstChar) || isOpeningPunct(next.firstChar))) advance -= b.size * 0.5;
-      if (previous && isOpeningPunct(b.firstChar) && isClosingPunct(previous.lastChar)) {
-        advance -= b.size * 0.5;
-        // Opening punctuation loses leading space, not the space occupied by its ink.
-        offset = -b.size * 0.5;
-      }
+  if (b.adv > b.size * 0.8) {
+    if (next && isClosingPunct(b.lastChar) && (isClosingPunct(next.firstChar) || isOpeningPunct(next.firstChar))) advance -= b.size * 0.5;
+    if (previous && isOpeningPunct(b.firstChar) && isClosingPunct(previous.lastChar)) {
+      advance -= b.size * 0.5;
+      // Opening punctuation loses leading space, not the space occupied by its ink.
+      offset = -b.size * 0.5;
     }
   }
   return { advance, offset };
@@ -562,7 +562,9 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
     for (const b of per) if (b.adv === 0) b.adv = size;
     fitDashes(per, true);
     for (const b of per) {
-      b.adv = compressPunctuation(b, undefined, undefined, style).advance;
+      const { advance } = compressPunctuation(b, undefined, undefined, style);
+      b.punctCompressed = advance !== b.adv;
+      b.adv = advance;
       positionNonokagi(b, style.lang, bshift);
     }
     // fonts without vertical forms for small kana and 、。 get them moved toward the upper right

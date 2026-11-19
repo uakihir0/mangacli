@@ -24,6 +24,29 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
+  it.each(["noto-sans-jp", "dela-gothic-one"])("compresses scaled nonokagi exactly once with %s", async (id) => {
+    const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id }]]), "none", [], {});
+    await fonts.prepare("test", "〝ヤ〟あ");
+    for (const scale of [1, 1.5, 2]) {
+      const style = { ...defaultTextStyle({ font: "test", fontSize: 10 }), glyphScale: [1, scale] as [number, number], wrap: "none" as const };
+      const halfEm = 5 * scale;
+      for (const quote of "〝〟") {
+        const single = layoutText(quote, style, fonts);
+        expect(single.lines[0].length).toBeCloseTo(halfEm);
+        expect(single.glyphs[0].cy).toBeCloseTo(halfEm / 2);
+        const ink = boundsOf(flattenPath(single.glyphs[0].path).flatMap((p) => p.pts));
+        expect(ink.y).toBeGreaterThanOrEqual(0);
+        expect(ink.y + ink.h).toBeLessThanOrEqual(single.lines[0].rect.h);
+        expect(layoutText(quote, { ...style, punctCompress: false }, fonts).lines[0].length).toBeCloseTo(2 * halfEm);
+      }
+      const result = layoutText("〝ヤ〟あ", style, fonts);
+      expect(result.lines[0].length).toBeCloseTo(6 * halfEm);
+      expect(result.glyphs.map((g) => g.cy)).toEqual([0.5, 2, 3.5, 5].map((n) => n * halfEm));
+      const wrapped = layoutText("〝ヤ〟あ", { ...style, wrap: "char", maxExtent: 4 * halfEm }, fonts);
+      expect(wrapped.lines.map((l) => l.text)).toEqual(["〝ヤ〟", "あ"]);
+      expect(wrapped.lines.map((l) => l.length)).toEqual([4 * halfEm, 2 * halfEm]);
+    }
+  });
   it.each(["noto-sans-jp", "dela-gothic-one"])("sets vertical nonokagi in half-em cells with %s", async (id) => {
     const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id }]]), "none", [], {});
     await fonts.prepare("test", "〝ヤバい〟って言った「」");
