@@ -16,7 +16,7 @@ export interface RasterOptions {
   dpi: number;
   crop: "trim" | "bleed" | "marks";
   marks?: { margin?: number; length?: number; width?: number };
-  omitFoldMarks?: boolean;
+  splitSpreadMarks?: boolean;
   maxPixels?: number;
   /** 1-bit: screen ruling for images (overrides the element's) and dither mode */
   imageLpi?: number;
@@ -151,7 +151,7 @@ function toneFlatColor(spec: ToneSpec, color: RGBA, mode: ColorMode): string {
 }
 
 /** Japanese-style crop marks (トンボ): double corner marks on the trim and bleed lines, center crosses (spec 10.6) */
-function drawCropMarks(ctx: SKRSContext2D, trim: { x: number; y: number; w: number; h: number }, bleedPx: number, s: number, m?: { length?: number; width?: number }, omitFoldMarks = false) {
+function drawCropMarks(ctx: SKRSContext2D, trim: { x: number; y: number; w: number; h: number }, bleedPx: number, s: number, m?: { length?: number; width?: number }, splitSpreadMarks = false) {
   const L = (m?.length ?? 9) * s;
   const lw = Math.max(1, (m?.width ?? 0.1) * s);
   ctx.save();
@@ -184,11 +184,12 @@ function drawCropMarks(ctx: SKRSContext2D, trim: { x: number; y: number; w: numb
     line(cx, oy, cx, oy + dy * L);
     line(ox, cy, ox, cy + dy * (b + L));
   }
-  const mx = (x0 + x1) / 2;
+  const half = Math.round(trim.w / 2);
+  const centers = splitSpreadMarks ? [x0 + half / 2, x0 + half + (trim.w - half) / 2] : [(x0 + x1) / 2];
   const my = (y0 + y1) / 2;
   const c = L * 0.5;
   // center marks
-  if (!omitFoldMarks) {
+  for (const mx of centers) {
     line(mx, y0 - b, mx, y0 - b - L);
     line(mx - c, y0 - b - L * 0.5, mx + c, y0 - b - L * 0.5);
     line(mx, y1 + b, mx, y1 + b + L);
@@ -238,7 +239,7 @@ export class RasterBackend {
       ctx.clip();
       await this.drawNode(dev, list.root, base, canvas);
       ctx.restore();
-      drawCropMarks(ctx, { x: bleedPx, y: bleedPx, w: trimPxW, h: trimPxH }, bleedOnly, s, o.marks, o.omitFoldMarks);
+      drawCropMarks(ctx, { x: bleedPx, y: bleedPx, w: trimPxW, h: trimPxH }, bleedOnly, s, o.marks, o.splitSpreadMarks);
     } else await this.drawNode(dev, list.root, base, canvas);
     const img = ctx.getImageData(0, 0, W, H);
     const data = img.data;

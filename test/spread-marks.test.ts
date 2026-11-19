@@ -11,7 +11,7 @@ pages:
 `, filename: "/v/spread-marks.yaml" });
 
 describe("split spread crop marks", () => {
-  it.each(["gray", "mono"] as const)("leaves no fold-mark fragments in %s output, retaining outer marks", async (colorMode) => {
+  it.each(["gray", "mono"] as const)("draws complete page-center crosses without fold fragments in %s output, retaining outer marks", async (colorMode) => {
     const result = await renderer.render(input("spread"), { format: "png", crop: "marks", spread: "split", dpi: 254, colorMode });
     expect(result.pages).toHaveLength(2);
     for (const page of result.pages) {
@@ -26,6 +26,11 @@ describe("split spread crop marks", () => {
       const gutterX = page.side === "left" ? info.width - 80 : 0;
       expect(ink(gutterX, 0, 80, 99)).toBe(0);
       expect(ink(gutterX, info.height - 99, 80, 99)).toBe(0);
+      const centerX = page.side === "left" ? 530 : 430;
+      for (const y of [55, info.height - 55]) {
+        for (const dx of [-40, 0, 40]) expect(ink(centerX + dx - 1, y - 1, 2, 2)).toBeGreaterThan(0);
+        for (const dy of [-40, 40]) expect(ink(centerX - 1, y + dy - 1, 2, 2)).toBeGreaterThan(0);
+      }
       const outerX = page.side === "left" ? 90 : info.width - 140;
       expect(ink(outerX, 0, 50, 100)).toBeGreaterThan(0);
     }
