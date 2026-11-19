@@ -162,7 +162,7 @@ mangacli inspect <file> [--page <ref>] [--element <id>] [--resolved] [--layout] 
 
 ```bash
 mangacli fonts install [ids...] [--set <name>] [--for <file>] [--all] [--dir <dir>] [--force]   # P0
-mangacli fonts list [--catalog] [file]                                                         # P0
+mangacli fonts list [--catalog | --system | file]                                              # P0
 mangacli fonts check <file>                                                                    # P1
 mangacli fonts verify [--dir <dir>]                                                            # P1
 mangacli fonts licenses [file] [-o <file>]                                                     # P1
@@ -171,7 +171,7 @@ mangacli fonts licenses [file] [-o <file>]                                      
 | サブコマンド | 説明 |
 |---|---|
 | `install` | カタログのフォントを取得する（[7.3.10](07-text.md#7310-フォントのカタログと取得)）。対象は、指定した ID、`--set` のフォントセット（既定 `manga-basic`）、`--for` のドキュメントが実際に使うフォント、`--all`（カタログのすべて）のいずれか。`--dir` を指定すると、ユーザーのキャッシュではなくそのディレクトリに置く。取得済みのものは、`--force` がない限り取得し直さない |
-| `list` | ドキュメントで登録したフォントとロールの対応、使うカタログのフォントと取得の状態を表示する。`--catalog` でカタログの一覧（ID、書体、太さ、大きさ、取得の状態）を表示する |
+| `list` | ドキュメントで登録したフォントとロールの対応、使うカタログのフォントと取得の状態を表示する。`--catalog` でカタログの一覧（ID、書体、太さ、大きさ、取得の状態）、`--system` でインストール済みフォントの名前・ファイル・フェイス番号を表示する |
 | `check` | ドキュメントの字形の欠落を一覧する |
 | `verify` | 取得済みのフォントのハッシュを検証する |
 | `licenses` | 使用したフォントのライセンス文と著作権表示を一覧・書き出す |

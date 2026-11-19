@@ -515,7 +515,7 @@ const FontDef = z.union([
   z.object({ alias: z.string() }).strict(),
   z.object({ catalog: z.string(), weight: z.number().optional(), bold: z.string().optional(), fallback: z.array(z.string()).optional() }).strict(),
   z.object({ compose: z.array(z.object({ font: z.string(), ranges: z.array(z.string()).optional(), scale: z.number().optional(), baselineShift: Length.optional() }).strict()), fallback: z.array(z.string()).optional(), bold: z.string().optional() }).strict(),
-  z.object({ system: z.string() }).strict(),
+  z.object({ system: z.string().trim().min(1), index: z.number().int().min(0).max(65535).optional(), variations: z.record(z.string(), z.number()).optional(), bold: z.string().optional(), fallback: z.array(z.string()).optional() }).strict(),
 ]);
 
 const Asset = z

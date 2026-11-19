@@ -66,6 +66,7 @@ export function normalizeChunk(s: string, o: NormalizeOptions, vertical: boolean
   if (o.waveDash !== false) t = t.replace(/~/g, "〜");
   if (o.uppercase) t = t.toUpperCase();
   if (o.smartQuotes) t = t.replace(/(\w)'(\w)/g, "$1’$2").replace(/(^|[\s(\[{])'/g, "$1‘").replace(/'/g, "’").replace(/(^|[\s(\[{])"/g, "$1“").replace(/"/g, "”");
+  if (vertical) t = t.replace(/“/g, "〝").replace(/”/g, "〟");
   if ((o.fullwidthMarks ?? vertical) !== false && vertical) {
     // keep 2-3 char runs of !? for tcy; convert lone marks
     t = t.replace(/[!?]+/g, (m) => (m.length >= 2 && m.length <= 3 ? m : m.replace(/!/g, "！").replace(/\?/g, "？")));

@@ -85,6 +85,8 @@ export interface RenderOptions {
   emit?: ("layout" | "ir" | "transcript" | "manifest")[];
   onProgress?: (e: { phase: string; pageId?: string; done: number; total: number }) => void;
   onDiagnostic?: (d: Diagnostic) => void;
+  /** internal: an installed font was loaded from this path */
+  onSystemFont?: (path: string) => void;
   signal?: AbortSignal;
   finish?: Finish | false;
   /** URL assets (spec 2.13): true, or limits */
@@ -285,6 +287,7 @@ function buildFonts(p: Project, o: RenderOptions): FontRegistry {
       }
       if (!isObj(v)) continue;
       if (typeof v.src === "string") defs.set(k, { kind: "file", path: v.src, index: v.index as number, variations: v.variations as Record<string, number>, bold: v.bold as string, fallback: v.fallback as string[] });
+      else if (typeof v.system === "string") defs.set(k, { kind: "system", name: v.system, index: v.index as number, variations: v.variations as Record<string, number>, bold: v.bold as string, fallback: v.fallback as string[] });
       else if (typeof v.alias === "string") defs.set(k, { kind: "alias", name: v.alias });
       else if (typeof v.catalog === "string") defs.set(k, { kind: "catalog", id: v.catalog, weight: v.weight as number, bold: v.bold as string, fallback: v.fallback as string[] });
       else if (Array.isArray(v.compose)) defs.set(k, { kind: "compose", items: v.compose as never, fallback: v.fallback as string[], bold: v.bold as string });
@@ -308,6 +311,7 @@ function buildFonts(p: Project, o: RenderOptions): FontRegistry {
     fontDir: o.fontDir,
     fontCacheDir: o.fontCacheDir,
     fontMirror: o.fontMirror,
+    onSystemFont: o.onSystemFont,
     onInfo: (code, message) => p.bag.info(code, message),
     onError: (code, message) => p.bag.error(code, message),
   }, o.fontCache);
