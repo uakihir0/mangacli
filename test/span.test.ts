@@ -27,6 +27,20 @@ pages:
 }
 
 describe("spanning elements", () => {
+  it.each(["png", "svg"] as const)("keeps curved top breakouts continuous in %s", async (format) => {
+    const doc = parse(scene("top", "over", "a"));
+    doc.pages[0].panels[0].shape = { kind: "ellipse" };
+    const result = await render(doc, { format, dpi: 127, colorMode: "gray" });
+    const box = result.layout[0].panels.find((p) => p.id === "a")!.box;
+    const { data, info } = await sharp(result.pages[0].data).resize(500, 400).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const at = (x: number, y: number) => data[(Math.round(y * 5) * info.width + Math.round(x * 5)) * info.channels];
+    for (const fraction of [0.2, 0.35, 0.5, 0.65, 0.8]) {
+      expect(at(box.x + box.w * fraction, box.y - 2)).toBeLessThan(10);
+    }
+    expect(at(box.x + box.w / 2, box.y + box.h / 2)).toBeLessThan(10);
+    expect(at(box.x + 0.5, box.y + box.h - 0.5)).toBeGreaterThan(240);
+  });
+
   it.each(["ellipse", "rounded", "cloud"])("clips over spans to the real %s panel shape", async (kind) => {
     const doc = parse(scene());
     doc.pages[0].panels[0].shape = { kind, radius: "10mm" };

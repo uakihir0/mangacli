@@ -648,7 +648,7 @@ function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["uni
     const l = Math.hypot(d.x, d.y) || 1;
     const nrm = { x: d.y / l, y: -d.x / l }; // outward for CW polygon (y-down)
     const side = nrm.y < -0.7 ? "top" : nrm.y > 0.7 ? "bottom" : nrm.x < -0.7 ? "left" : nrm.x > 0.7 ? "right" : "";
-    const off = open.has(side) ? 500 : -bw / 2;
+    const off = poly === pg.polygon && open.has(side) ? 500 : -bw / 2;
     lines.push({ p: { x: a.x + nrm.x * off, y: a.y + nrm.y * off }, d: { x: d.x / l, y: d.y / l } });
   }
   const pts: Vec[] = [];
@@ -663,7 +663,20 @@ function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["uni
     const t = ((L2.p.x - L1.p.x) * L2.d.y - (L2.p.y - L1.p.y) * L2.d.x) / den;
     pts.push({ x: L1.p.x + L1.d.x * t, y: L1.p.y + L1.d.y * t });
   }
-  return poly !== pg.polygon ? smoothPath(pts, true) : polyPath(pts, true);
+  if (poly === pg.polygon) return polyPath(pts, true);
+  const path = smoothPath(pts, true);
+  if (!open.size) return path;
+  let expanded = polygonClipping.union([flattenPath(path, 0.02)[0].pts.map((p) => [p.x, p.y] as [number, number])]);
+  const directions: Record<string, [number, number]> = { top: [0, -500], right: [500, 0], bottom: [0, 500], left: [-500, 0] };
+  for (const side of open) {
+    const [dx, dy] = directions[side];
+    const strips = expanded.flatMap((polygon) => polygon.flatMap((ring) => ring.slice(0, -1).map((a, i) => {
+      const b = ring[i + 1];
+      return [[a, b, [b[0] + dx, b[1] + dy], [a[0] + dx, a[1] + dy]]] as polygonClipping.Polygon;
+    })));
+    expanded = polygonClipping.union(expanded, ...strips);
+  }
+  return multiPolyPath(expanded);
 }
 
 // ---- misc elements ---------------------------------------------------------------
