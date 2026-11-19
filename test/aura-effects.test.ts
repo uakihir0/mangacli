@@ -47,6 +47,15 @@ describe("alpha tracing", () => {
 });
 
 describe.each(["aura", "arcs"])("%s", kind => {
+  it("clears both fills and strokes without removing ink outside clear", async () => {
+    const baseline = await raster();
+    const cleared = await raster(`effect: ${kind}, target: figure, clear: { rect: [0mm, 0mm, 64mm, 36mm] }`);
+    const split = 350 * baseline.info.width * baseline.info.channels;
+    expect(cleared.data.subarray(0, split).equals(baseline.data.subarray(0, split))).toBe(true);
+    expect(cleared.data.subarray(split).equals(baseline.data.subarray(split))).toBe(false);
+    const empty = await raster(`effect: ${kind}, target: figure, clear: page`);
+    expect(empty.data.equals(baseline.data)).toBe(true);
+  });
   it("skips missing image placeholders in draft mode", async () => {
     const { diagnostics, pages } = await render(scene(`effect: ${kind}, target: figure`), { draft: true, format: "svg", throwOnError: false });
     expect(diagnostics.filter(d => d.severity === "error")).toEqual([]);

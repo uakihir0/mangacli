@@ -840,7 +840,7 @@ function applyClear(f: FxCtx, nodes: Node[]): Node[] {
   // Line effects are cleared before inking; only filled surfaces need a mask.
   let out = nodes;
   for (const { region: reg, margin } of f.clears) {
-    const maskFills = (children: Node[], mask: (node: Node) => Node): Node[] => children.map((node) => node.kind === "group" ? { ...node, children: maskFills(node.children, mask) } : node.tag?.role === "ink" ? node : mask(node));
+    const maskFills = (children: Node[], mask: (node: Node) => Node): Node[] => children.map((node) => node.kind === "group" ? { ...node, children: maskFills(node.children, mask) } : node.tag?.role === "ink" && !["aura", "arcs"].includes(String(f.p.kind)) ? node : mask(node));
     if (reg.alphaOf) {
       const t = f.ctx.refs.get(reg.alphaOf);
       if (t?.imagePx) out = maskFills(out, (node) => ({ kind: "group", alphaMaskOf: { ...t.imagePx!, invert: true, dilate: margin }, children: [node] }));
