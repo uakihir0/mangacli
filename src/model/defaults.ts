@@ -97,7 +97,7 @@ export const BUILTIN_STYLES: Record<string, Obj> = {
   say: { shape: { kind: "ellipse" }, stroke: { width: "0.25bmm", pen: { preset: "g-pen" }, style: "solid" }, tail: { kind: "wedge" }, font: "dialogue" },
   think: { shape: { kind: "cloud" }, stroke: { width: "0.2bmm", pen: { preset: "maru-pen" }, style: "solid" }, tail: { kind: "bubbles" }, font: "thought" },
   shout: { shape: { kind: "spike" }, stroke: { width: "0.3bmm", pen: { preset: "g-pen" }, style: "solid" }, tail: { kind: "wedge", widthScale: 1.3, bend: 0, sideCurve: 0 }, font: "shout", fontScale: 1.4 },
-  whisper: { shape: { kind: "ellipse" }, stroke: { width: "0.2bmm", style: "dashed" }, tail: { kind: "wedge", widthScale: 0.7 }, font: "whisper", fontScale: 0.85 },
+  whisper: { shape: { kind: "ellipse" }, stroke: { width: "0.2bmm", style: "dashed" }, tail: { kind: "wedge" }, font: "whisper", fontScale: 0.85 },
   tremble: { shape: { kind: "wavy" }, stroke: { width: "0.22bmm" }, tail: { kind: "wedge" }, font: "dialogue" },
   narration: { shape: { kind: "rect", ruler: true }, stroke: { width: "0.2bmm", pen: { preset: "g-pen" } }, tail: { kind: "none" }, font: "narration", autoPlace: "flow", padding: ["0.6em", "0.6em"] },
   monologue: { shape: { kind: "none" }, tail: { kind: "none" }, font: "narration", textOutline: [{ width: "0.8bmm", color: "white" }] },

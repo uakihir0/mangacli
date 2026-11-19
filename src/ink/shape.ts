@@ -422,6 +422,25 @@ function dashed(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, 
   const [on, off] = line.dash ?? [1.6, 1.0];
   if (!(on > 0 && off > 0) || !Number.isFinite(on + off)) return solid(d, c, { ...line, style: "solid" }, o, rng);
   const inks: InkPoly[] = [];
+  const point = c.closed ? c.corners?.find((k) => k.kind === "point") : undefined;
+  if (point) {
+    const anchor = d.s[d.vmap[point.index]];
+    const start = anchor - on / 2;
+    const end = start + d.total;
+    const step = Math.max(0.08, hand.resolution * 0.5);
+    for (let s = start; s < end; s += on + off) {
+      const e = Math.min(s + on, end - off);
+      if (e <= s) break;
+      const draw = (a: number, b: number, tipIn: boolean, tipOut: boolean) => {
+        inks.push(...strokeOutline(slice(d, a, b, step), { width: line.width, pen: line.pen, hand, rng: rng.fork("d"), taperInLen: tipIn ? 0 : on * 0.3, taperOutLen: tipOut ? 0 : on * 0.35, ruler, inkPool: false }));
+      };
+      if (s < anchor && e > anchor) {
+        draw(s, anchor, false, true);
+        draw(anchor, e, true, false);
+      } else draw(s, e, false, false);
+    }
+    return inks;
+  }
   let s = rng.range(0, on + off);
   const end = d.total + (d.closed ? 0 : 0);
   const step = Math.max(0.08, hand.resolution * 0.5);
