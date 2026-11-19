@@ -1,5 +1,5 @@
 import { noise2 } from "../core/random.js";
-import { flattenPath, offsetPolygon, polyPath, type PathData } from "../geom/path.js";
+import { flattenPath, offsetPolygon, pointInPolygon, polyPath, type PathData } from "../geom/path.js";
 import type { Vec } from "../geom/vec.js";
 
 export interface BrushSpec { style?: "impact" | "speed"; taper?: number; entry?: number; wobble?: number }
@@ -176,37 +176,44 @@ export function emboldenGlyph(path: PathData, em: number, radius: number): PathD
   const outer = contours.reduce((largest, c) => Math.abs(area(c.pts)) > Math.abs(largest) ? area(c.pts) : largest, 0);
   const shapes = contours.map(c => ({ ...c, pts: corners(c.pts) }));
   const nearest = (a: Vec[], b: Vec[]) => {
-    let distance = Infinity, delta = { x: 0, y: 0 };
-    for (const [from, to, sign] of [[a, b, 1], [b, a, -1]] as const) for (const p of from) for (let i = 0; i < to.length; i++) {
+    if (pointInPolygon(a[0], b) || pointInPolygon(b[0], a)) return 0;
+    let distance = Infinity;
+    for (const [from, to] of [[a, b], [b, a]]) for (let k = 0; k < from.length; k++) for (let i = 0; i < to.length; i++) {
+      const p = from[k], end = from[(k + 1) % from.length];
       const q = to[i], edge = sub(to[(i + 1) % to.length], q);
+      if (cross(sub(end, p), sub(q, p)) * cross(sub(end, p), sub(to[(i + 1) % to.length], p)) < 0 && cross(edge, sub(p, q)) * cross(edge, sub(end, q)) < 0) return 0;
       const t = Math.max(0, Math.min(1, dot(sub(p, q), edge) / Math.max(1e-12, dot(edge, edge))));
       const d = sub(p, { x: q.x + edge.x * t, y: q.y + edge.y * t });
-      if (length(d) < distance) { distance = length(d); delta = { x: d.x * sign, y: d.y * sign }; }
+      distance = Math.min(distance, length(d));
     }
-    return { distance, delta };
+    return distance;
   };
-  const offsets = shapes.map(() => ({ x: 0, y: 0 }));
-  const pairs: { i: number; j: number; distance: number; delta: Vec }[] = [];
+  const widths = shapes.map(c => Math.min(em * 0.16, ...c.pts.map((p, i) => {
+    const edge = sub(c.pts[(i + 1) % c.pts.length], p);
+    const projections = c.pts.map(q => cross(edge, q) / Math.max(1e-12, length(edge)));
+    return Math.max(...projections) - Math.min(...projections);
+  })));
+  const radii = shapes.map(() => radius);
   for (let i = 0; i < shapes.length; i++) for (let j = i + 1; j < shapes.length; j++) {
     const a = shapes[i], b = shapes[j];
     if (!a.closed || !b.closed || winding(a.pts) !== Math.sign(outer) || winding(b.pts) !== Math.sign(outer)) continue;
-    const { distance, delta } = nearest(a.pts, b.pts);
-    if (distance > 1e-8) pairs.push({ i, j, distance, delta });
-  }
-  for (let pass = 0; pass < 4; pass++) for (const { i, j, distance, delta } of pairs) {
-    const a = shapes[i], b = shapes[j];
-    const axis = { x: delta.x / distance, y: delta.y / distance };
-    const gap = distance + dot(sub(offsets[i], offsets[j]), axis);
-    const clearance = radius * 2 + em * 0.04;
-    if (gap >= clearance) continue;
-    const moveA = Math.abs(area(a.pts)) < Math.abs(area(b.pts));
-    const target = offsets[moveA ? i : j], amount = (clearance - gap) * (moveA ? 1 : -1);
-    target.x += axis.x * amount;
-    target.y += axis.y * amount;
+    const distance = nearest(a.pts, b.pts), width = Math.min(widths[i], widths[j]);
+    if (distance <= 0 || width <= 0) continue;
+    const clearance = Math.min(distance, Math.max(width * 0.5, distance * 0.8) + em * 0.02);
+    const fits = (factor: number) => nearest(offsetPolygon(a.pts, radii[i] * factor), offsetPolygon(b.pts, radii[j] * factor)) >= clearance * (1 + (radii[i] + radii[j]) * factor / width);
+    if (fits(1)) continue;
+    let lo = 0, hi = 1;
+    for (let pass = 0; pass < 16; pass++) {
+      const mid = (lo + hi) / 2;
+      if (fits(mid)) lo = mid;
+      else hi = mid;
+    }
+    radii[i] *= lo;
+    radii[j] *= lo;
   }
   return shapes.flatMap((c, i) => {
-    const pts = c.pts.map(p => ({ x: p.x + offsets[i].x, y: p.y + offsets[i].y }));
+    const pts = c.pts;
     if (!c.closed || pts.length < 3) return polyPath(pts, c.closed);
-    return polyPath(offsetPolygon(pts, winding(pts) === Math.sign(outer) ? radius : -radius), true);
+    return polyPath(offsetPolygon(pts, winding(pts) === Math.sign(outer) ? radii[i] : -radius), true);
   });
 }

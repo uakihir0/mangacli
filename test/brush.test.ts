@@ -1,12 +1,26 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { flattenPath, polyPath } from "../src/geom/path.js";
+import { flattenPath, pointInPolygon, polyPath } from "../src/geom/path.js";
 import { brushGlyph, detectBrushTerminals, emboldenGlyph } from "../src/text/brush.js";
 import { FontRegistry } from "../src/fonts/registry.js";
 import { defaultTextStyle, layoutText } from "../src/text/layout.js";
+import { sfxWeightRadius } from "../src/text/sfx.js";
 
 const rectangle = [{ x: 0, y: 0 }, { x: 1.5, y: 0 }, { x: 1.5, y: 10 }, { x: 0, y: 10 }];
 const path = polyPath(rectangle, true);
+const contourGap = (a: typeof rectangle, b: typeof rectangle) => {
+  if (pointInPolygon(a[0], b) || pointInPolygon(b[0], a)) return 0;
+  let gap = Infinity;
+  for (const [ps, qs] of [[a, b], [b, a]]) for (let i = 0; i < ps.length; i++) for (let j = 0; j < qs.length; j++) {
+    const p = ps[i], end = ps[(i + 1) % ps.length], q = qs[j], next = qs[(j + 1) % qs.length];
+    const cross = (u: typeof p, v: typeof p, w: typeof p) => (v.x - u.x) * (w.y - u.y) - (v.y - u.y) * (w.x - u.x);
+    if (cross(p, end, q) * cross(p, end, next) < 0 && cross(q, next, p) * cross(q, next, end) < 0) return 0;
+    const dx = next.x - q.x, dy = next.y - q.y;
+    const t = Math.max(0, Math.min(1, ((p.x - q.x) * dx + (p.y - q.y) * dy) / Math.max(1e-12, dx * dx + dy * dy)));
+    gap = Math.min(gap, Math.hypot(p.x - q.x - dx * t, p.y - q.y - dy * t));
+  }
+  return gap;
+};
 const widthAt = (pts: typeof rectangle, y: number) => {
   const xs = pts.flatMap((a, i) => {
     const b = pts[(i + 1) % pts.length];
@@ -16,14 +30,37 @@ const widthAt = (pts: typeof rectangle, y: number) => {
 };
 
 describe("brush pressure", () => {
-  it("keeps close dot strokes separate while increasing their absolute weight", () => {
+  it.each(["ツ", "シ"])("keeps all three compensated %s strokes disjoint with visible gaps", async char => {
+    const fonts = new FontRegistry(new Map(), "manga-basic", [], {});
+    await fonts.prepare("sfx", char);
+    const source = layoutText(char, defaultTextStyle({ font: "sfx", fontSize: 10 }), fonts).glyphs[0].path;
+    const before = flattenPath(source, 0.01);
+    for (const smallScale of [0.6, 0.7]) {
+      const compensated = emboldenGlyph(source, 10, sfxWeightRadius("impact", smallScale) * 10);
+      for (const pd of [compensated, brushGlyph(compensated, 10, 42)]) {
+        const after = flattenPath(pd, 0.01);
+        expect(after).toHaveLength(3);
+        for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) {
+          const gap = contourGap(after[i].pts, after[j].pts);
+          expect(gap).toBeGreaterThanOrEqual(1.6 * 0.4);
+          expect(gap / 1.6).toBeGreaterThanOrEqual(contourGap(before[i].pts, before[j].pts) / 1.6 * 0.8);
+        }
+      }
+    }
+  });
+  it("clamps close dot strokes rather than moving them to fit extra weight", () => {
     const dot = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1.6 }, { x: 0, y: 1.6 }];
-    const source = [...polyPath(dot, true), ...polyPath(dot.map(p => ({ ...p, x: p.x + 1.1 })), true)];
+    const source = [...polyPath(dot, true), ...polyPath(dot.map(p => ({ ...p, x: p.x + 2.5 })), true)];
     const result = flattenPath(emboldenGlyph(source, 10, 0.25), 0.01);
     expect(result).toHaveLength(2);
     const ranges = result.map(c => [Math.min(...c.pts.map(p => p.x)), Math.max(...c.pts.map(p => p.x))]);
-    expect(ranges[0][1] - ranges[0][0]).toBeCloseTo(1.5);
-    expect(ranges[1][0] - ranges[0][1]).toBeGreaterThanOrEqual(0.19);
+    const width = ranges[0][1] - ranges[0][0];
+    expect(width).toBeGreaterThan(1);
+    expect(width).toBeLessThan(1.5);
+    expect(ranges[1][0] - ranges[0][1]).toBeGreaterThanOrEqual(width * 0.5);
+    expect((ranges[0][0] + ranges[0][1]) / 2).toBeCloseTo(0.5);
+    expect(emboldenGlyph([], 10, 0.25)).toEqual([]);
+    expect(emboldenGlyph(path, 10, 0)).toBe(path);
   });
   it.each(["impact", "speed"] as const)("preserves both strokes and their principal directions in ン (%s)", async style => {
     const fonts = new FontRegistry(new Map(), "manga-basic", [], {});
