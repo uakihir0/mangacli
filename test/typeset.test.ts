@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FontRegistry } from "../src/fonts/registry.js";
 import { defaultTextStyle, layoutText } from "../src/text/layout.js";
-import { noStart } from "../src/text/linebreak.js";
+import { noEnd, noStart } from "../src/text/linebreak.js";
 import { parseMarkup } from "../src/text/markup.js";
 
 const reg = new FontRegistry(new Map() as never, "manga-basic", [], {});
@@ -25,6 +25,27 @@ describe("typesetting", () => {
   });
   it("handles empty text with a column limit", async () => {
     expect((await lines("", { maxChars: 1 })).join("")).toBe("");
+  });
+  it("applies nonokagi kinsoku after normalizing vertical quotes", async () => {
+    const result = await lines("あ“ヤバい”って言った", { maxChars: 2, wrap: "char" });
+    expect(result.join("")).toBe("あ〝ヤバい〟って言った");
+    expect(result.length).toBeGreaterThan(1);
+    for (const line of result) {
+      expect(noStart(Array.from(line)[0] ?? "", "strict"), line).toBe(false);
+      expect(noEnd(Array.from(line).at(-1) ?? "", "strict"), line).toBe(false);
+    }
+  });
+  it("shapes normalized quotes like explicit vertical nonokagi", async () => {
+    await reg.prepare("dialogue", "“ヤバい”〝〟");
+    const style = defaultTextStyle({ font: "dialogue", fontSize: 10 });
+    const normalized = layoutText("“ヤバい”", style, reg);
+    const explicit = layoutText("〝ヤバい〟", style, reg);
+    expect(normalized.missing).toEqual([]);
+    expect(normalized.glyphs.length).toBeGreaterThan(0);
+    expect(normalized.glyphs).toEqual(explicit.glyphs);
+    const horizontal = layoutText("“ヤバい”", { ...style, writing: "horizontal" }, reg);
+    expect(horizontal.plain).toBe("“ヤバい”");
+    expect(horizontal.glyphs).not.toEqual(normalized.glyphs);
   });
   it("keeps closing chains attached after hanging punctuation", async () => {
     expect(await lines("あ。」』", { maxChars: 1, hanging: true })).toEqual(["あ。」』"]);
