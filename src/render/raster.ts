@@ -254,11 +254,12 @@ export class RasterBackend {
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, W, H);
     }
-    const artwork = ctx.createImageData(raster.width, raster.height);
-    artwork.data.set(raster.data);
-    ctx.putImageData(artwork, margin, margin);
     if (margin) drawCropMarks(ctx, { x: margin + b, y: margin + b, w: raster.width - 2 * b, h: raster.height - 2 * b }, b, s, o.marks);
-    return this.result(canvas);
+    const result = this.result(canvas);
+    for (let y = 0; y < raster.height; y++) {
+      result.data.set(raster.data.subarray(y * raster.width * 4, (y + 1) * raster.width * 4), ((y + margin) * W + margin) * 4);
+    }
+    return result;
   }
 
   private result(canvas: Canvas): RasterResult {

@@ -71,6 +71,18 @@ describe("split spread crop marks", () => {
     expect(pdf.match(/\/TrimBox \[36\.85 36\.85 263\.622 206\.929\]/g)).toHaveLength(2);
   });
 
+  it.each(["mono", "gray"] as const)("preserves debug overlay pixels in %s artwork when adding marks", async (colorMode) => {
+    const options = { format: "png", spread: "split", dpi: 254, colorMode, debug: true } as const;
+    const marked = await renderer.render(input("spread"), { ...options, crop: "marks" });
+    const bleed = await renderer.render(input("spread"), { ...options, crop: "bleed" });
+    for (const page of marked.pages) {
+      const artwork = await sharp(page.data).extract({ left: 100, top: 100, width: 860, height: 660 }).ensureAlpha().raw().toBuffer();
+      const original = await sharp(bleed.pages.find((p) => p.side === page.side)!.data).ensureAlpha().raw().toBuffer();
+      expect(artwork.equals(original)).toBe(true);
+      expect(original.some((v, i) => i % 4 === 0 && v !== original[i + 1])).toBe(true);
+    }
+  });
+
   it.each(["spread", "page"] as const)("retains top and bottom center crosses for joined %s pages", async (type) => {
     const result = await renderer.render(input(type), { format: "png", crop: "marks", spread: "joined", dpi: 254, colorMode: "gray" });
     expect(result.pages).toHaveLength(1);
