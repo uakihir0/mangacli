@@ -28,6 +28,7 @@ export { installFonts, catalogStatus, setFontRefs, type InstallFontsOptions, typ
 export { loadCatalog, type CatalogFont } from "./fonts/catalog.js";
 export { defaultFontCacheDir } from "./fonts/download.js";
 export { PROFILES, type Profile } from "./output/profiles.js";
+export type { PdfXOptions } from "./output/pdfx.js";
 export { jsonSchema } from "./schema/jsonschema.js";
 export { Contour, definePlugin, z, type MangaPlugin, type PluginBalloonShape, type PluginDrawable, type PluginDrawContext } from "./plugin.js";
 export type { DisplayList, Node, GroupNode, PathNode, ImageNode, Paint, ToneSpec } from "./render/ir.js";
