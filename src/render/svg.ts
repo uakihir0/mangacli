@@ -12,6 +12,7 @@ export interface SvgOptions {
   outputScale?: number;
   marks?: { margin?: number; length?: number; width?: number };
   crop: "trim" | "bleed" | "marks";
+  splitSide?: "left" | "right";
   assets: AssetRegistry;
   /** resolution of embedded images (the output dpi); line art keeps it up to the source resolution */
   imageDpi?: number;
@@ -59,13 +60,26 @@ function binarize(src: Uint8Array): Uint8Array {
 
 const matrix = (m: Matrix) => `matrix(${m.map(n).join(" ")})`;
 
+export function svgBox(list: DisplayList, o: Pick<SvgOptions, "crop" | "marks" | "splitSide">) {
+  const bleed = -list.boxes.bleed.x;
+  const margin = o.crop === "marks" ? o.marks?.margin ?? 10 : 0;
+  const box = o.crop === "trim"
+    ? { x: bleed, y: bleed, w: list.boxes.trim.w, h: list.boxes.trim.h }
+    : { x: -margin, y: -margin, w: list.size.width + 2 * margin, h: list.size.height + 2 * margin };
+  if (o.splitSide) {
+    const right = box.x + box.w;
+    box.w = box.w / 2 + (o.crop === "trim" ? 0 : bleed) + margin;
+    if (o.splitSide === "right") box.x = right - box.w;
+  }
+  return box;
+}
+
 export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<string> {
   const defs: string[] = [];
   let uid = 0;
   const id = (p: string) => `${p}${++uid}`;
   const bleed = -list.boxes.bleed.x;
-  const margin = o.crop === "marks" ? o.marks?.margin ?? 10 : 0;
-  const box = o.crop === "trim" ? { x: bleed, y: bleed, w: list.boxes.trim.w, h: list.boxes.trim.h } : { x: -margin, y: -margin, w: list.size.width + 2 * margin, h: list.size.height + 2 * margin };
+  const box = svgBox(list, o);
 
   const fillOf = (p: Paint): string => {
     if (p.type === "solid") {
@@ -178,23 +192,22 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
 
   const node = async (x: Node): Promise<string> => (x.kind === "group" ? group(x) : x.kind === "path" ? path(x) : image(x));
 
-  let body = await node(list.root);
-  let marks = "";
+  const body = await node(list.root);
+  const marks: string[] = [];
   if (o.crop === "marks") {
-    const clip = id("marks-clip");
-    defs.push(`<clipPath id="${clip}"><rect x="0" y="0" width="${n(list.size.width)}" height="${n(list.size.height)}"/></clipPath>`);
-    body = `<g clip-path="url(#${clip})">${body}</g>`;
-    const lines = cropMarkLines({ x: bleed, y: bleed, w: list.boxes.trim.w, h: list.boxes.trim.h }, bleed, o.marks?.length ?? 9);
-    const path = lines.map(([x0, y0, x1, y1]) => `M${n(x0)} ${n(y0)}L${n(x1)} ${n(y1)}`).join("");
-    marks = `<path d="${path}" fill="none" stroke="#000000" stroke-width="${n(o.marks?.width ?? 0.1)}" stroke-linecap="butt"/>`;
+    const margin = o.marks?.margin ?? 10;
+    const artwork = { x: box.x + margin, w: box.w - 2 * margin };
+    defs.push(`<clipPath id="artwork-bleed"><rect x="${n(artwork.x)}" width="${n(artwork.w)}" height="${n(list.size.height)}"/></clipPath>`);
+    for (const [x0, y0, x1, y1] of cropMarkLines({ x: artwork.x + bleed, y: bleed, w: artwork.w - 2 * bleed, h: list.boxes.trim.h }, bleed, o.marks?.length ?? 9)) {
+      marks.push(`<path d="M${n(x0)} ${n(y0)}L${n(x1)} ${n(y1)}"/>`);
+    }
   }
   return [
     `<?xml version="1.0" encoding="UTF-8"?>`,
     `<svg xmlns="http://www.w3.org/2000/svg" width="${n(box.w * (o.outputScale ?? 1))}mm" height="${n(box.h * (o.outputScale ?? 1))}mm" viewBox="${n(box.x)} ${n(box.y)} ${n(box.w)} ${n(box.h)}" data-page="${esc(list.page.id)}">`,
     `<rect x="${n(box.x)}" y="${n(box.y)}" width="${n(box.w)}" height="${n(box.h)}" fill="#ffffff"/>`,
     defs.length ? `<defs>${defs.join("")}</defs>` : "",
-    body,
-    ...(marks ? [marks] : []),
+    o.crop === "marks" ? `<g clip-path="url(#artwork-bleed)">${body}</g><g data-type="crop-marks" fill="none" stroke="#000000" stroke-width="${n(o.marks?.width ?? 0.1)}" stroke-linecap="butt">${marks.join("")}</g>` : body,
     `</svg>`,
     "",
   ].join("\n");

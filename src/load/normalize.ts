@@ -7,10 +7,11 @@ type Obj = Record<string, unknown>;
 type Path = (string | number)[];
 
 export const ELEMENT_TYPES = ["image", "balloon", "text", "sfx", "effect", "fill", "mark", "draw", "group", "scatter"] as const;
-const SHORTHAND_ORDER = ["image", "balloon", "sfx", "text", "effect", "mark", "draw", "tone", "group", "scatter"];
+const SHORTHAND_ORDER = ["image", "balloon", "aside", "sfx", "text", "effect", "mark", "draw", "tone", "group", "scatter"];
 const PRIMARY: Record<string, [string, string]> = {
   image: ["image", "src"],
   balloon: ["balloon", "text"],
+  aside: ["balloon", "text"],
   sfx: ["sfx", "text"],
   text: ["text", "text"],
   effect: ["effect", "kind"],
@@ -120,10 +121,11 @@ function normElement(raw: unknown, path: Path, bag: DiagnosticBag): unknown {
     if (prim !== key && prim in el && key !== "text") {
       bag.error("SCHEMA_SHORTHAND_CONFLICT", `both "${key}" and "${prim}" are given`, { path });
     }
-    if (key === "balloon" || key === "sfx") {
+    if (key === "balloon" || key === "aside" || key === "sfx") {
       if ("text" in el) bag.error("SCHEMA_SHORTHAND_CONFLICT", `both "${key}" and "text" are given`, { path });
     }
     el = { type, ...el };
+    if (key === "aside") el.as = "aside";
     if (key === "tone") el.paint = typeof val === "string" && /^[\d.]+%$/.test(val.trim()) ? `tone(${val})` : val;
     else if (key === "scatter") el.items = Array.isArray(val) ? val : [val];
     else el[prim] = val;
