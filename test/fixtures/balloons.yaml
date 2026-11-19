@@ -23,7 +23,7 @@ pages:
       - layers:
           - { balloon: あ, shape: flash, minSize: [14mm, 12mm], hand: ink, fill: white, color: black }
       - layers:
-          - { balloon: あ, shape: electronic, minSize: [14mm, 12mm], hand: clean, fill: white, color: black }
+          - { balloon: あ, as: electronic, minSize: [14mm, 12mm], tail: { direction: 120deg, length: 4.5mm }, hand: ink, fill: white, color: black }
       - layers:
           - { balloon: あ, shape: hexagon, minSize: [14mm, 12mm], hand: ink, fill: black, color: white }
       - layers:

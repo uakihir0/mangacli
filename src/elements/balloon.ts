@@ -819,7 +819,8 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
   const isFlash = plan.params.kind === "flash";
   let fillPoly: Vec[] = contour.pts;
   if (!isNone) {
-    const res = inkShape(contour, { line: isFlash ? { ...bb.stroke, style: "none" } : bb.stroke, hand: plan.hand, rng: bb.rng.fork("body"), ruler: bb.ruler, join: plan.params.join ?? (bb.ruler ? "clean" : "overshoot"), strokes: plan.params.strokes, sizeHint: Math.min(plan.outer.w, plan.outer.h) });
+    const cleanJoin = bb.ruler || plan.body.kind === "electronic";
+    const res = inkShape(contour, { line: isFlash ? { ...bb.stroke, style: "none" } : bb.stroke, hand: plan.hand, rng: bb.rng.fork("body"), ruler: bb.ruler, join: plan.params.join ?? (cleanJoin ? "clean" : "overshoot"), strokes: plan.params.strokes, sizeHint: Math.min(plan.outer.w, plan.outer.h) });
     fillPoly = res.fill;
     const fn = fillNode(res.fill, plan.fill, tag(el, "fill"));
     // a thin rim of the fill colour outside the outline keeps it readable over black art

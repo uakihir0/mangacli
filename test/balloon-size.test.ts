@@ -5,8 +5,45 @@ import type { ElemCtx } from "../src/elements/context.js";
 import { FontRegistry } from "../src/fonts/registry.js";
 import { pointInPolygon } from "../src/geom/path.js";
 import { resolveDocument } from "../src/model/resolve.js";
+import { BODY_GENERATORS } from "../src/shapes/balloon.js";
 
 const fonts = new FontRegistry(new Map() as never, "manga-basic", [], {});
+
+describe("electronic balloon outline", () => {
+  it.each([[16, 29], [31, 15], [18, 18]])("spaces equally deep teeth on a %s × %s mm body", (w, h) => {
+    const params = { kind: "electronic", irregularity: 0, tilt: 0 };
+    const electronic = BODY_GENERATORS.electronic;
+    const { contour, inner } = electronic(w, h, params, 1);
+    const base = electronic(w, h, { ...params, jag: 0 }, 1).contour.pts;
+    const widths: number[] = [];
+    const depths: number[] = [];
+    expect(contour.closed).toBe(true);
+    expect(contour.pts).toHaveLength(16);
+    expect(electronic(w, h, params, 2).contour).toEqual(contour);
+    for (let i = 0; i < contour.pts.length; i += 2) {
+      const start = contour.pts[i];
+      const end = contour.pts[(i + 2) % contour.pts.length];
+      const peak = contour.pts[i + 1];
+      expect(start).toEqual(base[i]);
+      widths.push(Math.hypot(end.x - start.x, end.y - start.y));
+      depths.push(Math.hypot(peak.x - base[i + 1].x, peak.y - base[i + 1].y));
+    }
+    expect(Math.max(...widths) / Math.min(...widths)).toBeLessThan(1.15);
+    expect(Math.min(...depths)).toBeGreaterThan(0);
+    expect(Math.max(...depths)).toBeCloseTo(Math.min(...depths), 8);
+    expect(inner.every((p) => pointInPolygon(p, contour.pts))).toBe(true);
+  });
+
+  it("honors the requested tooth count and depth", () => {
+    const params = { kind: "electronic", corners: 7, jag: 0, irregularity: 0, tilt: 0 };
+    const shallow = BODY_GENERATORS.electronic(20, 20, params, 1).contour;
+    const deep = BODY_GENERATORS.electronic(20, 20, { ...params, jag: 0.5 }, 1).contour;
+    expect(shallow.corners).toEqual([]);
+    expect(deep.corners?.filter(({ kind }) => kind === "convex")).toHaveLength(7);
+    expect(Math.hypot(deep.pts[1].x, deep.pts[1].y)).toBeGreaterThan(Math.hypot(shallow.pts[1].x, shallow.pts[1].y));
+  });
+});
+
 async function plan(text: string, writing = "vertical", props: Record<string, unknown> = {}, doc: Record<string, unknown> = {}) {
   const bag = new DiagnosticBag();
   const resolved = resolveDocument({
