@@ -541,7 +541,11 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
     const dash = seg.findIndex((c) => DASHES.has(c));
     if (dash >= 0) {
       if (dash > 0) shapeSegment(seg.slice(0, dash), segUnits.slice(0, dash), pk, size0, o, vertical, style, boxes);
-      const half = size * gx * 0.035;
+      const glyph = shape(f, seg[dash], "ltr", style.lang)[0];
+      const bounds = glyph ? inkBox(f, glyph.gid) : undefined;
+      const inkThickness = bounds ? (bounds[3] - bounds[1]) / f.upem : 0;
+      const thickness = Number.isFinite(inkThickness) && inkThickness > 0 ? inkThickness / 2 : 0.07;
+      const half = size * gx * Math.max(0.05, Math.min(0.12, thickness)) / 2;
       const adv = size * gy;
       const path: PathData = [["M", bshift - half, 0], ["L", bshift + half, 0], ["L", bshift + half, adv], ["L", bshift - half, adv], ["Z"]];
       boxes.push({ chars: seg[dash], units: [segUnits[dash]], adv, size: size0, orient: o, glyphs: [{ gid: 0, font: f, m: [1, 0, 0, 1, 0, 0], path }], firstChar: seg[dash], lastChar: seg[dash] });

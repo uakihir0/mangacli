@@ -42,8 +42,13 @@ describe("typesetting", () => {
       expect(Math.max(...rects.map((r) => r.x + r.w)) - Math.min(...rects.map((r) => r.x))).toBeLessThanOrEqual(10 + 1e-8);
     }
     const dashes = layoutText("──っ！！", style, fonts).glyphs.slice(0, 2).map((g) => ink(g.path));
+    const fontDash = ink(layoutText("─", { ...style, writing: "horizontal" }, fonts).glyphs[0].path);
+    const thickness = Math.max(0.5, Math.min(1.2, fontDash.h / 2));
     for (const dash of dashes) {
-      expect(dash.w).toBeCloseTo(0.7);
+      expect(dash.w).toBeCloseTo(thickness);
+      expect(dash.w).toBeGreaterThanOrEqual(0.5 - 1e-8);
+      expect(dash.w).toBeLessThanOrEqual(1.2 + 1e-8);
+      if (id === "dela-gothic-one") expect(dash.w).toBeGreaterThan(0.7);
       expect(dash.h).toBeCloseTo(10);
     }
     expect(dashes[0].y + dashes[0].h).toBeCloseTo(dashes[1].y);
