@@ -130,6 +130,11 @@ describe("preview guides overlay", () => {
       expect(html).toContain("mangacli-guides");
       // legend samples use the same colours as the guides layer
       expect(html).toContain('class="legend"');
+      // the warning list falls back to the cached Noto Sans JP for Japanese text
+      expect(html).toContain("mangacli-ui");
+      const font = await fetch(`${base}/ui-font`);
+      expect([200, 404]).toContain(font.status);
+      if (font.status === 200) expect(font.headers.get("content-type")).toBe("font/ttf");
       for (const c of [GUIDE_COLORS.trim, GUIDE_COLORS.bleed, GUIDE_COLORS.safe, GUIDE_COLORS.fold]) expect(html).toContain(`stroke="${c}"`);
       const src = html.match(/data-src="([^"]+)"/)![1]!;
       const plain = await pixels(new Uint8Array(await (await fetch(base + src)).arrayBuffer()));

@@ -8,7 +8,7 @@ import { GUIDE_COLORS, type RenderOptions, render, validate } from "../api.js";
 import { PDF_X_VERSIONS } from "../output/pdfx.js";
 import { type MangaConfig, findConfig, loadConfig } from "../config.js";
 import { type Diagnostic, MangaError, MangaValidationError } from "../core/diagnostics.js";
-import { defaultFontSet, loadCatalog } from "../fonts/catalog.js";
+import { defaultFontSet, findCatalogFont, loadCatalog } from "../fonts/catalog.js";
 import { defaultFontCacheDir, findLocalCatalogFont } from "../fonts/download.js";
 import { installFonts } from "../fonts/install.js";
 import { listSystemFonts } from "../fonts/system.js";
@@ -535,7 +535,8 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
   // line samples in the same colours and dash styles as the guides layer
   const guideLegend = () => {
     const line = (color: string, dash: string) => `<svg width="28" height="10" aria-hidden="true"><line x1="1" y1="5" x2="27" y2="5" stroke="${color}" stroke-width="2.5"${dash ? ` stroke-dasharray="${dash}"` : ""}/></svg>`;
-    const band = `<svg width="28" height="10" aria-hidden="true"><rect x="1" y="0" width="26" height="10" fill="${GUIDE_COLORS.foldBand}" stroke="${GUIDE_COLORS.fold}" stroke-dasharray="3 2"/></svg>`;
+    // the band is translucent over white paper, so sample it on white to match the page
+    const band = `<svg width="28" height="10" aria-hidden="true"><rect x="1" y="0" width="26" height="10" fill="#fff"/><rect x="1" y="0" width="26" height="10" fill="${GUIDE_COLORS.foldBand}" stroke="${GUIDE_COLORS.fold}" stroke-dasharray="3 2"/></svg>`;
     const items: [string, string][] = [
       [line(GUIDE_COLORS.trim, ""), t("断裁", "trim")],
       [line(GUIDE_COLORS.bleed, "2.5 2.5"), t("塗り足し", "bleed")],
@@ -545,7 +546,7 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
     return `<span class="legend">${items.map(([sample, name]) => `<span>${sample}${esc(name)}</span>`).join("")}</span>`;
   };
   const html = () => `<!doctype html><meta charset="utf-8"><title>mangacli preview</title>
-<style>body{margin:0;background:#3a3a3a;font:13px system-ui;color:#ddd}header{padding:8px 12px;background:#222;position:sticky;top:0;display:flex;gap:16px;align-items:center}header label{margin-left:auto;cursor:pointer}.legend{display:flex;gap:10px;align-items:center}.legend span{display:flex;gap:4px;align-items:center}body:not(.guides) .legend{display:none}
+<style>@font-face{font-family:mangacli-ui;src:url(/ui-font);font-display:swap}body{margin:0;background:#3a3a3a;font:13px system-ui,"Hiragino Sans","Noto Sans CJK JP","Noto Sans JP","Yu Gothic UI",Meiryo,mangacli-ui,sans-serif;color:#ddd}header{padding:8px 12px;background:#222;position:sticky;top:0;display:flex;gap:16px;align-items:center}header label{margin-left:auto;cursor:pointer}.legend{display:flex;gap:10px;align-items:center}.legend span{display:flex;gap:4px;align-items:center}body:not(.guides) .legend{display:none}
 main{display:flex;flex-wrap:wrap;flex-direction:row-reverse;gap:16px;padding:16px;justify-content:center}figure{margin:0;position:relative}
 img{max-height:85vh;box-shadow:0 2px 12px #0008;background:#fff}figcaption{text-align:center;padding:4px}
 .d{padding:2px 12px}.error{color:#ff8080}.warning{color:#ffd480}.d[data-page]{cursor:pointer}.d.selected{background:#665020}header{z-index:2}.highlight{position:absolute;border:3px solid #ff36b1;box-shadow:0 0 0 1px #fff;pointer-events:none;box-sizing:border-box;z-index:1}</style>
@@ -609,6 +610,17 @@ new EventSource("/events").onmessage=()=>location.reload()</script>`;
         res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
         res.end(JSON.stringify({ width: p.width, height: p.height, elements: p.elements }));
       });
+      return;
+    }
+    if (url.pathname === "/ui-font") {
+      // Japanese fallback for the warning list when the system has no CJK font: the cached catalog Noto Sans JP, never downloaded here
+      void configFor(o, entry).then((config) => {
+        const f = findCatalogFont("noto-sans-jp", 400);
+        const path = f && findLocalCatalogFont(f, { fontDir: config?.fontDir, fontCacheDir: config?.fontCacheDir });
+        if (!path) return void res.writeHead(404).end();
+        res.writeHead(200, { "content-type": "font/ttf", "cache-control": "max-age=86400" });
+        res.end(readFileSync(path));
+      }, () => res.writeHead(404).end());
       return;
     }
     if (url.pathname === "/") {
