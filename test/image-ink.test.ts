@@ -4,6 +4,18 @@ import { render } from "../src/api.js";
 import { imageInkMask } from "../src/render/image-ink.js";
 
 describe("print image ink preservation", () => {
+  it("preserves a line whose luminance changes gradually along its length", () => {
+    const width = 192;
+    const rgba = new Uint8Array(width * width * 4);
+    for (let i = 0; i < width * width; i++) rgba.set([180, 180, 180, 255], i * 4);
+    for (let x = 16; x < 176; x++) {
+      const v = Math.round(100 + (x - 16) * 25 / 159);
+      rgba.set([v, v, v, 255], (40 * width + x) * 4);
+    }
+    const mask = imageInkMask(rgba, width, width, 324);
+    for (let x = 16; x < 176; x++) expect(mask[40 * width + x], `pixel=${x}`).toBe(1);
+  });
+
   it.each([1 / 2, 1 / 3, Math.tan(20 * Math.PI / 180), Math.tan(70 * Math.PI / 180)])("preserves long lines at slope %s", (slope) => {
     const width = 192;
     for (const light of [false, true]) {

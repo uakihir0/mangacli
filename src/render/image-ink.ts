@@ -66,9 +66,11 @@ export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number
           const flush = () => {
             const length = last - start + 1;
             if (start >= 0 && length * step >= minLength && count / length >= 0.85) {
+              let local = gray[matches[start]];
               for (let p = start; p <= last; p++) {
                 const i = matches[p] >= 0 ? matches[p] : ray[p];
-                if ((gray[i] <= midpoint) === (polarity === 1) && Math.abs(gray[i] - reference) <= 0.035) mask[i] = polarity;
+                if (matches[p] >= 0) local = gray[i];
+                if ((gray[i] <= midpoint) === (polarity === 1) && Math.abs(gray[i] - local) <= 0.035) mask[i] = polarity;
               }
             }
             start = last = -1;
@@ -76,10 +78,14 @@ export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number
           };
           for (let p = 0; p < ray.length; p++) {
             if (matches[p] >= 0 && (start < 0 || Math.abs(gray[matches[p]] - reference) <= 0.035)) {
-              if (start < 0) { start = p; reference = gray[matches[p]]; }
+              if (start < 0) start = p;
+              reference = gray[matches[p]];
               last = p;
               count++;
-            } else if (start >= 0 && p - last > maxGap) flush();
+            } else {
+              matches[p] = -1;
+              if (start >= 0 && p - last > maxGap) flush();
+            }
           }
           flush();
         }
