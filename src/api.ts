@@ -394,6 +394,9 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   const bag = p.bag;
   const timings: Record<string, number> = {};
   const result: RenderResult = { pages: [], files: [], diagnostics: bag.items, failures: [], layout: [], timings };
+  const emitDiagnostics = () => {
+    if (options.onDiagnostic) for (const d of result.diagnostics) options.onDiagnostic(d);
+  };
   const throwOnError = options.throwOnError !== false;
   const fail = () => {
     if (throwOnError) throw errorFor(bag.items);
@@ -561,6 +564,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
     }
     if (bag.hasErrors) {
       if (throwOnError) throw new MangaRenderError("OUTPUT_TOO_LARGE", result.failures.map((f) => f.error.message).join("\n"), bag.items, result.failures);
+      emitDiagnostics();
       return result;
     }
   }
@@ -600,6 +604,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
     }
     if (bag.hasErrors) {
       if (throwOnError) throw new MangaRenderError(result.failures.some((f) => f.error.message.startsWith("OUTPUT_TOO_LARGE:")) ? "OUTPUT_TOO_LARGE" : "RENDER_FAILED", result.failures.map((f) => f.error.message).join("\n"), bag.items, result.failures);
+      emitDiagnostics();
       return result;
     }
   }
@@ -873,7 +878,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
     result.diagnostics = bag.items.map((d) => (d.severity === "warning" ? { ...d, severity: "error" as const } : d));
     if (throwOnError) throw new MangaValidationError(result.diagnostics);
   }
-  if (options.onDiagnostic) for (const d of result.diagnostics) options.onDiagnostic(d);
+  emitDiagnostics();
   if (result.failures.length && throwOnError) {
     const codes = bag.items.filter((d) => d.severity === "error").map((d) => d.code);
     const msg = result.failures.map((f) => `${f.pageId}: ${f.error.message}`).join("\n");
