@@ -319,7 +319,13 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       if (el.props.clip === "panel") el.props.clip = "none";
       return el;
     });
-    const settings = merge(deepClone((doc.page ?? {}) as Obj), pickPageSettings(pg));
+    const defaultSettings = deepClone((doc.page ?? {}) as Obj);
+    const localSettings = pickPageSettings(pg);
+    const settings = merge(defaultSettings, localSettings);
+    if (isObj(localSettings.background) && isObj(defaultSettings.background) &&
+        ("image" in localSettings.background) !== ("image" in defaultSettings.background)) {
+      settings.background = localSettings.background;
+    }
     if (pg.printScale !== undefined && pg.printSize === undefined) delete settings.printSize;
     if (pg.printSize !== undefined && pg.printScale === undefined) delete settings.printScale;
     let hand: Obj = {};
@@ -344,7 +350,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
 }
 
 function pickPageSettings(pg: Obj): Obj {
-  const keys = ["size", "orientation", "units", "dpi", "bleed", "baseFrame", "safeArea", "gutter", "background", "color", "foldMargin", "printScale", "printSize", "invert", "filters", "exclude"];
+  const keys = ["size", "orientation", "units", "dpi", "bleed", "baseFrame", "safeArea", "gutter", "background", "gutterFill", "color", "foldMargin", "printScale", "printSize", "invert", "filters", "exclude"];
   const o: Obj = {};
   for (const k of keys) if (pg[k] !== undefined) o[k] = pg[k];
   return o;

@@ -173,7 +173,8 @@ book:
 | `baseFrame` | BaseFrame \| `trim` | 4.1 | ✓ | 基本枠 |
 | `safeArea` | `{ inset: Length }` | `{ inset: 5mm }` | ✓ | 安全領域 |
 | `gutter` | Length \| `{ col, row }` | `{ col: 2.5mm, row: 5mm }` | ✓ | 間白（[4.6.6](#466-間白gutter)） |
-| `background` | Paint | `paper` | ✓ | ページの地の塗り。間白の色になる |
+| `background` | Paint \| `{ image, fit?, bleed? }` | `paper` | ✓ | ページの地の塗り、または下敷きの画像 |
+| `gutterFill` | `paper` \| `none` | `paper` | ✓ | 下敷きの画像の上で間白を白く塗るか、そのまま見せるか |
 | `color` | `mono` \| `color` | `mono` | ✓ | 色の意図（[10.1](10-color-and-output.md#101-カラーモデル)） |
 | `layout` | Layout | 1 コマ | | コマ割り（[4.6](#46-コマ割りlayout)） |
 | `panels` | Panel[] | - | | コマ（[4.7](#47-コマのプロパティ)） |
@@ -186,6 +187,14 @@ book:
 | `foldMargin` | Length | 10 mm | ✓ | 見開き（`type: spread`）で、中央付近の文字を警告する範囲（[4.15](#415-見開き)） |
 
 `dpi` の既定値は、`color` が `mono` なら 600、`color` なら 350、判型を px で定義した場合は 96 とする。
+
+### 4.5.1 ぶち抜きゴマ（ページ全面の絵）
+
+`background: { image: city-night, fit: cover, bleed: all }` で、ページ全体の下に 1 枚の絵を敷く。`image` は素材 ID または画像パス。`fit` は画像要素と同じ指定で、既定は `cover`。`bleed: all` は塗り足しまで広げ、省略時は仕上がりの範囲に収める。
+
+`gutterFill: none` なら間白からも絵が見える。既定の `paper` はレイアウト領域内でコマに覆われない部分を白く塗る（画像のないページには影響しない）。コマを `background: none, border: none` にすると、枠線も地の塗りもなく、下敷きが見える。別のコマに `knockout: 1.5mm` を付けると、コマの輪郭の外側を白く抜く。読み順や自動配置の指定は通常のコマ割りと同じ。
+
+[YAML 作例](examples/full-page-art.yaml) · [出力画像](images/full-page-art.png)
 
 ## 4.6 コマ割り（layout）
 
@@ -350,7 +359,7 @@ layout:
 | `z` | 数値 | `0` | コマの重なり順 |
 | `order` | 整数 | 自動 | 読み順の上書き（1 始まり） |
 | `overlay` | 真偽値 | `false` | レイアウトの葉に割り当てず、`box` / `polygon` で他のコマの上に重ねる |
-| `knockout` | Length | `0` | コマの周囲を、この幅だけ間白の色（ページの `background`）で抜く。重ねゴマの縁に使う |
+| `knockout` | Length | `0` | コマの輪郭から外側へこの幅だけ抜く。ページの下敷きが画像なら白、塗りならページの地の色を使う |
 | `visible` | 真偽値 | `true` | 描画するか |
 | `note` | 文字列 | - | メモ。描画しない。デバッグ表示と `inspect` に出す |
 
@@ -431,9 +440,9 @@ defaults:
 
 1 ページは次の順に描く。
 
-1. ページの地（`page.background`）を塗り足しの全体に塗る。
+1. ページの地（`page.background`）を塗り足しの全体に塗る。下敷きの画像を指定した場合は白地の上に画像を置き、`gutterFill` に応じて間白を塗る。
 2. コマを（`z`、読み順）の昇順に描く。各コマについて:
-   1. `knockout` があれば、コマの多角形をその幅だけ広げた形を、ページの地の色で塗る。
+   1. `knockout` があれば、コマの周囲を白（画像の下敷きがある場合）またはページの地の色で抜く。
    2. コマの形でクリップする。
    3. コマの地（`background`）を塗る。
    4. `clip: panel` の要素（[5.4](05-elements-and-images.md#54-クリップとはみ出し)）を（`z`、リストの順）の昇順に描く。
