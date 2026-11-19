@@ -14,6 +14,37 @@ function ink(path: PathData): PathNode {
   return { kind: "path", path, fillRule: "nonzero", paint: { type: "solid", color: BLACK }, tag: { elementId: "balloon", elementType: "balloon", role: "ink", separation: "balloon" } };
 }
 
+async function renderCorner(clip: string, background = "white") {
+  const dpi = 300;
+  const r = createRenderer({ profile: "print-mono", dpi });
+  const input = { filename: "/v/corner.yaml", yaml: `mangacli: 1
+page: { size: [75mm, 65mm], bleed: 0mm }
+pages:
+  - panels:
+      - border: { width: 0.5mm }
+        background: ${background}
+        layers:
+          - balloon: ""
+            id: bubble
+            at: [5.2mm, 5.2mm]
+            clip: ${clip}
+            shape: { kind: ellipse, irregularity: 0, strokes: 1 }
+            size: [12mm, 12mm]
+            hand: clean
+            tail: none
+            halo: none
+` };
+  const list = await r.displayList(input, 1);
+  const page = await r.renderPage(input, 1);
+  const { x, y } = list.boxes.baseFrame;
+  const px = (mm: number) => Math.round(mm * dpi / 25.4);
+  return async (dx: number, dy: number, w: number, h: number) => {
+    const crop = { left: px(x + dx), top: px(y + dy), width: px(w), height: px(h) };
+    const raw = await sharp(page.data).extract(crop).greyscale().raw().toBuffer();
+    return raw.some((byte) => byte < 128);
+  };
+}
+
 describe("cut balloon ink", () => {
   const clean = cleanClippedBalloonInk(rect(0, 0, 40, 30));
 
@@ -46,34 +77,15 @@ describe("cut balloon ink", () => {
   });
 
   it.each(["panel", "auto", "{ to: panel, open: [right] }", "none"])("rasterizes an arc with clip: %s", async (clip) => {
-    const dpi = 300;
-    const r = createRenderer({ profile: "print-mono", dpi });
-    const input = { filename: "/v/corner.yaml", yaml: `mangacli: 1
-page: { size: [75mm, 65mm], bleed: 0mm }
-pages:
-  - panels:
-      - border: { width: 0.5mm }
-        layers:
-          - balloon: ""
-            at: [5mm, 5mm]
-            clip: ${clip}
-            shape: { kind: ellipse, irregularity: 0, strokes: 1 }
-            size: [12mm, 12mm]
-            hand: clean
-            tail: none
-            halo: none
-` };
-    const list = await r.displayList(input, 1);
-    const page = await r.renderPage(input, 1);
-    const { x, y } = list.boxes.baseFrame;
-    const px = (mm: number) => Math.round(mm * dpi / 25.4);
-    const containsInk = async (dx: number, dy: number, w: number, h: number) => {
-      const crop = { left: px(x + dx), top: px(y + dy), width: px(w), height: px(h) };
-      const raw = await sharp(page.data).extract(crop).greyscale().raw().toBuffer();
-      return raw.some((byte) => byte < 128);
-    };
-    expect(await containsInk(0.45, 0.45, 1.5, 1.5)).toBe(clip === "none");
+    const containsInk = await renderCorner(clip);
+    expect(await containsInk(0.39, 0.39, 1.8, 1.8)).toBe(clip === "none");
     expect(await containsInk(10, 4, 1.5, 2)).toBe(true); // long side of the same ellipse
-    expect(await containsInk(0, 2, 0.15, 1)).toBe(true); // frame is still solid
+    expect(await containsInk(0, 14, 0.15, 1)).toBe(true); // frame is still solid
+  });
+
+  it("closes the isolated corner pocket without blanking nearby dark art", async () => {
+    const containsInk = await renderCorner("panel", "black");
+    expect(await containsInk(0.39, 0.39, 1.8, 1.8)).toBe(false);
+    expect(await containsInk(12, 4, 1.5, 2)).toBe(true);
   });
 });
