@@ -707,6 +707,7 @@ function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; bo
       const elements: GroupElement[] = [];
       for (const c of el.children ?? []) {
         const r: ReturnType<typeof renderMisc> = c.type === "text" ? renderText(c, cctx) : c.type === "sfx" ? renderSfx(c, cctx) : renderMisc(c, cctx);
+        if (!r.nodes.length) continue;
         nodes.push(...r.nodes);
         elements.push({ id: c.id, type: c.type, ...(r.bounds ?? { bbox: r.bbox }) }, ...(r.elements ?? []));
       }
@@ -723,7 +724,7 @@ function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; bo
       }
       if (transform) for (const e of elements) e.transform = e.transform ? matMul(transform, e.transform) : transform;
       const bounds = { bbox: sized ? { x: 0, y: 0, w: gw as number, h: gh as number } : ctx.coordsBox, transform };
-      return { nodes: [{ kind: "group", transform, children: nodes, tag: tag(el, "fill") }], bbox, bounds, elements };
+      return { nodes: nodes.length ? [{ kind: "group", transform, children: nodes, tag: tag(el, "fill") }] : [], bbox, bounds, elements };
     }
   }
   return { nodes: [], bbox: ctx.coordsBox };

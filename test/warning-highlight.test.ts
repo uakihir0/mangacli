@@ -69,6 +69,15 @@ it("registers nested children in page coordinates and supplies their diagnostic 
   expect(result.pages[0]!.elements.map((e) => e.id).sort()).toEqual(["child", "inner", "outer"]);
 });
 
+it("does not register phantom boxes for group children with empty draw results", async () => {
+  const source = groupedYaml.replace("            children:\n", `            children:
+              - {image: missing.png, id: ghost}
+              - {type: group, id: empty, children: [{image: missing.png, id: nested-ghost}]}
+`);
+  const result = await renderer.render({ yaml: source }, { format: "svg" });
+  expect(result.pages[0]!.elements.map((e) => e.id).sort()).toEqual(["child", "inner", "outer"]);
+});
+
 it.each(["trim", "bleed"] as const)("returns element boxes in %s output pixels, including split spreads", async (crop) => {
   const input = { yaml: yaml("spread", "100mm, 20mm"), filename: "/v/highlight.yaml" };
   const joined = await renderer.render(input, { format: "png", crop, dpi: 254 });
