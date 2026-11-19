@@ -696,13 +696,13 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
         if (k < 0 && canBreakBetween(cur[cur.length - 1], b, "word", style)) k = cur.length;
       }
       if (k < 0 && (wrap === "phrase" || wrap === "balanced")) {
-        for (let j = cur.length - 1; j >= 1; j--) {
+        if (canBreakBetween(cur[cur.length - 1], b, "char", style)) k = cur.length;
+        for (let j = cur.length - 1; j >= 1 && k < 0; j--) {
           if (canBreakBetween(cur[j - 1], cur[j], "char", style)) {
             k = j;
             break;
           }
         }
-        if (k < 0 && canBreakBetween(cur[cur.length - 1], b, "char", style)) k = cur.length;
       }
       if (k < 0 && canBreakBetween(cur[cur.length - 1], b, wrap, style)) k = cur.length;
       // a latin word longer than the line overflows rather than splitting mid-word (the balloon grows)
