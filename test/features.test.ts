@@ -49,7 +49,7 @@ describe("features", () => {
   });
   it("aims a longer wedge at its speaker and keeps a thought trail detached", async () => {
     const list = await r.displayList(y(page(
-      "          - { id: speech, balloon: 見て, at: [20mm, 18mm], size: [20mm, 18mm], tail: { to: [20mm, 45mm] } }\n" +
+      "          - { id: speech, balloon: 見て, at: [20mm, 18mm], size: [20mm, 18mm], tail: { to: [20mm, 45mm], length: 13mm } }\n" +
       "          - { id: thought, balloon: 思う, as: think, at: [58mm, 18mm], size: [20mm, 18mm], tail: { to: [58mm, 45mm] } }\n",
     ).replace("[80mm, 60mm]", "B5")), 1);
     const fills = (node: Node, id: string): number[][] => {

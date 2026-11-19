@@ -45,7 +45,7 @@ assets:
   p4-1: { src: ./art/p4-1.png, character: mio, anchors: { mouth: [1220, 790], hayato: [570, 665] }, regions: { face: [1020, 450, 400, 500], avoid: [400, 350, 325, 430] } }
   p4-2: { src: ./art/p4-2.png, character: mio, anchors: { mouth: [1000, 1110] }, regions: { face: [830, 710, 455, 475] } }
   p4-3: { src: ./art/p4-3.png, character: hayato, anchors: { mouth: [1970, 200] }, regions: { face: [1900, 135, 150, 105] } }
-  p4-4: { src: ./art/p4-4.png, character: mio, anchors: { mouth: [1230, 425] }, regions: { face: [1130, 280, 225, 225] } }
+  p4-4: { src: ./art/p4-4.png, character: mio, anchors: { mouth: [1225, 440] }, regions: { face: [1155, 248, 257, 271] } }
 
 pages:
   # ── 1 ページ目 ───────────────────────────────
@@ -147,7 +147,7 @@ pages:
   - id: p4
     layout:
       split: rows
-      sizes: [1.48, 1]
+      sizes: [2.15, 1]
       slant: [-5mm]
       children:
         - split: cols
@@ -186,6 +186,6 @@ pages:
       - id: p4-d
         bleed: [bottom, left, right]
         layers:
-          - { image: p4-4, id: mio7, focus: [0.5, 0.35] }
+          - { image: p4-4, id: mio7, focus: [0.5, 0.18] }
         dialogue:
-          - { mio: "次は絶対、\n勝つからね!!", as: scream, fontScale: 1.14, at: [21%, 36%] }
+          - { mio: "次は絶対、\n勝つからね!!", as: scream, fontScale: 1.14, at: [21%, 36%], tail: { to: mio7.mouth } }

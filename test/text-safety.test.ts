@@ -6,6 +6,11 @@ const input = (type: "page" | "spread", at: string, layers = true, bleed?: boole
   yaml: `mangacli: 1
 meta: { lang: en }
 page: { size: B5, bleed: 3mm }
+defaults:
+  sfx:
+    perChar: { rotate: [-6deg, 6deg], scale: [1, 1] }
+    distort: { skew: 0deg }
+    outline: [{ width: 0.8bmm, color: white }]
 pages:
   - type: ${type}
     panels: []
