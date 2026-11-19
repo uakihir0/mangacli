@@ -46,6 +46,27 @@ describe("layout", () => {
     const r = await validate(yaml("mangacli: 1\npages:\n  - panels:\n      - layers:\n          - balloon: とても長いセリフがここに入りますがとても入りきりません\n            size: [8mm, 8mm]\n"));
     expect(r.diagnostics.some((d) => d.code === "TEXT_OVERFLOW" || d.code === "TEXT_SHRUNK")).toBe(true);
   });
+  it("grows auto-sized balloons before shrinking phrase-wrapped text", async () => {
+    const r = await validate(yaml(`mangacli: 1
+page: { size: B6, color: mono }
+defaults:
+  balloon: { fontSize: 5mm, wrap: auto }
+pages:
+  - layout:
+      rows:
+        - { cols: [1] }
+        - { cols: [1] }
+        - { cols: [1] }
+    panels:
+      - layers:
+          - { balloon: "ねえ…聞いてる？", id: ellipsis, maxChars: 5 }
+      - layers:
+          - { balloon: "さすがにひどいんじゃないですか", maxChars: 7 }
+      - {}
+`));
+    expect(r.ok).toBe(true);
+    expect(r.diagnostics.filter((d) => ["TEXT_SHRUNK", "TEXT_OVERFLOW", "BALLOON_TOO_LARGE"].includes(d.code))).toEqual([]);
+  });
 });
 
 describe("rendering", () => {
