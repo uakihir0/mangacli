@@ -82,6 +82,8 @@ export interface RenderOptions {
   emit?: ("layout" | "ir" | "transcript" | "manifest")[];
   onProgress?: (e: { phase: string; pageId?: string; done: number; total: number }) => void;
   onDiagnostic?: (d: Diagnostic) => void;
+  /** internal: an installed font was loaded from this path */
+  onSystemFont?: (path: string) => void;
   signal?: AbortSignal;
   finish?: Finish | false;
   /** URL assets (spec 2.13): true, or limits */
@@ -306,6 +308,7 @@ function buildFonts(p: Project, o: RenderOptions): FontRegistry {
     fontDir: o.fontDir,
     fontCacheDir: o.fontCacheDir,
     fontMirror: o.fontMirror,
+    onSystemFont: o.onSystemFont,
     onInfo: (code, message) => p.bag.info(code, message),
     onError: (code, message) => p.bag.error(code, message),
   }, o.fontCache);

@@ -1,9 +1,11 @@
-import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFileSync, spawn } from "node:child_process";
+import { copyFile, mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
+import { stringify as yaml } from "yaml";
 import { render, validate } from "../src/api.js";
 import { findSystemFont, readSystemFontFaces } from "../src/fonts/system.js";
 
@@ -107,5 +109,45 @@ describe.runIf(process.env.MANGACLI_TEST_SYSTEM_FONTS === "1")("installed Linux 
     expect(await pixels(result.pages[0].data)).toEqual(await pixels(fromFile.pages[0].data));
     const missing = await validate(manga({ system: postScript, index: 0 }), options);
     expect(missing.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: "FONT_NOT_FOUND" })]));
+  });
+
+  it("watch re-renders when a system font used by parallel workers changes", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mc-font-watch-"));
+    const root = join(import.meta.dirname, "..");
+    const fontDir = join(dir, "fonts");
+    const path = join(fontDir, "Lato-Regular.ttf");
+    const config = join(dir, "fonts.conf");
+    const document = join(dir, "manga.yaml");
+    await mkdir(fontDir);
+    await copyFile(join(root, "assets/fonts/Lato-Regular.ttf"), path);
+    await writeFile(config, `<fontconfig><dir>${fontDir}</dir><cachedir>${join(dir, "cache")}</cachedir></fontconfig>`);
+    const doc = manga({ system: "Lato-Regular" });
+    const page = { layers: [{ text: "Lettering", font: "lettering", fontSize: "5mm", at: ["50%", "50%"], writing: "horizontal" }] };
+    await writeFile(document, yaml({ ...doc, pages: [page, { layers: [{ ...page.layers[0], text: "Page two" }] }] }));
+    const child = spawn(process.execPath, ["--import", "tsx", "src/cli/index.ts", "watch", document, "--out", join(dir, "out"), "--concurrency", "2", "--no-config", "--no-download", "--json"], {
+      cwd: root,
+      env: { ...process.env, FONTCONFIG_FILE: config },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "", errors = "";
+    child.stdout.on("data", (data) => { output += data; });
+    child.stderr.on("data", (data) => { errors += data; });
+    const waitForRenders = async (count: number) => {
+      for (let i = 0; i < 160 && child.exitCode === null; i++) {
+        if ((output.match(/"type":"result"/g) ?? []).length >= count) return;
+        await delay(100);
+      }
+      throw new Error(`Expected ${count} watch render(s):\n${output}\n${errors}`);
+    };
+    try {
+      await waitForRenders(1);
+      expect(output).toContain('"code":"FONT_SYSTEM_USED"');
+      const later = new Date(Date.now() + 2000);
+      await utimes(path, later, later);
+      await waitForRenders(2);
+    } finally {
+      child.kill();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

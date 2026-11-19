@@ -61,7 +61,7 @@ const UI_FONT = join(PACKAGE_ROOT, "assets", "fonts", "Lato-Regular.ttf");
 /** A physical font descriptor */
 interface Phys {
   key: string;
-  load: () => Promise<Uint8Array | { data: Uint8Array; index: number; label: string }>;
+  load: () => Promise<Uint8Array | { data: Uint8Array; index: number; label: string; path: string }>;
   index: number;
   variations?: Record<string, number>;
   /** cheap coverage check before loading */
@@ -85,7 +85,7 @@ export class FontRegistry {
     private defs: Map<string, FontDef>,
     private fontSet: string | "none",
     private globalFallback: string[],
-    private fetchOpts: FontFetchOptions,
+    private fetchOpts: FontFetchOptions & { onSystemFont?: (path: string) => void },
     /** cache shared between registries (catalog fonts are immutable) */
     private shared?: Map<string, LoadedFont>,
   ) {}
@@ -147,7 +147,7 @@ export class FontRegistry {
             const face = findSystemFont(await (this.systemFonts ??= listSystemFonts()), def.name, def.index);
             if (!face) throw Object.assign(new Error(`system font ${query} not found`), { code: "ENOENT" });
             const label = face.postScriptNames[0] ?? face.fullNames[0] ?? face.families[0];
-            return { data: await readFile(face.path), index: face.index, label };
+            return { data: await readFile(face.path), index: face.index, label, path: face.path };
           },
         };
       case "bytes":
@@ -280,12 +280,12 @@ export class FontRegistry {
         }
         if (this.failed.has(p.key)) return;
         let lf: LoadedFont;
-        let systemIndex: number | undefined;
+        let system: { index: number; path: string } | undefined;
         try {
           const loaded = await p.load();
           if (loaded instanceof Uint8Array) lf = makeLoaded(p, loaded);
           else {
-            systemIndex = loaded.index;
+            system = loaded;
             lf = makeLoaded({ ...p, index: loaded.index, label: loaded.label }, loaded.data);
           }
         } catch (e) {
@@ -297,8 +297,10 @@ export class FontRegistry {
           return;
         }
         this.loaded.set(p.key, lf);
-        if (systemIndex !== undefined)
-          this.fetchOpts.onInfo?.("FONT_SYSTEM_USED", `${p.label}: using installed font ${JSON.stringify(lf.label)} (face ${systemIndex})`);
+        if (system) {
+          this.fetchOpts.onInfo?.("FONT_SYSTEM_USED", `${p.label}: using installed font ${JSON.stringify(lf.label)} (face ${system.index})`);
+          this.fetchOpts.onSystemFont?.(system.path);
+        }
         if (shareable) this.shared?.set(p.key, lf);
       }),
     );
