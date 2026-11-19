@@ -11,6 +11,10 @@ const lines = async (t: string, o: Record<string, unknown> = {}) => {
 };
 
 describe("typesetting", () => {
+  it("distinguishes an independent hiragana verb from okurigana", async () => {
+    expect(await lines("帰る前おごるよ", { maxChars: 4 })).toEqual(["帰る前", "おごるよ"]);
+    expect(await lines("聞いてる？", { maxChars: 5 })).toEqual(["聞いてる？"]);
+  });
   it("reserves room for prohibited starts when splitting a long word", async () => {
     const result = await lines("ウルトラマン！", { maxChars: 3 });
     expect(result.join("")).toBe("ウルトラマン！");

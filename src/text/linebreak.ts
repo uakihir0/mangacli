@@ -68,7 +68,8 @@ export function phraseBoundaries(text: string, lang = "ja"): Set<number> {
     if (prev) {
       // a word after punctuation always starts a new phrase; standalone words never attach
       const afterPunct = /[、。，．！？‼⁇⁈⁉!?…‥」』）]$/u.test(prev.s) && !PUNCT_START.test(w.s);
-      const free = STANDALONE.has(w.s) || (HIRA_VERB.test(w.s) && !AUX.has(w.s) && !PARTICLES.has(w.s) && !KANJI_ONLY.test(lastWord));
+      const teOkurigana = KANJI_ONLY.test(lastWord) && /^(?:いて|いで|って|んで)/u.test(w.s);
+      const free = STANDALONE.has(w.s) || (HIRA_VERB.test(w.s) && !AUX.has(w.s) && !PARTICLES.has(w.s) && !teOkurigana);
       const afterContrast = /(?:では|じゃ)$/u.test(prev.s) && AUX.has(w.s);
       const attach =
         !afterPunct && !afterContrast &&
