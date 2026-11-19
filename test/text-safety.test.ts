@@ -116,4 +116,13 @@ describe("sfx text safety", () => {
     const result = await renderer.render(doc, { format: "svg" });
     expect(result.diagnostics.filter((d) => safetyCodes.includes(d.code))).toEqual([]);
   });
+
+  it("does not warn exactly 0.5mm past the bottom safe line on Letter", async () => {
+    const doc = input("page", "60mm, 261.2mm");
+    doc.yaml = doc.yaml.replace("size: B5", "size: [8.5in, 11in], safeArea: { inset: 12.7mm }")
+      .replace("panels: []", "panels: [{}]");
+    expect(261.2 + 6 - 12.7 - (11 * 25.4 - 2 * 12.7)).toBeGreaterThan(0.5);
+    const result = await renderer.render(doc, { format: "svg", strict: true });
+    expect(result.diagnostics.filter((d) => safetyCodes.includes(d.code))).toEqual([]);
+  });
 });
