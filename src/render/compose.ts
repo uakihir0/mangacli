@@ -16,7 +16,7 @@ import { textValue } from "../elements/textstyle.js";
 import type { FontRegistry } from "../fonts/registry.js";
 import { miterFrameEdges } from "../geom/miter.js";
 import { flattenPath, parseSvgPath, polyPath, smoothPath, transformPath } from "../geom/path.js";
-import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
+import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, matMul, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
 import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
@@ -270,7 +270,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       const c2 = { ...ctx, coordsBox: coordsFor(el, ctx, geom) };
       try {
         const nodes = renderMisc(el, c2);
-        info.elements.push(...(nodes.elements ?? []).map((e) => ({ ...e, panel: ctx.panel?.panel.id })));
+        info.elements.push(...(nodes.elements ?? []).map(({ id, type, bbox, transform }) => ({ id, type, bbox: transform ? boundsOf(rectPts(bbox).map((p) => applyMat(transform, p))) : bbox, panel: ctx.panel?.panel.id })));
         processed.set(el.id, mkItem(el, nodes.nodes, nodes.bbox, panelIdx, i, source, ctx));
       } catch (e) {
         bag.error("RENDER_FAILED", `${el.id}: ${(e as Error).message}`, { path: el.path, elementId: el.id });
@@ -620,7 +620,10 @@ function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["uni
 
 // ---- misc elements ---------------------------------------------------------------
 
-function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; elements?: PageLayoutInfo["elements"] } {
+type GroupBounds = { bbox: Rect; transform?: Matrix };
+type GroupElement = GroupBounds & { id: string; type: string };
+
+function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; bounds?: GroupBounds; elements?: GroupElement[] } {
   const p = el.props;
   switch (el.type) {
     case "effect": {
@@ -701,11 +704,11 @@ function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; el
       const sized = gw !== "auto" && gh !== "auto";
       const cctx: ElemCtx = sized ? { ...ctx, coordsBox: { x: 0, y: 0, w: gw as number, h: gh as number }, localFrame: true } : ctx;
       const nodes: Node[] = [];
-      const elements: PageLayoutInfo["elements"] = [];
+      const elements: GroupElement[] = [];
       for (const c of el.children ?? []) {
         const r: ReturnType<typeof renderMisc> = c.type === "text" ? renderText(c, cctx) : c.type === "sfx" ? renderSfx(c, cctx) : renderMisc(c, cctx);
         nodes.push(...r.nodes);
-        elements.push({ id: c.id, type: c.type, bbox: r.bbox }, ...(r.elements ?? []));
+        elements.push({ id: c.id, type: c.type, ...(r.bounds ?? { bbox: r.bbox }) }, ...(r.elements ?? []));
       }
       let transform: [number, number, number, number, number, number] | undefined;
       let bbox = ctx.coordsBox;
@@ -718,8 +721,9 @@ function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; el
         const pl = place({ ...p, at: undefined, anchor: [0.5, 0.5] }, 0, 0, pc, c);
         transform = pl.matrix as typeof transform;
       }
-      if (transform) for (const e of elements) e.bbox = boundsOf(rectPts(e.bbox).map((p) => applyMat(transform!, p)));
-      return { nodes: [{ kind: "group", transform, children: nodes, tag: tag(el, "fill") }], bbox, elements };
+      if (transform) for (const e of elements) e.transform = e.transform ? matMul(transform, e.transform) : transform;
+      const bounds = { bbox: sized ? { x: 0, y: 0, w: gw as number, h: gh as number } : ctx.coordsBox, transform };
+      return { nodes: [{ kind: "group", transform, children: nodes, tag: tag(el, "fill") }], bbox, bounds, elements };
     }
   }
   return { nodes: [], bbox: ctx.coordsBox };

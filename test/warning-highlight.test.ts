@@ -32,6 +32,35 @@ const groupedYaml = yaml().replace(/    layers:[\s\S]*/, `    layers:
             children:
               - {text: Hello, id: child, size: [2mm, 2mm], overflow: clip, fontSize: 4mm, writing: horizontal, at: [2mm, 5mm], anchor: top-left}
 `);
+const rotatedYaml = yaml("spread").replace(/    layers:[\s\S]*/, `    layers:
+      - type: group
+        id: outer
+        size: [160mm, 60mm]
+        at: [0mm, 0mm]
+        anchor: top-left
+        rotate: 45deg
+        children:
+          - type: group
+            id: inner
+            size: [160mm, 60mm]
+            at: [0mm, 0mm]
+            anchor: top-left
+            rotate: -45deg
+            children:
+              - {text: Hello, id: child, size: [2mm, 8mm], overflow: clip, fontSize: 12mm, writing: horizontal, at: [77mm, 20mm], anchor: top-left}
+`);
+
+it("does not inflate child bounds when nested rotations cancel across a split fold", async () => {
+  const result = await renderer.render({ yaml: rotatedYaml }, { format: "png", dpi: 254, spread: "split" });
+  const left = result.pages.find((p) => p.side === "left")!;
+  const right = result.pages.find((p) => p.side === "right")!;
+  const box = left.elements.find((e) => e.id === "child")!;
+  expect(box.x).toBeCloseTo(770);
+  expect(box.y).toBeCloseTo(200);
+  expect(box.width).toBeCloseTo(20);
+  expect(box.height).toBeCloseTo(80);
+  expect(right.elements.some((e) => e.id === "child")).toBe(false);
+});
 
 it("registers nested children in page coordinates and supplies their diagnostic page", async () => {
   const result = await renderer.render({ yaml: groupedYaml }, { format: "png", dpi: 254 });
@@ -70,17 +99,19 @@ it.each(["png", "svg"] as const)("keeps %s boxes aligned with print-scaled outpu
 });
 
 it.each([
-  { format: "png", source: yaml(), code: "TEXT_OUTSIDE_SAFE_AREA", id: "lettering", hasBox: true },
-  { format: "svg", source: yaml(), code: "TEXT_OUTSIDE_SAFE_AREA", id: "lettering", hasBox: true },
-  { format: "png", source: groupedYaml, code: "TEXT_CLIPPED", id: "child", hasBox: true },
-  { format: "png", source: groupedYaml.replace("at: [10mm, 10mm]", "at: [100mm, 100mm]"), code: "TEXT_CLIPPED", id: "child", hasBox: false },
-])("serves $format $id warning rows (box: $hasBox)", async ({ format, source, code, id, hasBox }) => {
+  { format: "png", source: yaml(), code: "TEXT_OUTSIDE_SAFE_AREA", id: "lettering", hasBox: true, pageIndex: 0 },
+  { format: "svg", source: yaml(), code: "TEXT_OUTSIDE_SAFE_AREA", id: "lettering", hasBox: true, pageIndex: 0 },
+  { format: "png", source: groupedYaml, code: "TEXT_CLIPPED", id: "child", hasBox: true, pageIndex: 0 },
+  { format: "png", source: groupedYaml.replace("at: [10mm, 10mm]", "at: [100mm, 100mm]"), code: "TEXT_CLIPPED", id: "child", hasBox: false, pageIndex: 0 },
+  { format: "png", source: rotatedYaml, code: "TEXT_CLIPPED", id: "child", hasBox: true, pageIndex: 1 },
+  { format: "png", source: rotatedYaml.replace("size: [2mm, 8mm]", "size: [4mm, 8mm]"), code: "TEXT_CLIPPED", id: "child", hasBox: true, pageIndex: 1 },
+])("serves $format $id warning rows (box: $hasBox, page: $pageIndex)", async ({ format, source, code, id, hasBox, pageIndex }) => {
   const root = join(import.meta.dirname, "..");
   const dir = mkdtempSync(join(tmpdir(), "mc-highlight-"));
   const file = join(dir, "warning.yaml");
   writeFileSync(file, source);
   const port = 44000 + Math.floor(Math.random() * 2000);
-  const proc = spawn(join(root, "node_modules/.bin/tsx"), [join(root, "src/cli/index.ts"), "preview", file, "--port", String(port), "--format", format, "--dpi", "254", "--no-config"], { cwd: root });
+  const proc = spawn(join(root, "node_modules/.bin/tsx"), [join(root, "src/cli/index.ts"), "preview", file, "--port", String(port), "--format", format, "--spread", "split", "--dpi", "254", "--no-config"], { cwd: root });
   try {
     await new Promise<void>((ok, fail) => {
       const timer = setTimeout(() => fail(new Error("preview did not start")), 60_000);
@@ -91,16 +122,16 @@ it.each([
     });
     const html = await (await fetch(`http://127.0.0.1:${port}/`)).text();
     const row = html.match(new RegExp(`<div class="d warning"[^>]*>${code}[^<]*<\\/div>`))![0];
-    expect(row).toContain('data-page="0"');
+    expect(row).toContain(`data-page="${pageIndex}"`);
     expect(row).toContain('role="button"');
     if (!hasBox) {
       expect(row).not.toContain("data-box");
       return;
     }
     const box = JSON.parse(row.match(/data-box="([^"]+)"/)![1]!.replaceAll("&quot;", '"'));
-    const rendered = await renderer.render(file, { format: format as "png" | "svg", dpi: 254 });
-    expect(box).toEqual(rendered.pages[0]!.elements.find((e) => e.id === id));
-    const page = rendered.pages[0]!;
+    const rendered = await renderer.render(file, { format: format as "png" | "svg", dpi: 254, spread: "split" });
+    expect(box).toEqual(rendered.pages[pageIndex]!.elements.find((e) => e.id === id));
+    const page = rendered.pages[pageIndex]!;
     expect(html).toContain(`data-width="${page.width}" data-height="${page.height}"`);
     const img = { naturalWidth: format === "svg" ? 302 : page.width, naturalHeight: format === "svg" ? 227 : page.height, clientWidth: 400, clientHeight: 300, offsetLeft: 0, offsetTop: 0, dataset: { width: String(page.width), height: String(page.height) } };
     const frame = { style: {} as Record<string, string> };

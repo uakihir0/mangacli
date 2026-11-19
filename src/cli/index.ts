@@ -532,7 +532,15 @@ img{max-height:85vh;box-shadow:0 2px 12px #0008;background:#fff}figcaption{text-
 <header>${esc(relative(process.cwd(), entry))} — ${pages.length} page(s)
 <label title="${esc(t("安全領域の線と見開き中央の危険帯を重ねて表示", "Overlay the safe line and the spread fold danger band"))}"><input type="checkbox" id="guides"> ${esc(t("ガイド（安全線・ノド）", "Guides (safe line, fold)"))}</label></header>
 <section>${diags.filter((d) => d.severity !== "info").map((d) => {
-    const i = d.elementId ? pages.findIndex((p) => (!d.pageId || p.id === d.pageId) && p.elements.some((e) => e.id === d.elementId)) : -1;
+    let i = -1;
+    let overlap = 0;
+    if (d.elementId) pages.forEach((p, index) => {
+      if (d.pageId && p.id !== d.pageId) return;
+      const b = p.elements.find((e) => e.id === d.elementId);
+      if (!b) return;
+      const area = Math.max(0, Math.min(p.width, b.x + b.width) - Math.max(0, b.x)) * Math.max(0, Math.min(p.height, b.y + b.height) - Math.max(0, b.y));
+      if (area > overlap) { overlap = area; i = index; }
+    });
     const page = i >= 0 ? i : d.elementId && d.pageId ? pages.findIndex((p) => p.id === d.pageId) : -1;
     const b = pages[i]?.elements.find((e) => e.id === d.elementId);
     const attrs = page < 0 ? "" : ` tabindex="0" role="button" data-page="${page}" data-key="${esc(JSON.stringify([d.code, d.elementId]))}"${b ? ` data-box="${esc(JSON.stringify(b))}"` : ""}`;
