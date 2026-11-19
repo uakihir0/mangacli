@@ -160,6 +160,7 @@ async function renderOptions(o: Obj, entry: string): Promise<RenderOptions> {
     pdfX,
     colorMode: oneOf(o.color === true ? undefined : o.color, "--color", ["color", "gray", "mono"] as const),
     dpi: parsePositiveNumber(o.dpi, "--dpi"),
+    output: oneOf(o.outputSize, "--output-size", ["manuscript", "print"] as const),
     scale: parsePositiveNumber(o.scale, "--scale"),
     width: parsePositiveNumber(o.width, "--width"),
     height: parsePositiveNumber(o.height, "--height"),
@@ -837,6 +838,7 @@ const renderOpts = (c: ReturnType<typeof cli.command>) =>
     .option("--pdf-x-condition <name>", "Printer's output condition for PDF/X")
     .option("--color <mode>", "color | gray | mono")
     .option("--dpi <n>", "Resolution")
+    .option("--output-size <size>", "manuscript | print")
     .option("--scale <n>", "Scale factor on the design resolution")
     .option("--width <px>", "Output width")
     .option("--height <px>", "Output height")

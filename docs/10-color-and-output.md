@@ -123,6 +123,8 @@
 
 ## 10.5 解像度とサイズ
 
+通常は原稿サイズで出力する。CLI の `--output-size print`、API の `render(input, { output: "print", dpi: 600 })` で、同じ描画を `page.printScale`（または `printSize` から求めた倍率）で縮小して出力できる。既定は `--output-size manuscript` / `{ output: "manuscript" }`。塗り足しも同じ倍率で縮小する。PNG などの DPI メタデータは指定 DPI のまま、印刷寸法に対応する画素数になる。SVG/PDF の物理寸法も縮小する。`width` / `height` を指定すると印刷後の出力範囲に対して画素数を合わせる。`page.dpi` は原稿上の px 単位の解釈に使われ、出力指定では変わらない。
+
 | キー | 型 | 説明 |
 |---|---|---|
 | `dpi` | 数値 | 出力解像度。既定は `page.dpi` |
@@ -159,6 +161,8 @@
 | `marks.length` | 9 mm | トンボの線の長さ |
 | `marks.width` | 0.1 mm | 線幅 |
 | `marks.color` | `black` | 線の色 |
+
+印刷サイズ出力でも、トンボの長さ・線幅・塗り足しの外側の余白は出力上の物理寸法を保つ（原稿の縮小倍率を掛けない）。PNG 等のラスタ、SVG、PDF で共通。原稿と塗り足しは縮小するが、トンボはその縮小後の断裁線・塗り足し線に合わせる。
 
 ## 10.7 出力プロファイル
 
