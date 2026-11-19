@@ -16,7 +16,6 @@ export interface RasterOptions {
   dpi: number;
   crop: "trim" | "bleed" | "marks";
   marks?: { margin?: number; length?: number; width?: number };
-  splitSpreadMarks?: boolean;
   maxPixels?: number;
   /** 1-bit: screen ruling for images (overrides the element's) and dither mode */
   imageLpi?: number;
@@ -151,7 +150,7 @@ function toneFlatColor(spec: ToneSpec, color: RGBA, mode: ColorMode): string {
 }
 
 /** Japanese-style crop marks (トンボ): double corner marks on the trim and bleed lines, center crosses (spec 10.6) */
-function drawCropMarks(ctx: SKRSContext2D, trim: { x: number; y: number; w: number; h: number }, bleedPx: number, s: number, m?: { length?: number; width?: number }, splitSpreadMarks = false) {
+function drawCropMarks(ctx: SKRSContext2D, trim: { x: number; y: number; w: number; h: number }, bleedPx: number, s: number, m?: { length?: number; width?: number }) {
   const L = (m?.length ?? 9) * s;
   const lw = Math.max(1, (m?.width ?? 0.1) * s);
   ctx.save();
@@ -184,17 +183,14 @@ function drawCropMarks(ctx: SKRSContext2D, trim: { x: number; y: number; w: numb
     line(cx, oy, cx, oy + dy * L);
     line(ox, cy, ox, cy + dy * (b + L));
   }
-  const half = Math.round(trim.w / 2);
-  const centers = splitSpreadMarks ? [x0 + half / 2, x0 + half + (trim.w - half) / 2] : [(x0 + x1) / 2];
+  const mx = (x0 + x1) / 2;
   const my = (y0 + y1) / 2;
   const c = L * 0.5;
   // center marks
-  for (const mx of centers) {
-    line(mx, y0 - b, mx, y0 - b - L);
-    line(mx - c, y0 - b - L * 0.5, mx + c, y0 - b - L * 0.5);
-    line(mx, y1 + b, mx, y1 + b + L);
-    line(mx - c, y1 + b + L * 0.5, mx + c, y1 + b + L * 0.5);
-  }
+  line(mx, y0 - b, mx, y0 - b - L);
+  line(mx - c, y0 - b - L * 0.5, mx + c, y0 - b - L * 0.5);
+  line(mx, y1 + b, mx, y1 + b + L);
+  line(mx - c, y1 + b + L * 0.5, mx + c, y1 + b + L * 0.5);
   line(x0 - b, my, x0 - b - L, my);
   line(x0 - b - L * 0.5, my - c, x0 - b - L * 0.5, my + c);
   line(x1 + b, my, x1 + b + L, my);
@@ -239,9 +235,37 @@ export class RasterBackend {
       ctx.clip();
       await this.drawNode(dev, list.root, base, canvas);
       ctx.restore();
-      drawCropMarks(ctx, { x: bleedPx, y: bleedPx, w: trimPxW, h: trimPxH }, bleedOnly, s, o.marks, o.splitSpreadMarks);
+      drawCropMarks(ctx, { x: bleedPx, y: bleedPx, w: trimPxW, h: trimPxH }, bleedOnly, s, o.marks);
     } else await this.drawNode(dev, list.root, base, canvas);
-    const img = ctx.getImageData(0, 0, W, H);
+    return this.result(canvas);
+  }
+
+  addMarks(raster: { data: Uint8ClampedArray; width: number; height: number }, bleed: number): RasterResult {
+    const o = this.opts;
+    const s = o.dpi / 25.4;
+    const margin = Math.round((o.marks?.margin ?? 10) * s + 1e-6);
+    const b = Math.round(bleed * s + 1e-6);
+    const W = raster.width + 2 * margin;
+    const H = raster.height + 2 * margin;
+    if (W * H > (o.maxPixels ?? 200_000_000)) throw new Error(`OUTPUT_TOO_LARGE: ${W}x${H} exceeds maxOutputPixels`);
+    const canvas = createCanvas(W, H);
+    const ctx = canvas.getContext("2d");
+    if (!o.transparent) {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, W, H);
+    }
+    const artwork = ctx.createImageData(raster.width, raster.height);
+    artwork.data.set(raster.data);
+    ctx.putImageData(artwork, margin, margin);
+    if (margin) drawCropMarks(ctx, { x: margin + b, y: margin + b, w: raster.width - 2 * b, h: raster.height - 2 * b }, b, s, o.marks);
+    return this.result(canvas);
+  }
+
+  private result(canvas: Canvas): RasterResult {
+    const o = this.opts;
+    const W = canvas.width;
+    const H = canvas.height;
+    const img = canvas.getContext("2d").getImageData(0, 0, W, H);
     const data = img.data;
     if (o.colorMode === "mono") {
       for (let i = 0; i < data.length; i += 4) {
