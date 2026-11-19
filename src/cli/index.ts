@@ -515,6 +515,12 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
     if (guided?.version !== version) guided = { version, pages: renderPages(["guides"]).then((r) => r.pages, () => pages) };
     return guided.pages;
   };
+  // guided pages are PNG only, so match the same page, separation and half; svg keeps a split spread joined, so it stays plain then
+  const guidedFor = async (i: number) => {
+    const cur = pages[i]!;
+    const same = (await guidedPages()).filter((p) => p.id === cur.id && p.separation === cur.separation);
+    return (cur.ext === "svg" ? (same.length === 1 ? same[0] : undefined) : same.find((p) => p.side === cur.side)) ?? cur;
+  };
   const build = async () => {
     try {
       ({ pages, diags } = await renderPages());
@@ -556,7 +562,8 @@ box.onchange=()=>{localStorage.setItem("mangacli-guides",box.checked?"1":"0");sh
 const rows=[...document.querySelectorAll('.d[data-page]')],figures=[...document.querySelectorAll('figure')];
 const frame=document.createElement('div');frame.className='highlight';let selected=null;
 const clear=()=>{if(selected)selected.classList.remove('selected');selected=null;frame.remove();sessionStorage.removeItem('mangacli-selection')};
-const position=()=>{if(!selected||!selected.dataset.box)return;const img=figures[Number(selected.dataset.page)].querySelector('img');if(!img.naturalWidth)return;const b=JSON.parse(selected.dataset.box),w=Number(img.dataset.width),h=Number(img.dataset.height),dx=(img.naturalWidth-w)/2,dy=(img.naturalHeight-h)/2,bled=dx>0&&Math.abs(dx-dy)<=0.5,ox=bled?dx:0,oy=bled?dy:0,sx=img.clientWidth/(w+2*ox),sy=img.clientHeight/(h+2*oy);Object.assign(frame.style,{left:(img.offsetLeft+(b.x+ox)*sx-3)+'px',top:(img.offsetTop+(b.y+oy)*sy-3)+'px',width:(b.width*sx+6)+'px',height:(b.height*sy+6)+'px'})};
+const guideBoxes={};
+const position=()=>{if(!selected||!selected.dataset.box)return;const page=Number(selected.dataset.page),img=figures[page].querySelector('img');if(!img.naturalWidth)return;let b=JSON.parse(selected.dataset.box),w=Number(img.dataset.width),h=Number(img.dataset.height);if(box.checked){const gb=guideBoxes[page];if(!gb){guideBoxes[page]=fetch('/boxes/'+page+'?v=${version}').then(r=>r.json()).then(j=>{guideBoxes[page]=j;position()});return}if(gb.then)return;const e=gb.elements.find(e=>e.id===JSON.parse(selected.dataset.key)[1]);frame.hidden=!e;if(!e)return;b=e;w=gb.width;h=gb.height}else frame.hidden=false;const sx=img.clientWidth/w,sy=img.clientHeight/h;Object.assign(frame.style,{left:(img.offsetLeft+b.x*sx-3)+'px',top:(img.offsetTop+b.y*sy-3)+'px',width:(b.width*sx+6)+'px',height:(b.height*sy+6)+'px'})};
 const select=(row,scroll=true)=>{clear();selected=row;row.classList.add('selected');sessionStorage.setItem('mangacli-selection',row.dataset.key);const fig=figures[Number(row.dataset.page)];if(row.dataset.box){fig.append(frame);position()}if(scroll)fig.scrollIntoView({block:'center',behavior:'smooth'})};
 for(const row of rows){row.onclick=()=>selected===row?clear():select(row);row.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();row.click()}}}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')clear()});window.addEventListener('resize',position);for(const img of document.querySelectorAll('img'))img.addEventListener('load',position);
@@ -579,14 +586,17 @@ new EventSource("/events").onmessage=()=>location.reload()</script>`;
         res.writeHead(200, { "content-type": p.mime, "cache-control": "no-store" });
         res.end(p.data);
       };
-      if (url.searchParams.get("guides") === "1") {
-        // guided pages are PNG only, so match the same page, separation and half; svg keeps a split spread joined, so it stays plain then
-        const cur = pages[Number(m[1])]!;
-        void guidedPages().then((g) => {
-          const same = g.filter((p) => p.id === cur.id && p.separation === cur.separation);
-          send((cur.ext === "svg" ? (same.length === 1 ? same[0] : undefined) : same.find((p) => p.side === cur.side)) ?? cur);
-        });
-      } else send(pages[Number(m[1])]);
+      if (url.searchParams.get("guides") === "1") void guidedFor(Number(m[1])).then(send);
+      else send(pages[Number(m[1])]);
+      return;
+    }
+    // element boxes in the guided image, which can differ in size and offset from the plain one
+    const bm = url.pathname.match(/^\/boxes\/(\d+)$/);
+    if (bm && pages[Number(bm[1])]) {
+      void guidedFor(Number(bm[1])).then((p) => {
+        res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+        res.end(JSON.stringify({ width: p.width, height: p.height, elements: p.elements }));
+      });
       return;
     }
     if (url.pathname === "/") {

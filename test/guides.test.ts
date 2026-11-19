@@ -123,6 +123,8 @@ describe("preview guides overlay", () => {
       expect(isRed(atPx(guided, 0.47))).toBe(true);
       // guided pages include the 3mm bleed on each side so the trim and bleed lines are both visible
       expect(Math.abs(guided.width - plain.width * (166 / 160))).toBeLessThanOrEqual(1);
+      const boxes = await (await fetch(`${base}/boxes/${src.match(/\/page\/(\d+)/)![1]}`)).json();
+      expect(boxes.width).toBe(guided.width);
     } finally {
       proc.kill();
     }

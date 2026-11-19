@@ -152,20 +152,19 @@ it.each([
     const page = rendered.pages[pageIndex]!;
     expect(html).toContain(`data-width="${page.width}" data-height="${page.height}"`);
     const img = { naturalWidth: format === "svg" ? 302 : page.width, naturalHeight: format === "svg" ? 227 : page.height, clientWidth: 400, clientHeight: 300, offsetLeft: 0, offsetTop: 0, dataset: { width: String(page.width), height: String(page.height) } };
-    const frame = { style: {} as Record<string, string> };
+    const frame = { style: {} as Record<string, string>, hidden: false };
     const position = html.match(/const position=\(\)=>\{[^\n]+/)![0];
-    runInNewContext(`${position};position()`, { selected: { dataset: { box: JSON.stringify(box), page: "0" } }, figures: [{ querySelector: () => img }], frame });
+    runInNewContext(`${position};position()`, { box: { checked: false }, guideBoxes: {}, selected: { dataset: { box: JSON.stringify(box), page: "0" } }, figures: [{ querySelector: () => img }], frame });
     expect(parseFloat(frame.style.left!)).toBeCloseTo(box.x * img.clientWidth / page.width - 3);
     expect(parseFloat(frame.style.top!)).toBeCloseTo(box.y * img.clientHeight / page.height - 3);
     expect(parseFloat(frame.style.width!)).toBeCloseTo(box.width * img.clientWidth / page.width + 6);
     if (format === "png") {
-      // with Guides on the image also holds the bleed (3mm = 30px at 254dpi) around the trim
-      const bleed = 30;
-      const guided = { ...img, naturalWidth: page.width + 2 * bleed, naturalHeight: page.height + 2 * bleed };
-      const scale = guided.clientWidth / guided.naturalWidth;
-      runInNewContext(`${position};position()`, { selected: { dataset: { box: JSON.stringify(box), page: "0" } }, figures: [{ querySelector: () => guided }], frame });
-      expect(parseFloat(frame.style.left!)).toBeCloseTo((box.x + bleed) * scale - 3);
-      expect(parseFloat(frame.style.width!)).toBeCloseTo(box.width * scale + 6);
+      // with Guides on, the boxes come from the guided image, which also holds the bleed (3mm = 30px at 254dpi)
+      const gw = page.width + 60;
+      const guideBoxes = { 0: { width: gw, height: page.height + 60, elements: [{ ...box, id, x: box.x + 30, y: box.y + 30 }] } };
+      runInNewContext(`${position};position()`, { box: { checked: true }, guideBoxes, selected: { dataset: { box: JSON.stringify(box), key: JSON.stringify([code, id]), page: "0" } }, figures: [{ querySelector: () => img }], frame });
+      expect(parseFloat(frame.style.left!)).toBeCloseTo((box.x + 30) * img.clientWidth / gw - 3);
+      expect(parseFloat(frame.style.width!)).toBeCloseTo(box.width * img.clientWidth / gw + 6);
     }
     expect(html).toContain("mangacli-selection");
   } finally { proc.kill(); }
