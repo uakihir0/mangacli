@@ -16,6 +16,7 @@ import { activePlugins } from "../plugin.js";
 import { runPluginDrawable } from "./plugindraw.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { inksToNodes } from "./inkir.js";
+import { renderLight } from "./light.js";
 import { type ResolvedRegion, resolveRegion } from "./region.js";
 import { type EffectAlphaCache, effectSilhouette, splitClearLine } from "./effect-clear.js";
 
@@ -785,6 +786,10 @@ async function renderEffectInner(el: RElement, ctx: ElemCtx, hold: { f?: FxCtx }
       return impact(f);
     case "vignette":
       return vignette(f);
+    case "glow":
+    case "light-rays":
+    case "spotlight":
+      return wrap(f, renderLight(el, ctx, region), backgroundNode(f));
     default: {
       const def = activePlugins()?.effects.get(kind);
       if (def) {

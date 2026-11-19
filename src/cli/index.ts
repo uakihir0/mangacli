@@ -5,6 +5,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { cac } from "cac";
 import { parse as parseYaml } from "yaml";
 import { type RenderOptions, render, validate } from "../api.js";
+import { PDF_X_VERSIONS } from "../output/pdfx.js";
 import { type MangaConfig, findConfig, loadConfig } from "../config.js";
 import { type Diagnostic, MangaError, MangaValidationError } from "../core/diagnostics.js";
 import { defaultFontSet, loadCatalog } from "../fonts/catalog.js";
@@ -142,12 +143,24 @@ async function renderOptions(o: Obj, entry: string): Promise<RenderOptions> {
   const config = await configFor(o, entry);
   const debug = o.debug === undefined ? undefined : o.debug === true ? true : list(o.debug);
   const format = list(o.format) as import("../output/encode.js").OutputFormat[] | undefined;
+  const pdfXVersion = oneOf(o.pdfX, "--pdf-x", PDF_X_VERSIONS);
+  const iccPath = o["pdfX-icc"];
+  const condition = o["pdfX-condition"];
+  let pdfX: RenderOptions["pdfX"];
+  if (pdfXVersion || iccPath !== undefined || condition !== undefined) {
+    if (!pdfXVersion || typeof iccPath !== "string" || !iccPath || typeof condition !== "string" || !condition.trim()) {
+      throw new UsageError("--pdf-x, --pdf-x-icc and --pdf-x-condition must be supplied together");
+    }
+    pdfX = { version: pdfXVersion, iccProfile: readFileSync(resolve(iccPath)), outputCondition: condition };
+  }
   const opts: RenderOptions = {
     config: config as Obj | undefined,
     profile: o.profile as string | undefined,
     format: format && format.length === 1 ? format[0] : format,
+    pdfX,
     colorMode: oneOf(o.color === true ? undefined : o.color, "--color", ["color", "gray", "mono"] as const),
     dpi: parsePositiveNumber(o.dpi, "--dpi"),
+    output: oneOf(o.outputSize, "--output-size", ["manuscript", "print"] as const),
     scale: parsePositiveNumber(o.scale, "--scale"),
     width: parsePositiveNumber(o.width, "--width"),
     height: parsePositiveNumber(o.height, "--height"),
@@ -223,11 +236,11 @@ async function cmdRender(file: string, o: Obj, onSystemFont?: (path: string) => 
   };
   const conc = Math.max(1, Math.round(Number(o.concurrency ?? process.env.MANGACLI_CONCURRENCY ?? (opts.config as Obj | undefined)?.concurrency ?? 1)) || 1);
   const formats = ([] as unknown[]).concat(opts.format ?? []);
-  const canSplit = conc > 1 && !toStdout && !formats.includes("pdf") && !(opts.emit ?? []).some((k) => k === "transcript" || k === "manifest");
+  const canSplit = conc > 1 && !toStdout && !opts.pdfX && !formats.includes("pdf") && !(opts.emit ?? []).some((k) => k === "transcript" || k === "manifest");
   const r = canSplit ? await renderParallel(input, opts, conc) : await render(input, opts);
   for (const d of r.diagnostics) reportDiagnostic(d, cwd);
   const { errors, warnings } = summarize(r.diagnostics);
-  if (toStdout) {
+  if (toStdout && !(opts.pdfX && (errors || r.failures.length))) {
     if (r.pages.length !== 1) {
       log("error", t("--stdout は出力が 1 ファイルの場合だけ使えます", "--stdout requires exactly one output image"));
       return 3;
@@ -820,8 +833,12 @@ const renderOpts = (c: ReturnType<typeof cli.command>) =>
     .option("-o, --out <dir>", "Output directory")
     .option("-p, --profile <name>", "Output profile (print-mono, print-gray, print-color, web, sns, preview, draft)")
     .option("-f, --format <fmt>", "png, jpeg, webp, avif, tiff, pdf, svg (comma separated)")
+    .option("--pdf-x <version>", "Monochrome print PDF: 1a (PDF/X-1a:2001) or 4 (PDF/X-4)")
+    .option("--pdf-x-icc <path>", "CMYK printer ICC profile for PDF/X")
+    .option("--pdf-x-condition <name>", "Printer's output condition for PDF/X")
     .option("--color <mode>", "color | gray | mono")
     .option("--dpi <n>", "Resolution")
+    .option("--output-size <size>", "manuscript | print")
     .option("--scale <n>", "Scale factor on the design resolution")
     .option("--width <px>", "Output width")
     .option("--height <px>", "Output height")
@@ -853,6 +870,7 @@ const STRING_OPTS: [string, string[]][] = [
   ["template", ["--template"]], ["dir", ["--dir"]], ["set", ["--set"]], ["for", ["--for"]], ["host", ["--host"]], ["page", ["--page"]],
   ["element", ["--element"]], ["format", ["--format", "-f"]], ["emit", ["--emit"]], ["root", ["--root"]], ["cwd", ["--cwd"]],
   ["baseDir", ["--base-dir"]], ["config", ["--config"]], ["separate", ["--separate"]],
+  ["pdfX", ["--pdf-x"]], ["pdfX-icc", ["--pdf-x-icc"]], ["pdfX-condition", ["--pdf-x-condition"]],
 ];
 
 function rawStrings(o: Obj) {

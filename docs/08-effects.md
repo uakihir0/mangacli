@@ -64,8 +64,9 @@
 | `rain` | 雨 | 雨 | P1 |
 | `vignette` | ぼかし枠 | 回想、夢、柔らかさ | P1 |
 | `snow` | 雪 | 雪 | P2 |
-| `glow` | 発光 | 光る物体（カラー） | P2 |
-| `light-rays` | 光線 | 後光、光の筋 | P2 |
+| `glow` | 発光 | 光る物体、輪郭の後光 | P1 |
+| `light-rays` | 光線 | 後光、光の筋 | P1 |
+| `spotlight` | スポットライト | 舞台、暗闇の人物 | P1 |
 
 ### 8.1.3 線の分布
 
@@ -280,9 +281,32 @@ passes:
 | `softness` | 0〜1 | `0.7` | ぼかしの柔らかさ |
 | `screen` | `am` \| `spatter` | `am` | モノクロ出力での表し方。`am` は網点、`spatter` はホワイトの飛沫のような不規則な点 |
 
-## 8.12 発光と光線（glow / light-rays）
+## 8.12 発光と光線（glow / light-rays / spotlight）
 
-（P2）`glow` は要素の形の周りに光のにじみを付ける（主にカラー）。`light-rays` は点から放射状に明暗の帯を描く。キーのみ予約する。
+`glow` は要素の輪郭をぼかして後光を描く。`light-rays` は光源から放射状の帯を描く。
+`spotlight` は光源から床の光だまりへ伸びる光を描き、光が届かない部分を暗くする。
+既定の光の色は白。1 ビット出力では発光のぼかしを白い網点で表し、光線とスポットライトの明暗も網点化する。
+効果をキャラクター画像より前に配置すると、画像を白く塗りつぶさずに背後を照らせる。[作例](examples/light-effects.yaml)
+
+| 効果 | キー | 型 | 既定値・意味 |
+|---|---|---|---|
+| `glow` | `target` | 要素 ID または Region | 必須。画像 ID は配置済み画像のアルファ、吹き出しは輪郭、その他は外接矩形を使う。`trim` などの領域名が優先される。同名の画像には `{ element: trim, mode: alpha }` を使う |
+| | `blur` | 正の Length | `4bmm`。ぼかしの強さ（ガウスの標準偏差）。% は効果領域の短辺基準 |
+| `light-rays` | `center` | Point | 効果領域の中心。座標・位置キーワード・`hero.face` などの参照を指定可能 |
+| | `count` | 整数 | `24`。放射帯の本数（1〜1024、`density` を掛けた後も最大 1024） |
+| | `angle` | Angle | `0deg`。最初の帯の方向（右が 0 度、時計回り） |
+| | `spread` | 数値 | `0.55`。帯 1 本が隣の帯までの角度に占める割合（0 より大きく 1 以下） |
+| `spotlight` | `source` | Point | `[18%, 0%]`。円錐の頂点 |
+| | `target` | Point | `[60%, 78%]`。床の光だまりの中心 |
+| | `width` | 正の Length | `45%`。光だまりの幅。% は効果領域の幅基準 |
+| | `shade` | 0〜1 | `0.8`。円錐と光だまりの外側に重ねる黒の不透明度。0 で暗くしない |
+
+```yaml
+layers:
+  - { effect: light-rays, center: hero.face, count: 20 }
+  - { effect: glow, target: hero, blur: 4mm }
+  - { image: hero.png, id: hero, anchors: { face: [500, 400] } }
+```
 
 ## 8.13 トーン
 
