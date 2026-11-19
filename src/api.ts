@@ -746,7 +746,7 @@ function roundList(list: DisplayList): unknown {
 }
 
 /** colours of the `guides` debug layer (exported for tests) */
-export const GUIDE_COLORS = { safe: "rgb(0,150,255)", fold: "rgb(230,0,0)", foldBand: "rgba(255,0,0,0.18)" } as const;
+export const GUIDE_COLORS = { safe: "rgb(0,150,255)", trim: "rgb(220,0,220)", bleed: "rgb(255,140,0)", fold: "rgb(230,0,0)", foldBand: "rgba(255,0,0,0.18)" } as const;
 
 /** debug overlay (spec 10.11.1): guides, boxes, panels with reading order, elements, text, balloons, order, grid */
 function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: number }, list: DisplayList, info: PageLayoutInfo, dpi: number, crop: string, layers: boolean | string[], markMargin = 10) {
@@ -799,7 +799,7 @@ function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: num
     rect(list.boxes.safe, "#00c000", [2, 2]);
   }
   if (want("guides")) {
-    // placement guides: the safe line text must stay inside, and the spread fold band text must avoid
+    // placement guides: the safe line text must stay inside, the spread fold band text must avoid, and the trim and bleed lines
     const fm = info.geom.foldMargin;
     const glw = Math.max(2 / s, 0.25);
     if (fm > 0) {
@@ -831,6 +831,31 @@ function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: num
       g.strokeRect(list.boxes.safe.x, list.boxes.safe.y, list.boxes.safe.w, list.boxes.safe.h);
       g.setLineDash([]);
       label("safe", list.boxes.safe.x + 1, list.boxes.safe.y - 1, GUIDE_COLORS.safe);
+      // trim (paper cut, solid) and bleed outer edge (dotted); an edge on the image border is drawn just inside it
+      const vw = raster.width / s;
+      const vh = raster.height / s;
+      const inside = (r: { x: number; y: number; w: number; h: number }) => {
+        const x0 = Math.max(r.x, off + glw / 2);
+        const y0 = Math.max(r.y, off + glw / 2);
+        const x1 = Math.min(r.x + r.w, off + vw - glw / 2);
+        const y1 = Math.min(r.y + r.h, off + vh - glw / 2);
+        return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+      };
+      const bleedShown = info.geom.bleed > 0 && crop !== "trim";
+      if (bleedShown) {
+        const b = inside(list.boxes.bleed);
+        g.strokeStyle = GUIDE_COLORS.bleed;
+        g.lineWidth = glw;
+        g.setLineDash([0.8, 0.8]);
+        g.strokeRect(b.x, b.y, b.w, b.h);
+        g.setLineDash([]);
+        label(`bleed ${Math.round(info.geom.bleed * 10) / 10}mm`, list.boxes.bleed.x + 1, list.boxes.bleed.y + list.boxes.bleed.h - 0.5, GUIDE_COLORS.bleed);
+      }
+      const t = inside(list.boxes.trim);
+      g.strokeStyle = GUIDE_COLORS.trim;
+      g.lineWidth = glw;
+      g.strokeRect(t.x, t.y, t.w, t.h);
+      label(bleedShown ? "trim" : "trim (image edge)", list.boxes.trim.x + 1, list.boxes.trim.y + list.boxes.trim.h - 1, GUIDE_COLORS.trim);
     }
   }
   if (want("panels"))

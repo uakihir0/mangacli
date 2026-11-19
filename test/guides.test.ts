@@ -22,6 +22,10 @@ const pixels = async (data: Uint8Array) => {
 const isWhite = ([r, g, b]: number[]) => r > 245 && g > 245 && b > 245;
 const isRed = ([r, g, b]: number[]) => r > 200 && g < 230 && b < 230 && r - g > 20;
 const isBlue = ([r, g, b]: number[]) => b > 200 && r < 120;
+const isMagenta = ([r, g, b]: number[]) => r > 180 && b > 180 && g < 90;
+const isOrange = ([r, g, b]: number[]) => r > 230 && g > 100 && g < 190 && b < 90;
+// dashed / dotted lines: some sample along a 10mm vertical run at x must match
+const along = (p: { at: (x: number, y: number) => number[] }, x: number, test: (c: number[]) => boolean) => Array.from({ length: 100 }, (_, i) => 25 + i / 10).some((y) => test(p.at(x, y)));
 // the safe line is dashed: some sample along a 10mm run must hit it
 const hasSafeLine = (p: { at: (x: number, y: number) => number[] }, x: number) => Array.from({ length: 100 }, (_, i) => 25 + i / 10).some((y) => isBlue(p.at(x, y)));
 
@@ -68,6 +72,30 @@ describe("preview guides overlay", () => {
     expect(isWhite(px.at(40, 30))).toBe(true);
   });
 
+  it("draws the trim line solid and the bleed edge dotted when the bleed is shown", async () => {
+    const opts = { format: "png", crop: "bleed", dpi: 254, spread: "joined" } as const;
+    const plain = await pixels((await renderer.render(doc("spread"), opts)).pages[0]!.data);
+    const px = await pixels((await renderer.render(doc("spread"), { ...opts, debug: ["guides"] })).pages[0]!.data);
+    expect(px.width).toBe(1660);
+    // trim 3mm in from the image edge on both sides, solid
+    for (const x of [3, 163]) {
+      expect(isWhite(plain.at(x, 30))).toBe(true);
+      expect(isMagenta(px.at(x, 30))).toBe(true);
+    }
+    // bleed edge drawn just inside the image border, dotted
+    expect(along(px, 0.1, isOrange)).toBe(true);
+    expect(along(px, 165.9, isOrange)).toBe(true);
+    expect(along(px, 0.1, isMagenta)).toBe(false);
+    // safe line stays 5mm inside the trim
+    expect(along(px, 8, isBlue)).toBe(true);
+  });
+
+  it("marks the image edge as the trim when cropped to the trim", async () => {
+    const px = await pixels((await renderer.render(doc("page"), { format: "png", crop: "trim", dpi: 254, debug: ["guides"] })).pages[0]!.data);
+    expect(isMagenta(px.at(0.1, 30))).toBe(true);
+    expect(along(px, 0.1, isOrange)).toBe(false);
+  });
+
   it("serves a guides toggle and guided pages from the preview server", async () => {
     const root = join(import.meta.dirname, "..");
     const dir = mkdtempSync(join(tmpdir(), "mc-"));
@@ -93,6 +121,8 @@ describe("preview guides overlay", () => {
       const atPx = (p: typeof plain, frac: number) => p.at((frac * p.width) / 10, 10);
       expect(isWhite(atPx(plain, 0.47))).toBe(true);
       expect(isRed(atPx(guided, 0.47))).toBe(true);
+      // guided pages include the 3mm bleed on each side so the trim and bleed lines are both visible
+      expect(Math.abs(guided.width - plain.width * (166 / 160))).toBeLessThanOrEqual(1);
     } finally {
       proc.kill();
     }

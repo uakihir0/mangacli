@@ -281,7 +281,7 @@ output:
 
 | 項目 | 表示内容 |
 |---|---|
-| `guides` | 配置の目安: 安全領域の線と、見開きの中央から `foldMargin`（既定 ±10 mm）の危険帯（`TEXT_OUTSIDE_SAFE_AREA` / `TEXT_NEAR_FOLD` の判定範囲と同じ） |
+| `guides` | 配置の目安: 断裁位置（マゼンタの実線）、塗り足しの外周（オレンジの点線、`crop: trim` では画像外なので描かない）、安全領域の線（青の破線）と、見開きの中央から `foldMargin`（既定 ±10 mm）の危険帯（赤、`TEXT_OUTSIDE_SAFE_AREA` / `TEXT_NEAR_FOLD` の判定範囲と同じ）。画像の端にかかる線は内側に寄せて描く |
 | `boxes` | 塗り足し、仕上がり、基本枠、安全領域の線 |
 | `panels` | コマの多角形、ID、読み順の番号 |
 | `elements` | 要素の外接矩形と ID |

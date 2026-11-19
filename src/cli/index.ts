@@ -485,13 +485,15 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
   let pages: PreviewPage[] = [];
   let diags: Diagnostic[] = [];
   let version = 0;
-  // pages with the safe line and fold band drawn on top, rendered on first request per version
+  // pages with the trim, bleed and safe lines and fold band drawn on top, rendered on first request per version
   let guided: { version: number; pages: Promise<PreviewPage[]> } | undefined;
   const clients = new Set<import("node:http").ServerResponse>();
   const watcher = watch(collectDeps(entry), { ignoreInitial: true });
   const renderPages = async (debug?: string[]) => {
     const opts = await renderOptions({ ...o, profile: o.profile ?? "preview" }, file);
     opts.onSystemFont = (path) => watcher.add(path);
+    // guides show where the paper is cut, so include the bleed around the trim unless marks are already shown
+    if (debug?.includes("guides") && opts.crop !== "marks") opts.crop = "bleed";
     if (debug) opts.debug = Array.isArray(opts.debug) ? [...new Set([...opts.debug, ...debug])] : (opts.debug ?? debug);
     const r = await render(entry, opts);
     return { pages: r.pages.map((p) => ({ id: p.id, data: p.data, mime: p.mimeType, ext: p.format })), diags: r.diagnostics };
@@ -517,7 +519,7 @@ main{display:flex;flex-wrap:wrap;flex-direction:row-reverse;gap:16px;padding:16p
 img{max-height:85vh;box-shadow:0 2px 12px #0008;background:#fff}figcaption{text-align:center;padding:4px}
 .d{padding:2px 12px}.error{color:#ff8080}.warning{color:#ffd480}</style>
 <header>${esc(relative(process.cwd(), entry))} — ${pages.length} page(s)
-<label title="${esc(t("安全領域の線と見開き中央の危険帯を重ねて表示", "Overlay the safe line and the spread fold danger band"))}"><input type="checkbox" id="guides"> ${esc(t("ガイド（安全線・ノド）", "Guides (safe line, fold)"))}</label></header>
+<label title="${esc(t("断裁位置・塗り足し・安全領域の線と見開き中央の危険帯を重ねて表示（塗り足しまで表示）", "Overlay the trim, bleed and safe lines and the spread fold danger band (shows the bleed area)"))}"><input type="checkbox" id="guides"> ${esc(t("ガイド（断裁・塗り足し・安全線・ノド）", "Guides (trim, bleed, safe line, fold)"))}</label></header>
 <section>${diags.filter((d) => d.severity !== "info").map((d) => `<div class="d ${d.severity}">${esc(d.code)} ${d.location ? `${d.location.line}:${d.location.column} ` : ""}${esc(d.message)}</div>`).join("")}</section>
 <main>${pages.map((p, i) => `<figure><img data-src="/page/${i}.${p.ext}?v=${version}"><figcaption>${i + 1} · ${esc(p.id)}</figcaption></figure>`).join("")}</main>
 <script>const box=document.getElementById("guides"),saved=localStorage.getItem("mangacli-guides");
@@ -929,7 +931,7 @@ renderOpts(cli.command("preview <file>", "Live preview in the browser"))
   .option("--port <n>", "Port (default 4173)")
   .option("--host <host>", "Host (default 127.0.0.1)")
   .option("--open", "Open the browser")
-  .option("--guides", "Start with the safe line and fold band overlay on")
+  .option("--guides", "Start with the trim, bleed and safe lines and fold band overlay on")
   .action(wrap((file: string, o: Obj) => cmdPreview(file, o)));
 common(cli.command("schema", "Print the JSON Schema"))
   .option("--out <file>", "Write to a file")
