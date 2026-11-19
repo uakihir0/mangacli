@@ -164,7 +164,7 @@ export function monoNodeWorkingBytes(list: DisplayList, dpi: number, crop: "trim
       return n.path.some((c) => c[0] === "C" || c[0] === "Q") ? pixels * 8 : 0;
     }
     const mm = n.transform ? matMul(m, n.transform) : m;
-    const own = (n.opacity !== undefined && n.opacity < 0.999) || (n.blend && n.blend !== "normal") || n.alphaMaskOf || n.softClip || n.isolate ? pixels * 32 : 0;
+    const own = (n.opacity !== undefined && n.opacity < 0.999) || (n.blend && n.blend !== "normal") || n.alphaMaskOf || n.softClip || n.isolate || n.glow ? pixels * 32 : 0;
     return own + Math.max(0, ...n.children.map((c) => visit(c, mm)));
   };
   return visit(list.root, base);
