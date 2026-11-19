@@ -641,7 +641,8 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
   const center = -(asc + desc) / 2; // canvas y of em center relative to baseline
   if (vertical && o === "tcy") {
     const W = px;
-    const sx = W > size0 ? size0 / W : 1;
+    const minScale = /^[!?！？]{2,3}$/.test(text) ? 0 : 0.5;
+    const sx = W > size0 ? Math.max(minScale, size0 / W) : 1;
     if (W > size0 * 1.6 && !/^[!?！？]{2,3}$/.test(text)) tcyWarn.push(text);
     const box: Box = { chars: text, units: segUnits.slice(), adv: size0, size: size0, orient: o, glyphs: [], firstChar: seg[0], lastChar: seg[seg.length - 1] };
     g.forEach((gl, k) => {

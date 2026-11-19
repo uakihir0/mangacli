@@ -25,6 +25,16 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
+  it("retains the documented half-width minimum for non-mark TCY", async () => {
+    const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id: "dela-gothic-one" }]]), "none", [], {});
+    await fonts.prepare("test", "2026");
+    const style = defaultTextStyle({ font: "test", fontSize: 10 });
+    const horizontal = layoutText("2026", { ...style, writing: "horizontal" }, fonts);
+    const result = layoutText("<tcy>2026</tcy>", style, fonts);
+    expect(ink(result.glyphs[0].path).w / ink(horizontal.glyphs[0].path).w).toBeCloseTo(0.5);
+    expect(ink(result.glyphs[0].path).h).toBeCloseTo(ink(horizontal.glyphs[0].path).h);
+    expect(result.infos.some((info) => info.code === "TEXT_TCY_TOO_LONG")).toBe(true);
+  });
   it("keeps a Dela dash pair within its shaped 14.22mm advance", async () => {
     const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id: "dela-gothic-one" }]]), "none", [], {});
     await fonts.prepare("test", "――");
