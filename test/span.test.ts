@@ -27,6 +27,19 @@ pages:
 }
 
 describe("spanning elements", () => {
+  it.each(["ellipse", "rounded", "cloud"])("clips over spans to the real %s panel shape", async (kind) => {
+    const doc = parse(scene());
+    doc.pages[0].panels[0].shape = { kind, radius: "10mm" };
+    doc.pages[0].layers[0].clip.to = ["a"];
+    const result = await render(doc, { format: "png", dpi: 127, colorMode: "gray", keepLists: true });
+    const box = result.layout[0].panels.find((p) => p.id === "a")!.box;
+    const { data, info } = await sharp(result.pages[0].data).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const at = (x: number, y: number) => data[(Math.round(y * 5) * info.width + Math.round(x * 5)) * info.channels];
+    expect(at(box.x + 0.5, box.y + 0.5)).toBeGreaterThan(240);
+    expect(at(box.x + box.w / 2, box.y + box.h / 2)).toBeLessThan(10);
+    expect(groups(result.lists![0].root).some((g) => g.clip?.some((c) => c[0] === "C") && !g.tag)).toBe(true);
+  });
+
   it("uses one nonzero path with a subpath for every panel and is deterministic", async () => {
     const r = createRenderer({ seed: 42 });
     const a = await r.displayList({ yaml: scene() }, 1);

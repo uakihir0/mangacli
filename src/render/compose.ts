@@ -626,7 +626,7 @@ function isBledEdge(a: Vec, c: Vec, geom: PageGeom, pg: PanelGeom): boolean {
 function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["units"]) {
   const open = new Set((clip.open as string[]) ?? []);
   const bw = toMm(((pg.panel.props.border as Obj)?.width as string) ?? `${0.5 * geom.k}mm`, u);
-  const poly = pg.polygon;
+  const poly = panelShapePoly(pg, geom);
   const n = poly.length;
   const lines: { p: Vec; d: Vec }[] = [];
   for (let i = 0; i < n; i++) {
@@ -651,7 +651,7 @@ function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["uni
     const t = ((L2.p.x - L1.p.x) * L2.d.y - (L2.p.y - L1.p.y) * L2.d.x) / den;
     pts.push({ x: L1.p.x + L1.d.x * t, y: L1.p.y + L1.d.y * t });
   }
-  return polyPath(pts, true);
+  return poly !== pg.polygon ? smoothPath(pts, true) : polyPath(pts, true);
 }
 
 // ---- misc elements ---------------------------------------------------------------
