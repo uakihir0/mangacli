@@ -634,7 +634,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         const quiet = prof.print || profName === "preview" || profName === "draft" || draft;
         const finish = options.finish === false ? undefined : (options.finish ?? profOwn ?? (quiet ? undefined : (prof.finish as Finish | undefined)));
         if (finish && needRaster && !run.list) full = { ...full, ...(await applyFinish(full, finish, { dpi, colorMode: colorMode as "color", seed: resolved.seed, bag })) };
-        if (options.debug) drawDebug(full, list, info, rasterDpi, rasterCrop, options.debug, marks?.margin ?? 10);
+        if (options.debug) drawDebug(full, list, info, rasterDpi, rasterCrop, options.debug, marks?.margin ?? 10, geom.type === "spread" && spreadMode === "split");
         // spreads: one joined image, or two pages each with bleed on all sides (spec 10.9)
         const trimWidth = Math.round((geom.trimW * rasterDpi) / 25.4 + 1e-6);
         const trimHeight = Math.round((geom.trimH * rasterDpi) / 25.4 + 1e-6);
@@ -826,7 +826,7 @@ function roundList(list: DisplayList): unknown {
 export const GUIDE_COLORS = { safe: "rgb(0,150,255)", trim: "rgb(220,0,220)", bleed: "rgb(255,140,0)", fold: "rgb(230,0,0)", foldBand: "rgba(255,0,0,0.18)" } as const;
 
 /** debug overlay (spec 10.11.1): guides, boxes, panels with reading order, elements, text, balloons, order, grid */
-function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: number }, list: DisplayList, info: PageLayoutInfo, dpi: number, crop: string, layers: boolean | string[], markMargin = 10) {
+function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: number }, list: DisplayList, info: PageLayoutInfo, dpi: number, crop: string, layers: boolean | string[], markMargin = 10, split = false) {
   const s = dpi / 25.4;
   const off = crop === "bleed" ? list.boxes.bleed.x : crop === "marks" ? list.boxes.bleed.x - markMargin : 0;
   const want = (k: string) => layers === true || (Array.isArray(layers) && layers.includes(k));
@@ -933,6 +933,19 @@ function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: num
       g.lineWidth = glw;
       g.strokeRect(t.x, t.y, t.w, t.h);
       label(bleedShown ? "trim" : "trim (image edge)", list.boxes.trim.x + 1, list.boxes.trim.y + list.boxes.trim.h - 1, GUIDE_COLORS.trim);
+      if (split) {
+        // split pages are cut at the fold: its trim line, and the bleed edges that become each page's inner image edge
+        const cx = list.boxes.trim.x + list.boxes.trim.w / 2;
+        const vline = (x: number) => { g.beginPath(); g.moveTo(x, t.y); g.lineTo(x, t.y + t.h); g.stroke(); };
+        vline(cx);
+        if (bleedShown) {
+          g.strokeStyle = GUIDE_COLORS.bleed;
+          g.setLineDash([0.8, 0.8]);
+          vline(cx - info.geom.bleed + glw / 2);
+          vline(cx + info.geom.bleed - glw / 2);
+          g.setLineDash([]);
+        }
+      }
     }
   }
   if (want("panels"))
