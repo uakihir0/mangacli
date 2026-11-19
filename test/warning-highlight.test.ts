@@ -16,6 +16,26 @@ pages:
       - { text: Hello, id: lettering, fontSize: 4mm, writing: horizontal, at: [${at}], anchor: top-left }
 `;
 const renderer = createRenderer({ profile: "preview" });
+
+const hairlineYaml = (points: string) => `mangacli: 1
+page: { size: [25.4mm, 25.4mm], bleed: 0mm }
+pages:
+  - id: lines
+    layers:
+      - { draw: line, id: hairline, points: ${points}, ruler: true, stroke: { width: 0.015mm, pen: { minWidth: 0.01mm } } }
+`;
+
+it.each(["[[5mm, 10mm], [20mm, 10mm]]", "[[10mm, 5mm], [10mm, 20mm]]"])("supplies a page and nonzero warning hit box for mono hairline %s", async points => {
+  const result = await createRenderer({ profile: "print-mono", dpi: 600 }).render({ yaml: hairlineYaml(points) }, { format: "png" });
+  const warning = result.diagnostics.find(d => d.code === "RENDER_HAIRLINE_THICKENED")!;
+  expect(warning).toMatchObject({ elementId: "hairline", pageId: "lines" });
+  const page = result.pages.find(p => p.id === warning.pageId)!;
+  const box = page.elements.find(e => e.id === warning.elementId)!;
+  expect(box.width).toBeGreaterThan(0);
+  expect(box.height).toBeGreaterThan(0);
+  const overlap = Math.max(0, Math.min(page.width, box.x + box.width) - Math.max(0, box.x)) * Math.max(0, Math.min(page.height, box.y + box.height) - Math.max(0, box.y));
+  expect(overlap).toBeGreaterThan(0);
+});
 const groupedYaml = yaml().replace(/    layers:[\s\S]*/, `    layers:
       - type: group
         id: outer
@@ -117,19 +137,21 @@ it.each(["png", "svg"] as const)("keeps %s boxes aligned with print-scaled outpu
 });
 
 it.each([
+  { format: "png", source: hairlineYaml("[[5mm, 10mm], [20mm, 10mm]]"), profile: "print-mono", code: "RENDER_HAIRLINE_THICKENED", id: "hairline", hasBox: true, pageIndex: 0 },
+  { format: "png", source: hairlineYaml("[[10mm, 5mm], [10mm, 20mm]]"), profile: "print-mono", code: "RENDER_HAIRLINE_THICKENED", id: "hairline", hasBox: true, pageIndex: 0 },
   { format: "png", source: yaml(), code: "TEXT_OUTSIDE_SAFE_AREA", id: "lettering", hasBox: true, pageIndex: 0 },
   { format: "svg", source: yaml(), code: "TEXT_OUTSIDE_SAFE_AREA", id: "lettering", hasBox: true, pageIndex: 0 },
   { format: "png", source: groupedYaml, code: "TEXT_CLIPPED", id: "child", hasBox: true, pageIndex: 0 },
   { format: "png", source: groupedYaml.replace("at: [10mm, 10mm]", "at: [100mm, 100mm]"), code: "TEXT_CLIPPED", id: "child", hasBox: false, pageIndex: 0 },
   { format: "png", source: rotatedYaml, code: "TEXT_CLIPPED", id: "child", hasBox: true, pageIndex: 1 },
   { format: "png", source: rotatedYaml.replace("size: [2mm, 8mm]", "size: [4mm, 8mm]"), code: "TEXT_CLIPPED", id: "child", hasBox: true, pageIndex: 1 },
-])("serves $format $id warning rows (box: $hasBox, page: $pageIndex)", async ({ format, source, code, id, hasBox, pageIndex }) => {
+].map(row => ({ profile: "preview", ...row })))("serves $format $id warning rows (box: $hasBox, page: $pageIndex)", async ({ format, source, code, id, hasBox, pageIndex, profile }) => {
   const root = join(import.meta.dirname, "..");
   const dir = mkdtempSync(join(tmpdir(), "mc-highlight-"));
   const file = join(dir, "warning.yaml");
   writeFileSync(file, source);
   const port = 44000 + Math.floor(Math.random() * 2000);
-  const proc = spawn(process.execPath, ["--import", "tsx", join(root, "src/cli/index.ts"), "preview", file, "--port", String(port), "--format", format, "--spread", "split", "--dpi", "254", "--no-config"], { cwd: root });
+  const proc = spawn(process.execPath, ["--import", "tsx", join(root, "src/cli/index.ts"), "preview", file, "--port", String(port), "--format", format, "--profile", profile, "--spread", "split", "--dpi", "254", "--no-config"], { cwd: root });
   try {
     await new Promise<void>((ok, fail) => {
       const timer = setTimeout(() => fail(new Error("preview did not start")), 60_000);

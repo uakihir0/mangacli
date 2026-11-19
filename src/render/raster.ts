@@ -45,6 +45,7 @@ export interface RasterResult {
 }
 
 interface Dev {
+  pageId?: string;
   ctx: SKRSContext2D;
   /** mm (display-list space) -> device px */
   base: Matrix;
@@ -262,7 +263,7 @@ export class RasterBackend {
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, W, H);
     }
-    const dev: Dev = { ctx, base, opts: o, scale: (sx + sy) / 2, W, H };
+    const dev: Dev = { ctx, base, opts: o, scale: (sx + sy) / 2, W, H, pageId: list.page.id };
     if (markPx) {
       // artwork stops at the bleed line; the margin holds the crop marks
       ctx.save();
@@ -546,7 +547,7 @@ export class RasterBackend {
       const id = n.tag?.elementId ?? "stroke";
       if (!this.warnedHairlines.has(id) && this.warnedHairlines.size < 20 && (dev.opts.diagnostics?.items.length ?? 0) < 100) {
         this.warnedHairlines.add(id);
-        dev.opts.diagnostics?.warn("RENDER_HAIRLINE_THICKENED", `${id}: requested ${width.toFixed(4)}mm at ${dev.opts.dpi} dpi; line thickened to ${minimum.toFixed(4)}mm (${MONO_MIN_STROKE_PIXELS} device pixels) for mono output (one warning per element; further thin strokes also thickened)`, { elementId: n.tag?.elementId });
+        dev.opts.diagnostics?.warn("RENDER_HAIRLINE_THICKENED", `${id}: requested ${width.toFixed(4)}mm at ${dev.opts.dpi} dpi; line thickened to ${minimum.toFixed(4)}mm (${MONO_MIN_STROKE_PIXELS} device pixels) for mono output (one warning per element; further thin strokes also thickened)`, { elementId: n.tag?.elementId, pageId: dev.pageId });
       }
       return minimum;
     };

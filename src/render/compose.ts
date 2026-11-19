@@ -815,7 +815,7 @@ function renderDraw(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
     mk(pts[pts.length - 1], pts[Math.max(0, pts.length - 3)], (head.end as string) ?? "arrow");
     mk(pts[0], pts[Math.min(pts.length - 1, 2)], (head.start as string) ?? "none");
   }
-  return { nodes, bbox: boundsOf(pts) };
+  return { nodes, bbox: rectInset(boundsOf(pts), -st.width / 2) };
 }
 
 async function renderScatter(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[]; bbox: Rect }> {
