@@ -17,7 +17,7 @@ export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number
   const candidates = new Uint8Array(width * height);
   for (let direction = 0; direction < directions.length; direction++) {
     const [dx, dy] = directions[direction];
-    const inner = Math.max(1, Math.round(dpi * 0.12 / (25.4 * Math.hypot(dx, dy))));
+    const inner = Math.max(2, Math.ceil(dpi * 0.15 / (25.4 * Math.hypot(dx, dy))));
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const i = y * width + x;

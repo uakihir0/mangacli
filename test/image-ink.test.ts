@@ -4,6 +4,33 @@ import { render } from "../src/api.js";
 import { imageInkMask } from "../src/render/image-ink.js";
 
 describe("print image ink preservation", () => {
+  it.each([300, 600])("preserves one- through three-pixel lines at %s ppi", (dpi) => {
+    const size = 192;
+    for (const light of [false, true]) {
+      for (const vertical of [false, true]) {
+        for (const thickness of [1, 2, 3]) {
+          const rgba = new Uint8Array(size * size * 4);
+          for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size; x++) {
+              const cross = vertical ? x : y;
+              const along = vertical ? y : x;
+              const line = cross >= 40 && cross < 40 + thickness && along >= 16 && along < 176;
+              const v = line === light ? 180 : 80;
+              rgba.set([v, v, v, 255], (y * size + x) * 4);
+            }
+          }
+          const mask = imageInkMask(rgba, size, size, dpi);
+          for (let p = 16; p < 176; p++) {
+            for (let q = 40; q < 40 + thickness; q++) {
+              const i = vertical ? p * size + q : q * size + p;
+              expect(mask[i], `dpi=${dpi}, light=${light}, vertical=${vertical}, thickness=${thickness}, pixel=${i}`).toBe(light ? 2 : 1);
+            }
+          }
+        }
+      }
+    }
+  });
+
   it.each(["blob", "step", "shading-boundary"])("does not preserve soft %s contours as ridges", (shape) => {
     const width = 192;
     const rgba = new Uint8Array(width * width * 4);
