@@ -317,12 +317,26 @@ passes:
 | `aura` | `upwardBias` | 0〜1 | `0.7`。上向きの炎を伸ばし、先端を上へ曲げる強さ |
 | `aura` | `layers` | 整数 1〜3 | `3`。外側から順に短くなる。外層の面は紙色 |
 | `arcs` | `count` | 整数 0〜1024 | `18`。短い稲妻の本数。0 で空出力 |
+| `arcs` | `arcThickness` | 正の Length またはその配列 | `14%`。稲妻の根元の幅。先端に向かって細くなる。輪郭線の幅は `stroke.width` |
+| `arcs` | `distance` | 0 以上の Length またはその配列 | `12%`。人物の輪郭から外向きに測る稲妻の始点までの距離 |
+| `arcs` | `knockout` | 0 以上の Length | `0.65bmm`。稲妻の面と輪郭線の下に紙白を敷き、指定幅だけ外側に広げる。0 で無効 |
+
+`arcThickness` と `distance` は単一の値で全ての稲妻に適用できる。配列の場合は
+生成順に 1 本ずつ指定し、足りない分には既定値を使う。余分な値は使わない。
+これらのキーと `knockout` の百分率は、稲妻の `length` を基準とする。
+紙白は全ての稲妻の下に描画し、人物の輪郭・`region`・`clear` で通常通りクリップする。
 
 ```yaml
 layers:
   - { image: hero-art, id: hero, size: [auto, 70%], at: [50%, 55%] }
   - { effect: aura, target: hero, tongues: 30, upwardBias: 0.9, fill: 'tone(12%)', seed: 42 }
-  - { effect: arcs, target: hero, count: 16, seed: 17 }
+  - effect: arcs
+    target: hero
+    count: 16
+    arcThickness: [0.5mm, 1.2mm, 0.8mm]
+    distance: [0.5mm, 3mm, 1.5mm]
+    knockout: 0.5mm
+    seed: 17
 ```
 
 実行例: [aura.yaml](examples/aura.yaml)、[モノクロ画像](images/aura.png)。

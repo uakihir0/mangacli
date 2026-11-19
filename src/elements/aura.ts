@@ -1,14 +1,14 @@
 import polygonClipping, { type Ring } from "polygon-clipping";
 import { BLACK, WHITE } from "../core/color.js";
 import { Rng } from "../core/random.js";
-import { toMm } from "../core/units.js";
+import { type LengthInput, toMm } from "../core/units.js";
 import { isObj } from "../load/normalize.js";
 import { polyPath } from "../geom/path.js";
 import { type Vec, boundsOf } from "../geom/vec.js";
 import type { RElement } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolveStroke } from "../model/values.js";
 import { inkShape } from "../ink/shape.js";
-import { type Node, solid } from "../render/ir.js";
+import { type Node, type PathNode, solid } from "../render/ir.js";
 import { signedArea } from "./alpha-contour.js";
 import { type ElemCtx, tag } from "./context.js";
 import { inksToNodes } from "./inkir.js";
@@ -60,14 +60,28 @@ export function renderAura(el: RElement, ctx: ElemCtx, region: ResolvedRegion): 
   const pathOf = (mp: ReturnType<typeof polygonClipping.union>) => mp.flatMap(poly => poly.flatMap(r => polyPath(r.slice(0, -1).map(([x, y]) => ({ x, y })), true)));
   const clip = pathOf(polygonClipping.difference([outer], subject));
   const nodes: Node[] = [];
+  const knockouts: Node[] = [];
   const hand = resolveHand(p.hand, ctx.u, ctx.draft);
   const stroke = resolveStroke({ pen: p.pen, color: p.color, ...(isObj(p.stroke) ? p.stroke : {}) }, hand, ctx.u, ctx.bag, [...el.path, "stroke"]);
   const paint = parsePaint(p.fill, { u: ctx.u, box: b, seed: el.seed, bag: ctx.bag, path: [...el.path, "fill"] });
-  const draw = (q: Vec[], fill: typeof paint, seed: Rng) => {
+  const draw = (q: Vec[], fill: typeof paint, seed: Rng, knockout = 0) => {
     const cut = polygonClipping.difference([ring(q)], subject);
     if (fill && cut.length) nodes.push({ kind: "path", path: pathOf(cut), fillRule: "evenodd", paint: fill, tag: tag(el, "fill") });
     const ink = inkShape({ pts: q, closed: true, smooth: false }, { hand: stroke.hand, rng: seed, line: stroke, join: "clean" });
-    nodes.push(...inksToNodes(ink.inks, stroke.color ?? BLACK, tag(el, "ink")));
+    const inks = inksToNodes(ink.inks, stroke.color ?? BLACK, tag(el, "ink"));
+    if (knockout > 0) {
+      const white = solid(WHITE);
+      const halo = (path: PathNode["path"], fillRule: PathNode["fillRule"]) => {
+        knockouts.push({ kind: "path", path, fillRule, paint: white, stroke: { width: 2 * knockout, paint: white, join: "round" }, tag: tag(el, "fill") });
+      };
+      if (fill) halo(polyPath(q, true), "evenodd");
+      const haloInk = (node: Node) => {
+        if (node.kind === "path") halo(node.path, node.fillRule);
+        if (node.kind === "group") node.children.forEach(haloInk);
+      };
+      inks.forEach(haloInk);
+    }
+    nodes.push(...inks);
   };
   const usable = loops.filter(q => Math.abs(signedArea(q)) >= b.w * b.h / 10000);
   if (p.kind === "aura") {
@@ -87,17 +101,26 @@ export function renderAura(el: RElement, ctx: ElemCtx, region: ResolvedRegion): 
       draw(flame, layer === layers - 1 ? paint : solid(WHITE), r.fork(`ink-${layer}`));
     }
   } else {
+    const units = { ...ctx.u, base: length };
+    const widths = (Array.isArray(p.arcThickness) ? p.arcThickness : [p.arcThickness]).map(v => toMm(v as LengthInput, units));
+    const distances = (Array.isArray(p.distance) ? p.distance : [p.distance]).map(v => toMm(v as LengthInput, units));
+    const knockout = toMm(p.knockout as LengthInput, units);
+    if (widths.some(w => !Number.isFinite(w) || w <= 0)) return bad("arcThickness", "SCHEMA_TYPE", "arcThickness must be positive");
+    if (distances.some(d => !Number.isFinite(d) || d < 0)) return bad("distance", "SCHEMA_TYPE", "distance must be nonnegative");
+    if (!Number.isFinite(knockout) || knockout < 0) return bad("knockout", "SCHEMA_TYPE", "knockout must be nonnegative");
     const pool = usable.flatMap(loop => samples(loop, 256));
     if (!pool.length) return [];
     const count = Math.round(Number(p.count) * density);
     for (let i = 0; i < count; i++) {
       const r = rng.fork(`arc-${i}`);
       const { p: q, n } = pool[Math.floor((i + r.next()) / count * pool.length)];
-      const start = { x: q.x + n.x * length * 0.12, y: q.y + n.y * length * 0.12 };
+      const distance = (Array.isArray(p.distance) ? distances[i] : distances[0]) ?? length * 0.12;
+      const width = (Array.isArray(p.arcThickness) ? widths[i] : widths[0]) ?? length * 0.14;
+      const start = { x: q.x + n.x * distance, y: q.y + n.y * distance };
       const angle = Math.atan2(n.y, n.x) + r.range(-1.15, 1.15);
       const pts = lightningPoints(r, start, angle, length * r.range(0.65, 1.2), 1);
-      draw(lightningOutline(pts, length * 0.14), paint, r.fork("ink"));
+      draw(lightningOutline(pts, width), paint, r.fork("ink"), knockout);
     }
   }
-  return nodes.length ? [{ kind: "group", clip, clipRule: "evenodd", children: nodes, tag: tag(el, "ink") }] : [];
+  return nodes.length ? [{ kind: "group", clip, clipRule: "evenodd", children: [...knockouts, ...nodes], tag: tag(el, "ink") }] : [];
 }

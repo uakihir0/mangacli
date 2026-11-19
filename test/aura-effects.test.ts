@@ -2,7 +2,7 @@ import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { createRenderer, render, validate } from "../src/api.js";
 import { traceAlpha } from "../src/elements/alpha-contour.js";
-import type { Node } from "../src/render/ir.js";
+import type { Node, PathNode } from "../src/render/ir.js";
 
 const scene = (effect = "", image = true) => ({ yaml: `mangacli: 1
 page: { size: [64mm, 72mm], bleed: 0, baseFrame: trim, safeArea: { inset: 0 } }
@@ -19,8 +19,10 @@ async function cutout(empty = false) {
   return sharp(Buffer.from(`<svg width="96" height="128" xmlns="http://www.w3.org/2000/svg">${empty ? "" : '<path d="M28 20H68V50H82V72H64V108H54V82H42V108H32V72H14V50H28Z" fill="#777"/><rect x="85" y="116" width="4" height="4" fill="#777"/>'}</svg>`)).png().toBuffer();
 }
 
-async function raster(effect = "", empty = false) {
-  const { pages, diagnostics } = await render(scene(effect), { profile: "preview", dpi: 254, colorMode: "color", assets: { cutout: await cutout(empty) } });
+async function raster(effect = "", empty = false, underlay?: string) {
+  const input = scene(effect);
+  if (underlay) input.yaml = input.yaml.replace("      - layers:\n", `      - layers:\n          - { tone: ${underlay} }\n`);
+  const { pages, diagnostics } = await render(input, { profile: "preview", dpi: 254, colorMode: "color", assets: { cutout: await cutout(empty) } });
   expect(diagnostics.filter(d => d.severity === "error")).toEqual([]);
   return sharp(pages[0].data).removeAlpha().raw().toBuffer({ resolveWithObject: true });
 }
@@ -187,5 +189,55 @@ describe("aura controls", () => {
     }
     const list = await renderer.displayList(scene("effect: arcs, target: figure, count: 0"), 1);
     expect(leaves(list.root).filter(n => n.tag?.elementType === "effect")).toEqual([]);
+  });
+});
+
+describe("arc controls", () => {
+  it("sets each arc's width and outward distance independently, without changing its seeded shape", async () => {
+    const renderer = createRenderer({ assets: { cutout: await cutout() } });
+    const geometry = async (props: string) => {
+      const list = await renderer.displayList(scene(`effect: arcs, target: figure, count: 3, length: 5mm, fill: black, knockout: 0, seed: 42, ${props}`), 1);
+      const fills = (n: Node): PathNode[] => n.kind === "group" ? n.children.flatMap(fills) : n.kind === "path" && n.tag?.elementType === "effect" && n.tag.role === "fill" ? [n] : [];
+      return fills(list.root).map(n => n.path);
+    };
+    const base = await geometry("arcThickness: 0.7mm, distance: 2mm");
+    const thicker = await geometry("arcThickness: [1.4mm], distance: 2mm");
+    expect(base).toHaveLength(3);
+    expect(thicker[0]).not.toEqual(base[0]);
+    expect(thicker.slice(1)).toEqual(base.slice(1));
+
+    const distances = "arcThickness: 0.7mm, distance: [2mm, 4mm, 2mm]";
+    const farther = await geometry(distances);
+    expect(farther[0]).toEqual(base[0]);
+    expect(farther[2]).toEqual(base[2]);
+    const origin = base[1][0], shifted = farther[1][0];
+    if (origin[0] !== "M" || shifted[0] !== "M") throw new Error("expected an arc polygon");
+    expect(Math.hypot(shifted[1] - origin[1], shifted[2] - origin[2])).toBeCloseTo(2, 6);
+    expect(await geometry(distances)).toEqual(farther);
+  });
+
+  it("paints an opaque white knockout around black arcs, not just inside them", async () => {
+    const effect = "effect: arcs, target: figure, count: 6, seed: 42, fill: black";
+    const off = await raster(`${effect}, knockout: 0`, false, "black");
+    const on = await raster(`${effect}, knockout: 0.8mm`, false, "black");
+    const defaults = await raster(effect, false, "black");
+    const whiteOverBlack = (data: Buffer) => {
+      let count = 0;
+      for (let i = 0; i < data.length; i += on.info.channels) {
+        if (off.data[i] === 0 && data[i] === 255 && data[i + 1] === 255 && data[i + 2] === 255) count++;
+      }
+      return count;
+    };
+    expect(whiteOverBlack(defaults.data)).toBeGreaterThan(0);
+    expect(whiteOverBlack(on.data)).toBeGreaterThan(whiteOverBlack(defaults.data));
+    expect((await raster(`${effect}, knockout: 0.8mm`, false, "black")).data).toEqual(on.data);
+  });
+
+  it.each([
+    ["arcThickness", "[]"], ["arcThickness", "[1mm, 0]"],
+    ["distance", "far"], ["distance", "[1mm, -1mm]"], ["knockout", "-1mm"],
+  ])("rejects invalid %s: %s", async (key, value) => {
+    const { diagnostics } = await validate(scene(`effect: arcs, target: figure, ${key}: ${value}`), { assets: { cutout: await cutout() } });
+    expect(diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ severity: "error", path: expect.arrayContaining([key]) })]));
   });
 });
