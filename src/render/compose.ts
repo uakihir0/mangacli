@@ -21,7 +21,7 @@ import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, matMul
 import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
-import { type PageGeom, type PanelGeom, bookOf, computePageGeom, layoutPanels } from "../layout/page.js";
+import { type PageGeom, type PanelGeom, bookOf, computePageGeom, layoutPagePanels } from "../layout/page.js";
 import { RefRegistry, center, place, resolvePoint, sizeValue } from "../layout/place.js";
 import type { RElement, RPage, ResolvedDoc } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolvePen, resolveStroke } from "../model/values.js";
@@ -107,7 +107,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   const book = bookOf(doc.doc);
   const geom = computePageGeom(page, physicalIndex, book, bag);
   const u = geom.units;
-  const { area, panels } = page.type === "blank" ? { area: geom.baseFrame, panels: [] } : layoutPanels(page, geom, bag);
+  const { area, panels } = page.type === "blank" ? { area: geom.baseFrame, panels: [] } : layoutPagePanels(page, geom, bag);
   await prepareFonts(page, o);
   const refs = new RefRegistry((ch) => ((doc.characters[ch]?.anchorPriority as string[]) ?? ["mouth", "face"]));
   const items: Item[] = [];

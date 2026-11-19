@@ -260,7 +260,11 @@ function distribute(total: number, sizes: (number | string)[], gaps: number, u: 
   return vals.map((v) => ("a" in v ? v.a! : ((v.r ?? 1) / (ratioSum || 1)) * rest));
 }
 
-export function layoutPanels(page: RPage, geom: PageGeom, bag: DiagnosticBag): { area: Rect; panels: PanelGeom[] } {
+export function layoutPanels(page: RPage, geom: PageGeom, bag: DiagnosticBag): PanelGeom[] {
+  return layoutPagePanels(page, geom, bag).panels;
+}
+
+export function layoutPagePanels(page: RPage, geom: PageGeom, bag: DiagnosticBag): { area: Rect; panels: PanelGeom[] } {
   const u = geom.units;
   const L = (isObj(page.layout) ? page.layout : page.layout === "free" ? { free: true } : {}) as Obj;
   // in a split tree, `gutter` on a node belongs to that node only; the page gutter applies elsewhere
