@@ -300,7 +300,8 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
       const bb = boundsOf(pts);
       const baseAlong = (vertical ? tl.height : tl.width) + Math.max(0, units.length - 1) * Math.max(0, -0.05 - style.letterSpacing) * em;
       const baseArea = baseAlong * (vertical ? tl.width : tl.height);
-      if (grow === undefined && bb.w * bb.h > 0) footprintScale = Math.max(1, Math.sqrt(baseArea * 1.15 / (bb.w * bb.h)));
+      const explicitScale = pcs.scale !== undefined || p.smallKanaScale !== undefined || chars.some(c => c.scale !== undefined);
+      if (grow === undefined && !explicitScale && bb.w * bb.h > 0) footprintScale = Math.max(1, Math.sqrt(baseArea * 1.15 / (bb.w * bb.h)));
       for (let k = 0; k < paths.length; k++) paths[k] = transformPath(paths[k], [footprintScale, 0, 0, footprintScale, -bb.x * footprintScale, -bb.y * footprintScale]);
       boxW = bb.w * footprintScale;
       boxH = bb.h * footprintScale;

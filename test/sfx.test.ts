@@ -107,6 +107,17 @@ describe("SFX lettering", () => {
     const result = await renderer.render(input("", ""), { format: "svg" });
     expect(result.diagnostics.filter(d => d.severity === "error")).toEqual([]);
   });
+  it("does not undo explicit shrink controls when grow is omitted", async () => {
+    const box = async (extra: string, text = "ド") => (await renderer.render(input(`rotate: 0deg, brush: false, perChar: { rotate: 0deg, jitter: 0mm }, ${extra}`, text), { format: "svg" })).layout[0].elements.find(e => e.id === "sfx")!.bbox;
+    const baseline = await box("chars: [{ index: 0, scale: 1 }]");
+    const shrunk = await box("chars: [{ index: 0, scale: 0.5 }]");
+    expect(shrunk.w / baseline.w).toBeCloseTo(0.5);
+    expect(shrunk.h / baseline.h).toBeCloseTo(0.5);
+    const small = await box("smallKanaScale: 0.35", "ッ");
+    const explicit = await box("smallKanaScale: 0.35, grow: 0", "ッ");
+    expect(small.w / explicit.w).toBeCloseTo(1.3);
+    expect(small.h / explicit.h).toBeCloseTo(1.3);
+  });
   it.each(["vertical", "horizontal"])("preserves explicit spaces and along-axis character offsets in %s SFX", async writing => {
     const boxes = async (text: string, chars = "[]") => {
       const list = await renderer.displayList(input(`writing: ${writing}, rotate: 0deg, grow: 0, brush: false, perChar: { rotate: 0deg, jitter: 0mm }, chars: ${chars}`, text), 1);
