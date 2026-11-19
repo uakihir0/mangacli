@@ -70,13 +70,13 @@ fonts:
 | キー | 型 | 説明 |
 |---|---|---|
 | `src` | パス | フォントファイル |
-| `index` | 整数 | TTC / OTC の中のフォントの番号（既定 0） |
+| `index` | 整数 | TTC / OTC の中の 0 始まりの番号（`src` は既定 0、`system` は省略すると名前だけで選ぶ） |
 | `alias` | フォント名 | 別名。省略記法では拡張子のない文字列を書く |
 | `compose` | ComposeItem[] | 混植（[7.3.4](#734-混植compose)） |
 | `fallback` | フォント名[] | 字形がない場合に順に探すフォント |
 | `variations` | Map\<軸, 数値\> | 可変フォントの軸の値（例: `{ wght: 700 }`、P1） |
 | `bold` | フォント名 | `<b>` のときに使うフォント。なければ擬似太字（輪郭を 0.03 em 太らせる） |
-| `system` | 文字列 | OS にインストールされたフォントの名前（P1、[7.3.8](#738-システムフォント)） |
+| `system` | 文字列 | OS にインストールされたフォントの名前（[7.3.8](#738-システムフォント)） |
 | `catalog` | カタログ ID | 同梱のカタログのフォント。必要なときに自動で取得する（[7.3.10](#7310-フォントのカタログと取得)）。省略記法は `catalog:<ID>[@<太さ>]` |
 | `weight` | 数値 | `catalog` のフォントの太さ（例: `700`）。カタログにない太さはエラー |
 
@@ -168,7 +168,20 @@ fonts:
 
 ### 7.3.8 システムフォント
 
-（P1）`system: "Hiragino Sans W6"` のように書くと、OS にインストールされたフォントを名前で探して使う。環境によって結果が変わるため、使用時は情報（`FONT_SYSTEM_USED`）を出す。見つからない場合はエラー（`FONT_NOT_FOUND`）。
+`system: "Hiragino Sans W6"` のように、インストール済みのフォントを指定できる。フォントの名前テーブルから PostScript 名、フルネーム、ファミリー名（日本語名を含む）をこの順に探す。大文字・小文字は区別しない。ファミリー名に複数候補がある場合は標準の書体を優先する。特定のウェイトを使うには PostScript 名で指定する。
+
+```yaml
+fonts:
+  dialogue:
+    system: "Noto Sans CJK JP"
+  narration:
+    system: NotoSansCJKjp-Regular
+    index: 0
+```
+
+`index` は省略可能。指定すると、名前と番号が両方合うフェイスのみを使う。TrueType、OpenType（CFF/CID を含む）、TTC / OTC が対象。候補の名前・コレクション内の番号・ファイルの場所は `mangacli fonts list --system` で確認できる。
+
+macOS では `~/Library/Fonts`、`/Library/Fonts`、`/System/Library/Fonts`、Windows ではユーザーの `%LOCALAPPDATA%\Microsoft\Windows\Fonts` とシステムの `%WINDIR%\Fonts` を探す。Linux では fontconfig（`fc-list`）に登録されたフォントを探す。使用時は情報 `FONT_SYSTEM_USED` を出し、名前や番号が見つからない場合はエラー `FONT_NOT_FOUND` を出す。仕上がりはマシンのインストール状況に依存する。商用フォントは、利用者がライセンスを確認してインストールすること。
 
 ### 7.3.9 ライセンス
 

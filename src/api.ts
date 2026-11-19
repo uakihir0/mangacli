@@ -282,6 +282,7 @@ function buildFonts(p: Project, o: RenderOptions): FontRegistry {
       }
       if (!isObj(v)) continue;
       if (typeof v.src === "string") defs.set(k, { kind: "file", path: v.src, index: v.index as number, variations: v.variations as Record<string, number>, bold: v.bold as string, fallback: v.fallback as string[] });
+      else if (typeof v.system === "string") defs.set(k, { kind: "system", name: v.system, index: v.index as number, variations: v.variations as Record<string, number>, bold: v.bold as string, fallback: v.fallback as string[] });
       else if (typeof v.alias === "string") defs.set(k, { kind: "alias", name: v.alias });
       else if (typeof v.catalog === "string") defs.set(k, { kind: "catalog", id: v.catalog, weight: v.weight as number, bold: v.bold as string, fallback: v.fallback as string[] });
       else if (Array.isArray(v.compose)) defs.set(k, { kind: "compose", items: v.compose as never, fallback: v.fallback as string[], bold: v.bold as string });

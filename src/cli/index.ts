@@ -10,6 +10,7 @@ import { type Diagnostic, MangaError, MangaValidationError } from "../core/diagn
 import { defaultFontSet, loadCatalog } from "../fonts/catalog.js";
 import { defaultFontCacheDir, findLocalCatalogFont } from "../fonts/download.js";
 import { installFonts } from "../fonts/install.js";
+import { listSystemFonts } from "../fonts/system.js";
 import { PACKAGE_ROOT } from "../fonts/catalog.js";
 import { jsonSchema } from "../schema/jsonschema.js";
 import { collectDeps } from "./deps.js";
@@ -581,6 +582,17 @@ async function cmdFonts(sub: string | undefined, args: string[], o: Obj): Promis
     return 0;
   }
   if (sub === "list") {
+    if (o.system) {
+      if (o.catalog || args.length) throw new UsageError(t("--system は --catalog やファイル指定と併用できません", "--system cannot be combined with --catalog or a document"));
+      for (const { path, index, families, fullNames, postScriptNames } of await listSystemFonts()) {
+        emitJson({ type: "font", source: "system", path, index, families, fullNames, postScriptNames });
+        if (!out.json) {
+          const names = [...new Set([...families, ...fullNames, ...postScriptNames])];
+          process.stdout.write(`${names.join(" / ")}\t${path}#${index}\n`);
+        }
+      }
+      return 0;
+    }
     const config = await configFor(o, args[0]);
     const fetchOpts = { fontDir: config?.fontDir, fontCacheDir: config?.fontCacheDir };
     if (o.catalog || !args[0]) {
@@ -912,7 +924,7 @@ common(cli.command("migrate <file>", "Convert an older document to the current v
   .option("--write", "Write the result")
   .action(wrap((file: string, o: Obj) => cmdMigrate(file, o)));
 common(cli.command("cache [sub]", "Font cache: info | clean")).action(wrap((sub: string | undefined, _o: Obj) => cmdCache(sub)));
-common(cli.command("fonts <sub> [...args]", "Catalog fonts: install [ids...] | list [file] | check <file> | verify | licenses [file]"))
+common(cli.command("fonts <sub> [...args]", "Fonts: install [ids...] | list [--catalog | --system | file] | check <file> | verify | licenses [file]"))
   .option("-o, --out <file>", "Write licenses to a file")
   .option("--set <name>", "Font set")
   .option("--for <file>", "Fonts used by a document")
@@ -920,6 +932,7 @@ common(cli.command("fonts <sub> [...args]", "Catalog fonts: install [ids...] | l
   .option("--dir <dir>", "Install into a directory")
   .option("--force", "Download again")
   .option("--catalog", "List the catalog")
+  .option("--system", "List installed fonts; check their licenses before use")
   .action(wrap((sub: string, args: string[], o: Obj) => cmdFonts(sub, args, o)));
 
 cli.help();
