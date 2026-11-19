@@ -8,7 +8,7 @@ import { normalizeDocument } from "../src/load/normalize.js";
 import { BUILTIN_STYLES } from "../src/model/defaults.js";
 import { resolveDocument } from "../src/model/resolve.js";
 import { AssetRegistry } from "../src/render/assets.js";
-import { closeAlpha } from "../src/render/edt.js";
+import { closeAlpha, distanceSquared } from "../src/render/edt.js";
 import type { DisplayList, Node, PathNode } from "../src/render/ir.js";
 import { RasterBackend } from "../src/render/raster.js";
 import { renderSvg } from "../src/render/svg.js";
@@ -334,6 +334,27 @@ describe("text outline rendering", () => {
     mask[27] = 255;
     expect(closeAlpha(mask, 10, 10, 0)).toEqual(mask);
     expect(closeAlpha(mask, 10, 10, 1)[24]).toBe(0);
+  });
+
+  it.each(["raster", "svg"])("preserves hollow SFX glyph interiors with or without closing (%s)", async (backend) => {
+    const interior: Buffer[] = [];
+    for (const fillHoles of ["0mm", "4mm"]) {
+      const input = { mangacli: 1, page: { size: ["80mm", "40mm"], bleed: 0, baseFrame: "trim" }, pages: [{ panels: [{ border: "none", background: "black", layers: [{ sfx: "Iド", at: ["40mm", "20mm"], writing: "horizontal", fontSize: "20mm", hand: false, hollow: true, edge: "0.15mm black", outline: { width: "1mm", color: "black", fillHoles } }] }] }] };
+      const list = await renderer.displayList(input, 1);
+      const glyphs = paths(list.root).filter((n) => n.tag?.role === "text" && n.paint && !n.stroke);
+      const background: PathNode = { kind: "path", path: polyPath([{ x: 0, y: 0 }, { x: 80, y: 0 }, { x: 80, y: 40 }, { x: 0, y: 40 }], true), fillRule: "nonzero", paint: { type: "solid", color: BLACK } };
+      const mask = await new RasterBackend({ dpi: 127, crop: "trim", colorMode: "mono", toneRendering: "dots", monoLpi: 60, toneCurve: "linear", assets }).render({ ...list, root: { kind: "group", children: [background, ...glyphs] } });
+      const outside = new Uint8Array(mask.width * mask.height);
+      for (let i = 0; i < outside.length; i++) outside[i] = mask.data[i * 4] === 255 ? 0 : 1;
+      const distance = distanceSquared(outside, mask.width, mask.height);
+      const source = backend === "svg" ? Buffer.from(await renderSvg(list, { crop: "trim", colorMode: "mono", assets })) : (await renderer.render(input, { dpi: 127, crop: "trim", colorMode: "mono" })).pages[0].data;
+      const pixels = await sharp(source, backend === "svg" ? { density: 127 } : {}).resize(mask.width, mask.height).removeAlpha().greyscale().raw().toBuffer();
+      const samples = Buffer.from(pixels.filter((_, i) => !outside[i] && distance[i] >= 4));
+      expect(samples.length).toBeGreaterThan(100);
+      expect(samples.filter((v) => v === 255).length / samples.length).toBeGreaterThan(0.99);
+      interior.push(samples);
+    }
+    expect(interior[1]).toEqual(interior[0]);
   });
 
   it.each(["text", "sfx", "balloon"])("handles empty/disabled %s outlines and diagnoses non-solid Paint", async (type) => {
