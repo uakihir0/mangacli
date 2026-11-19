@@ -2,6 +2,7 @@
 import type { DiagnosticBag } from "../core/diagnostics.js";
 import { type UnitContext, parseAngle, parseLength, quantityToMm, toMm } from "../core/units.js";
 import { type Matrix, type Rect, type Vec, applyMat, matMul, matRotate, matScale, matTranslate } from "../geom/vec.js";
+import type { GroupNode } from "../render/ir.js";
 
 type Obj = Record<string, unknown>;
 
@@ -28,6 +29,7 @@ export interface RefTarget {
   shape?: Vec[];
   /** for images: page matrix mapping image px -> page mm and asset key (alpha regions) */
   imagePx?: { matrix: Matrix; assetKey: string; w: number; h: number };
+  imageSilhouette?: GroupNode;
 }
 
 export class RefRegistry {

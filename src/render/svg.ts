@@ -2,7 +2,7 @@
 import sharp from "sharp";
 import { type RGBA, linearToSrgb, srgbToLinear } from "../core/color.js";
 import type { PathData } from "../geom/path.js";
-import type { Matrix } from "../geom/vec.js";
+import { type Matrix, rectInset } from "../geom/vec.js";
 import type { AssetRegistry } from "./assets.js";
 import { applyFilters } from "./filters.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
@@ -159,6 +159,13 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
     if (g.transform) attrs.push(`transform="${matrix(g.transform)}"`);
     if (g.opacity !== undefined && g.opacity < 1) attrs.push(`opacity="${n(g.opacity)}"`);
     if (g.blend && g.blend !== "normal") attrs.push(`style="mix-blend-mode:${g.blend}"`);
+    if (g.glow) {
+      const { blur, color, bounds } = g.glow;
+      const b = rectInset(bounds, -3 * blur);
+      const fid = id("glow");
+      defs.push(`<filter id="${fid}" filterUnits="userSpaceOnUse" x="${n(b.x)}" y="${n(b.y)}" width="${n(b.w)}" height="${n(b.h)}"><feGaussianBlur in="SourceAlpha" stdDeviation="${n(blur)}" result="blur"/><feFlood flood-color="${rgb(gray(color, o.colorMode))}" flood-opacity="${n(color.a)}"/><feComposite in2="blur" operator="in"/></filter>`);
+      attrs.push(`filter="url(#${fid})"`);
+    }
     if (g.clip) {
       const cid = id("c");
       defs.push(`<clipPath id="${cid}"><path d="${d(g.clip)}"${g.clipRule === "evenodd" ? ' clip-rule="evenodd"' : ""}/></clipPath>`);

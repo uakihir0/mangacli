@@ -248,7 +248,7 @@ async function cmdRender(file: string, o: Obj, onSystemFont?: (path: string) => 
     process.stdout.write(r.pages[0].data);
   }
   if (o.contactSheet && r.pages.length && opts.outDir) {
-    const sheet = await contactSheet(r.pages.filter((p) => p.format !== "pdf" && p.format !== "svg" && !p.separation), !!(opts.config as Obj | undefined) && false);
+    const sheet = await contactSheet(r.pages.filter((p) => p.format !== "pdf" && p.format !== "svg" && p.format !== "psd" && !p.separation), !!(opts.config as Obj | undefined) && false);
     if (sheet) {
       const base = typeof input === "string" ? basename(input).replace(/\.[^.]+$/, "") : "manga";
       const f = join(opts.outDir, `${base}-contact.png`);
@@ -494,7 +494,7 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
   const entry = resolve(file);
   const port = o.port !== undefined ? Number(o.port) : 4173;
   const host = (o.host as string) ?? "127.0.0.1";
-  type PreviewPage = { id: string; data: Uint8Array; mime: string; ext: string; width: number; height: number; elements: { id: string; x: number; y: number; width: number; height: number }[] };
+  type PreviewPage = { id: string; side: string; separation?: string; data: Uint8Array; mime: string; ext: string; width: number; height: number; elements: { id: string; x: number; y: number; width: number; height: number }[] };
   let pages: PreviewPage[] = [];
   let diags: Diagnostic[] = [];
   let version = 0;
@@ -507,7 +507,7 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
     opts.onSystemFont = (path) => watcher.add(path);
     if (debug) opts.debug = Array.isArray(opts.debug) ? [...new Set([...opts.debug, ...debug])] : (opts.debug ?? debug);
     const r = await render(entry, opts);
-    return { pages: r.pages.map((p) => ({ id: p.id, data: p.data, mime: p.mimeType, ext: p.format, width: p.width, height: p.height, elements: p.elements })), diags: r.diagnostics };
+    return { pages: r.pages.map((p) => ({ id: p.id, side: p.side, separation: p.separation, data: p.data, mime: p.mimeType, ext: p.format, width: p.width, height: p.height, elements: p.elements })), diags: r.diagnostics };
   };
   const guidedPages = () => {
     if (guided?.version !== version) guided = { version, pages: renderPages(["guides"]).then((r) => r.pages, () => pages) };
@@ -578,10 +578,12 @@ new EventSource("/events").onmessage=()=>location.reload()</script>`;
         res.end(p.data);
       };
       if (url.searchParams.get("guides") === "1") {
-        // guided pages are PNG only: with several formats, pick by position among pages of the same format
+        // guided pages are PNG only, so match the same page, separation and half; svg keeps a split spread joined, so it stays plain then
         const cur = pages[Number(m[1])]!;
-        const k = pages.filter((p) => p.ext === cur.ext).indexOf(cur);
-        void guidedPages().then((g) => send(g[k]));
+        void guidedPages().then((g) => {
+          const same = g.filter((p) => p.id === cur.id && p.separation === cur.separation);
+          send((cur.ext === "svg" ? (same.length === 1 ? same[0] : undefined) : same.find((p) => p.side === cur.side)) ?? cur);
+        });
       } else send(pages[Number(m[1])]);
       return;
     }
@@ -877,7 +879,7 @@ const renderOpts = (c: ReturnType<typeof cli.command>) =>
   common(c)
     .option("-o, --out <dir>", "Output directory")
     .option("-p, --profile <name>", "Output profile (print-mono, print-gray, print-color, web, sns, preview, draft)")
-    .option("-f, --format <fmt>", "png, jpeg, webp, avif, tiff, pdf, svg (comma separated)")
+    .option("-f, --format <fmt>", "png, jpeg, webp, avif, tiff, pdf, svg, psd (comma separated)")
     .option("--pdf-x <version>", "Monochrome print PDF: 1a (PDF/X-1a:2001) or 4 (PDF/X-4)")
     .option("--pdf-x-icc <path>", "CMYK printer ICC profile for PDF/X")
     .option("--pdf-x-condition <name>", "Printer's output condition for PDF/X")
