@@ -711,7 +711,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         if (i > 0 && i < NN && Math.abs(u) < 1e-9) zigCorners.push(i);
       }
       // automatic off-panel tails stay open where the frame cuts them
-      const f = zig ? Math.max(0, 1 - tt) ** 1.15 : frameCut ? 1 - 0.65 * Math.pow(tt, 0.8) : Math.pow(1 - tt, 1 + sideCurve * 1.6);
+      const f = zig ? Math.max(0, 1 - tt) ** 1.15 : frameCut ? 1 - 0.65 * Math.pow(tt, 0.8) : Math.pow(1 - tt, whisperWedge ? 0.75 : 1 + sideCurve * 1.6);
       if (slanted) {
         // the tail leaves the outline at a slant: bow the centre line outward first, and keep
         // the width square to the local direction so it never collapses into a line
@@ -724,7 +724,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         const tl2 = Math.hypot(tg.x, tg.y) || 1;
         let nn = { x: -tg.y / tl2, y: tg.x / tl2 };
         if (nn.x * (A.p.x - R.x) + nn.y * (A.p.y - R.y) < 0) nn = { x: -nn.x, y: -nn.y };
-        const half = (bw / 2) * Math.pow(1 - tt, 1 + sideCurve);
+        const half = (bw / 2) * Math.pow(1 - tt, whisperWedge ? 0.75 : 1 + sideCurve);
         const w8 = Math.min(1, tt * 4);
         sideA.push({ x: A.p.x * (1 - w8) + (q.x + nn.x * half) * w8, y: A.p.y * (1 - w8) + (q.y + nn.y * half) * w8 });
         sideB.push({ x: B.p.x * (1 - w8) + (q.x - nn.x * half) * w8, y: B.p.y * (1 - w8) + (q.y - nn.y * half) * w8 });

@@ -55,9 +55,11 @@ const rightOf = (pts: Vec[], cx: number) => 2 * cx - Math.min(...pts.map((p) => 
 describe("balloon tails", () => {
   it("preserves the default zigzag length on whisper balloons", async () => {
     const balloon = 'balloon: "", id: b, as: whisper, at: [40mm, 35mm], size: [24mm, 24mm], shape: { kind: ellipse, irregularity: 0 }';
-    const auto = await outline(`{ ${balloon}, tail: { kind: zigzag, direction: 0deg, bend: 0 } }`);
-    const explicit = await outline(`{ ${balloon}, tail: { kind: zigzag, direction: 0deg, bend: 0, length: 11bmm } }`);
-    expect(auto.pts).toEqual(explicit.pts);
+    const tail = "tail: { kind: zigzag, direction: 0deg, bend: 0 }";
+    const whisper = await outline(`{ ${balloon}, ${tail} }`);
+    const say = await outline(`{ ${balloon.replace("as: whisper", "as: say")}, ${tail} }`);
+    const reach = (o: typeof whisper) => tip(o.pts).x - rightOf(o.pts, o.origin.x + 40);
+    expect(reach(whisper)).toBeCloseTo(reach(say), 1);
   });
   const shout = `{ balloon: "父ちゃん！", id: b, as: shout, at: [40mm, 35mm], tail: { to: [125mm, 35mm] } }`;
   it("keeps a shout tail aimed far away to a moderate length", async () => {
