@@ -11,6 +11,14 @@ const lines = async (t: string, o: Record<string, unknown> = {}) => {
 };
 
 describe("typesetting", () => {
+  it("reserves room for prohibited starts when splitting a long word", async () => {
+    const result = await lines("ウルトラマン！", { maxChars: 3 });
+    expect(result.join("")).toBe("ウルトラマン！");
+    for (const line of result) {
+      expect(Array.from(line).length).toBeLessThanOrEqual(3);
+      expect(noStart(Array.from(line)[0] ?? "", "strict")).toBe(false);
+    }
+  });
   it("prefers phrases to splitting okurigana or starting with n", async () => {
     expect(await lines("ねえ…聞いてる？", { maxChars: 5 })).toEqual(["ねえ…", "聞いてる？"]);
     expect(await lines("さすがにひどいんじゃないですか", { maxChars: 7 })).toEqual(["さすがに", "ひどいんじゃ", "ないですか"]);

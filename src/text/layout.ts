@@ -711,8 +711,8 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
         len += adv;
         continue;
       }
-      // No legal break, or oidashi would leave one character: use oikomi.
-      if (prohibited && k <= 1) {
+      // No legal break: use oikomi.
+      if (prohibited && k < 0) {
         cur.push(b);
         len += adv;
         continue;
@@ -913,4 +913,3 @@ export function breakFaults(tl: TextLayout, lang: string): number {
   if (lines.length >= 3 && single >= 2) bad += single;
   return bad;
 }
-
