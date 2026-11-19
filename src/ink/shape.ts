@@ -5,7 +5,8 @@ import type { Vec } from "../geom/vec.js";
 import type { HandSpec, PenSpec } from "./presets.js";
 import { type InkPoly, blobPoly, rotateAboutMid, strokeOutline } from "./stroke.js";
 
-export type CornerKind = "convex" | "concave" | "tip" | "valley";
+/** `point`: a tail tip, inked at full width to the point like a convex corner */
+export type CornerKind = "convex" | "concave" | "tip" | "valley" | "point";
 
 export interface Corner {
   index: number;
@@ -190,7 +191,7 @@ export function inkShape(c: ShapeContour, o: InkShapeOptions): InkResult {
   for (let pass = 0; pass < passes; pass++) {
     const prng = rng.fork(`pass${pass}`);
     let inks: InkPoly[];
-    if (line.style === "dashed") inks = dashed(dense, line, hand, prng, ruler);
+    if (line.style === "dashed") inks = dashed(dense, c, line, o, prng, ruler);
     else if (line.style === "dotted") inks = dotted(dense, line, prng);
     else inks = solid(dense, c, line, o, prng);
     if (line.style === "double" && line.double) {
@@ -349,6 +350,7 @@ function solid(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, r
         const startKind = firstPart ? sg.a.kind : "smooth";
         const endKind = lastPart ? sg.b.kind : "smooth";
         const extFor = (k: string) => {
+          if (k === "point") return 0;
           if (k !== "convex") return 0;
           if (join === "overshoot") return rng.range(hand.overshoot[0], hand.overshoot[1]);
           if (join === "gap") return -rng.range(hand.gap[0], hand.gap[1]);
@@ -365,13 +367,13 @@ function solid(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, r
         pts = extend(pts, Math.max(0, e0), Math.max(0, e1));
         // direction: draw toward tips; concave/valley start strongly (short entry)
         let reverse = false;
-        if (endKind === "tip") reverse = false;
-        else if (startKind === "tip") reverse = true;
+        if (endKind === "tip" || endKind === "point") reverse = false;
+        else if (startKind === "tip" || startKind === "point") reverse = true;
         if (reverse) pts = pts.reverse();
         const sKind = reverse ? endKind : startKind;
         const eKind = reverse ? startKind : endKind;
-        const sharpStart = sKind === "concave" || sKind === "valley" || (sKind === "convex" && join !== "overshoot");
-        const sharpEnd = eKind === "concave" || eKind === "valley" || (eKind === "convex" && join !== "overshoot");
+        const sharpStart = sKind === "concave" || sKind === "valley" || sKind === "point" || (sKind === "convex" && join !== "overshoot");
+        const sharpEnd = eKind === "concave" || eKind === "valley" || eKind === "point" || (eKind === "convex" && join !== "overshoot");
         if (!firstPart || !lastPart) pts = shiftNormal(pts, rng.normal() * hand.misalign * 0.3);
         // corners where strokes meet are drawn with pressure (no taper) so joints stay clean
         draw(pts, !sharpStart, !sharpEnd);
@@ -416,8 +418,10 @@ function solid(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, r
   return inks;
 }
 
-function dashed(d: Dense, line: LineStyle, hand: HandSpec, rng: Rng, ruler: boolean): InkPoly[] {
+function dashed(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, rng: Rng, ruler: boolean): InkPoly[] {
+  const hand = o.hand;
   const [on, off] = line.dash ?? [1.6, 1.0];
+  if (!(on > 0 && off > 0) || !Number.isFinite(on + off)) return solid(d, c, { ...line, style: "solid" }, o, rng);
   const inks: InkPoly[] = [];
   let s = rng.range(0, on + off);
   const end = d.total + (d.closed ? 0 : 0);
@@ -428,7 +432,9 @@ function dashed(d: Dense, line: LineStyle, hand: HandSpec, rng: Rng, ruler: bool
     if (!d.closed && e - s < l * 0.3) break;
     const pts = slice(d, s, e, step);
     inks.push(...strokeOutline(pts, { width: line.width, pen: line.pen, hand, rng: rng.fork("d"), taperInLen: l * 0.3, taperOutLen: l * 0.35, ruler, inkPool: false }));
-    s = e + off * rng.range(0.8, 1.2);
+    const next = e + off * rng.range(0.8, 1.2);
+    if (!(next > s)) break;
+    s = next;
     if (d.closed && s > d.total - off * 0.5) break;
   }
   return inks;

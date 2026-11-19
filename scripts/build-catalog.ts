@@ -18,7 +18,7 @@ const ENTRIES: { id: string; family: string; dir: string; files: Record<number, 
   { id: "yusei-magic", family: "Yusei Magic", dir: "yuseimagic", files: { 400: "YuseiMagic-Regular.ttf" }, copyright: "Copyright 2020 The Yusei Magic Project Authors" },
   { id: "comic-neue", family: "Comic Neue", dir: "comicneue", files: { 400: "ComicNeue-Regular.ttf", 700: "ComicNeue-Bold.ttf" }, copyright: "Copyright 2014 The Comic Neue Project Authors" },
   { id: "bangers", family: "Bangers", dir: "bangers", files: { 400: "Bangers-Regular.ttf" }, copyright: "Copyright 2010 The Bangers Project Authors" },
-  { id: "noto-sans-jp", family: "Noto Sans JP", dir: "notosansjp", files: { 400: "NotoSansJP[wght].ttf", 700: "NotoSansJP[wght].ttf" }, variable: true, copyright: "Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'" },
+  { id: "noto-sans-jp", family: "Noto Sans JP", dir: "notosansjp", files: { 400: "NotoSansJP[wght].ttf", 600: "NotoSansJP[wght].ttf", 700: "NotoSansJP[wght].ttf", 900: "NotoSansJP[wght].ttf" }, variable: true, copyright: "Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'" },
 ];
 
 const cache = ".cache/catalog-build";
@@ -87,14 +87,26 @@ const catalog = {
   coverage: coverages,
   sets: {
     "manga-basic": {
-      dialogue: { compose: [{ font: "zen-antique@400", ranges: ["kana", "punct"] }, { font: "zen-kaku-gothic-new@700" }], fallback: ["noto-sans-jp@700"] },
+      dialogue: {
+        // アンチゴチ: commercial 中ゴシックBBB when installed, else a real 600 gothic, else Zen Kaku Gothic New 500
+        compose: [{ font: "zen-antique@400", ranges: ["kana", "punct"], scale: 1.04 }, { system: ["GothicBBBPr6N-Medium",  "GothicBBBPr6-Medium",  "GothicBBBPro-Medium",  "GothicBBBStd-Medium",  "GothicBBB-Medium",  "A-OTF 中ゴシックBBB Pr6N",  "A-OTF Gothic BBB Pr6N",  "中ゴシックBBB"] }, { font: "noto-sans-jp@600" }, { font: "zen-kaku-gothic-new@500" }],
+        fallback: ["noto-sans-jp@400"],
+      },
       thought: "dialogue",
       whisper: "dialogue",
       narration: { font: "shippori-mincho@500", fallback: ["noto-sans-jp@400"] },
-      shout: { font: "dela-gothic-one@400", fallback: ["noto-sans-jp@700"] },
+      shout: {
+        compose: [
+          { system: ["GothicMB101Pr6N-U", "GothicMB101Pro-U", "A-OTF Gothic MB101 Pr6N U", "A-OTF Gothic MB101 Pro U", "A-OTF ゴシックMB101 Pr6N U", "A-OTF ゴシックMB101 Pro U", "Gothic MB101 U", "ゴシックMB101 U"] },
+          { system: ["ShinGoPr6N-U", "ShinGoPro-U", "A-OTF Shin Go Pr6N U", "A-OTF Shin Go Pro U", "A-OTF 新ゴ Pr6N U", "A-OTF 新ゴ Pro U", "Shin Go U", "Shin Go Ultra", "新ゴ U"] },
+        ],
+        font: "zen-kaku-gothic-new@900",
+        fallback: ["noto-sans-jp@700"],
+      },
       sfx: { font: "dela-gothic-one@400", fallback: ["noto-sans-jp@700"] },
       hand: { font: "yomogi@400", fallback: ["noto-sans-jp@400"] },
-      title: { font: "zen-maru-gothic@900", fallback: ["noto-sans-jp@700"] },
+      // cover titles: square-cut extra-bold gothic (Gothic MB101 U / Shin Go U when installed)
+      title: { compose: [{ system: ["GothicMB101Pr6N-Ultra", "GothicMB101Pro-Ultra", "GothicMB101Std-Ultra", "A-OTF ゴシックMB101 Pr6N U", "A-OTF Gothic MB101 Pr6N U", "ShinGoPr6N-Ultra", "ShinGoPro-Ultra", "ShinGoStd-Ultra", "A-OTF 新ゴ Pr6N U", "A-OTF Shin Go Pr6N U"] }, { font: "noto-sans-jp@900" }], fallback: ["zen-kaku-gothic-new@900", "noto-sans-jp@700"] },
     },
     // western comic lettering (spec 7.3.10): used by default for documents whose language is not CJK
     "comic-basic": {

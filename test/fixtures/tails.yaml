@@ -1,0 +1,16 @@
+# Feature catalog: docs/14-quality.md §14.3.1
+mangacli: 1
+meta: { lang: ja }
+page: { size: [100mm, 168mm], bleed: 0, color: color }
+output: { metadata: false }
+pages:
+  - layout: { template: grid, params: { cols: 1, rows: 7 } }
+    panels:
+      - layers:
+          - { balloon: 声, tail: { kind: wedge, direction: 45deg, bend: -0.4, length: 5mm } }
+          - { balloon: 声, tail: { kind: bubbles, direction: 105deg, bend: 0.5, length: 5mm } }
+          - { balloon: 声, tail: { kind: line, direction: 165deg, bend: -0.4, length: 5mm } }
+          - { balloon: 声, tail: { kind: zigzag, direction: 225deg, bend: 0.5, length: 5mm } }
+          - { balloon: 声, tail: { kind: none, direction: 285deg, bend: -0.4, length: 5mm } }
+          - { balloon: 一, id: first, at: [35%, 30%] }
+          - { balloon: 二, at: [65%, 70%], connect: { to: first } }

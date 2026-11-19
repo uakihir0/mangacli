@@ -5,7 +5,7 @@ import { type Range, parseAngle, toMm, toRange } from "../core/units.js";
 import { flattenPath, parseSvgPath, polyPath, smoothPath, transformPath } from "../geom/path.js";
 import { type Rect, type Vec } from "../geom/vec.js";
 import { type HandSpec, type PenSpec } from "../ink/presets.js";
-import { inkLine } from "../ink/shape.js";
+import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
 import { resolvePoint } from "../layout/place.js";
@@ -681,6 +681,136 @@ function impact(f: FxCtx): Node[] {
 
 // ---- vignette ----------------------------------------------------------------
 
+function materialEffects(f: FxCtx, kind: string): Node[] {
+  const { p, rng } = f;
+  if (kind === "crack" && p.center === undefined) {
+    f.ctx.bag.error("SCHEMA_REQUIRED", "crack requires center", { path: [...f.el.path, "center"] });
+    return [];
+  }
+  const b = f.region.bbox;
+  const unit = Math.min(b.w, b.h);
+  const nodes: Node[] = [];
+  const stroke = resolveStroke({ pen: p.pen, color: p.color, ...(isObj(p.stroke) ? p.stroke : {}) }, f.hand, f.ctx.u, f.ctx.bag, [...f.el.path, "stroke"]);
+  const line = (pts: Vec[], width: number, color = f.color) => {
+    const lineRng = rng.fork("line");
+    const style = { ...stroke, width };
+    const inks = stroke.style === "solid"
+      ? inkLine(pts, style, stroke.hand, lineRng, { taperOut: true, inkPool: false })
+      : inkShape({ pts, closed: false, smooth: true }, { hand: stroke.hand, rng: lineRng, line: style }).inks;
+    nodes.push(...inksToNodes(inks, color, tag(f.el, "ink")));
+  };
+  const plane = (pts: Vec[], paint: unknown, role: "fill" | "tone" = "fill") => {
+    const resolved = parsePaint(paint, { u: f.ctx.u, box: b, seed: f.el.seed });
+    if (resolved) nodes.push({ kind: "path", path: polyPath(pts, true), fillRule: "nonzero", paint: resolved, tag: tag(f.el, role) });
+  };
+  const shape = (pts: Vec[], paint: unknown, angular = false) => {
+    const s = inkShape({ pts, closed: true, smooth: !angular }, { hand: stroke.hand, rng: rng.fork("shape"), join: "clean", line: stroke });
+    plane(s.fill, paint);
+    nodes.push(...inksToNodes(s.inks, stroke?.color ?? f.color, tag(f.el, "ink")));
+  };
+  const point = (v: unknown, fallback: Vec) => v === undefined ? fallback : resolvePoint(v, placeCtx(f.ctx, f.el)) ?? fallback;
+  const jag = (o: Vec, angle: number, length: number, jaggedness: number): Vec[] => Array.from({ length: 10 }, (_, i) => {
+    const t = i / 9;
+    const off = i === 0 ? 0 : rng.range(-1, 1) * length * 0.12 * jaggedness;
+    return { x: o.x + Math.cos(angle) * length * t - Math.sin(angle) * off, y: o.y + Math.sin(angle) * length * t + Math.cos(angle) * off };
+  });
+  if (kind === "lightning") {
+    const angle = parseAngle(p.direction as string);
+    const thickness = R(f, p.thickness, { min: 3 * f.k, max: 6 * f.k, dist: "uniform" });
+    const bolt = (pts: Vec[], width: number) => {
+      const left: Vec[] = [], right: Vec[] = [];
+      for (let i = 0; i < pts.length; i++) {
+        const next = pts[Math.min(i + 1, pts.length - 1)], prev = pts[Math.max(0, i - 1)];
+        const a = Math.atan2(next.y - prev.y, next.x - prev.x) + Math.PI / 2;
+        const w = width * Math.pow(1 - i / (pts.length - 1), 0.7) / 2;
+        left.push({ x: pts[i].x + Math.cos(a) * w, y: pts[i].y + Math.sin(a) * w });
+        right.push({ x: pts[i].x - Math.cos(a) * w, y: pts[i].y - Math.sin(a) * w });
+      }
+      shape([...left, ...right.reverse()], p.fill, true);
+    };
+    for (let i = 0; i < Number(p.bolts); i++) {
+      const o = point(p.origin, { x: b.x + b.w * (i + rng.range(0.2, 0.8)) / Number(p.bolts), y: b.y });
+      const length = L(f, p.length, b.h) * rng.range(0.8, 1.1);
+      const pts = jag(o, angle, length, Number(p.jaggedness));
+      const width = sampleR(f, thickness);
+      bolt(pts, width);
+      for (let j = 0; j < Number(p.branches); j++) {
+        const at = rng.int(2, 6);
+        bolt(jag(pts[at], angle + (j % 2 ? -1 : 1) * rng.range(0.5, 1), length * rng.range(0.2, 0.4), Number(p.jaggedness)), width * 0.3);
+      }
+    }
+  } else if (kind === "crack") {
+    const c = point(p.center, { x: b.x + b.w / 2, y: b.y + b.h / 2 });
+    const radius = L(f, p.radius, unit);
+    const th = R(f, p.thickness, { min: 0.15 * f.k, max: 0.65 * f.k, dist: "uniform" });
+    const cracks: Vec[][] = [];
+    for (let i = 0; i < Number(p.count); i++) {
+      const a = (i + rng.range(-0.25, 0.25)) * Math.PI * 2 / Number(p.count);
+      const pts = jag(c, a, radius * rng.range(0.75, 1.2), 0.7);
+      cracks.push(pts);
+      plane([...pts, ...pts.map((q, j) => ({ x: q.x + radius * 0.035 * (1 - j / 9), y: q.y + radius * 0.012 * (1 - j / 9) })).reverse()], p.shade);
+      line(pts, sampleR(f, th));
+      for (let j = 2; j < 8; j++) if (rng.chance(Number(p.branching))) line(jag(pts[j], a + rng.range(-1, 1), radius * 0.3, 0.7), sampleR(f, th) * 0.5);
+    }
+    for (let r = 0; r < Number(p.rings); r++) for (let i = 0; i < cracks.length; i++) {
+      const index = Math.min(8, Math.round((r + 1) * 8 / (Number(p.rings) + 1)));
+      const a = cracks[i][index], z = cracks[(i + 1) % cracks.length][index];
+      line([a, { x: (a.x + z.x) / 2 + rng.range(-1, 1) * radius * 0.06, y: (a.y + z.y) / 2 + rng.range(-1, 1) * radius * 0.06 }, z], th.min);
+    }
+  } else {
+    const dust = kind === "dust";
+    const o = point(p.origin, { x: b.x + b.w / 2, y: b.y + b.h });
+    const angle = p.direction === "both" ? -Math.PI / 2 : parseAngle(p.direction as string);
+    const n = dust ? Number(p.puffs) : Math.round(Number(p.density) * 22);
+    const size = dust ? L(f, p.size, unit) : unit * 0.3;
+    for (let i = n - 1; i >= 0; i--) {
+      const t = (i + 0.5) / Math.max(1, n);
+      const travel = dust ? size * t * 1.9 : b.h * t;
+      const side = dust && p.direction === "both" ? (i % 2 ? -1 : 1) * travel : rng.range(-1, 1) * size * (0.25 + t);
+      const c = !dust && p.origin === undefined ? { x: b.x + rng.next() * b.w, y: b.y + rng.next() * b.h } : { x: o.x + Math.cos(angle) * travel - Math.sin(angle) * side, y: o.y + Math.sin(angle) * travel * (dust ? 0.4 : 1) + Math.cos(angle) * side };
+      const rx = size * (dust ? 0.65 - 0.35 * t : rng.range(0.6, 1.2));
+      const ry = rx * (dust ? 0.7 : 1.15);
+      const phase = rng.range(0, Math.PI * 2);
+      const lobes = dust ? 9 : 7;
+      const anchors = Array.from({ length: lobes }, (_, j) => {
+        const a = phase + j / lobes * Math.PI * 2;
+        const r = rng.range(0.9, 1.08);
+        return { x: c.x + Math.cos(a) * rx * r, y: c.y + Math.sin(a) * ry * r };
+      });
+      const pts: Vec[] = [];
+      for (let j = 0; j < lobes; j++) {
+        const a = anchors[j], z = anchors[(j + 1) % lobes];
+        const dx = (z.x - a.x) / 2, dy = (z.y - a.y) / 2;
+        const bulge = rng.range(0.75, 1.05);
+        for (let s = 0; s < 12; s++) {
+          const t = s / 12 * Math.PI;
+          pts.push({ x: (a.x + z.x) / 2 - dx * Math.cos(t) + dy * Math.sin(t) * bulge, y: (a.y + z.y) / 2 - dy * Math.cos(t) - dx * Math.sin(t) * bulge });
+        }
+      }
+      shape(pts, p.fill);
+      const underside = pts.filter(q => q.y >= c.y + ry * 0.35);
+      plane(underside, p.tone, "tone");
+      const curl = Array.from({ length: 28 }, (_, j) => {
+        const a = j / 27 * Math.PI * (dust ? 1.1 : 2.1) + phase;
+        const r = (1 - j / 32) * rx * 0.6;
+        return { x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r * (dust ? 0.8 : 1.4) };
+      });
+      if (i % 3 === 0) line(curl, (dust ? 0.15 : 0.12) * f.k);
+    }
+    if (dust) for (let i = 0; i < Number(p.debris); i++) {
+      const a = rng.range(-Math.PI, 0), d = size * rng.range(1, 2.8), r = rng.range(0.3, 1) * f.k;
+      const c = { x: o.x + Math.cos(a) * d, y: o.y + Math.sin(a) * d };
+      shape([{ x: c.x - r, y: c.y }, { x: c.x, y: c.y - r * 1.5 }, { x: c.x + r, y: c.y + r }], p.color);
+    }
+  }
+  let result = nodes;
+  if (kind === "crack" && p.target !== undefined) {
+    const target = resolveRegion(p.target, f.ctx, "panel", [...f.el.path, "target"]);
+    result = [{ kind: "group", clip: target.path, clipRule: target.fillRule, children: nodes }];
+  }
+  return wrap(f, result, backgroundNode(f));
+}
+
 function vignette(f: FxCtx): Node[] {
   const p = f.p;
   const b = f.region.bbox;
@@ -784,6 +914,11 @@ async function renderEffectInner(el: RElement, ctx: ElemCtx, hold: { f?: FxCtx }
       return ink(hatching(f));
     case "impact":
       return impact(f);
+    case "lightning":
+    case "crack":
+    case "dust":
+    case "smoke":
+      return materialEffects(f, kind);
     case "vignette":
       return vignette(f);
     case "glow":

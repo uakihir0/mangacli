@@ -1,7 +1,7 @@
 // Cascade, IDs, seeds (spec 3.7, 3.8, 9.2.2).
 import type { DiagnosticBag } from "../core/diagnostics.js";
 import { suggest } from "../core/diagnostics.js";
-import { deriveSeed } from "../core/random.js";
+import { deriveSeed, Rng } from "../core/random.js";
 import { isObj } from "../load/normalize.js";
 import { BUILTIN_DEFAULTS, BUILTIN_EFFECT_DEFAULTS, BUILTIN_MARK_DEFAULTS, BUILTIN_STYLES } from "./defaults.js";
 
@@ -257,6 +257,10 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       acc.id = id;
       const elSeedBase = typeof raw.seed === "number" ? raw.seed : baseSeed;
       const el: RElement = { id, type, props: acc, path, seed: deriveSeed(elSeedBase, id, "element"), fromDialogue };
+      if (type === "balloon" && acc.as === "aside" && acc.rotate === undefined) {
+        const tilt = new Rng(deriveSeed(el.seed, id, "aside-tilt")).next() * 2 - 1;
+        acc.rotate = `${Math.sign(tilt || 1) * (3 + Math.abs(tilt) * 2)}deg`;
+      }
       if (type === "group" && Array.isArray(raw.children)) {
         const gDefaults = isObj(raw.defaults) ? (raw.defaults as Obj) : undefined;
         const lv2 = gDefaults ? [...levels, { d: gDefaults, hand: undefined }] : levels;

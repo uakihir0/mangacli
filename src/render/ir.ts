@@ -81,7 +81,8 @@ export interface PathNode {
   inkStrokes?: { path: PathData; width: number; outline?: PathData }[];
   inkBasePath?: PathData;
   /** outline stroke (used for text outlines / faux bold); drawn before fill */
-  stroke?: { width: number; paint: Paint; join: "round" | "miter" };
+  /** `miterLimit`: miter length / width beyond which a corner is bevelled */
+  stroke?: { width: number; paint: Paint; join: "round" | "miter"; miterLimit?: number };
   tag?: NodeTag;
 }
 
