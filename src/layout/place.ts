@@ -49,8 +49,11 @@ export class RefRegistry {
     ids.add(panelId);
     this.panels.set(id, ids);
   }
+  setPanels(id: string, panelIds: string[]) {
+    this.panels.set(id, new Set(panelIds));
+  }
   character(char: string, panelId?: string): RefTarget | undefined {
-    const inPanel = this.chars.filter((c) => c.char === char && (panelId === undefined || c.panelId === panelId || this.panels.get(c.target.id)?.has(panelId)));
+    const inPanel = this.chars.filter((c) => c.char === char && (panelId === undefined || (this.panels.has(c.target.id) ? this.panels.get(c.target.id)!.has(panelId) : c.panelId === panelId)));
     const pool = inPanel.length ? inPanel : panelId === undefined ? [] : [];
     pool.sort((a, b) => a.order - b.order);
     return pool[0]?.target;

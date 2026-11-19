@@ -16,13 +16,13 @@ import { renderSfx, renderText } from "../elements/textel.js";
 import { textValue } from "../elements/textstyle.js";
 import type { FontRegistry } from "../fonts/registry.js";
 import { miterFrameEdges } from "../geom/miter.js";
-import { flattenPath, offsetPolygon, parseSvgPath, polyPath, smoothPath, transformPath } from "../geom/path.js";
+import { flattenPath, offsetPolygon, parseSvgPath, pointInPolygon, polyPath, smoothPath, transformPath } from "../geom/path.js";
 import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, matMul, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
 import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
 import { type PageGeom, type PanelGeom, bookOf, computePageGeom, layoutPagePanels } from "../layout/page.js";
-import { RefRegistry, center, place, resolvePoint, sizeValue } from "../layout/place.js";
+import { type RefTarget, RefRegistry, center, place, resolvePoint, sizeValue } from "../layout/place.js";
 import type { RElement, RPage, ResolvedDoc } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolvePen, resolveStroke } from "../model/values.js";
 import { BODY_GENERATORS } from "../shapes/balloon.js";
@@ -158,7 +158,27 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     if (!target) continue;
     const clip = el.props.clip;
     const ids = isObj(clip) && Array.isArray(clip.to) ? clip.to : undefined;
-    for (const pg of panels) if (ids ? ids.includes(pg.panel.id) : target.panelId === undefined && rectIntersect(target.bbox, pg.box)) refs.includeInPanel(el.id, pg.panel.id);
+    const sil = await imageSilhouette(target, baseCtx());
+    const present: string[] = [];
+    for (const pg of panels) {
+      if (el.props.visible === false || el.props.opacity === 0 || (ids ? !ids.includes(pg.panel.id) : target.panelId !== undefined && target.panelId !== pg.panel.id)) continue;
+      const shape = panelShapePoly(pg, geom);
+      const poly = shape === pg.polygon ? shape : flattenPath(smoothPath(shape, true), 0.02)[0].pts;
+      const visible = target.shape ?? rectPts(target.bbox);
+      if (sil && target.imagePx) {
+        let hits = 0;
+        for (let y = 0; y < sil.gh && hits < 3; y++) for (let x = 0; x < sil.gw && hits < 3; x++) {
+          if (sil.alpha[y * sil.gw + x] <= 128) continue;
+          const p = applyMat(target.imagePx.matrix, { x: (x + 0.5) * sil.w / sil.gw, y: (y + 0.5) * sil.h / sil.gh });
+          if (pointInPolygon(p, visible) && pointInPolygon(p, poly)) hits++;
+        }
+        if (hits >= 3) present.push(pg.panel.id);
+      } else {
+        const ring = (pts: Vec[]): polygonClipping.Ring => pts.map((p) => [p.x, p.y]);
+        if (polygonClipping.intersection([ring(visible)], [ring(poly)]).length) present.push(pg.panel.id);
+      }
+    }
+    refs.setPanels(el.id, present);
   }
 
   // phase B: balloons plans, text, sfx, effects, fills, marks, draw
@@ -1003,16 +1023,22 @@ async function silhouettes(refs: RefRegistry, ctx: ElemCtx): Promise<Silhouette[
   const pid = ctx.panel?.panel.id;
   for (const t of refs.all()) {
     if (t.type !== "image" || !t.imagePx || (pid && t.panelId !== pid) || !t.character) continue;
-    const { w, h, matrix, assetKey } = t.imagePx;
-    const gh = 64;
-    const gw = Math.max(8, Math.round((gh * w) / h));
-    const px = await ctx.assets.pixels(assetKey, gw, gh, { x: 0, y: 0, w, h });
-    if (!px) continue;
-    const alpha = new Uint8Array(px.width * px.height);
-    for (let i = 0; i < alpha.length; i++) alpha[i] = px.data[i * 4 + 3];
-    out.push({ id: t.id, inv: invertMat(matrix), w, h, gw: px.width, gh: px.height, alpha });
+    const s = await imageSilhouette(t, ctx);
+    if (s) out.push(s);
   }
   return out;
+}
+
+async function imageSilhouette(t: RefTarget, ctx: ElemCtx): Promise<Silhouette | undefined> {
+  if (!t.imagePx || !t.character) return;
+  const { w, h, matrix, assetKey } = t.imagePx;
+  const gh = 64;
+  const gw = Math.max(8, Math.round((gh * w) / h));
+  const px = await ctx.assets.pixels(assetKey, gw, gh, { x: 0, y: 0, w, h });
+  if (!px) return;
+  const alpha = new Uint8Array(px.width * px.height);
+  for (let i = 0; i < alpha.length; i++) alpha[i] = px.data[i * 4 + 3];
+  return { id: t.id, inv: invertMat(matrix), w, h, gw: px.width, gh: px.height, alpha };
 }
 
 function silhouetteCover(r: Rect, sils: Silhouette[]): number {
