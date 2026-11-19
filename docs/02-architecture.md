@@ -342,7 +342,7 @@ interface Backend<TOut> {
 | `maxPages` | ページ数 | 1,000 |
 | `maxElementsPerPage` | 1 ページあたりの要素数 | 5,000 |
 | `maxTextLength` | 1 つの要素の本文の文字数 | 2,000 |
-| `maxOutputPixels` | 出力 1 ページの画素数 | 2 億 |
+| `maxOutputPixels` | 出力 1 ページの画素数（分割見開きは片側ごと） | 2 億 |
 | `maxAssetPixels` | 素材 1 枚のデコード後の画素数 | 3 億 |
 | `maxAssetBytes` | 素材 1 つのファイルサイズ | 200 MB |
 | `maxEffectLines` | 効果 1 つあたりの線の本数（`passes` の合計） | 20,000 |
@@ -351,6 +351,8 @@ interface Backend<TOut> {
 | `minHandResolution` | `hand.resolution` の下限 | 0.05 mm |
 | `maxLpi` | トーンの線数 | 200 |
 | `pageTimeoutMs` | 1 ページの処理時間 | 120,000 ms |
+
+分割見開きは片側ずつラスタライズ・エンコードする。画像・フィルター・ディザなどのノード内処理は結合ページの論理座標と処理範囲を維持するため、大きいノードの作業用バッファには別途メモリが必要になる。仕上げ処理（`finish`）、`afterRender` フック、デバッグ表示を使う場合のみ、互換性のため結合ラスタを作ってから分割する。
 
 9. 出力先は指定されたディレクトリの内側に限る。ファイル名のテンプレートに由来するパス区切り文字や `..` は無害化する。ドキュメントに書かれた `output.dir` もプロジェクトルートの内側に限る。API の `ignoreDocumentOutput: true` を指定すると、ドキュメントの `output`（出力先・名前・解像度など）を無視する（信頼できないドキュメントを扱うサーバー向け）。
 10. プレビューサーバーは既定で `127.0.0.1` にのみバインドする。

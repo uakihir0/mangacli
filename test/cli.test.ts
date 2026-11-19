@@ -28,4 +28,15 @@ describe("cli", () => {
     expect(r.status).toBe(0);
     expect(existsSync(join(dir, "001.png"))).toBe(true);
   });
+  it("raises the per-page pixel limit and rejects invalid limits", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mc-limit-"));
+    const f = join(dir, "spread.yaml");
+    writeFileSync(f, "mangacli: 1\npage: { size: [12mm, 15mm], bleed: 0 }\npages: [{ id: spread, type: spread }]\n");
+    const args = ["render", f, "-p", "print-mono", "--dpi", "100", "--spread", "split", "-f", "png", "-o", join(dir, "out"), "-q"];
+    expect(cli(...args, "--max-output-pixels", "100").status).toBe(2);
+    expect(existsSync(join(dir, "out"))).toBe(false);
+    expect(cli(...args, "--max-output-pixels", "3000").status).toBe(0);
+    expect(cli(...args, "--max-output-pixels", "bad").status).toBe(3);
+    expect(cli(...args, "--max-output-pixels", "0").status).toBe(3);
+  });
 });

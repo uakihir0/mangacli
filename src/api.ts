@@ -462,6 +462,53 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   const seps0 = normalizeSeparations(options.separate ?? prof.separate);
   // print profiles hand spreads to the printer as two pages
   const spreadMode = options.spread ?? prof.spread ?? (prof.print ? "split" : "joined");
+  const crop = options.crop ?? prof.crop;
+  const resolution = (page: RPage, geom: import("./layout/page.js").PageGeom) => {
+    const sz = pageSize(page.settings, bag, page.path);
+    const margin = crop === "marks" ? 2 * (prof.marks?.margin ?? 10) : 0;
+    const w = crop === "trim" ? geom.trimW : geom.bleedBox.w + margin;
+    const h = crop === "trim" ? geom.trimH : geom.bleedBox.h + margin;
+    const W = options.width ?? (options.dpi || options.scale ? undefined : prof.width);
+    const H = options.height ?? (options.dpi || options.scale ? undefined : prof.height);
+    const scale = options.scale ?? (options.dpi ? undefined : prof.scale);
+    let d = W || H ? Math.min(W ? W / w * 25.4 : Infinity, H ? H / h * 25.4 : Infinity)
+      : scale ? geom.dpi * scale : options.dpi ?? (sz.unit === "px" && (prof.longSide || prof.dpi === 96) ? geom.dpi : prof.longSide ? prof.longSide / Math.max(w, h) * 25.4 : prof.dpi ?? geom.dpi);
+    if (draft && !options.dpi) d = Math.min(d, 150);
+    return d;
+  };
+  const outputSizes = (g: import("./layout/page.js").PageGeom, dpi: number) => {
+    const px = (mm: number) => Math.round(mm * dpi / 25.4 + 1e-6);
+    const t = px(g.trimW), h = px(g.trimH);
+    const b = crop === "trim" ? 0 : px(g.bleed);
+    const m = crop === "marks" ? px(prof.marks?.margin ?? 10) : 0;
+    return g.type === "spread" && spreadMode === "split"
+      ? [{ side: "left", w: Math.round(t / 2) + 2 * (b + m), h: h + 2 * (b + m) }, { side: "right", w: t - Math.round(t / 2) + 2 * (b + m), h: h + 2 * (b + m) }]
+      : [{ side: g.side, w: t + 2 * (b + m), h: h + 2 * (b + m) }];
+  };
+  if (!options.layoutOnly && formats.some((f) => f !== "svg")) {
+    for (const pl of plan) {
+      if (!selected.has(pl.idx)) continue;
+      const page = resolved.pages[pl.idx];
+      const g = computePageGeom(page, pl.physical, bookOf(p.doc), bag);
+      const dpi = resolution(page, g);
+      for (const size of outputSizes(g, dpi)) {
+        if (size.w * size.h <= lim.maxOutputPixels) continue;
+        let lo = 0, hi = Math.floor(dpi);
+        while (lo < hi) {
+          const mid = Math.ceil((lo + hi) / 2);
+          if (outputSizes(g, mid).every((s) => s.w * s.h <= lim.maxOutputPixels)) lo = mid;
+          else hi = mid - 1;
+        }
+        const message = `page ${page.id}/${size.side}: ${size.w}x${size.h} exceeds maxOutputPixels (${lim.maxOutputPixels}); highest whole dpi that fits: ${lo}; use --dpi ${lo} or raise --max-output-pixels (API: limits.maxOutputPixels) to at least ${Math.max(...outputSizes(g, dpi).map((s) => s.w * s.h))}`;
+        bag.error("OUTPUT_TOO_LARGE", message, { pageId: page.id });
+        result.failures.push({ pageId: page.id, index: pl.idx + 1, error: new Error(`OUTPUT_TOO_LARGE: ${message}`) });
+      }
+    }
+    if (bag.hasErrors) {
+      if (throwOnError) throw new MangaRenderError("OUTPUT_TOO_LARGE", result.failures.map((f) => f.error.message).join("\n"), bag.items, result.failures);
+      return result;
+    }
+  }
   const title = String((p.doc.meta as Obj | undefined)?.title ?? p.name);
   const outName = (page: RPage, idx: number, side: string, nombre: number | null, spreadJoined: boolean, split: boolean, runName: string | undefined, ext: string) => {
     const splitSuffix = split && !/\{(page|side)/.test(nameTpl) ? `-${side}` : "";
@@ -514,27 +561,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
     const tp = performance.now();
     try {
       const pageBag = bag;
-      const crop = options.crop ?? prof.crop;
       const dpiFor = (geom: import("./layout/page.js").PageGeom) => {
-        const sz = pageSize(page.settings, bag, page.path);
-        const markW = crop === "marks" ? 2 * (((prof as { marks?: { margin?: number } }).marks?.margin) ?? 10) : 0;
-        const cropW = crop === "bleed" || crop === "marks" ? geom.bleedBox.w + markW : geom.trimW;
-        const cropH = crop === "bleed" || crop === "marks" ? geom.bleedBox.h + markW : geom.trimH;
-        let d: number;
-        const W0 = options.width ?? (options.dpi || options.scale ? undefined : prof.width);
-        const H0 = options.height ?? (options.dpi || options.scale ? undefined : prof.height);
-        const S0 = options.scale ?? (options.dpi ? undefined : prof.scale);
-        if (W0 || H0) {
-          const ws = W0 ? (W0 / cropW) * 25.4 : Infinity;
-          const hs = H0 ? (H0 / cropH) * 25.4 : Infinity;
-          d = Math.min(ws, hs);
-        } else if (S0) d = geom.dpi * S0;
-        else if (options.dpi) d = options.dpi;
-        else if (sz.unit === "px" && (prof.longSide || prof.dpi === 96)) d = geom.dpi;
-        else if (prof.longSide) d = (prof.longSide / Math.max(cropW, cropH)) * 25.4;
-        else d = prof.dpi ?? geom.dpi;
-        if (draft && !options.dpi) d = Math.min(d, 150);
-        return d;
+        return resolution(page, geom);
       };
       if (!options.layoutOnly) options.onProgress?.({ phase: "layout", pageId: page.id, done, total });
       const { list: list0, info } = await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor, characters: resolved.characters });
@@ -573,22 +601,25 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const splitMarks = geom.type === "spread" && spreadMode === "split" && crop === "marks";
       const rasterCrop = splitMarks ? "bleed" : crop;
       for (const run of runs) {
-        const backend = new RasterBackend({ maxPixels: lim.maxOutputPixels, dpi, crop: rasterCrop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
+        const backend = new RasterBackend({ maxPixels: geom.type === "spread" && spreadMode === "split" ? Number.MAX_SAFE_INTEGER : lim.maxOutputPixels, dpi, crop: rasterCrop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
         const needRaster = formats.some((f) => f !== "svg");
-        let full = needRaster ? await backend.render(list) : { data: new Uint8ClampedArray(0), width: 0, height: 0, dpi };
-        if (plugins && needRaster) full = { ...full, ...(plugins.hook("afterRender", { data: full.data, width: full.width, height: full.height }) as object) };
-        // finishing passes: off for print profiles unless the profile itself asks for them
-        // finishing: never for print/preview/draft unless the profile itself (not the document) asks for it
         const profOwn = (PROFILES as Record<string, Profile>)[profName] ? undefined : (resolveProfile(profName, { ...(((cfgOf(options)?.output as Obj)?.profiles ?? {}) as Record<string, Obj>), ...((docOutput.profiles ?? {}) as Record<string, Obj>) }) as { finish?: Finish }).finish;
         const quiet = prof.print || profName === "preview" || profName === "draft" || draft;
         const finish = options.finish === false ? undefined : (options.finish ?? profOwn ?? (quiet ? undefined : (prof.finish as Finish | undefined)));
+        const directSplit = geom.type === "spread" && spreadMode === "split" && !plugins?.plugins.some((p) => p.hooks?.afterRender) && !finish && !options.debug;
+        const px = (mm: number) => Math.round(mm * dpi / 25.4 + 1e-6);
+        let full = needRaster && !directSplit ? await backend.render(list) : { data: new Uint8ClampedArray(0), width: directSplit ? px(geom.trimW) + (crop === "trim" ? 0 : 2 * px(geom.bleed)) : 0, height: directSplit ? px(geom.trimH) + (crop === "trim" ? 0 : 2 * px(geom.bleed)) : 0, dpi };
+        if (plugins && needRaster) full = { ...full, ...(plugins.hook("afterRender", { data: full.data, width: full.width, height: full.height }) as object) };
+        // finishing passes: off for print profiles unless the profile itself asks for them
+        // finishing: never for print/preview/draft unless the profile itself (not the document) asks for it
         if (finish && needRaster && !run.list) full = { ...full, ...(await applyFinish(full, finish, { dpi, colorMode: colorMode as "color", seed: resolved.seed, bag })) };
         if (options.debug) drawDebug(full, list, info, dpi, rasterCrop, options.debug, prof.marks?.margin ?? 10);
         // spreads: one joined image, or two pages each with bleed on all sides (spec 10.9)
         const trimWidth = Math.round((geom.trimW * dpi) / 25.4 + 1e-6);
         const trimHeight = Math.round((geom.trimH * dpi) / 25.4 + 1e-6);
         const fullTrim = { x: Math.round((full.width - trimWidth) / 2), y: Math.round((full.height - trimHeight) / 2), w: trimWidth, h: trimHeight };
-        const parts: { raster: { data: Uint8ClampedArray; width: number; height: number }; trim: typeof fullTrim; side: string; nombre: number | null }[] = [];
+        type PartRaster = { data: Uint8ClampedArray; width: number; height: number };
+        const parts: { raster: PartRaster | (() => Promise<PartRaster>); trim: typeof fullTrim; side: string; nombre: number | null }[] = [];
         if (geom.type === "spread" && spreadMode === "split" && needRaster) {
           const trimPx = Math.round((geom.trimW * dpi) / 25.4 + 1e-6);
           const edge = Math.round((full.width - trimPx) / 2);
@@ -596,59 +627,60 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           // Preserve artwork past the fold for each page's bleed.
           const inner = crop === "trim" ? 0 : Math.round((geom.bleed * dpi) / 25.4 + 1e-6);
           const leftW = edge + half + inner;
-          const slice = (x0: number, w: number) => {
-            const out = new Uint8ClampedArray(w * full.height * 4);
-            for (let y = 0; y < full.height; y++) out.set(full.data.subarray((y * full.width + x0) * 4, (y * full.width + x0 + w) * 4), y * w * 4);
-            const raster = { data: out, width: w, height: full.height };
+          const slice = async (x0: number, w: number) => {
+            const out = directSplit ? undefined : new Uint8ClampedArray(w * full.height * 4);
+            if (out) for (let y = 0; y < full.height; y++) out.set(full.data.subarray((y * full.width + x0) * 4, (y * full.width + x0 + w) * 4), y * w * 4);
+            const raster = out ? { data: out, width: w, height: full.height } : await backend.render(list, { x: x0, width: w });
             return splitMarks ? backend.addMarks(raster, geom.bleed) : raster;
           };
-          const left = { raster: slice(0, leftW), trim: { ...fullTrim, w: half }, side: "left" };
+          const left = { raster: () => slice(0, leftW), trim: { ...fullTrim, w: half }, side: "left" };
           const rightW = inner + (trimPx - half) + edge;
-          const right = { raster: slice(full.width - rightW, rightW), trim: { ...fullTrim, x: fullTrim.x + half - (full.width - rightW), w: trimPx - half }, side: "right" };
+          const right = { raster: () => slice(full.width - rightW, rightW), trim: { ...fullTrim, x: fullTrim.x + half - (full.width - rightW), w: trimPx - half }, side: "right" };
           const first = geom.rtl ? right : left;
           const second = geom.rtl ? left : right;
           parts.push({ ...first, nombre: pl.nombre }, { ...second, nombre: pl.nombre === null ? null : pl.nombre + 1 });
         } else parts.push({ raster: full, trim: fullTrim, side: geom.side, nombre: pl.nombre });
-        for (const part of parts)
-        for (const fmt of formats) {
-          const raster = part.raster;
-          if (fmt === "pdf") {
-            const key = run.name ?? "";
-            let pw = pdfs.get(key);
-            if (!pw) {
-              pw = { writer: new PdfWriter({ title: typeof meta.title === "string" ? meta.title : undefined, author: typeof meta.author === "string" ? meta.author : undefined, date: sde ? new Date(Number(sde) * 1000) : undefined }), colorMode, dpi };
-              pdfs.set(key, pw);
-            }
-            const bleedPx = crop === "trim" ? 0 : Math.round((geom.bleed * dpi) / 25.4 + 1e-6);
-            const trim = part.trim;
-            pw.writer.addPage({ rgba: raster.data, width: raster.width, height: raster.height, dpi, colorMode: (options.debug ? "color" : colorMode) as "color", transparent: transparentOut || !!run.list, trim, bleed: { x: trim.x - bleedPx, y: trim.y - bleedPx, w: trim.w + 2 * bleedPx, h: trim.h + 2 * bleedPx } });
-            continue;
-          }
-          if (fmt === "svg" && part !== parts[0]) continue;
-          const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, compression: prof.compression, chroma: prof.chroma, tiffCompression: prof.tiffCompression, transparent: transparentOut || !!run.list, metadata: prof.metadata === false ? {} : { Software: `mangacli ${PKG_VERSION}`, Title: String(meta.title ?? ""), ...(meta.author ? { Author: String(meta.author) } : {}), ...(meta.copyright ? { Copyright: String(meta.copyright) } : {}), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed), ...(sourceHash ? { "mangacli:source-hash": sourceHash } : {}) } };
-          const data = fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: Math.min(dpi, 300) })) : await encode(raster.data, raster.width, raster.height, enc);
-          const svgSize = () => {
-            const bw = crop === "trim" ? geom.trimW : geom.bleedBox.w;
-            const bh = crop === "trim" ? geom.trimH : geom.bleedBox.h;
-            return { w: Math.round((bw * dpi) / 25.4), h: Math.round((bh * dpi) / 25.4) };
-          };
-          const size = fmt === "svg" ? svgSize() : { w: raster.width, h: raster.height };
-          const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: size.w, height: size.h, dpi, separation: run.name, data };
-          if (outDir) {
-            const file = outName(page, pl.idx, part.side, part.nombre, geom.type === "spread" && parts.length === 1, parts.length > 1, run.name, EXT[fmt]);
-            if (emitted.has(file)) {
-              bag.error("OUTPUT_NAME_COLLISION", `two outputs map to ${file}`);
+        for (const part of parts) {
+          const raster = typeof part.raster === "function" ? await part.raster() : part.raster;
+          for (const fmt of formats) {
+            if (fmt === "pdf") {
+              const key = run.name ?? "";
+              let pw = pdfs.get(key);
+              if (!pw) {
+                pw = { writer: new PdfWriter({ title: typeof meta.title === "string" ? meta.title : undefined, author: typeof meta.author === "string" ? meta.author : undefined, date: sde ? new Date(Number(sde) * 1000) : undefined }), colorMode, dpi };
+                pdfs.set(key, pw);
+              }
+              const bleedPx = crop === "trim" ? 0 : Math.round((geom.bleed * dpi) / 25.4 + 1e-6);
+              const trim = part.trim;
+              pw.writer.addPage({ rgba: raster.data, width: raster.width, height: raster.height, dpi, colorMode: (options.debug ? "color" : colorMode) as "color", transparent: transparentOut || !!run.list, trim, bleed: { x: trim.x - bleedPx, y: trim.y - bleedPx, w: trim.w + 2 * bleedPx, h: trim.h + 2 * bleedPx } });
               continue;
             }
-            emitted.add(file);
-            mkdirSync(dirname(file), { recursive: true });
-            const tmp = `${file}.${process.pid}.tmp`;
-            writeFileSync(tmp, data);
-            renameSync(tmp, file);
-            rp.path = file;
-            result.files.push(file);
+            if (fmt === "svg" && part !== parts[0]) continue;
+            const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, compression: prof.compression, chroma: prof.chroma, tiffCompression: prof.tiffCompression, transparent: transparentOut || !!run.list, metadata: prof.metadata === false ? {} : { Software: `mangacli ${PKG_VERSION}`, Title: String(meta.title ?? ""), ...(meta.author ? { Author: String(meta.author) } : {}), ...(meta.copyright ? { Copyright: String(meta.copyright) } : {}), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed), ...(sourceHash ? { "mangacli:source-hash": sourceHash } : {}) } };
+            const data = fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: Math.min(dpi, 300) })) : await encode(raster.data, raster.width, raster.height, enc);
+            const svgSize = () => {
+              const bw = crop === "trim" ? geom.trimW : geom.bleedBox.w;
+              const bh = crop === "trim" ? geom.trimH : geom.bleedBox.h;
+              return { w: Math.round((bw * dpi) / 25.4), h: Math.round((bh * dpi) / 25.4) };
+            };
+            const size = fmt === "svg" ? svgSize() : { w: raster.width, h: raster.height };
+            const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: size.w, height: size.h, dpi, separation: run.name, data };
+            if (outDir) {
+              const file = outName(page, pl.idx, part.side, part.nombre, geom.type === "spread" && parts.length === 1, parts.length > 1, run.name, EXT[fmt]);
+              if (emitted.has(file)) {
+                bag.error("OUTPUT_NAME_COLLISION", `two outputs map to ${file}`);
+                continue;
+              }
+              emitted.add(file);
+              mkdirSync(dirname(file), { recursive: true });
+              const tmp = `${file}.${process.pid}.tmp`;
+              writeFileSync(tmp, data);
+              renameSync(tmp, file);
+              rp.path = file;
+              result.files.push(file);
+            }
+            result.pages.push(rp);
           }
-          result.pages.push(rp);
         }
       }
       if (outDir && options.emit?.includes("ir")) {

@@ -147,6 +147,7 @@ async function renderOptions(o: Obj, entry: string): Promise<RenderOptions> {
     format: format && format.length === 1 ? format[0] : format,
     colorMode: oneOf(o.color === true ? undefined : o.color, "--color", ["color", "gray", "mono"] as const),
     dpi: parsePositiveNumber(o.dpi, "--dpi"),
+    limits: { ...config?.limits, ...(o.maxOutputPixels === undefined ? {} : { maxOutputPixels: parsePositiveNumber(o.maxOutputPixels, "--max-output-pixels") }) },
     scale: parsePositiveNumber(o.scale, "--scale"),
     width: parsePositiveNumber(o.width, "--width"),
     height: parsePositiveNumber(o.height, "--height"),
@@ -807,6 +808,7 @@ const renderOpts = (c: ReturnType<typeof cli.command>) =>
     .option("-f, --format <fmt>", "png, jpeg, webp, avif, tiff, pdf, svg (comma separated)")
     .option("--color <mode>", "color | gray | mono")
     .option("--dpi <n>", "Resolution")
+    .option("--max-output-pixels <n>", "Maximum pixels per output page (split spreads: per side)")
     .option("--scale <n>", "Scale factor on the design resolution")
     .option("--width <px>", "Output width")
     .option("--height <px>", "Output height")

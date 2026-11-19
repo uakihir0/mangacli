@@ -45,6 +45,8 @@ interface Dev {
   scale: number; // px per mm
   W: number;
   H: number;
+  /** Logical device frame; only the destination canvas is offset. */
+  offsetX: number;
 }
 
 function buildPath(pd: PathData): Path2D {
@@ -130,6 +132,16 @@ function clampRect(r: Rect, W: number, H: number): { x: number; y: number; w: nu
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
+function setDeviceM(dev: Dev, m: Matrix = [1, 0, 0, 1, 0, 0]) {
+  dev.ctx.setTransform(m[0], m[1], m[2], m[3], m[4] - dev.offsetX, m[5]);
+}
+
+function blit(dev: Dev, canvas: Canvas, x: number, y: number) {
+  const left = Math.max(0, dev.offsetX - x);
+  const right = Math.min(canvas.width, dev.offsetX + dev.ctx.canvas.width - x);
+  if (right > left) dev.ctx.drawImage(canvas, left, 0, right - left, canvas.height, x + left, y, right - left, canvas.height);
+}
+
 function setM(ctx: SKRSContext2D, m: Matrix) {
   ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
 }
@@ -201,7 +213,7 @@ function drawCropMarks(ctx: SKRSContext2D, trim: { x: number; y: number; w: numb
 export class RasterBackend {
   constructor(private opts: RasterOptions) {}
 
-  async render(list: DisplayList): Promise<RasterResult> {
+  async render(list: DisplayList, viewport?: { x: number; width: number }): Promise<RasterResult> {
     const o = this.opts;
     const s = o.dpi / 25.4;
     const trimW = list.boxes.trim.w;
@@ -213,20 +225,22 @@ export class RasterBackend {
     const markMm = o.marks?.margin ?? 10;
     const markPx = o.crop === "marks" ? Math.round(markMm * s + 1e-6) : 0;
     const bleedPx = bleedOnly + markPx;
-    const W = trimPxW + 2 * bleedPx;
+    const W = viewport?.width ?? trimPxW + 2 * bleedPx;
     const H = trimPxH + 2 * bleedPx;
     if (W * H > (o.maxPixels ?? 200_000_000)) throw new Error(`OUTPUT_TOO_LARGE: ${W}x${H} exceeds maxOutputPixels`);
     const sx = trimPxW / trimW;
     const sy = trimPxH / trimH;
     // display list coords are bleed-origin mm: px = (x - bleed) * sx + bleedPx
     const base: Matrix = [sx, 0, 0, sy, bleedPx - bleed * sx, bleedPx - bleed * sy];
-    const canvas = createCanvas(W, H);
+    // Keep vector antialiasing independent of the canvas edge at the fold.
+    const halo = viewport ? 1 : 0;
+    const canvas = createCanvas(W + 2 * halo, H);
     const ctx = canvas.getContext("2d");
     if (!o.transparent) {
       ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, W, H);
+      ctx.fillRect(0, 0, canvas.width, H);
     }
-    const dev: Dev = { ctx, base, opts: o, scale: (sx + sy) / 2, W, H };
+    const dev: Dev = { ctx, base, offsetX: (viewport?.x ?? 0) - halo, opts: o, scale: (sx + sy) / 2, W: trimPxW + 2 * bleedPx, H };
     if (markPx) {
       // artwork stops at the bleed line; the margin holds the crop marks
       ctx.save();
@@ -237,7 +251,9 @@ export class RasterBackend {
       ctx.restore();
       drawCropMarks(ctx, { x: bleedPx, y: bleedPx, w: trimPxW, h: trimPxH }, bleedOnly, s, o.marks);
     } else await this.drawNode(dev, list.root, base, canvas);
-    return this.result(canvas);
+    const result = this.result(canvas, halo, W);
+    canvas.width = canvas.height = 1;
+    return result;
   }
 
   addMarks(raster: { data: Uint8ClampedArray; width: number; height: number }, bleed: number): RasterResult {
@@ -262,11 +278,11 @@ export class RasterBackend {
     return result;
   }
 
-  private result(canvas: Canvas): RasterResult {
+  private result(canvas: Canvas, x = 0, width = canvas.width): RasterResult {
     const o = this.opts;
-    const W = canvas.width;
+    const W = width;
     const H = canvas.height;
-    const img = canvas.getContext("2d").getImageData(0, 0, W, H);
+    const img = canvas.getContext("2d").getImageData(x, 0, W, H);
     const data = img.data;
     if (o.colorMode === "mono") {
       for (let i = 0; i < data.length; i += 4) {
@@ -311,7 +327,7 @@ export class RasterBackend {
     if (!needOff) {
       if (g.clip) {
         ctx.save();
-        setM(ctx, mm);
+        setDeviceM(dev, mm);
         ctx.clip(buildPath(g.clip), g.clipRule ?? "nonzero");
         for (const c of g.children) await this.drawNode(dev, c, mm, canvas);
         ctx.restore();
@@ -324,7 +340,7 @@ export class RasterBackend {
     const off = createCanvas(r.w, r.h);
     const octx = off.getContext("2d");
     const shift: Matrix = [1, 0, 0, 1, -r.x, -r.y];
-    const sub: Dev = { ...dev, ctx: octx, W: r.w, H: r.h, base: matMul(shift, dev.base) };
+    const sub: Dev = { ...dev, ctx: octx, W: r.w, H: r.h, offsetX: 0, base: matMul(shift, dev.base) };
     const subM = matMul(shift, mm);
     if (g.clip) {
       octx.save();
@@ -378,10 +394,10 @@ export class RasterBackend {
       op = 1;
     }
     ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    setDeviceM(dev);
     ctx.globalAlpha = op;
     ctx.globalCompositeOperation = (g.blend && g.blend !== "normal" ? g.blend : "source-over") as never;
-    ctx.drawImage(off, r.x, r.y);
+    blit(dev, off, r.x, r.y);
     ctx.restore();
   }
 
@@ -450,7 +466,7 @@ export class RasterBackend {
     const ctx = dev.ctx;
     if (n.stroke) {
       ctx.save();
-      setM(ctx, m);
+      setDeviceM(dev, m);
       const st = this.paintStyle(dev, n.stroke.paint);
       if (st) ctx.strokeStyle = st as string;
       ctx.lineWidth = n.stroke.width;
@@ -462,21 +478,48 @@ export class RasterBackend {
     const p = n.paint;
     if (!p) return;
     if (p.type === "tone" || this.needsScreen(dev, p)) return this.drawTone(dev, n, m, p);
+    if (dev.offsetX && n.path.some((c) => c[0] === "C" || c[0] === "Q")) {
+      const b = pathBounds(n.path, m);
+      const r = b && clampRect(b, dev.W, dev.H);
+      if (!r) return;
+      const off = createCanvas(r.w, r.h);
+      const octx = off.getContext("2d");
+      const path = buildPath(n.path).transform({ a: m[0], b: m[1], c: m[2], d: m[3], e: m[4], f: m[5] });
+      setM(octx, [m[0], m[1], m[2], m[3], m[4] - r.x, m[5] - r.y]);
+      octx.fillStyle = this.paintStyle({ ...dev, ctx: octx }, p) as string;
+      octx.setTransform(1, 0, 0, 1, -r.x, -r.y);
+      octx.fill(path, n.fillRule);
+      ctx.save();
+      setDeviceM(dev);
+      blit(dev, off, r.x, r.y);
+      ctx.restore();
+      off.width = off.height = 1;
+      return;
+    }
     ctx.save();
-    setM(ctx, m);
+    setDeviceM(dev, m);
     const st = this.paintStyle(dev, p);
     if (st) ctx.fillStyle = st as string;
     ctx.fill(buildPath(n.path), n.fillRule);
     ctx.restore();
   }
 
-  private async drawTone(dev: Dev, n: PathNode, m: Matrix, p: Paint): Promise<void> {
+  private async drawTone(dev: Dev, n: PathNode, m: Matrix, p: Paint, tile?: Rect): Promise<void> {
     const ctx = dev.ctx;
     const mode = dev.opts.colorMode;
     const b = pathBounds(n.path, m);
     if (!b) return;
-    const r = clampRect(b, dev.W, dev.H);
+    const r = tile ?? clampRect(b, dev.W, dev.H);
     if (!r) return;
+    if (!tile && p.type === "tone" && !p.tone.softEdge && r.w * r.h > 1_000_000) {
+      // Pointwise screens need no neighboring pixels; retain logical coordinates.
+      const x = Math.max(r.x, dev.offsetX);
+      const end = Math.min(r.x + r.w, dev.offsetX + ctx.canvas.width);
+      if (end <= x) return;
+      for (let y = r.y; y < r.y + r.h; y += 128)
+        await this.drawTone(dev, n, m, p, { x, y, w: end - x, h: Math.min(128, r.y + r.h - y) });
+      return;
+    }
     let spec: ToneSpec;
     let color: RGBA = { r: 0, g: 0, b: 0, a: 1 };
     let densityFn: ((x: number, y: number) => number) | undefined;
@@ -525,11 +568,11 @@ export class RasterBackend {
     const cellPx = (25.4 / Math.max(1, spec.lpi)) * dev.scale;
     const flat = mode !== "mono" && (dev.opts.toneRendering === "flat" || (dev.opts.toneRendering === "auto" && cellPx < 6));
     ctx.save();
-    setM(ctx, m);
+    setDeviceM(dev, m);
     ctx.clip(buildPath(n.path), n.fillRule);
     if (flat && p.type === "tone" && !spec.gradient && !spec.softEdge) {
       ctx.fillStyle = toneFlatColor(spec, color, mode);
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      setDeviceM(dev);
       ctx.fillRect(r.x, r.y, r.w, r.h);
       ctx.restore();
       return;
@@ -592,9 +635,10 @@ export class RasterBackend {
       }
     }
     octx.putImageData(id, 0, 0);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(off, r.x, r.y);
+    setDeviceM(dev);
+    blit(dev, off, r.x, r.y);
     ctx.restore();
+    off.width = off.height = 1;
   }
 
   private async drawImage(dev: Dev, n: ImageNode, m: Matrix): Promise<void> {
@@ -655,9 +699,9 @@ export class RasterBackend {
           sctx.putImageData(id, 0, 0);
         }
         ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        setDeviceM(dev);
         ctx.globalAlpha = mono ? 1 : c.a;
-        ctx.drawImage(sc, rr.x, rr.y);
+        blit(dev, sc, rr.x, rr.y);
         ctx.restore();
       }
     }
@@ -696,14 +740,14 @@ export class RasterBackend {
         }
         octx2.putImageData(od, 0, 0);
         ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.drawImage(oc, rr.x, rr.y);
+        setDeviceM(dev);
+        blit(dev, oc, rr.x, rr.y);
         ctx.restore();
       }
     }
     if (!mono && dev.opts.colorMode !== "gray") {
       ctx.save();
-      setM(ctx, k);
+      setDeviceM(dev, k);
       ctx.imageSmoothingEnabled = n.smoothing !== "none";
       ctx.imageSmoothingQuality = n.smoothing === "high" ? "high" : "medium";
       ctx.drawImage(tmp, 0, 0);
@@ -776,9 +820,9 @@ export class RasterBackend {
     }
     octx.putImageData(od, 0, 0);
     ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    setDeviceM(dev);
     if (n.lineart) ctx.globalCompositeOperation = "multiply";
-    ctx.drawImage(off, r.x, r.y);
+    blit(dev, off, r.x, r.y);
     ctx.restore();
   }
 }
