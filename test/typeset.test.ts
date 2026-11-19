@@ -13,7 +13,38 @@ const lines = async (t: string, o: Record<string, unknown> = {}) => {
   return layoutText(t, { ...defaultTextStyle({ font: "dialogue", fontSize: 10 }), maxChars: 8, wrap: "auto", ...o } as never, reg).lines.map((l) => l.text);
 };
 
+const normalizedOutline = (path: PathData) => {
+  const points = path.flatMap((c) => {
+    const out = [];
+    for (let i = 1; i + 1 < c.length; i += 2) out.push({ x: Number(c[i]), y: Number(c[i + 1]) });
+    return out;
+  });
+  const bounds = boundsOf(points);
+  return points.map((p) => [Number(((p.x - bounds.x) / bounds.w).toFixed(5)), Number(((p.y - bounds.y) / bounds.h).toFixed(5))]);
+};
+
 describe("typesetting", () => {
+  it("detects active vertical forms when OpenType features change on the same font", async () => {
+    const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id: "noto-sans-jp" }]]), "none", [], {});
+    await fonts.prepare("test", "〟");
+    const font = fonts.pick("test", 0x301f)!.font;
+    for (const enabled of [true, false, true, false]) {
+      const features = { vert: enabled, vrt2: enabled };
+      const glyphs = [hb.Direction.LTR, hb.Direction.TTB].map((dir) => {
+        const buf = new hb.Buffer();
+        buf.addText("〟");
+        buf.guessSegmentProperties();
+        buf.setDirection(dir);
+        const active = dir === hb.Direction.TTB && enabled;
+        hb.shape(font.font, buf, [new hb.Feature("vert", Number(active)), new hb.Feature("vrt2", Number(active))]);
+        return buf.getGlyphInfos()[0].codepoint;
+      });
+      expect(glyphs[0] !== glyphs[1]).toBe(enabled);
+      const result = layoutText("〟", { ...defaultTextStyle({ font: "test", fontSize: 10 }), features }, fonts);
+      const expected = pathFromJson(font.font.glyphToJson(glyphs[1]), [enabled ? 1 : -1, 0, 0, -1, 0, 0]);
+      expect(normalizedOutline(result.glyphs[0].path)).toEqual(normalizedOutline(expected));
+    }
+  });
   it.each([-0.2, 0.2])("preserves composite font baselineShift %s for nonokagi", async (baselineShift) => {
     const fonts = new FontRegistry(new Map<string, FontDef>([
       ["base", { kind: "catalog", id: "noto-sans-jp" }],
@@ -62,15 +93,6 @@ describe("typesetting", () => {
         return buf.getGlyphInfos()[0].codepoint;
       });
       expect(gids[0] !== gids[1]).toBe(hasVerticalForms);
-      const normalizedOutline = (path: PathData) => {
-        const points = path.flatMap((c) => {
-          const out = [];
-          for (let i = 1; i + 1 < c.length; i += 2) out.push({ x: Number(c[i]), y: Number(c[i + 1]) });
-          return out;
-        });
-        const bounds = boundsOf(points);
-        return points.map((p) => [Number(((p.x - bounds.x) / bounds.w).toFixed(5)), Number(((p.y - bounds.y) / bounds.h).toFixed(5))]);
-      };
       const mirror = ch === "〟" && !hasVerticalForms ? -1 : 1;
       const expected = pathFromJson(font.font.glyphToJson(gids[1]), [mirror, 0, 0, -1, 0, 0]);
       const actual = result.glyphs.find((g) => g.unit === (ch === "〝" ? 0 : 4))!.path;
