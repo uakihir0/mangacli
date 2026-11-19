@@ -3915,6 +3915,9 @@
                     "overflow": {
                       "$ref": "#/$defs/__schema145"
                     },
+                    "bleed": {
+                      "type": "boolean"
+                    },
                     "path": {
                       "anyOf": [
                         {
