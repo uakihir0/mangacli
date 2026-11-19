@@ -154,6 +154,15 @@ describe("effect silhouette clears", () => {
     }
   });
 
+  it.each(["5mm", "55mm"])("off-center guide at %s covers both sides of the region", async (y) => {
+    const polys = await lines({ clearFigures: false, followPath: [["0mm", y], ["100mm", y]] });
+    const rows = polys.map((poly) => {
+      const ys = poly.map((p) => p.y);
+      return (Math.min(...ys) + Math.max(...ys)) / 2;
+    });
+    for (let y = 0; y < 60; y += 10) expect(rows.some((row) => row >= y && row < y + 10)).toBe(true);
+  });
+
   it("diagnoses an empty motion guide and a missing clear target", async () => {
     const result = await renderer.validate(doc({ followPath: { path: "M0 0" }, clear: { element: "missing", mode: "alpha" } }), { assets: { art: await art() } });
     expect(result.diagnostics.map((d) => d.code)).toContain("EFFECT_PATH_INVALID");

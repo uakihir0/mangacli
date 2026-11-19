@@ -389,7 +389,11 @@ function speedLines(f: FxCtx): InkPoly[] {
   const d = { x: Math.cos(ang), y: Math.sin(ang) };
   const n = { x: -d.y, y: d.x };
   const corners = [{ x: b.x, y: b.y }, { x: b.x + b.w, y: b.y }, { x: b.x, y: b.y + b.h }, { x: b.x + b.w, y: b.y + b.h }];
-  const projN = corners.map((q) => q.x * n.x + q.y * n.y);
+  const projN = total ? guide.slice(1).flatMap((z, i) => {
+    const a = guide[i], length = arc[i + 1] - arc[i];
+    if (!length) return [];
+    return corners.map((q) => (-(z.y - a.y) * (q.x - a.x) + (z.x - a.x) * (q.y - a.y)) / length);
+  }) : corners.map((q) => q.x * n.x + q.y * n.y);
   const projD = corners.map((q) => q.x * d.x + q.y * d.y);
   const n0 = Math.min(...projN);
   const n1 = Math.max(...projN);
@@ -437,7 +441,7 @@ function speedLines(f: FxCtx): InkPoly[] {
       const a = guide[i - 1], z = guide[i];
       const length = arc[i] - arc[i - 1] || 1;
       const fraction = (s - arc[i - 1]) / length;
-      const offset = pos - (n0 + n1) / 2;
+      const offset = pos;
       return { x: a.x + (z.x - a.x) * fraction - (z.y - a.y) / length * offset, y: a.y + (z.y - a.y) * fraction + (z.x - a.x) / length * offset };
     };
     const segs: [number, number][] = [[start, start + len]];
