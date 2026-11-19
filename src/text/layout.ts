@@ -2,7 +2,7 @@
 import * as hb from "harfbuzzjs";
 import { Rng, noise1 } from "../core/random.js";
 import type { FontPick, FontRegistry, LoadedFont } from "../fonts/registry.js";
-import { type PathData, flattenPath, pathFromJson } from "../geom/path.js";
+import { type PathData, flattenPath, pathFromJson, transformPath } from "../geom/path.js";
 import { type Matrix, type Rect, boundsOf, matMul, matRotate, matScale, matTranslate } from "../geom/vec.js";
 import { type KinsokuLevel, inseparable, isClosingPunct, isOpeningPunct, noEnd, noStart, phraseBoundaries, wordBoundaries } from "./linebreak.js";
 import { type InlineStyle, type NormalizeOptions, type ParsedText, type Unit, assignTcy, parseMarkup } from "./markup.js";
@@ -92,7 +92,7 @@ interface Box {
   punctCompressed?: boolean;
   size: number; // em size mm
   orient: Orient;
-  glyphs: { gid: number; font: LoadedFont; m: Matrix }[]; // matrix relative to box origin: vertical => (col center, box top); horizontal => (box left, baseline)
+  glyphs: { gid: number; font: LoadedFont; m: Matrix; path?: PathData }[]; // matrix relative to box origin: vertical => (col center, box top); horizontal => (box left, baseline)
   breakBefore?: "forced";
   wbrBefore?: boolean;
   space?: boolean;
@@ -303,7 +303,7 @@ function emitBox(b: Box, ox: number, oy: number, _vertical: boolean, out: GlyphO
       const jit: Matrix = matMul(matTranslate(cx + dx, cy + dy), matMul(matRotate(r), matMul(matScale(s), matTranslate(-cx, -cy))));
       m = matMul(jit, m);
     }
-    out.push({ path: pathFromJson(glyphJson(g.font, g.gid), m), color: b.color, unit: b.units[0] ?? 0, bold: b.bold, cx, cy });
+    out.push({ path: g.path ? transformPath(g.path, m) : pathFromJson(glyphJson(g.font, g.gid), m), color: b.color, unit: b.units[0] ?? 0, bold: b.bold, cx, cy });
   }
 }
 
@@ -366,7 +366,15 @@ function buildBoxes(parsed: ParsedText, style: TextStyle, reg: FontRegistry, mis
     const bold = !!st.bold && !reg.boldName(st.font ?? style.font);
     const first = boxes.length;
     // split run by font pick (per char) for shaping
-    const picks: (FontPick | null)[] = chars.map((c) => reg.pick(fname, c.codePointAt(0)!));
+    let picks: (FontPick | null)[] = chars.map((c) => reg.pick(fname, c.codePointAt(0)!));
+    if (o === "tcy" && chars.every((c) => /^[!?！？]$/.test(c))) {
+      const full = chars.map((c) => c === "!" ? "！" : c === "?" ? "？" : c);
+      const fullPicks = full.map((c) => reg.pick(fname, c.codePointAt(0)!));
+      const fullPick = fullPicks.find((p) => p && full.every((c) => p.font.has(c.codePointAt(0)!)));
+      const forms = fullPick ? full : chars.map((c) => c === "！" ? "!" : c === "？" ? "?" : c);
+      const groupPick = fullPick ?? forms.map((c) => reg.pick(fname, c.codePointAt(0)!)).find((p) => p && forms.every((c) => p.font.has(c.codePointAt(0)!))) ?? null;
+      picks = chars.map(() => groupPick);
+    }
     let s0 = 0;
     while (s0 < chars.length) {
       let s1 = s0 + 1;
@@ -562,6 +570,23 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
   };
   const bshift = pk.baselineShift * size;
   if (vertical && o === "upright") {
+    const dash = seg.findIndex((c) => DASHES.has(c));
+    if (dash >= 0) {
+      if (dash > 0) shapeSegment(seg.slice(0, dash), segUnits.slice(0, dash), pk, size0, o, vertical, style, boxes);
+      const glyph = shape(f, seg[dash], "ltr", style.lang)[0];
+      const bounds = glyph ? inkBox(f, glyph.gid) : undefined;
+      const inkThickness = bounds ? (bounds[3] - bounds[1]) / f.upem : 0;
+      const thickness = Number.isFinite(inkThickness) && inkThickness > 0 ? inkThickness / 2 : 0.07;
+      const half = size * gx * Math.max(0.05, Math.min(0.12, thickness)) / 2;
+      const sideways = !hasVertForm(f, seg[dash], style.lang);
+      const shaped = shape(f, seg[dash], sideways ? "ltr" : "ttb", style.lang);
+      const advance = shaped.reduce((sum, g) => sum + (sideways ? g.xAdvance : -g.yAdvance), 0) * s * gy;
+      const adv = advance > 0 ? advance : size * gy;
+      const path: PathData = [["M", bshift - half, 0], ["L", bshift + half, 0], ["L", bshift + half, adv], ["L", bshift - half, adv], ["Z"]];
+      boxes.push({ chars: seg[dash], units: [segUnits[dash]], adv, size: size0, orient: o, glyphs: [{ gid: 0, font: f, m: [1, 0, 0, 1, 0, 0], path }], firstChar: seg[dash], lastChar: seg[dash] });
+      if (dash + 1 < seg.length) shapeSegment(seg.slice(dash + 1), segUnits.slice(dash + 1), pk, size0, o, vertical, style, boxes);
+      return;
+    }
     // marks that must turn in vertical text: fonts without a vertical alternate get them rotated
     const turn = seg.findIndex((c) => VERT_TURN.has(c) && !hasVertForm(f, c, style.lang));
     if (turn >= 0) {
@@ -630,20 +655,32 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
     return;
   }
   // horizontal shaping (horizontal writing, sideways, tcy)
-  const g = shape(f, text, "ltr", style.lang);
+  const horizontalText = vertical && o === "tcy"
+    ? text.replace(/[!?]/g, (ch) => { const full = ch === "!" ? "！" : "？"; return f.has(full.codePointAt(0)!) ? full : ch; })
+    : text;
+  const g = shape(f, horizontalText, "ltr", style.lang);
   const xs: number[] = [];
   let px = 0;
+  const tcyMarks = vertical && o === "tcy" && /^[!?！？]+$/.test(text);
   for (const gl of g) {
-    xs.push(px);
-    px += gl.xAdvance * s;
+    if (tcyMarks) {
+      const [x0, , x1] = inkBox(f, gl.gid);
+      xs.push(px - (x0 + gl.xOffset) * s);
+      px += (x1 - x0) * s + size0 * 0.08;
+    } else {
+      xs.push(px);
+      px += gl.xAdvance * s;
+    }
   }
+  if (tcyMarks && g.length) px -= size0 * 0.08;
   const asc = f.ascender * s;
   const desc = f.descender * s;
   const center = -(asc + desc) / 2; // canvas y of em center relative to baseline
   if (vertical && o === "tcy") {
     const W = px;
-    const sx = W > size0 ? Math.max(0.5, size0 / W) : 1;
-    if (W > size0 * 1.6) tcyWarn.push(text);
+    const minScale = /^[!?！？]{2,3}$/.test(text) ? 0 : 0.5;
+    const sx = W > size0 ? Math.max(minScale, size0 / W) : 1;
+    if (W > size0 * 1.6 && !/^[!?！？]{2,3}$/.test(text)) tcyWarn.push(text);
     const box: Box = { chars: text, units: segUnits.slice(), adv: size0, size: size0, orient: o, glyphs: [], firstChar: seg[0], lastChar: seg[seg.length - 1] };
     g.forEach((gl, k) => {
       // horizontal local: x along, y baseline -> place centered in column (x=0) and em cell

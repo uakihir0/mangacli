@@ -49,6 +49,83 @@ describe("typesetting", () => {
     expect(layout({ shape: { kind: "burst" } }).lines[0].rect.y).toBe(0);
     expect(layout({ fontSize: "13bQ" }).fontSize).toBe(3.25);
   });
+  it("selects the standalone full-width punctuation font for dialogue TCY", async () => {
+    const fonts = new FontRegistry(new Map() as never, "manga-basic", [], {});
+    await fonts.prepare("dialogue", "！？!?");
+    const style = defaultTextStyle({ font: "dialogue", fontSize: 10 });
+    for (const text of ["！！", "？？", "！!?", "<tcy>！！</tcy>"]) {
+      const mark = text.includes("？") ? "？" : "！";
+      const selected = fonts.pick("dialogue", mark.codePointAt(0)!)!;
+      const result = layoutText(text, style, fonts);
+      const expected = layoutText(text, { ...style, font: "selected" }, { pick: () => selected, boldName: () => undefined } as never);
+      expect(result.glyphs.map((g) => normalizedOutline(g.path))).toEqual(expected.glyphs.map((g) => normalizedOutline(g.path)));
+      expect(result.lines[0].rect.h).toBeCloseTo(10);
+    }
+  });
+  it("retains the documented half-width minimum for non-mark TCY", async () => {
+    const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id: "dela-gothic-one" }]]), "none", [], {});
+    await fonts.prepare("test", "2026");
+    const style = defaultTextStyle({ font: "test", fontSize: 10 });
+    const horizontal = layoutText("2026", { ...style, writing: "horizontal" }, fonts);
+    const result = layoutText("<tcy>2026</tcy>", style, fonts);
+    expect(ink(result.glyphs[0].path).w / ink(horizontal.glyphs[0].path).w).toBeCloseTo(0.5);
+    expect(ink(result.glyphs[0].path).h).toBeCloseTo(ink(horizontal.glyphs[0].path).h);
+    expect(result.infos.some((info) => info.code === "TEXT_TCY_TOO_LONG")).toBe(true);
+  });
+  it("keeps a Dela dash pair within its shaped 14.22mm advance", async () => {
+    const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id: "dela-gothic-one" }]]), "none", [], {});
+    await fonts.prepare("test", "――");
+    const result = layoutText("――", { ...defaultTextStyle({ font: "test", fontSize: 10 }), maxExtent: 16, wrap: "char", kinsoku: "none" }, fonts);
+    expect(result.lines).toHaveLength(1);
+    expect(result.lines[0].rect.h).toBeCloseTo(14.22);
+    expect(ink(result.glyphs[0].path).h).toBeCloseTo(7.11);
+  });
+  it("keeps mixed TCY marks in one cell with ASCII-only font fallback", async () => {
+    const fonts = new FontRegistry(new Map<string, FontDef>([
+      ["ascii", { kind: "file", path: "assets/fonts/Lato-Regular.ttf" }],
+      ["jp", { kind: "catalog", id: "dela-gothic-one" }],
+      ["mixed", { kind: "compose", items: [{ font: "ascii", ranges: ["U+0000-007F"] }, { font: "jp" }] }],
+    ]), "none", [], {});
+    for (const font of ["ascii", "mixed"]) {
+      await fonts.prepare(font, "！!?！！");
+      for (const text of ["！!?", "！！", "<tcy>！！</tcy>"]) {
+        const result = layoutText(text, defaultTextStyle({ font, fontSize: 10 }), fonts);
+        expect(result.missing).toEqual([]);
+        expect(new Set(result.glyphs.map((g) => g.cy)).size).toBe(1);
+        expect(result.lines[0].rect.h).toBeCloseTo(10);
+      }
+    }
+  });
+  it.each(["dela-gothic-one", "noto-sans-jp"])("keeps TCY marks full height and vertical dashes thin with %s", async (id) => {
+    const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id }]]), "none", [], {});
+    await fonts.prepare("test", "──っ！！!?勝");
+    const style = defaultTextStyle({ font: "test", fontSize: 10 });
+    const body = ink(layoutText("勝", style, fonts).glyphs[0].path);
+    for (const text of ["！！", "!!", "！？", "<tcy>！！！</tcy>"]) {
+      const result = layoutText(text, style, fonts);
+      expect(result.errors).toEqual([]);
+      expect(result.missing).toEqual([]);
+      const rects = result.glyphs.map((g) => ink(g.path));
+      for (const rect of rects) {
+        expect(rect.h / body.h).toBeGreaterThan(0.8);
+        expect(rect.h / body.h).toBeLessThan(1.2);
+      }
+      expect(Math.max(...rects.map((r) => r.x + r.w)) - Math.min(...rects.map((r) => r.x))).toBeLessThanOrEqual(10 + 1e-8);
+    }
+    const dashes = layoutText("──っ！！", style, fonts).glyphs.slice(0, 2).map((g) => ink(g.path));
+    const fontDash = ink(layoutText("─", { ...style, writing: "horizontal" }, fonts).glyphs[0].path);
+    const thickness = Math.max(0.5, Math.min(1.2, fontDash.h / 2));
+    for (const dash of dashes) {
+      expect(dash.w).toBeCloseTo(thickness);
+      expect(dash.w).toBeGreaterThanOrEqual(0.5 - 1e-8);
+      expect(dash.w).toBeLessThanOrEqual(1.2 + 1e-8);
+      if (id === "dela-gothic-one") expect(dash.w).toBeGreaterThan(0.7);
+      expect(dash.h).toBeCloseTo(id === "dela-gothic-one" ? fontDash.w : 10);
+    }
+    expect(dashes[0].y + dashes[0].h).toBeCloseTo(dashes[1].y);
+    expect(layoutText("", style, fonts).glyphs).toEqual([]);
+    expect(layoutText("<unknown>！！</unknown>", style, fonts).errors[0]?.code).toBe("TEXT_UNKNOWN_TAG");
+  });
   it.each(["noto-sans-jp", "dela-gothic-one"])("compresses scaled nonokagi exactly once with %s", async (id) => {
     const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id }]]), "none", [], {});
     await fonts.prepare("test", "〝ヤ〟あ");
