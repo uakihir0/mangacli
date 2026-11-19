@@ -803,7 +803,6 @@ export class RasterBackend {
     octx.putImageData(od, 0, 0);
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    if (n.lineart) ctx.globalCompositeOperation = "multiply";
     ctx.drawImage(off, r.x, r.y);
     ctx.restore();
   }
