@@ -1,0 +1,34 @@
+# Render in color with -p web, or as 1-bit screentone with -p print-mono.
+mangacli: 1
+meta: { title: Light effects, lang: en }
+book: { pageNumbers: { enabled: false } }
+page: { size: [124mm, 144mm], bleed: 0, baseFrame: trim, safeArea: { inset: 0 }, color: color }
+assets:
+  silhouette: { src: assets/hanako/back.png, kind: art }
+  hero: { src: assets/taro/surprised.png, kind: art, anchors: { face: [500, 400] } }
+  performer: { src: assets/hanako/smile.png, kind: art }
+pages:
+  - layout:
+      rows:
+        - { cols: [1], height: 1 }
+        - { cols: [1], height: 1 }
+        - { cols: [1], height: 1 }
+    panels:
+      - background: black
+        layers:
+          - { effect: glow, target: silhouette, blur: 4mm, color: "#d9efff" }
+          - { image: silhouette, id: silhouette, size: [auto, 104%], at: [50%, 110%], anchor: bottom }
+      - background: "radial-gradient(at 50% 52%, #7d5453, #22182e 76%)"
+        layers:
+          - { effect: light-rays, center: hero.face, color: "#fff1ca", count: 22, spread: 0.46, angle: 8deg }
+          - { effect: glow, target: hero, blur: 2mm, color: "#fff1ca" }
+          - { image: hero, id: hero, size: [auto, 110%], at: [50%, 116%], anchor: bottom }
+      - background: "#48425a"
+        layers:
+          - { type: fill, region: { rect: [0, 65%, 100%, 35%] }, paint: "#5b5165" }
+          - { draw: line, points: [[0, 75%], [100%, 75%]], stroke: { color: "#9892a4", width: 0.23mm }, ruler: true }
+          - { draw: line, points: [[0, 90%], [100%, 90%]], stroke: { color: "#9892a4", width: 0.28mm }, ruler: true }
+          - { draw: polygon, points: [[0, 0], [23%, 0], [14%, 70%], [0, 82%]], fill: "#8e546e", stroke: none }
+          - { draw: polygon, points: [[100%, 0], [77%, 0], [86%, 70%], [100%, 82%]], fill: "#8e546e", stroke: none }
+          - { effect: spotlight, source: [22%, 0], target: [58%, 77%], width: 31%, color: "#fff0cb", shade: 0.78 }
+          - { image: performer, size: [auto, 59%], at: [58%, 77%], anchor: bottom }
