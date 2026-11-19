@@ -542,8 +542,12 @@ new EventSource("/events").onmessage=()=>location.reload()</script>`;
         res.writeHead(200, { "content-type": p.mime, "cache-control": "no-store" });
         res.end(p.data);
       };
-      if (url.searchParams.get("guides") === "1") void guidedPages().then((g) => send(g[Number(m[1])]));
-      else send(pages[Number(m[1])]);
+      if (url.searchParams.get("guides") === "1") {
+        // guided pages are PNG only: with several formats, pick by position among pages of the same format
+        const cur = pages[Number(m[1])]!;
+        const k = pages.filter((p) => p.ext === cur.ext).indexOf(cur);
+        void guidedPages().then((g) => send(g[k]));
+      } else send(pages[Number(m[1])]);
       return;
     }
     if (url.pathname === "/") {
