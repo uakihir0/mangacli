@@ -8,13 +8,17 @@ import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec
 import { makeBinaryRoundToneSampler, makeToneSampler } from "./screen.js";
 import { distanceSquared } from "./edt.js";
 import { applyFilters } from "./filters.js";
+import type { DiagnosticBag } from "../core/diagnostics.js";
 import { imageInkMask } from "./image-ink.js";
 import { cropMarkLines } from "./marks.js";
+
+export const MONO_MIN_STROKE_PIXELS = 2;
 
 export type ColorMode = "color" | "gray" | "mono";
 export type ToneRendering = "dots" | "flat" | "auto";
 
 export interface RasterOptions {
+  diagnostics?: DiagnosticBag;
   dpi: number;
   crop: "trim" | "bleed" | "marks";
   marks?: { margin?: number; length?: number; width?: number };
@@ -41,6 +45,7 @@ export interface RasterResult {
 }
 
 interface Dev {
+  pageId?: string;
   ctx: SKRSContext2D;
   /** mm (display-list space) -> device px */
   base: Matrix;
@@ -141,6 +146,61 @@ function setM(ctx: SKRSContext2D, m: Matrix) {
   ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
 }
 
+function pixelBand(path: PathData, m: Matrix, W: number, H: number): PathData {
+  const points = path.filter((p) => p[0] === "M" || p[0] === "L").map((p) => applyMat(m, { x: p[1]!, y: p[2]! }));
+  if (points.length < 2) return [];
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of points) {
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+  }
+  const vertical = maxY - minY > maxX - minX;
+  const bands = [new Map<number, Set<number>>(), new Map<number, Set<number>>()];
+  const joins: { x: number; y: number; w: number; h: number }[] = [];
+  let previousAxis: boolean | undefined;
+  for (let i = 1; i < points.length; i++) {
+    let a = points[i - 1];
+    let b = points[i];
+    const major = vertical ? Math.abs(b.y - a.y) : Math.abs(b.x - a.x);
+    const minor = vertical ? Math.abs(b.x - a.x) : Math.abs(b.y - a.y);
+    const axis = minor > 2 * major ? !vertical : vertical;
+    if (previousAxis !== undefined && axis !== previousAxis) {
+      const x = Math.floor(a.x - 0.5), y = Math.floor(a.y - 0.5);
+      if (x < W && y < H && x + 2 > 0 && y + 2 > 0) joins.push({ x, y, w: 2, h: 2 });
+    }
+    previousAxis = axis;
+    const samples = bands[Number(axis)];
+    if (axis) { a = { x: a.y, y: a.x }; b = { x: b.y, y: b.x }; }
+    if (a.x > b.x) [a, b] = [b, a];
+    if (b.x === a.x) continue;
+    for (let x = Math.max(0, Math.ceil(a.x - 0.5)); x < (axis ? H : W) && x + 0.5 < b.x; x++) {
+      const t = (x + 0.5 - a.x) / (b.x - a.x);
+      const minor = Math.floor(a.y + (b.y - a.y) * t - 0.5);
+      if (minor >= -1 && minor < (axis ? W : H)) {
+        if (!samples.has(x)) samples.set(x, new Set());
+        samples.get(x)!.add(minor);
+      }
+    }
+  }
+  const det = m[0] * m[3] - m[1] * m[2];
+  if (!det) return [];
+  const inverse: Matrix = [m[3] / det, -m[1] / det, -m[2] / det, m[0] / det, (m[2] * m[5] - m[3] * m[4]) / det, (m[1] * m[4] - m[0] * m[5]) / det];
+  const out: PathData = [];
+  for (const [axis, samples] of bands.entries()) for (const [major, crossings] of samples) for (const minor of crossings) {
+    joins.push({ x: axis ? minor : major, y: axis ? major : minor, w: axis ? 2 : 1, h: axis ? 1 : 2 });
+  }
+  for (const { x, y, w, h } of joins) {
+    const corners = [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
+    if (det < 0) corners.reverse();
+    for (const [i, p] of corners.entries()) {
+      const q = applyMat(inverse, p);
+      out.push([i ? "L" : "M", q.x, q.y]);
+    }
+    out.push(["Z"]);
+  }
+  return out;
+}
+
 function grayize(c: RGBA, mode: ColorMode): RGBA {
   if (mode === "color") return c;
   const y = linearToSrgb(luminanceLinear(c));
@@ -174,9 +234,11 @@ function drawCropMarks(ctx: SKRSContext2D, trim: { x: number; y: number; w: numb
 }
 
 export class RasterBackend {
+  private warnedHairlines = new Set<string>();
   constructor(private opts: RasterOptions) {}
 
   async render(list: DisplayList): Promise<RasterResult> {
+    this.warnedHairlines.clear();
     const o = this.opts;
     const s = o.dpi / 25.4;
     const trimW = list.boxes.trim.w;
@@ -201,7 +263,7 @@ export class RasterBackend {
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, W, H);
     }
-    const dev: Dev = { ctx, base, opts: o, scale: (sx + sy) / 2, W, H };
+    const dev: Dev = { ctx, base, opts: o, scale: (sx + sy) / 2, W, H, pageId: list.page.id };
     if (markPx) {
       // artwork stops at the bleed line; the margin holds the crop marks
       ctx.save();
@@ -471,6 +533,34 @@ export class RasterBackend {
 
   private async drawPath(dev: Dev, n: PathNode, m: Matrix): Promise<void> {
     const ctx = dev.ctx;
+    const effectiveWidth = (width: number, path: PathData) => {
+      let scale = Infinity;
+      for (let i = 1; i < path.length; i++) {
+        const dx = path[i][1]! - path[i - 1][1]!;
+        const dy = path[i][2]! - path[i - 1][2]!;
+        const length = Math.hypot(dx, dy);
+        const deviceLength = Math.hypot(m[0] * dx + m[2] * dy, m[1] * dx + m[3] * dy);
+        if (length && deviceLength) scale = Math.min(scale, Math.abs(m[0] * m[3] - m[1] * m[2]) * length / deviceLength);
+      }
+      if (dev.opts.colorMode !== "mono" || scale <= 0 || width * scale >= MONO_MIN_STROKE_PIXELS) return width;
+      const minimum = MONO_MIN_STROKE_PIXELS / scale;
+      const id = n.tag?.elementId ?? "stroke";
+      if (!this.warnedHairlines.has(id) && this.warnedHairlines.size < 20 && (dev.opts.diagnostics?.items.length ?? 0) < 100) {
+        this.warnedHairlines.add(id);
+        dev.opts.diagnostics?.warn("RENDER_HAIRLINE_THICKENED", `${id}: requested ${width.toFixed(4)}mm at ${dev.opts.dpi} dpi; line thickened to ${minimum.toFixed(4)}mm (${MONO_MIN_STROKE_PIXELS} device pixels) for mono output (one warning per element; further thin strokes also thickened)`, { elementId: n.tag?.elementId, pageId: dev.pageId });
+      }
+      return minimum;
+    };
+    if (n.paint && n.inkStrokes && dev.opts.colorMode === "mono") {
+      const replacement: PathData = [...(n.inkBasePath ?? [])];
+      let changed = false;
+      for (const ink of n.inkStrokes) {
+        const width = effectiveWidth(ink.width, ink.path);
+        if (width === ink.width) { for (const command of ink.outline ?? []) replacement.push(command); }
+        else { for (const command of pixelBand(ink.path, m, dev.W, dev.H)) replacement.push(command); changed = true; }
+      }
+      if (changed) n = { ...n, path: replacement };
+    }
     if (n.stroke) {
       ctx.save();
       setM(ctx, m);

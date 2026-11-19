@@ -1,0 +1,225 @@
+import { describe, expect, it } from "vitest";
+import sharp from "sharp";
+import { createRenderer } from "../src/api.js";
+import { DiagnosticBag } from "../src/core/diagnostics.js";
+import { AssetRegistry } from "../src/render/assets.js";
+import type { DisplayList, PathNode } from "../src/render/ir.js";
+import { RasterBackend } from "../src/render/raster.js";
+import { inksToNodes } from "../src/elements/inkir.js";
+
+const renderer = createRenderer({ profile: "print-mono" });
+
+function expectConnected(data: Uint8Array | Uint8ClampedArray, width: number, height: number, channels: number) {
+  const ink = new Set<number>();
+  for (let i = 0; i < width * height; i++) if (data[i * channels] === 0) ink.add(i);
+  expect(ink.size).toBeGreaterThan(0);
+  const pending = [ink.values().next().value!];
+  ink.delete(pending[0]);
+  while (pending.length) {
+    const i = pending.pop()!, x = i % width, y = Math.floor(i / width);
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx, yy = y + dy, j = yy * width + xx;
+      if (xx >= 0 && xx < width && yy >= 0 && yy < height && ink.delete(j)) pending.push(j);
+    }
+  }
+  expect(ink.size).toBe(0);
+}
+const input = (width: number) => ({ yaml: `mangacli: 1
+page: { size: [25.4mm, 25.4mm], bleed: 0mm }
+pages:
+  - id: test
+    layers:
+      - { draw: line, id: hairline, points: [[2mm, 5mm], [22mm, 5mm]], ruler: true, stroke: { width: ${width}mm, pen: { minWidth: 0.01mm } } }
+` });
+
+function setup(width: number, dx: number, dy: number, slope: number, dpi = 600) {
+  const bag = new DiagnosticBag();
+  const s = 600 / 25.4;
+  const path: PathNode["path"] = [["M", (5 + dx) / s, (5 + dy) / s], ["L", (45 + dx) / s, (5 + dy + 40 * slope) / s]];
+  const node: PathNode = { kind: "path", path, fillRule: "nonzero", paint: null, stroke: { width, join: "round", paint: { type: "solid", color: { r: 0, g: 0, b: 0, a: 1 } } } };
+  const box = { x: 0, y: 0, w: 50 / s, h: 50 / s };
+  const list: DisplayList = { version: 1, page: { id: "test", index: 0 }, size: { width: box.w, height: box.h }, boxes: { trim: box, bleed: box, baseFrame: box, safe: box }, background: null, root: { kind: "group", children: [node] } };
+  const backend = new RasterBackend({ dpi, crop: "trim", colorMode: "mono", toneRendering: "dots", monoLpi: 60, toneCurve: "linear", diagnostics: bag, assets: new AssetRegistry({}, {}, bag, 600, "error") });
+  return { backend, list, node, bag };
+}
+
+describe("mono hairline protection", () => {
+  it("keeps a real thin crack 8-connected across subpixel phases", async () => {
+    for (let x = 0; x < 4; x++) for (let y = 0; y < 4; y++) {
+      const result = await renderer.render({ yaml: `mangacli: 1
+book: { pageNumbers: { enabled: false } }
+page: { size: [25.4mm, 25.4mm], bleed: 0mm }
+pages:
+  - panels: [{ border: none }]
+    layers:
+      - { effect: crack, id: fracture, seed: 42, center: [${12.7 + x * 25.4 / 600 / 4}mm, ${12.7 + y * 25.4 / 600 / 4}mm], radius: 8mm, count: 1, branching: 0, rings: 0, shade: none, thickness: [0.015mm, 0.015mm], pen: { minWidth: 0.01mm }, hand: clean }
+` }, { format: "png", dpi: 600 });
+      expect(result.diagnostics.some(d => d.code === "RENDER_HAIRLINE_THICKENED" && d.elementId === "fracture")).toBe(true);
+      const { data, info } = await sharp(result.pages[0].data).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+      expectConnected(data, info.width, info.height, info.channels);
+    }
+  });
+  it("keeps acute zigzags 8-connected across subpixel phases", async () => {
+    const s = 600 / 25.4;
+    for (let x = 0; x < 8; x++) for (let y = 0; y < 8; y++) {
+      const { backend, list, node } = setup(0.015, 0, 0, 0);
+      node.path = [[5, 5], [8, 40], [12, 6], [16, 39], [45, 40]].map(([xx, yy], i) => [i ? "L" : "M", (xx + x / 8) / s, (yy + y / 8) / s]);
+      node.paint = node.stroke!.paint;
+      delete node.stroke;
+      node.inkStrokes = [{ path: node.path, width: 0.015 }];
+      const result = await backend.render(list);
+      expectConnected(result.data, result.width, result.height, 4);
+    }
+  });
+  it.each([false, true])("unions corrected and opposite-winding wide ink (mirrored=%s)", async (mirrored) => {
+    const { backend, list } = setup(0.015, 0, 0, 0);
+    const s = 600 / 25.4;
+    const vec = (x: number, y: number) => ({ x: x / s, y: y / s });
+    list.root.children = inksToNodes([
+      { opacity: 1, pts: [vec(5, 19.8), vec(45, 19.8), vec(45, 20.2), vec(5, 20.2)], centerline: { width: 0.015, points: [vec(5, 20), vec(45, 20)] } },
+      { opacity: 1, pts: [vec(24, 5), vec(24, 45), vec(27, 45), vec(27, 5)], centerline: { width: 0.10, points: [vec(25.5, 5), vec(25.5, 45)] } },
+    ], { r: 0, g: 0, b: 0, a: 1 });
+    if (mirrored) list.root.transform = [-1, 0, 0, 1, 50 / s, 0];
+    const result = await backend.render(list);
+    for (let x = 24; x < 26; x++) for (let y = 19; y < 21; y++) expect(result.data[(y * 50 + x) * 4]).toBe(0);
+  });
+  it("keeps both crossings of a thin ellipse outline", async () => {
+    const result = await renderer.render({ yaml: `mangacli: 1
+book: { pageNumbers: { enabled: false } }
+page: { size: [25.4mm, 25.4mm], bleed: 0mm }
+pages:
+  - layers:
+      - { draw: ellipse, id: oval, at: [12.7mm, 12.7mm], size: [12mm, 8mm], anchor: center, ruler: true, stroke: { width: 0.015mm, pen: { minWidth: 0.01mm } } }
+` }, { format: "png", dpi: 600 });
+    const { data, info } = await sharp(result.pages[0].data).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    for (let x = 260; x < 340; x++) {
+      let upper = 0, lower = 0;
+      for (let y = 180; y < 300; y++) if (data[(y * info.width + x) * info.channels] === 0) upper++;
+      for (let y = 300; y < 420; y++) if (data[(y * info.width + x) * info.channels] === 0) lower++;
+      expect(upper).toBeGreaterThanOrEqual(2);
+      expect(lower).toBeGreaterThanOrEqual(2);
+    }
+  });
+  it("clips a long off-page hairline at 1200 dpi without overflowing arguments", async () => {
+    const { backend, list, node } = setup(0.015, 0, 0, 0, 1200);
+    node.paint = node.stroke!.paint;
+    delete node.stroke;
+    node.path = [["M", -1000000, 0.5], ["L", 1000000, 0.5]];
+    node.inkStrokes = [{ path: node.path, width: 0.015 }];
+    const result = await backend.render(list);
+    expect(result.width).toBe(100);
+    for (let x = 0; x < result.width; x++) {
+      let count = 0;
+      for (let y = 0; y < result.height; y++) if (result.data[(y * result.width + x) * 4] === 0) count++;
+      expect(count).toBe(2);
+    }
+  });
+  it("bounds warnings across varying strokes and leaves room for errors", async () => {
+    const { backend, list, node, bag } = setup(0.015, 0, 0, 0);
+    node.paint = node.stroke!.paint;
+    delete node.stroke;
+    node.inkStrokes = Array.from({ length: 250 }, (_, i) => ({ path: node.path, width: 0.01 + i / 10000 }));
+    node.tag = { elementId: "effect", elementType: "effect", role: "ink", separation: "ink" };
+    await backend.render(list);
+    expect(bag.items).toHaveLength(1);
+    list.root.children = Array.from({ length: 250 }, (_, i) => ({ ...node, tag: { ...node.tag!, elementId: `effect-${i}` } }));
+    await backend.render(list);
+    expect(bag.items.length).toBeLessThanOrEqual(21);
+    bag.error("ASSET_NOT_FOUND", "later missing asset");
+    expect(bag.items.at(-1)?.severity).toBe("error");
+  });
+  it("warns for a 0.015mm user pen at 600 dpi, not for 0.10mm", async () => {
+    for (const width of [0.015, 0.10]) {
+      const result = await renderer.render(input(width), { format: "png", dpi: 600 });
+      const warnings = result.diagnostics.filter((d) => d.code === "RENDER_HAIRLINE_THICKENED" && d.elementId === "hairline");
+      expect(warnings).toHaveLength(width === 0.015 ? 1 : 0);
+      if (width === 0.015) {
+        expect(warnings[0]).toMatchObject({ severity: "warning", elementId: "hairline" });
+        expect(warnings[0].message).toMatch(/hairline: requested 0.0150mm at 600 dpi; line thickened/);
+        const { data, info } = await sharp(result.pages[0].data).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+        for (let x = 80; x < 480; x++) {
+          let black = false;
+          for (let y = 112; y < 125; y++) if (data[(y * info.width + x) * info.channels] === 0) black = true;
+          expect(black, `user line column ${x}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("keeps axis-aligned and diagonal strokes continuous across subpixel phases", async () => {
+    for (const transpose of [false, true]) for (const slope of [0, 0.02, 0.125, 0.25, 0.5, 0.75, 1]) {
+      for (let px = 0; px < 16; px++) for (let py = 0; py < 16; py++) {
+        const { backend, list, node } = setup(0.015, px / 16, py / 16, slope);
+        if (transpose) node.path = node.path.map((p) => [p[0], p[2], p[1]]) as PathNode["path"];
+        if (px % 2) {
+          const start = node.path[0], end = node.path[1];
+          node.path = Array.from({ length: 81 }, (_, i) => {
+            const t = i / 80;
+            const e = 0.15 * Math.sin(i * 0.3) * (25.4 / 600);
+            return [i ? "L" : "M", start[1]! + (end[1]! - start[1]!) * t + (transpose ? e : 0), start[2]! + (end[2]! - start[2]!) * t + (transpose ? 0 : e)];
+          });
+        }
+        node.paint = node.stroke!.paint;
+        node.inkStrokes = [{ path: node.path, width: 0.015 }];
+        delete node.stroke;
+        const result = await backend.render(list);
+        for (let x = 7; x < 43; x++) {
+          const black: number[] = [];
+          for (let y = 0; y < 50; y++) if (result.data[(transpose ? x * 50 + y : y * 50 + x) * 4] === 0) black.push(y);
+          expect(black.length, `slope=${slope}, phase=${px}/16,${py}/16, x=${x}`).toBe(2);
+          expect(black[1] - black[0]).toBe(1);
+        }
+      }
+    }
+  });
+
+  it.each([[0, 0.4], [0.5, 1], [0.5, 0.4]])("replaces geometry once with the same paint (gray=%s, alpha=%s)", async (gray, alpha) => {
+    const { backend, list, node } = setup(0.015, 0.3, 0.7, 0);
+    node.paint = { type: "solid", color: { r: gray, g: gray, b: gray, a: alpha } };
+    delete node.stroke;
+    const s = 600 / 25.4;
+    const original: PathNode["path"] = [["M", 5 / s, 5.5 / s], ["L", 46 / s, 5.5 / s], ["L", 46 / s, 6 / s], ["L", 5 / s, 6 / s], ["Z"]];
+    node.inkStrokes = [{ path: node.path, width: 0.015, outline: original }];
+    node.path = original;
+    const actual = await backend.render(list);
+    delete node.inkStrokes;
+    node.path = [["M", 5 / s, 5 / s], ["L", 45 / s, 5 / s], ["L", 45 / s, 7 / s], ["L", 5 / s, 7 / s], ["Z"]];
+    expect((await backend.render(list)).data).toEqual(actual.data);
+  });
+
+  it("leaves sufficiently wide ink byte-identical and does not warn on empty output", async () => {
+    const { backend, list, node, bag } = setup(0.10, 0.3, 0.7, 0.5);
+    const original = await backend.render(list);
+    node.inkStrokes = [{ path: node.path, width: 0.10 }];
+    expect((await backend.render(list)).data).toEqual(original.data);
+    list.root.children = [];
+    expect((await backend.render(list)).data.every((v) => v === 255)).toBe(true);
+    expect(bag.items).toEqual([]);
+  });
+
+  it("measures perpendicular device width under nonuniform scaling", async () => {
+    const { backend, list, node, bag } = setup(0.10, 0, 0, 0);
+    node.paint = node.stroke!.paint;
+    node.inkStrokes = [{ path: node.path, width: 0.10 }];
+    list.root.transform = [0.1, 0, 0, 1, 0, 0];
+    await backend.render(list);
+    expect(bag.items).toEqual([]);
+    node.path = node.path.map((p) => [p[0], p[2], p[1]]) as PathNode["path"];
+    node.inkStrokes = [{ path: node.path, width: 0.10 }];
+    await backend.render(list);
+    expect(bag.items).toHaveLength(1);
+  });
+
+  it("does not clamp text outlines or faux-bold native strokes", async () => {
+    const { backend, list, node, bag } = setup(0.015, 0.3, 0.7, 0);
+    node.tag = { elementId: "text", elementType: "text", role: "text", separation: "text" };
+    const result = await backend.render(list);
+    expect(bag.items).toEqual([]);
+    expect(Array.from({ length: 50 }, (_, y) => result.data[(y * 50 + 20) * 4]).filter((v) => v === 0).length).toBeLessThan(2);
+  });
+
+  it.each(["gray", "color"] as const)("does not thicken or warn in %s output", async (colorMode) => {
+    const result = await renderer.render(input(0.015), { format: "png", dpi: 600, colorMode });
+    expect(result.diagnostics.some((d) => d.code === "RENDER_HAIRLINE_THICKENED")).toBe(false);
+  });
+});

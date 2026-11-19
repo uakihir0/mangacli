@@ -14,8 +14,8 @@ function ink(path: PathData): PathNode {
   return { kind: "path", path, fillRule: "nonzero", paint: { type: "solid", color: BLACK }, tag: { elementId: "balloon", elementType: "balloon", role: "ink", separation: "balloon" } };
 }
 
-async function renderCorner(clip: string, background = "white") {
-  const dpi = 300;
+async function renderCorner(clip: string, background = "white", options: { dpi?: number; width?: number; dx?: number; dy?: number } = {}) {
+  const dpi = options.dpi ?? 300;
   const r = createRenderer({ profile: "print-mono", dpi });
   const input = { filename: "/v/corner.yaml", yaml: `mangacli: 1
 page: { size: [75mm, 65mm], bleed: 0mm }
@@ -26,16 +26,19 @@ pages:
         layers:
           - balloon: ""
             id: bubble
-            at: [5.2mm, 5.2mm]
+            at: [${5.2 + (options.dx ?? 0)}mm, ${5.2 + (options.dy ?? 0)}mm]
             clip: ${clip}
             shape: { kind: ellipse, irregularity: 0, strokes: 1 }
             size: [12mm, 12mm]
+            ${options.width === undefined ? "" : `stroke: { width: ${options.width}mm, pen: { minWidth: 0.01mm } }`}
             hand: clean
             tail: none
             halo: none
 ` };
   const list = await r.displayList(input, 1);
-  const page = await r.renderPage(input, 1);
+  const result = await r.render(input, { format: "png" });
+  const page = result.pages[0];
+  if (options.width !== undefined) expect(result.diagnostics.some((d) => d.code === "RENDER_HAIRLINE_THICKENED" && d.elementId === "bubble")).toBe(true);
   const { x, y } = list.boxes.baseFrame;
   const px = (mm: number) => Math.round(mm * dpi / 25.4);
   return async (dx: number, dy: number, w: number, h: number) => {
@@ -87,6 +90,16 @@ describe("cut balloon ink", () => {
     expect(await containsInk(0.39, 0.39, 1.8, 1.8)).toBe(clip === "none");
     expect(await containsInk(10, 4, 1.5, 2)).toBe(true); // long side of the same ellipse
     expect(await containsInk(0, 14, 0.15, 1)).toBe(true); // frame is still solid
+  });
+
+  it.each(Array.from({ length: 16 }, (_, i) => [i % 4, Math.floor(i / 4)]))("removes a thickened 600-dpi corner at pixel phase %s,%s", async (x, y) => {
+    const options = { dpi: 600, width: 0.015, dx: x * 25.4 / 600 / 4, dy: y * 25.4 / 600 / 4 };
+    const clipped = await renderCorner("panel", "white", options);
+    const uncut = await renderCorner("none", "white", options);
+    expect(await clipped(0.39, 0.39, 1.8, 1.8)).toBe(false);
+    expect(await uncut(0.39, 0.39, 1.8, 1.8)).toBe(true);
+    expect(await clipped(9, 3, 4, 4)).toBe(true);
+    expect(await clipped(0, 14, 0.15, 1)).toBe(true);
   });
 
   it("closes the isolated corner pocket without blanking nearby dark art", async () => {

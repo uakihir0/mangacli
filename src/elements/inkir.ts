@@ -1,6 +1,6 @@
 // Ink polygons -> display list nodes.
 import type { RGBA } from "../core/color.js";
-import { type PathData, smoothPath } from "../geom/path.js";
+import { type PathData, polygonArea, smoothPath } from "../geom/path.js";
 import type { Vec } from "../geom/vec.js";
 import type { InkPoly } from "../ink/stroke.js";
 import type { Node, NodeTag, Paint } from "../render/ir.js";
@@ -21,6 +21,12 @@ export function inksToNodes(inks: InkPoly[], color: RGBA, tag?: NodeTag): Node[]
   const out: Node[] = [];
   for (const [op, polys] of byOp) {
     const path: Node = { kind: "path", path: polysToPath(polys), fillRule: "nonzero", paint: { type: "solid", color }, tag };
+    path.inkStrokes = inks.filter((k) => Math.round(k.opacity * 1000) / 1000 === op && k.centerline).map((k) => ({
+      width: k.centerline!.width,
+      path: k.centerline!.points.map((p, i) => [i ? "L" : "M", p.x, p.y]),
+      outline: polysToPath([polygonArea(k.pts) < 0 ? [...k.pts].reverse() : k.pts]),
+    }));
+    path.inkBasePath = polysToPath(inks.filter((k) => Math.round(k.opacity * 1000) / 1000 === op && !k.centerline).map((k) => polygonArea(k.pts) < 0 ? [...k.pts].reverse() : k.pts));
     if (op >= 0.999) out.push(path);
     else out.push({ kind: "group", opacity: op, children: [path], tag });
   }

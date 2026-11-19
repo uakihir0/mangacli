@@ -631,7 +631,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       ];
       const psds = new Map<string, PsdWriter>();
       for (const run of runs) {
-        const backend = new RasterBackend({ maxPixels: lim.maxOutputPixels, dpi: rasterDpi, crop: rasterCrop, marks, drawMarks: run.drawMarks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: run.transparent, separations: run.list, assets });
+        const backend = new RasterBackend({ diagnostics: bag, maxPixels: lim.maxOutputPixels, dpi: rasterDpi, crop: rasterCrop, marks, drawMarks: run.drawMarks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: run.transparent, separations: run.list, assets });
         const needRaster = run.layer !== undefined || run.formats.some((f) => f !== "svg");
         let full = needRaster ? await backend.render(list) : { data: new Uint8ClampedArray(0), width: 0, height: 0, dpi };
         if (plugins && needRaster) full = { ...full, ...(plugins.hook("afterRender", { data: full.data, width: full.width, height: full.height }) as object) };
