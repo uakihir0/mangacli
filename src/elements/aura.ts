@@ -2,6 +2,7 @@ import polygonClipping, { type Ring } from "polygon-clipping";
 import { BLACK, WHITE } from "../core/color.js";
 import { Rng } from "../core/random.js";
 import { toMm } from "../core/units.js";
+import { isObj } from "../load/normalize.js";
 import { polyPath } from "../geom/path.js";
 import { type Vec, boundsOf } from "../geom/vec.js";
 import type { RElement } from "../model/resolve.js";
@@ -58,12 +59,12 @@ export function renderAura(el: RElement, ctx: ElemCtx, region: ResolvedRegion): 
   const clip = pathOf(polygonClipping.difference([outer], subject));
   const nodes: Node[] = [];
   const hand = resolveHand(p.hand, ctx.u, ctx.draft);
-  const stroke = resolveStroke(p.stroke, hand, ctx.u, ctx.bag, [...el.path, "stroke"]);
+  const stroke = resolveStroke({ pen: p.pen, color: p.color, ...(isObj(p.stroke) ? p.stroke : {}) }, hand, ctx.u, ctx.bag, [...el.path, "stroke"]);
   const paint = parsePaint(p.fill, { u: ctx.u, box: b, seed: el.seed, bag: ctx.bag, path: [...el.path, "fill"] });
   const draw = (q: Vec[], fill: typeof paint, seed: Rng) => {
     const cut = polygonClipping.difference([ring(q)], subject);
     if (fill && cut.length) nodes.push({ kind: "path", path: pathOf(cut), fillRule: "evenodd", paint: fill, tag: tag(el, "fill") });
-    const ink = inkShape({ pts: q, closed: true, smooth: false }, { hand, rng: seed, line: stroke, join: "clean" });
+    const ink = inkShape({ pts: q, closed: true, smooth: false }, { hand: stroke.hand, rng: seed, line: stroke, join: "clean" });
     nodes.push(...inksToNodes(ink.inks, stroke.color ?? BLACK, tag(el, "ink")));
   };
   const usable = loops.filter(q => Math.abs(signedArea(q)) >= b.w * b.h / 10000);

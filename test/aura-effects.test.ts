@@ -47,6 +47,27 @@ describe("alpha tracing", () => {
 });
 
 describe.each(["aura", "arcs"])("%s", kind => {
+  it("honors common color and explicit stroke color precedence", async () => {
+    const renderer = createRenderer({ assets: { cutout: await cutout() } });
+    const inks = (node: Node): Node[] => node.kind === "group" ? node.children.flatMap(inks) : node.tag?.elementType === "effect" && node.tag.role === "ink" ? [node] : [];
+    for (const [props, value] of [["color: white", 1], ["color: white, stroke: { color: black }", 0]] as const) {
+      const list = await renderer.displayList(scene(`effect: ${kind}, target: figure, ${props}`), 1);
+      const lines = inks(list.root);
+      expect(lines.length).toBeGreaterThan(0);
+      expect(lines.every(n => n.kind === "path" && n.paint?.type === "solid" && n.paint.color.r === value && n.paint.color.g === value && n.paint.color.b === value)).toBe(true);
+    }
+  });
+  it("honors common pen in the same way as stroke pen", async () => {
+    const renderer = createRenderer({ assets: { cutout: await cutout() } });
+    const geometry = async (props: string) => {
+      const list = await renderer.displayList(scene(`effect: ${kind}, target: figure, seed: 42${props ? `, ${props}` : ""}`), 1);
+      const inks = (node: Node): Node[] => node.kind === "group" ? node.children.flatMap(inks) : node.tag?.elementType === "effect" && node.tag.role === "ink" ? [node] : [];
+      return JSON.stringify(inks(list.root));
+    };
+    const common = await geometry("pen: { minWidth: 1mm }");
+    expect(common === await geometry("stroke: { pen: { minWidth: 1mm } }")).toBe(true);
+    expect(common === await geometry("")).toBe(false);
+  });
   it("clears both fills and strokes without removing ink outside clear", async () => {
     const baseline = await raster();
     const cleared = await raster(`effect: ${kind}, target: figure, clear: { rect: [0mm, 0mm, 64mm, 36mm] }`);
