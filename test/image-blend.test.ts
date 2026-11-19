@@ -3,6 +3,27 @@ import sharp from "sharp";
 import { render } from "../src/api.js";
 
 describe("image blend precedence", () => {
+  it.each(["art", "lineart", "mixed"])("applies scatter opacity once across overlapping %s assets", async (kind) => {
+    const asset = await sharp({ create: { width: 32, height: 32, channels: 4, background: "black" } }).png().toBuffer();
+    const result = await render({ yaml: `mangacli: 1
+page: { size: [20mm, 20mm], bleed: 0mm }
+book: { pageNumbers: { enabled: false } }
+assets:
+  art: { src: art.png, kind: ${kind === "mixed" ? "art" : kind} }
+  line: { src: line.png, kind: lineart }
+pages:
+  - panels:
+      - layers:
+          - { type: scatter, count: 20, opacity: 0.5, itemScale: [1, 1], itemRotate: [0deg, 0deg], items: [{ asset: art, size: 4mm }${kind === "mixed" ? ", { asset: line, size: 4mm }" : ""}] }
+` }, { profile: "print-gray", width: 100, format: ["svg", "png"], assets: { art: asset, line: asset } });
+    const svg = Buffer.from(result.pages.find((p) => p.format === "svg")!.data).toString("utf8");
+    expect(svg.match(/<image\b/g)).toHaveLength(20);
+    expect(svg.match(/opacity="0.5"/g)).toHaveLength(1);
+    const pixels = await sharp(Buffer.from(result.pages.find((p) => p.format === "png")!.data)).extract({ left: 10, top: 10, width: 80, height: 80 }).removeAlpha().raw().toBuffer();
+    expect(Math.min(...pixels)).toBeGreaterThanOrEqual(127);
+    expect(Math.min(...pixels)).toBeLessThanOrEqual(128);
+  });
+
   describe.each(["mark", "scatter"])("%s assets", (type) => {
     describe.each(["print-gray", "print-mono"])("%s", (profile) => {
       it.each([

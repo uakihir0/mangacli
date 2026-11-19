@@ -386,8 +386,8 @@ function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listI
   const clip = el.props.clip;
   const free = source === 1 || clip === "none" || clip === "trim" || isObj(clip) || (el.type === "balloon" && clip !== "panel" && !hasOffscreenTail(el.props));
   const layer = el.type === "balloon" ? 1 : el.type === "text" || el.type === "sfx" ? 2 : 0;
-  const ownsBlend = el.type === "image" || (el.type === "mark" && el.props.kind === "asset");
-  const op = typeof el.props.opacity === "number" && !ownsBlend && el.type !== "effect" && el.type !== "scatter" ? el.props.opacity : undefined;
+  const ownsBlend = el.type === "image" || el.type === "scatter" || (el.type === "mark" && el.props.kind === "asset");
+  const op = typeof el.props.opacity === "number" && !ownsBlend && el.type !== "effect" ? el.props.opacity : undefined;
   const blend = !ownsBlend && typeof el.props.blend === "string" && el.props.blend !== "normal" ? (el.props.blend as GroupNode["blend"]) : undefined;
   let inner = nodes;
   if (el.props.visible === false) inner = [];
@@ -913,7 +913,6 @@ async function renderScatter(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[
     const at = [`${q.x - ctx.coordsBox.x}mm`, `${q.y - ctx.coordsBox.y}mm`];
     const size0 = item.size !== undefined && !Array.isArray(item.size) ? toMm(item.size as string, u) : 4 * u.k;
     const deg = `${(ang * 180) / Math.PI}deg`;
-    const firstNode = nodes.length;
     if (item.mark) {
       const sub: RElement = { id: `${el.id}-s${placed.length}`, type: "mark", path: el.path, seed: rng.nextU32(), props: { stroke: { width: `${0.2 * u.k}mm` }, ...item, kind: item.mark, at, size: `${size0 * s}mm`, rotate: deg } };
       nodes.push(...renderMark(sub, ctx).nodes);
@@ -934,15 +933,11 @@ async function renderScatter(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[
       const r = sub.type === "text" ? renderText(sub, ctx) : sub.type === "sfx" ? renderSfx(sub, ctx) : await renderMisc(sub, ctx);
       nodes.push(...r.nodes);
     }
-    if (typeof p.opacity === "number") {
-      for (let i = firstNode; i < nodes.length; i++) {
-        const node = nodes[i];
-        if (node.kind === "group") nodes[i] = { ...node, opacity: (node.opacity ?? 1) * p.opacity };
-        else nodes[i] = { kind: "group", opacity: p.opacity, children: [node] };
-      }
-    }
   }
-  return { nodes: [{ kind: "group", clip: reg.path, children: nodes, tag: tag(el, "ink") }], bbox: b };
+  const assetGroups = nodes.filter((node): node is GroupNode => node.kind === "group" && node.children.length === 1 && node.children[0].kind === "image");
+  const commonBlend = assetGroups.length > 0 && assetGroups.length === nodes.length && assetGroups.every((node) => node.blend === assetGroups[0].blend) ? assetGroups[0].blend : undefined;
+  const children = commonBlend ? assetGroups.map((node) => ({ ...node, blend: undefined })) : nodes;
+  return { nodes: [{ kind: "group", opacity: typeof p.opacity === "number" ? p.opacity : undefined, blend: (p.blend as GroupNode["blend"]) ?? commonBlend, clip: reg.path, children, tag: tag(el, "ink") }], bbox: b };
 }
 
 // ---- balloon placement ------------------------------------------------------------
