@@ -8,6 +8,7 @@ import { noEnd, noStart } from "../src/text/linebreak.js";
 import { parseMarkup } from "../src/text/markup.js";
 
 const reg = new FontRegistry(new Map() as never, "manga-basic", [], {});
+const ink = (path: PathData) => boundsOf(flattenPath(path, 0.01).flatMap((p) => p.pts));
 const lines = async (t: string, o: Record<string, unknown> = {}) => {
   await reg.prepare("dialogue", t);
   return layoutText(t, { ...defaultTextStyle({ font: "dialogue", fontSize: 10 }), maxChars: 8, wrap: "auto", ...o } as never, reg).lines.map((l) => l.text);
@@ -24,6 +25,59 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
+  it.each(["noto-sans-jp", "dela-gothic-one"])("compresses scaled nonokagi exactly once with %s", async (id) => {
+    const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id }]]), "none", [], {});
+    await fonts.prepare("test", "〝ヤ〟あ");
+    for (const scale of [1, 1.5, 2]) {
+      const style = { ...defaultTextStyle({ font: "test", fontSize: 10 }), glyphScale: [1, scale] as [number, number], wrap: "none" as const };
+      const halfEm = 5 * scale;
+      for (const quote of "〝〟") {
+        const single = layoutText(quote, style, fonts);
+        expect(single.lines[0].length).toBeCloseTo(halfEm);
+        expect(single.glyphs[0].cy).toBeCloseTo(halfEm / 2);
+        const ink = boundsOf(flattenPath(single.glyphs[0].path).flatMap((p) => p.pts));
+        expect(ink.y).toBeGreaterThanOrEqual(0);
+        expect(ink.y + ink.h).toBeLessThanOrEqual(single.lines[0].rect.h);
+        expect(layoutText(quote, { ...style, punctCompress: false }, fonts).lines[0].length).toBeCloseTo(2 * halfEm);
+      }
+      const result = layoutText("〝ヤ〟あ", style, fonts);
+      expect(result.lines[0].length).toBeCloseTo(6 * halfEm);
+      expect(result.glyphs.map((g) => g.cy)).toEqual([0.5, 2, 3.5, 5].map((n) => n * halfEm));
+      const wrapped = layoutText("〝ヤ〟あ", { ...style, wrap: "char", maxExtent: 4 * halfEm }, fonts);
+      expect(wrapped.lines.map((l) => l.text)).toEqual(["〝ヤ〟", "あ"]);
+      expect(wrapped.lines.map((l) => l.length)).toEqual([4 * halfEm, 2 * halfEm]);
+    }
+  });
+  it.each(["noto-sans-jp", "dela-gothic-one"])("sets vertical nonokagi in half-em cells with %s", async (id) => {
+    const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id }]]), "none", [], {});
+    await fonts.prepare("test", "〝ヤバい〟って言った「」");
+    const style = { ...defaultTextStyle({ font: "test", fontSize: 10 }), wrap: "none" as const };
+    for (const quote of "〝〟") {
+      expect(layoutText(quote, style, fonts).lines[0].length).toBeCloseTo(5);
+      expect(layoutText(quote, { ...style, punctCompress: false }, fonts).lines[0].length).toBeCloseTo(10);
+      expect(layoutText(quote, { ...style, writing: "horizontal" }, fonts)).toEqual(layoutText(quote, { ...style, writing: "horizontal", punctCompress: false }, fonts));
+    }
+    for (const bracket of "「」") expect(layoutText(bracket, style, fonts).lines[0].length).toBeCloseTo(10);
+    const tight = layoutText("〝ヤバい〟って言った", style, fonts);
+    const full = layoutText("〝ヤバい〟って言った", { ...style, punctCompress: false }, fonts);
+    expect(tight.missing).toEqual([]);
+    expect(full.lines[0].length - tight.lines[0].length).toBeCloseTo(10);
+    const ink = tight.glyphs.map((g) => boundsOf(flattenPath(g.path).flatMap((p) => p.pts)));
+    for (const i of [0, 3, 4]) {
+      const gap = ink[i + 1].y - ink[i].y - ink[i].h;
+      expect(gap).toBeGreaterThanOrEqual(0);
+      expect(gap).toBeLessThan(5);
+    }
+    expect(ink[0].x).toBeGreaterThanOrEqual(5);
+    expect(ink[0].y + ink[0].h).toBeLessThanOrEqual(5);
+    expect(ink[4].x + ink[4].w).toBeLessThanOrEqual(5);
+    expect(ink[4].y).toBeGreaterThanOrEqual(35);
+    expect(ink[4].y + ink[4].h).toBeLessThanOrEqual(40);
+    expect(layoutText("〝〟〝〟", style, fonts).lines[0].length).toBeCloseTo(20);
+    const wrapped = layoutText("〝ヤバい〟", { ...style, wrap: "char", maxExtent: 40 }, fonts);
+    expect(wrapped.lines.map((l) => l.text)).toEqual(["〝ヤバい〟"]);
+    expect(layoutText("", style, fonts).glyphs).toEqual([]);
+  });
   it("detects active vertical forms when OpenType features change on the same font", async () => {
     const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id: "noto-sans-jp" }]]), "none", [], {});
     await fonts.prepare("test", "〟");
@@ -80,8 +134,8 @@ describe("typesetting", () => {
     expect(Math.abs(opening.y - neighbour.y)).toBeLessThan(1);
     expect(closing.x).toBeGreaterThanOrEqual(column.x);
     expect(closing.x + closing.w).toBeLessThanOrEqual(column.x + 5);
-    expect(closing.y).toBeGreaterThanOrEqual(45);
-    expect(closing.y + closing.h).toBeLessThanOrEqual(50);
+    expect(closing.y).toBeGreaterThanOrEqual(35);
+    expect(closing.y + closing.h).toBeLessThanOrEqual(40);
     const font = fonts.pick("test", 0x301d)!.font;
     for (const ch of "〝〟") {
       const gids = [hb.Direction.LTR, hb.Direction.TTB].map((dir) => {
@@ -189,5 +243,55 @@ describe("typesetting", () => {
     const L = layoutText("Yeah... I", { ...defaultTextStyle({ font: "dialogue", fontSize: 10 }), writing: "horizontal", lang: "en" } as never, reg);
     const xs = L.glyphs.map((g) => g.cx);
     for (let i = 1; i < xs.length; i++) expect(xs[i]).toBeGreaterThan(xs[i - 1]);
+  });
+  it.each([
+    ["〜", "食べたい〜、もう〜っ"],
+    ["～", "食べたい～、もう～っ"],
+  ])("sets %s along the writing direction, even without vert", async (mark, text) => {
+    const style = defaultTextStyle({ font: "dialogue", fontSize: 10 });
+    await reg.prepare(style.font, text);
+    const waves = (overrides: Partial<typeof style> = {}) => {
+      const glyphs = layoutText(text, { ...style, ...overrides }, reg).glyphs.filter((g) => text[g.unit] === mark);
+      expect(glyphs).toHaveLength(2);
+      return glyphs.map(({ path, cx, cy }) => ({ ...ink(path), cx, cy }));
+    };
+    for (const b of waves()) expect(b.h).toBeGreaterThan(b.w);
+    for (const b of waves({ features: { vert: false } })) {
+      expect(b.h).toBeGreaterThan(b.w);
+      expect(b.x + b.w / 2).toBeCloseTo(b.cx, 1);
+      expect(b.y + b.h / 2).toBeCloseTo(b.cy, 1);
+    }
+    for (const b of waves({ writing: "horizontal" })) expect(b.w).toBeGreaterThan(b.h);
+  });
+  it.each(["dialogue", "catalog:zen-kaku-gothic-new@700", "sfx", "narration", "hand", "title"])(
+    "draws full vertical waves in %s with default OpenType features",
+    async (font) => {
+      const style = defaultTextStyle({ font, fontSize: 10 });
+      for (const text of ["食べたい〜、もう〜っ", "食べたい～、もう～っ"]) {
+        await reg.prepare(style.font, text);
+        const layout = layoutText(text, style, reg);
+        expect(layout.missing).toEqual([]);
+        const waves = layout.glyphs.filter(({ unit }) => unit === 4 || unit === 8);
+        expect(waves).toHaveLength(2);
+        for (const { path, cx } of waves) {
+          const { x, w, h } = ink(path);
+          expect(h).toBeGreaterThan(2 * w);
+          expect(h).toBeGreaterThan(0.7 * style.fontSize);
+          expect(x + w / 2).toBeCloseTo(cx, 1);
+        }
+      }
+    },
+  );
+  it("rotates both wave dashes in vertical ruby with Dela Gothic One", async () => {
+    const style = defaultTextStyle({ font: "dialogue", fontSize: 10 });
+    await reg.prepare(style.font, "食べたい");
+    await reg.prepare("sfx", "〜～");
+    const layout = layoutText("<ruby=〜～>食べたい</ruby>", { ...style, ruby: { ...style.ruby, font: "sfx" } }, reg);
+    expect(layout.glyphs).toHaveLength(6);
+    for (const { path, cx } of layout.glyphs.slice(4)) {
+      const { x, w, h } = ink(path);
+      expect(h).toBeGreaterThan(2 * w);
+      expect(x + w / 2).toBeCloseTo(cx, 1);
+    }
   });
 });
