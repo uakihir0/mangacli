@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { createRenderer } from "../src/api.js";
 import { Rng } from "../src/core/random.js";
 import type { Vec } from "../src/geom/vec.js";
 import { HAND_PRESETS, PEN_PRESETS } from "../src/ink/presets.js";
 import { inkShape } from "../src/ink/shape.js";
+import * as shape from "../src/ink/shape.js";
 import type { Node, PathNode } from "../src/render/ir.js";
 
 const r = createRenderer({ profile: "preview" });
@@ -84,6 +85,21 @@ function tailEdges(pts: Vec[]): { a: number; tip: number } {
 }
 
 describe("balloon tails", () => {
+  it("keeps one corner per vertex when shout roots meet existing valleys", async () => {
+    const spy = vi.spyOn(shape, "inkShape");
+    try {
+      await r.displayList({ yaml: reviewYaml.replaceAll("as: shout,", "as: shout, hand: clean, shape: { kind: spike, count: 80 },"), filename: "/v/review.yaml" }, 1);
+      const contours = spy.mock.calls.map(([contour]) => contour).filter((contour) => contour.corners?.some((c) => c.kind === "point"));
+      expect(contours).toHaveLength(3);
+      for (const contour of contours) {
+        const indices = contour.corners!.map((c) => c.index);
+        expect(new Set(indices).size).toBe(indices.length);
+        expect(contour.corners!.filter((c) => c.kind === "concave")).toHaveLength(2);
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
   it("joins the review shouts with straight edges and keeps the neighboring spikes", async () => {
     const cleanYaml = reviewYaml.replaceAll("as: shout,", "as: shout, hand: clean,");
     const root = (await r.displayList({ yaml: cleanYaml, filename: "/v/review.yaml" }, 1)).root;

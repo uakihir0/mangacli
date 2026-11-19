@@ -764,7 +764,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     const tipIndex = out.length - 1;
     const bStart = out.length;
     for (let k = sideB.length - 2; k >= 1; k--) out.push(sideB[k]);
-    const corners = (cur.corners ?? []).filter((c) => idxMap.has(c.index)).map((c) => ({ index: idxMap.get(c.index)!, kind: c.kind }));
+    const corners = (cur.corners ?? []).filter((c) => idxMap.has(c.index)).map((c) => ({ index: idxMap.get(c.index)!, kind: c.kind })).filter((c) => c.index !== 0 && c.index !== aIndex);
     corners.push({ index: 0, kind: "concave" }, { index: aIndex, kind: "concave" }, { index: tipIndex, kind: "point" });
     for (const zc of zigCorners) {
       corners.push({ index: aIndex + zc, kind: "convex" });
