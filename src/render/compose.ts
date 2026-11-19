@@ -626,7 +626,7 @@ function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["uni
 type GroupBounds = { bbox: Rect; transform?: Matrix };
 type GroupElement = GroupBounds & { id: string; type: string };
 
-async function renderMisc(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[]; bbox: Rect; bounds?: GroupBounds; elements?: GroupElement[] }> {
+async function renderMisc(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[]; bbox: Rect; bounds?: GroupBounds; elements?: GroupElement[]; rendered?: boolean }> {
   const p = el.props;
   switch (el.type) {
     case "effect": {
@@ -710,8 +710,8 @@ async function renderMisc(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[]; 
       const elements: GroupElement[] = [];
       for (const c of el.children ?? []) {
         const r: Awaited<ReturnType<typeof renderMisc>> = c.type === "text" ? renderText(c, cctx) : c.type === "sfx" ? renderSfx(c, cctx) : await renderMisc(c, cctx);
-        if (!r.nodes.length) continue;
         nodes.push(...r.nodes);
+        if (!(r.rendered ?? r.nodes.length > 0)) continue;
         elements.push({ id: c.id, type: c.type, ...(r.bounds ?? { bbox: r.bbox }) }, ...(r.elements ?? []));
       }
       let transform: [number, number, number, number, number, number] | undefined;
@@ -727,7 +727,7 @@ async function renderMisc(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[]; 
       }
       if (transform) for (const e of elements) e.transform = e.transform ? matMul(transform, e.transform) : transform;
       const bounds = { bbox: sized ? { x: 0, y: 0, w: gw as number, h: gh as number } : ctx.coordsBox, transform };
-      return { nodes: nodes.length ? [{ kind: "group", transform, children: nodes, tag: tag(el, "fill") }] : [], bbox, bounds, elements };
+      return { nodes: [{ kind: "group", transform, children: nodes, tag: tag(el, "fill") }], bbox, bounds, elements, rendered: elements.length > 0 };
     }
   }
   return { nodes: [], bbox: ctx.coordsBox };

@@ -78,6 +78,15 @@ it("does not register phantom boxes for group children with empty draw results",
   expect(result.pages[0]!.elements.map((e) => e.id).sort()).toEqual(["child", "inner", "outer"]);
 });
 
+it("validates mask references on groups whose children draw nothing", async () => {
+  const source = yaml().replace(/    layers:[\s\S]*/, `    layers:
+      - {type: group, id: empty, mask: {element: absent}, children: []}
+`);
+  const result = await renderer.validate({ yaml: source });
+  expect(result.ok).toBe(false);
+  expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "REF_NOT_FOUND", path: ["pages", 0, "layers", 0, "mask"] }));
+});
+
 it.each(["trim", "bleed"] as const)("returns element boxes in %s output pixels, including split spreads", async (crop) => {
   const input = { yaml: yaml("spread", "100mm, 20mm"), filename: "/v/highlight.yaml" };
   const joined = await renderer.render(input, { format: "png", crop, dpi: 254 });
