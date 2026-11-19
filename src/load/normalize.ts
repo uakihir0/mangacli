@@ -142,30 +142,13 @@ function normElement(raw: unknown, path: Path, bag: DiagnosticBag): unknown {
     else el[prim] = val;
   }
   const type = el.type as string;
-  // property shorthands
-  if ("stroke" in el) el.stroke = normStroke(el.stroke, [...path, "stroke"], bag);
-  if ("edge" in el && type === "sfx") el.edge = normStroke(el.edge, [...path, "edge"], bag);
-  if ("outline" in el) el.outline = normOutline(el.outline, [...path, "outline"], bag);
-  if ("textOutline" in el) el.textOutline = normOutline(el.textOutline, [...path, "textOutline"], bag);
-  if ("halo" in el) el.halo = normHalo(el.halo, [...path, "halo"], bag);
-  if ("hand" in el) el.hand = normHand(el.hand);
-  if ("pen" in el) el.pen = normPen(el.pen);
-  if (typeof el.shape === "string") el.shape = { kind: el.shape };
-  if (isObj(el.shape) && "strokes" in (el.shape as Obj)) {
-    /* keep */
-  }
-  if ("tail" in el) el.tail = normTail(el.tail);
-  if (Array.isArray(el.tails)) el.tails = el.tails.map(normTail);
-  if ("padding" in el && !Array.isArray(el.padding)) el.padding = [el.padding, el.padding];
-  if (isObj(el.stroke) && "hand" in (el.stroke as Obj)) (el.stroke as Obj).hand = normHand((el.stroke as Obj).hand);
-  if (isObj(el.stroke) && "pen" in (el.stroke as Obj)) (el.stroke as Obj).pen = normPen((el.stroke as Obj).pen);
+  el = normElementProps(el, path, bag);
   if (type === "group") {
     if (Array.isArray(el.children)) el.children = el.children.map((c, i) => normElement(c, [...path, "children", i], bag));
     if (isObj(el.defaults)) el.defaults = normDefaults(el.defaults, [...path, "defaults"], bag);
   }
   if (type === "scatter" && Array.isArray(el.items))
     el.items = el.items.map((it) => (typeof it === "string" ? (MARK_KINDS.has(it) ? { mark: it } : { asset: it }) : it));
-  if (typeof el.lettering === "string") el.lettering = { mode: el.lettering };
   if (typeof el.clip === "object" && el.clip && !Array.isArray(el.clip)) {
     /* clip object */
   }
@@ -245,6 +228,8 @@ export function normDefaults(d: Obj, path: Path, bag: DiagnosticBag): Obj {
 export function normElementProps(v: Obj, path: Path, bag: DiagnosticBag): Obj {
   const o: Obj = { ...v };
   if ("stroke" in o) o.stroke = normStroke(o.stroke, [...path, "stroke"], bag);
+  if (isObj(o.stroke) && "hand" in o.stroke) o.stroke = { ...o.stroke, hand: normHand(o.stroke.hand) };
+  if ("edge" in o) o.edge = normStroke(o.edge, [...path, "edge"], bag);
   if ("outline" in o) o.outline = normOutline(o.outline, [...path, "outline"], bag);
   if ("textOutline" in o) o.textOutline = normOutline(o.textOutline, [...path, "textOutline"], bag);
   if ("halo" in o) o.halo = normHalo(o.halo, [...path, "halo"], bag);
@@ -252,6 +237,7 @@ export function normElementProps(v: Obj, path: Path, bag: DiagnosticBag): Obj {
   if ("pen" in o) o.pen = normPen(o.pen);
   if (typeof o.shape === "string") o.shape = { kind: o.shape };
   if ("tail" in o) o.tail = normTail(o.tail);
+  if (Array.isArray(o.tails)) o.tails = o.tails.map(normTail);
   if ("padding" in o && !Array.isArray(o.padding)) o.padding = [o.padding, o.padding];
   if (o.size === "auto") o.size = ["auto", "auto"];
   if (typeof o.lettering === "string") o.lettering = { mode: o.lettering };

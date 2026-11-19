@@ -19,6 +19,38 @@ const yaml = (s: string) => ({ yaml: s, filename: "/v/outline.yaml" });
 const paths = (n: Node): PathNode[] => n.kind === "group" ? n.children.flatMap(paths) : n.kind === "path" ? [n] : [];
 
 describe("speech-role defaults", () => {
+  it.each(["element", "document", "include", "locale", "config", "config-defaults", "character", "voice", "dialogue"])("normalizes common properties from %s inputs", (source) => {
+    const props = { halo: "0.6mm white", textOutline: "auto" };
+    const balloon: Obj = { balloon: "A" };
+    const panel: Obj = { layers: [balloon] };
+    const page: Obj = { panels: [panel] };
+    const doc: Obj = { mangacli: 1, pages: [page] };
+    if (source === "element") Object.assign(balloon, props);
+    if (["document", "locale", "config"].includes(source)) balloon.style = "common";
+    if (source === "document") doc.styles = { common: props };
+    if (source === "locale") doc.locales = { ja: { styles: { common: props } } };
+    if (source === "include") Object.defineProperty(page, "__includeDefaults", { value: { balloon: props } });
+    if (source === "character" || source === "voice") {
+      balloon.who = "speaker";
+      doc.characters = { speaker: source === "character" ? { balloon: props } : { voice: { say: props } } };
+    }
+    if (source === "dialogue") { delete panel.layers; panel.dialogue = [{ text: "A", ...props }]; }
+    const bag = new DiagnosticBag();
+    const result = resolveDocument(normalizeDocument(doc, bag), bag, { configStyles: source === "config" ? { common: props } : {}, configDefaults: source === "config-defaults" ? { balloon: props } : {} });
+    expect(bag.items.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.pages[0].panels[0].elements[0].props).toMatchObject({ halo: { width: "0.6mm", color: "white" }, textOutline: [{ width: "auto" }] });
+  });
+
+  it("renders config style halo and adaptive outline shorthands and diagnoses invalid values", async () => {
+    const doc = { mangacli: 1, pages: [{ panels: [{ layers: [{ balloon: "A", style: "rim" }, { text: "B", style: "adaptive" }] }] }] };
+    const configured = createRenderer({ config: { styles: { rim: { halo: "0.6mm white" }, adaptive: { outline: "auto" } } } });
+    const nodes = paths((await configured.displayList(doc, 1)).root);
+    expect(nodes.some((n) => n.tag?.role === "fill" && n.stroke)).toBe(true);
+    expect(nodes.some((n) => n.stroke?.auto)).toBe(true);
+    expect(() => resolve(doc, { config: { styles: { rim: { halo: "bad halo" } } } })).toThrow(/invalid halo/);
+    expect(() => resolve(doc, { config: { styles: { adaptive: { outline: "bad outline" } } } })).toThrow(/invalid outline/);
+  });
+
   it.each([{ extendsStyle: "narration" }, { extendsStyle: ["narration"] }])("resolves builtin-only inheritance %j before user defaults without leaking extends", ({ extendsStyle }) => {
     const monologue = BUILTIN_STYLES.monologue;
     const narration = BUILTIN_STYLES.narration;

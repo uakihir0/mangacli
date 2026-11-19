@@ -2,7 +2,7 @@
 import type { DiagnosticBag } from "../core/diagnostics.js";
 import { suggest } from "../core/diagnostics.js";
 import { deriveSeed, Rng } from "../core/random.js";
-import { isObj, normDefaults } from "../load/normalize.js";
+import { isObj, normDefaults, normElementProps } from "../load/normalize.js";
 import { BUILTIN_DEFAULTS, BUILTIN_EFFECT_DEFAULTS, BUILTIN_MARK_DEFAULTS, BUILTIN_STYLES } from "./defaults.js";
 
 type Obj = Record<string, unknown>;
@@ -139,10 +139,11 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
   // styles: builtin <- config <- doc <- locale
   const rawStyles: Record<string, Obj> = {};
   const userStyles: Record<string, Obj> = {};
-  for (const src of [opts.configStyles ?? {}, (doc.styles ?? {}) as Record<string, Obj>, ((locale?.styles ?? {}) as Record<string, Obj>)]) {
+  const configStyles = Object.fromEntries(Object.entries(opts.configStyles ?? {}).map(([k, v]) => [k, normElementProps(v, ["styles", k], bag)]));
+  for (const src of [configStyles, (doc.styles ?? {}) as Record<string, Obj>, ((locale?.styles ?? {}) as Record<string, Obj>)]) {
     for (const [k, v] of Object.entries(src)) userStyles[k] = userStyles[k] ? overlay(userStyles[k], v) : deepClone(v);
   }
-  for (const src of [BUILTIN_STYLES, opts.configStyles ?? {}, (doc.styles ?? {}) as Record<string, Obj>, ((locale?.styles ?? {}) as Record<string, Obj>)]) {
+  for (const src of [BUILTIN_STYLES, configStyles, (doc.styles ?? {}) as Record<string, Obj>, ((locale?.styles ?? {}) as Record<string, Obj>)]) {
     for (const [k, v] of Object.entries(src)) rawStyles[k] = rawStyles[k] ? overlay(rawStyles[k], v) : deepClone(v);
   }
   const builtinStyles = resolveStyles(BUILTIN_STYLES, bag);
