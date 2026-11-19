@@ -3,14 +3,12 @@ import { distanceSquared } from "../render/edt.js";
 import type { ElemCtx } from "./context.js";
 
 type ImagePx = NonNullable<ReturnType<ElemCtx["refs"]["all"]>[number]["imagePx"]>;
-const samples = new WeakMap<ElemCtx["assets"], Map<string, { distance: Float64Array; w: number; h: number; opaque: boolean }>>();
+export type EffectAlphaCache = Map<string, { distance: Float64Array; w: number; h: number; opaque: boolean }>;
 
-export async function prepareEffectAlpha(ctx: ElemCtx, image: ImagePx): Promise<void> {
-  let cache = samples.get(ctx.assets);
-  if (!cache) samples.set(ctx.assets, cache = new Map());
+async function prepareEffectAlpha(ctx: ElemCtx, image: ImagePx, cache: EffectAlphaCache): Promise<void> {
   if (cache.has(image.assetKey)) return;
   const scale = Math.min(1, 1024 / Math.max(image.w, image.h));
-  const px = await ctx.assets.pixels(image.assetKey, image.w * scale, image.h * scale, { x: 0, y: 0, w: image.w, h: image.h });
+  const px = await ctx.assets.pixels(image.assetKey, image.w * scale, image.h * scale, { x: 0, y: 0, w: image.w, h: image.h }, false);
   if (!px) return;
   const mask = new Uint8Array(px.width * px.height);
   let solid = 0;
@@ -21,8 +19,9 @@ export async function prepareEffectAlpha(ctx: ElemCtx, image: ImagePx): Promise<
   cache.set(image.assetKey, { distance: distanceSquared(mask, px.width, px.height), w: px.width, h: px.height, opaque: solid / mask.length > 0.995 });
 }
 
-export function effectSilhouette(ctx: ElemCtx, image: ImagePx, margin: number): { contains: (p: Vec, extra?: number) => boolean; opaque: boolean } | undefined {
-  const sample = samples.get(ctx.assets)?.get(image.assetKey);
+export async function effectSilhouette(ctx: ElemCtx, image: ImagePx, margin: number, cache: EffectAlphaCache): Promise<{ contains: (p: Vec, extra?: number) => boolean; opaque: boolean } | undefined> {
+  await prepareEffectAlpha(ctx, image, cache);
+  const sample = cache.get(image.assetKey);
   if (!sample) return;
   const inv = invertMat(image.matrix);
   const sx = Math.hypot(image.matrix[0], image.matrix[1]) * image.w / sample.w;

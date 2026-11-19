@@ -17,7 +17,7 @@ import { runPluginDrawable } from "./plugindraw.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { inksToNodes } from "./inkir.js";
 import { type ResolvedRegion, resolveRegion } from "./region.js";
-import { effectSilhouette, splitClearLine } from "./effect-clear.js";
+import { type EffectAlphaCache, effectSilhouette, splitClearLine } from "./effect-clear.js";
 
 type Obj = Record<string, unknown>;
 
@@ -54,7 +54,8 @@ function effectLine(f: FxCtx, ...args: Parameters<typeof inkLine>): InkPoly[] {
   });
 }
 
-function resolveClears(f: FxCtx): FxCtx["clears"] {
+async function resolveClears(f: FxCtx): Promise<FxCtx["clears"]> {
+  const cache: EffectAlphaCache = new Map();
   const raw = f.p.clear == null ? [] : Array.isArray(f.p.clear) ? [...f.p.clear] : [f.p.clear];
   if (["focus-lines", "uni-flash", "speed-lines", "beta-flash"].includes(String(f.p.kind)) && f.p.clearFigures !== false) {
     for (const t of f.ctx.refs.all()) {
@@ -63,20 +64,22 @@ function resolveClears(f: FxCtx): FxCtx["clears"] {
       }
     }
   }
-  return raw.flatMap((spec, i) => {
+  const clears: FxCtx["clears"] = [];
+  for (const [i, spec] of raw.entries()) {
     const region = resolveRegion(spec, f.ctx, "panel", [...f.el.path, "clear", i]);
     const margin = isObj(spec) && spec.margin !== undefined ? L(f, spec.margin) : region.alphaOf ? L(f, "1mm") : 0;
     if (region.alphaOf) {
       const image = f.ctx.refs.get(region.alphaOf)?.imagePx;
-      const silhouette = image && effectSilhouette(f.ctx, image, margin);
-      if (!silhouette) return [];
+      const silhouette = image && await effectSilhouette(f.ctx, image, margin, cache);
+      if (!silhouette) continue;
       if (silhouette.opaque) {
         if (!(isObj(spec) && spec.automatic)) f.ctx.bag.warn("EFFECT_OPAQUE_CLEAR", `alpha clear ignored: image "${region.alphaOf}" is essentially opaque`, { path: [...f.el.path, "clear", i] });
-        return [];
+        continue;
       }
-      return [{ region, margin, contains: silhouette.contains }];
+      clears.push({ region, margin, contains: silhouette.contains });
+      continue;
     }
-    return [{ region, margin, contains: (p: Vec, extra = 0) => {
+    clears.push({ region, margin, contains: (p: Vec, extra = 0) => {
       if (region.contains(p)) return true;
       const radius = margin + extra;
       return region.polys.some((poly) => poly.some((a, j) => {
@@ -85,8 +88,9 @@ function resolveClears(f: FxCtx): FxCtx["clears"] {
         const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
         return Math.hypot(p.x - a.x - dx * t, p.y - a.y - dy * t) <= radius;
       }));
-    } }];
-  });
+    } });
+  }
+  return clears;
 }
 
 /** the burst centre: explicit, else the face of the panel's main character, else the region centre */
@@ -728,13 +732,13 @@ function applyClear(f: FxCtx, nodes: Node[]): Node[] {
   return out;
 }
 
-export function renderEffect(el: RElement, ctx: ElemCtx): Node[] {
+export async function renderEffect(el: RElement, ctx: ElemCtx): Promise<Node[]> {
   const hold: { f?: FxCtx } = {};
-  const out = renderEffectInner(el, ctx, hold);
+  const out = await renderEffectInner(el, ctx, hold);
   return hold.f ? applyClear(hold.f, out) : out;
 }
 
-function renderEffectInner(el: RElement, ctx: ElemCtx, hold: { f?: FxCtx }): Node[] {
+async function renderEffectInner(el: RElement, ctx: ElemCtx, hold: { f?: FxCtx }): Promise<Node[]> {
   const p = el.props;
   const kind = String(p.kind);
   const hand = resolveHand(p.hand, ctx.u, ctx.draft);
@@ -742,7 +746,7 @@ function renderEffectInner(el: RElement, ctx: ElemCtx, hold: { f?: FxCtx }): Nod
   const color = parseColor((p.color as string) ?? "black") ?? BLACK;
   const region = resolveRegion(p.region, ctx, ctx.panel ? "panel" : "page", [...el.path, "region"]);
   const f: FxCtx = { el, p, ctx, region, rng: new Rng(el.seed), hand, pen, color, k: ctx.u.k, clears: [] };
-  f.clears = resolveClears(f);
+  f.clears = await resolveClears(f);
   hold.f = f;
   const ink = (inks: InkPoly[]) => wrap(f, inksToNodes(inks, color, tag(el, "ink")), backgroundNode(f));
   switch (kind) {

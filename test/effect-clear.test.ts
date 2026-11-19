@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
 import { createRenderer } from "../src/api.js";
 import { splitClearLine } from "../src/elements/effect-clear.js";
 import { flattenPath } from "../src/geom/path.js";
 import type { Node, PathNode } from "../src/render/ir.js";
+import { AssetRegistry } from "../src/render/assets.js";
 
 const renderer = createRenderer({ profile: "preview" });
 const doc = (effect: Record<string, unknown>) => ({
@@ -34,6 +35,21 @@ async function lines(effect: Record<string, unknown>, image?: Buffer) {
 }
 
 describe("effect silhouette clears", () => {
+  it("samples effect alpha only on demand and shares distances between margins", async () => {
+    const pixels = vi.spyOn(AssetRegistry.prototype, "pixels");
+    try {
+      await lines({ clearFigures: false });
+      expect(pixels.mock.calls.filter((args) => args[4] === false)).toHaveLength(0);
+      await lines({ clearFigures: false, clear: [
+        { element: "hero", mode: "alpha", margin: "1mm" },
+        { element: "hero", mode: "alpha", margin: "3mm" },
+      ] });
+      expect(pixels.mock.calls.filter((args) => args[4] === false)).toHaveLength(1);
+    } finally {
+      pixels.mockRestore();
+    }
+  });
+
   it("masks the beta-flash solid ring with the dilated figure", async () => {
     const list = await renderer.displayList(doc({ kind: "beta-flash", clear: { element: "hero", mode: "alpha", margin: "2mm" } }), 1, { assets: { art: await art() } });
     const rings: number[] = [];

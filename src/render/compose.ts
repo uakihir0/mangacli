@@ -7,7 +7,6 @@ import { parseAngle, toMm } from "../core/units.js";
 import { type ElemCtx, type Silhouette, placeCtx, tag } from "../elements/context.js";
 import { type BalloonPlan, planBalloon, renderBalloon, renderConnected } from "../elements/balloon.js";
 import { renderEffect } from "../elements/effects.js";
-import { prepareEffectAlpha } from "../elements/effect-clear.js";
 import { layoutImage } from "../elements/image.js";
 import { inksToNodes } from "../elements/inkir.js";
 import { renderMark } from "../elements/marks.js";
@@ -184,7 +183,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
             // marks tied to the art are drawn before the balloons are placed, so balloons avoid them
             const refTo = [p0(el.props.target), p0(el.props.at), p0(el.props.anchorTo)].filter(Boolean) as string[];
             if (refTo.some((r) => balloonIds.has(r))) break;
-            const r = renderMisc(el, c2);
+            const r = await renderMisc(el, c2);
             processed.set(el.id, mkItem(el, r.nodes, r.bbox, panelIdx, i, source, ctx));
             break;
           }
@@ -269,7 +268,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       if (["image", "balloon", "text", "sfx"].includes(el.type) || el.props.visible === false || processed.has(el.id)) continue;
       const c2 = { ...ctx, coordsBox: coordsFor(el, ctx, geom) };
       try {
-        const nodes = renderMisc(el, c2);
+        const nodes = await renderMisc(el, c2);
         processed.set(el.id, mkItem(el, nodes.nodes, nodes.bbox, panelIdx, i, source, ctx));
       } catch (e) {
         bag.error("RENDER_FAILED", `${el.id}: ${(e as Error).message}`, { path: el.path, elementId: el.id });
@@ -618,11 +617,11 @@ function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["uni
 
 // ---- misc elements ---------------------------------------------------------------
 
-function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
+async function renderMisc(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[]; bbox: Rect }> {
   const p = el.props;
   switch (el.type) {
     case "effect": {
-      const nodes = renderEffect(el, ctx);
+      const nodes = await renderEffect(el, ctx);
       return { nodes, bbox: ctx.panel?.box ?? ctx.geom.trim };
     }
     case "fill": {
@@ -700,7 +699,7 @@ function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
       const cctx: ElemCtx = sized ? { ...ctx, coordsBox: { x: 0, y: 0, w: gw as number, h: gh as number }, localFrame: true } : ctx;
       const nodes: Node[] = [];
       for (const c of el.children ?? []) {
-        const r = c.type === "text" ? renderText(c, cctx) : c.type === "sfx" ? renderSfx(c, cctx) : renderMisc(c, cctx);
+        const r = c.type === "text" ? renderText(c, cctx) : c.type === "sfx" ? renderSfx(c, cctx) : await renderMisc(c, cctx);
         nodes.push(...r.nodes);
       }
       let transform: [number, number, number, number, number, number] | undefined;
@@ -805,7 +804,7 @@ function renderDraw(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
   return { nodes, bbox: boundsOf(pts) };
 }
 
-function renderScatter(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
+async function renderScatter(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[]; bbox: Rect }> {
   const p = el.props;
   const u = ctx.u;
   const reg = resolveRegion(p.region, ctx, ctx.panel ? "panel" : "page", [...el.path, "region"]);
@@ -878,7 +877,7 @@ function renderScatter(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect 
       // an inline element definition placed at the point
       const { weight: _w, ...def } = item;
       const sub: RElement = { id: `${el.id}-s${placed.length}`, type: String(item.type), path: el.path, seed: rng.nextU32(), props: { ...def, at, rotate: def.rotate ?? deg, scale: s } };
-      const r = sub.type === "text" ? renderText(sub, ctx) : sub.type === "sfx" ? renderSfx(sub, ctx) : renderMisc(sub, ctx);
+      const r = sub.type === "text" ? renderText(sub, ctx) : sub.type === "sfx" ? renderSfx(sub, ctx) : await renderMisc(sub, ctx);
       nodes.push(...r.nodes);
     }
   }
@@ -892,7 +891,6 @@ async function silhouettes(refs: RefRegistry, ctx: ElemCtx): Promise<Silhouette[
   const out: Silhouette[] = [];
   const pid = ctx.panel?.panel.id;
   for (const t of refs.all()) {
-    if (t.imagePx) await prepareEffectAlpha(ctx, t.imagePx);
     if (t.type !== "image" || !t.imagePx || (pid && t.panelId !== pid) || !t.character) continue;
     const { w, h, matrix, assetKey } = t.imagePx;
     const gh = 64;
