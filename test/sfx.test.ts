@@ -77,6 +77,13 @@ describe("SFX lettering", () => {
     expect(widths[1] / widths[0]).toBeCloseTo(1.05 / 1.3, 2);
     expect(widths[2] / widths[1]).toBeCloseTo(0.7, 2);
   });
+  it("paints multi-color outlines by layer across all glyphs", async () => {
+    const result = await renderer.render(input("outline: [{ width: 0.5mm, color: white }, { width: 2mm, color: red }]"), { format: "svg" });
+    const paths = [...Buffer.from(result.pages[0].data).toString().matchAll(/<path\b[^>]*>/g)].map(m => m[0]);
+    const outlines = paths.filter(p => p.includes("stroke-width="));
+    expect(outlines.map(p => Number(p.match(/stroke-width="([^"]+)"/)![1]))).toEqual([4, 4, 4, 1, 1, 1]);
+    expect(Math.max(...outlines.map(p => paths.indexOf(p)))).toBeLessThan(paths.findIndex(p => p.includes('data-id="sfx"')));
+  });
   it.each(["vertical", "horizontal"].flatMap(writing => ["バンッ", "ダッ", "ブンッ", "ガシッ"].map(text => ({ writing, text }))))("limits small kana ink bbox overlap in $writing $text", async ({ writing, text }) => {
     const list = await renderer.displayList(input(`writing: ${writing}, rotate: 0deg`, text), 1);
     const paths: PathNode[] = [];

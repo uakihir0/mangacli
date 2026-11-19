@@ -312,10 +312,13 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const pl = place(p, boxW, boxH, pc);
   const placed = transformPath(allPath, pl.matrix);
   const nodes: Node[] = [];
-  paths.forEach((path, i) => {
+  const outlines = paths.map((path, i) => {
     const scale = perCharT[idxOf.get(tl.glyphs[i].unit) ?? 0].s * footprintScale;
-    nodes.push(...outlineNodes(transformPath(path, pl.matrix), p.outline ?? [{ width: `${em * scale * 0.06}mm`, color: "white" }], ctx, el));
+    return outlineNodes(transformPath(path, pl.matrix), p.outline ?? [{ width: `${em * scale * 0.06}mm`, color: "white" }], ctx, el);
   });
+  for (let layer = 0; layer < Math.max(0, ...outlines.map(o => o.length)); layer++) {
+    for (const glyph of outlines) if (glyph[layer]) nodes.push(glyph[layer]);
+  }
   const paint = textPaint(p.color, ctx, el, pl.bbox);
   // hollow letters keep only the traced outline (black by default)
   const edge = (p.edge as Obj | undefined) ?? (p.hollow ? { width: "0.35bmm", color: (p.color as string) ?? "black" } : undefined);
