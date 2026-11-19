@@ -2,7 +2,7 @@
 import * as hb from "harfbuzzjs";
 import { Rng, noise1 } from "../core/random.js";
 import type { FontPick, FontRegistry, LoadedFont } from "../fonts/registry.js";
-import { type PathData, flattenPath, pathFromJson, transformPath } from "../geom/path.js";
+import { type PathData, flattenPath, pathFromJson } from "../geom/path.js";
 import { type Matrix, type Rect, boundsOf, matMul, matRotate, matScale, matTranslate } from "../geom/vec.js";
 import { type KinsokuLevel, inseparable, isClosingPunct, isOpeningPunct, noEnd, noStart, phraseBoundaries, wordBoundaries } from "./linebreak.js";
 import { type InlineStyle, type NormalizeOptions, type ParsedText, type Unit, assignTcy, parseMarkup } from "./markup.js";
@@ -91,7 +91,7 @@ interface Box {
   adv: number; // along line (mm)
   size: number; // em size mm
   orient: Orient;
-  glyphs: { gid: number; font: LoadedFont; m: Matrix; path?: PathData }[]; // matrix relative to box origin: vertical => (col center, box top); horizontal => (box left, baseline)
+  glyphs: { gid: number; font: LoadedFont; m: Matrix }[]; // matrix relative to box origin: vertical => (col center, box top); horizontal => (box left, baseline)
   breakBefore?: "forced";
   wbrBefore?: boolean;
   space?: boolean;
@@ -304,7 +304,7 @@ function emitBox(b: Box, ox: number, oy: number, _vertical: boolean, out: GlyphO
       const jit: Matrix = matMul(matTranslate(cx + dx, cy + dy), matMul(matRotate(r), matMul(matScale(s), matTranslate(-cx, -cy))));
       m = matMul(jit, m);
     }
-    out.push({ path: g.path ? transformPath(g.path, m) : pathFromJson(glyphJson(g.font, g.gid), m), color: b.color, unit: b.units[0] ?? 0, bold: b.bold, cx, cy });
+    out.push({ path: pathFromJson(glyphJson(g.font, g.gid), m), color: b.color, unit: b.units[0] ?? 0, bold: b.bold, cx, cy });
   }
 }
 
@@ -429,24 +429,6 @@ const vertCache = new Map<string, boolean>();
 const SMALL_KANA = new Set(Array.from("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ"));
 const VERT_PUNCT = new Set(Array.from("、。，．"));
 
-function ellipsisPath(count: number, size: number): PathData {
-  const path: PathData = [];
-  const r = size * 0.07;
-  const k = r * 0.5522847498307936;
-  for (let i = 0; i < count; i++) {
-    const y = size * (0.15 + 0.7 * i / (count - 1));
-    path.push(
-      ["M", r, y],
-      ["C", r, y + k, k, y + r, 0, y + r],
-      ["C", -k, y + r, -r, y + k, -r, y],
-      ["C", -r, y - k, -k, y - r, 0, y - r],
-      ["C", k, y - r, r, y - k, r, y],
-      ["Z"],
-    );
-  }
-  return path;
-}
-
 /** dashes are drawn cell to cell so a run (――) is one continuous line; some fonts overhang the cell */
 const DASHES = new Set(["―", "—", "─", "━"]);
 const inkCache = new Map<string, [number, number, number, number]>();
@@ -527,15 +509,6 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
   };
   const bshift = pk.baselineShift * size;
   if (vertical && o === "upright") {
-    const dot = seg.findIndex((c) => c === "…" || c === "‥");
-    if (dot >= 0) {
-      if (dot > 0) shapeSegment(seg.slice(0, dot), segUnits.slice(0, dot), pk, size0, o, vertical, style, boxes);
-      const ch = seg[dot];
-      boxes.push({ chars: ch, units: [segUnits[dot]], adv: size0 * gy, size: size0, orient: o,
-        glyphs: [{ gid: 0, font: f, m: [gx, 0, 0, gy, 0, 0], path: ellipsisPath(ch === "…" ? 3 : 2, size0) }], firstChar: ch, lastChar: ch });
-      if (dot + 1 < seg.length) shapeSegment(seg.slice(dot + 1), segUnits.slice(dot + 1), pk, size0, o, vertical, style, boxes);
-      return;
-    }
     // marks that must turn in vertical text: fonts without a vertical alternate get them rotated
     const turn = seg.findIndex((c) => VERT_TURN.has(c) && !hasVertForm(f, c, style.lang));
     if (turn >= 0) {
@@ -940,3 +913,4 @@ export function breakFaults(tl: TextLayout, lang: string): number {
   if (lines.length >= 3 && single >= 2) bad += single;
   return bad;
 }
+

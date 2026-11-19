@@ -1,6 +1,15 @@
-# Reproduction of the three-panel vertical punctuation sample.
+# yaml-language-server: $schema=../../node_modules/mangacli/schema.json
+#
+# 縦書きの三点リーダー（…）と二点リーダー（‥）、太字の比較。
+#
+#   npx mangacli render docs/examples/vertical-ellipsis.yaml --profile preview
+
 mangacli: 1
+engine: 1
 seed: 1
+page: { size: B6, color: mono }
+defaults:
+  balloon: { fontSize: 5mm }
 pages:
   - layout:
       rows: [[1], [1], [1]]
@@ -9,7 +18,7 @@ pages:
           - balloon: "ねえ…\n聞いてる？"
             at: [50%, 50%]
       - layers:
-          - balloon: "さすがに\nひどいんじゃ\nないですか"
+          - balloon: "話そう…\n話そう‥"
             at: [50%, 50%]
       - layers:
           - balloon: "<b>本当!?\n東京の\nカフェで\n話そう…\n明日また\n来るね</b>"
