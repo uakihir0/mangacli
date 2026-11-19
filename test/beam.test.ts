@@ -2,12 +2,12 @@ import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { render, validate } from "../src/api.js";
 
-const scene = (props: string) => ({
+const scene = (props: string, background = "black") => ({
   yaml: `mangacli: 1
 page: { size: [100mm, 60mm], bleed: 0, baseFrame: trim, safeArea: { inset: 0 } }
 pages:
   - panels:
-      - background: black
+      - background: ${background}
         layers:
           - { effect: beam, ${props} }
 `,
@@ -16,8 +16,8 @@ pages:
 const straight = "from: [10mm, 30mm], to: [80mm, 30mm], width: [6mm, 20mm]";
 const volley = "path: [[10mm, 30mm], [40mm, 29mm], [80mm, 30mm]], width: 5mm, count: 3, spread: 36deg";
 
-async function raster(props: string) {
-  const r = await render(scene(props), { profile: "print-mono" });
+async function raster(props: string, background?: string) {
+  const r = await render(scene(props, background), { profile: "print-mono" });
   expect(r.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
   return r.pages[0].data!;
 }
@@ -69,6 +69,13 @@ describe("beam effect", () => {
       expect(pixel(x, y)).toBe(255);
       expect(toggled.pixel(x, y)).toBe(0);
     }
+  });
+
+  it("clears the filled beam edge as well as the core", async () => {
+    const props = "from: [10mm, 30mm], to: [80mm, 30mm], width: 12mm, jitter: 0, edge: tone";
+    const { pixel } = await pixels(await raster(props + ", clear: { rect: [45mm, 20mm, 10mm, 20mm] }", "white"));
+    expect(pixel(40, 35.8)).toBe(0);
+    expect(pixel(50, 35.8)).toBe(255);
   });
 
   it.each([

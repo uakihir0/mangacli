@@ -44,6 +44,10 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
 };
 
 export const BUILTIN_EFFECT_DEFAULTS: Record<string, Obj> = {
+  lightning: { background: "black", direction: "90deg", bolts: 3, branches: 2, length: "90%", thickness: ["3bmm", "6bmm"], jaggedness: 0.8, fill: "paper", stroke: { width: "0.25bmm" }, pen: { preset: "g-pen" } },
+  crack: { radius: "30%", count: 7, branching: 0.35, rings: 1, thickness: ["0.15bmm", "0.65bmm"], shade: "black", pen: { preset: "g-pen" } },
+  dust: { direction: "both", size: "25%", puffs: 7, fill: "paper", stroke: { width: "0.3bmm" }, debris: 10, pen: { preset: "g-pen" } },
+  smoke: { direction: "-90deg", density: 0.5, fill: "paper", stroke: { width: "0.2bmm" }, pen: { preset: "g-pen" } },
   "*": { color: "black", opacity: 1, density: 1, background: "none", clip: "panel" },
   "focus-lines": { center: "auto", inner: ["32%", "26%"], innerJitter: 0.35, spikes: { ratio: 0.06, depth: 0.45 }, count: "auto", thickness: { min: "0.12bmm", max: "0.5bmm", dist: "low" }, taper: "in", angleJitter: 0.8, cluster: 0.35, curve: 0, ruler: true, pen: { preset: "maru-pen" } },
   "beta-flash": { center: "auto", inner: ["24%", "20%"], outer: ["44%", "38%"], outerJitter: 0.15, innerJitter: 0.5, spikes: { ratio: 0.1, depth: 0.6 }, count: "auto", thickness: { min: "0.25bmm", max: "1.0bmm", dist: "low" }, core: "paper", ruler: true, pen: { preset: "g-pen" } },
@@ -91,15 +95,16 @@ export const BUILTIN_MARK_DEFAULTS: Record<string, Obj> = {
 
 /** Built-in speech styles selected by `as` (spec 6.13). */
 export const BUILTIN_STYLES: Record<string, Obj> = {
+  aside: { shape: { kind: "none" }, font: "hand", fontScale: 0.75, lettering: { mode: "hand" }, textOutline: [{ width: "0.65bmm", color: "paper" }], minSize: ["0bmm", "0bmm"], padding: ["0.05em", "0.05em"], autoConnect: false, tail: { kind: "none", maxLength: "3bmm", gap: "0.5bmm", bend: 0, curl: false, allowVertical: true } },
   say: { shape: { kind: "ellipse" }, stroke: { width: "0.25bmm", pen: { preset: "g-pen" }, style: "solid" }, tail: { kind: "wedge" }, font: "dialogue" },
   think: { shape: { kind: "cloud" }, stroke: { width: "0.2bmm", pen: { preset: "maru-pen" }, style: "solid" }, tail: { kind: "bubbles" }, font: "thought" },
-  shout: { shape: { kind: "spike" }, stroke: { width: "0.3bmm", pen: { preset: "g-pen" }, style: "solid" }, tail: { kind: "wedge", widthScale: 1.3 }, font: "shout", fontScale: 1.4 },
+  shout: { shape: { kind: "spike" }, stroke: { width: "0.3bmm", pen: { preset: "g-pen" }, style: "solid" }, tail: { kind: "wedge", widthScale: 1.3, bend: 0, sideCurve: 0 }, font: "shout", fontScale: 1.4 },
   whisper: { shape: { kind: "ellipse" }, stroke: { width: "0.2bmm", style: "dashed" }, tail: { kind: "wedge", widthScale: 0.7 }, font: "whisper", fontScale: 0.85 },
   tremble: { shape: { kind: "wavy" }, stroke: { width: "0.22bmm" }, tail: { kind: "wedge" }, font: "dialogue" },
   narration: { shape: { kind: "rect", ruler: true }, stroke: { width: "0.2bmm", pen: { preset: "g-pen" } }, tail: { kind: "none" }, font: "narration", autoPlace: "flow", padding: ["0.6em", "0.6em"] },
   monologue: { shape: { kind: "none" }, tail: { kind: "none" }, font: "narration", textOutline: [{ width: "0.8bmm", color: "white" }] },
   inverted: { shape: { kind: "ellipse" }, stroke: { width: "0.25bmm" }, tail: { kind: "wedge" }, font: "dialogue", fill: "black", color: "white" },
-  scream: { shape: { kind: "burst" }, stroke: { width: "0.35bmm" }, tail: { kind: "wedge", widthScale: 1.5 }, font: "shout", fontScale: 1.5 },
+  scream: { shape: { kind: "burst" }, stroke: { width: "0.35bmm" }, tail: { kind: "wedge", widthScale: 1.5, bend: 0, sideCurve: 0 }, font: "shout", fontScale: 1.5 },
   shock: { shape: { kind: "flash" }, stroke: { style: "none" }, tail: { kind: "none" }, font: "thought" },
   electronic: { shape: { kind: "electronic" }, stroke: { width: "0.25bmm" }, tail: { kind: "zigzag" }, font: "dialogue" },
   offscreen: { shape: { kind: "ellipse" }, stroke: { width: "0.25bmm" }, tail: { kind: "wedge" }, font: "dialogue" },

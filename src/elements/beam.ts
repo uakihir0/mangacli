@@ -105,7 +105,7 @@ export function renderBeam(
 
   const white = solid(WHITE);
   const ink = solid(color);
-  const shape = (pts: Vec[], paint: Paint, role: "fill" | "ink" | "tone" = "fill"): Node =>
+  const shape = (pts: Vec[], paint: Paint, role: "fill" | "tone" = "fill"): Node =>
     ({ kind: "path", path: polyPath(pts, true), fillRule: "nonzero", paint, tag: tag(el, role) });
   const source = points[0];
   const stations = samplePath(points);
@@ -127,9 +127,9 @@ export function renderBeam(
     });
     const offset = (q: typeof axis[number], fraction: number) =>
       add(q.point, mul(q.normal, fraction * q.edges[Number(fraction > 0)]));
-    const band = (a: number, b: number, paint: Paint, role?: "ink" | "tone") =>
+    const band = (a: number, b: number, paint: Paint, role?: "tone") =>
       shape([...axis.map((q) => offset(q, a)), ...axis.map((q) => offset(q, b)).reverse()], paint, role);
-    nodes.push(band(-1, 1, ink, "ink"));
+    nodes.push(band(-1, 1, ink));
     if (tone) {
       const innerEdge = Math.max(0.94, (1 + p.coreWidth) / 2);
       nodes.push(band(-innerEdge, innerEdge, white), band(-innerEdge, innerEdge, tone, "tone"));

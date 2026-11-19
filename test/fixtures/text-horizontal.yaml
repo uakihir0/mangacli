@@ -1,0 +1,12 @@
+# Feature catalog: docs/14-quality.md §14.3.1
+mangacli: 1
+meta: { lang: ja }
+page: { size: [100mm, 60mm], bleed: 0, color: color }
+output: { metadata: false }
+pages:
+  - layout: { template: grid, params: { cols: 2, rows: 1 } }
+    panels:
+      - layers:
+          - { text: "Hello, world! AV fi ffi\nMixed 日本語 123.", writing: horizontal, fontSize: 3mm }
+      - layers:
+          - { text: "<b>Bold</b> <color=red>red</color> <scale x=0.7>narrow</scale>", writing: horizontal, fontSize: 3mm }

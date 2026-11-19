@@ -74,7 +74,7 @@ Add `# yaml-language-server: $schema=./node_modules/mangacli/schema.json` at the
 mangacli render <file> [-p print-mono|print-gray|print-color|web|sns|preview|draft] [-o out] [--pages 1-3]
 mangacli validate <file> [--strict] [--reporter text|json|github]
 mangacli watch <file>                  # re-render on save
-mangacli preview <file> [--open]       # live preview in the browser (127.0.0.1:4173)
+mangacli preview <file> [--open] [--guides] # live preview in the browser (127.0.0.1:4173)
 mangacli init [dir] [--template basic|b5-mono|sns-color|yonkoma]
 mangacli fonts install [--set manga-basic] [--for manga.yaml] [--dir ./fonts]
 mangacli fonts list [--catalog]
@@ -84,6 +84,8 @@ mangacli inspect <file> [--layout] [--resolved] [--page p1]
 mangacli fonts verify | fonts licenses [file]
 mangacli cache info | cache clean
 ```
+
+In live preview, click an element warning to locate it with a highlight frame. Click again or press Esc to clear; selection survives auto-reload independently of Guides.
 
 Run `mangacli <command> --help` for all options. `--json` prints machine-readable NDJSON.
 
