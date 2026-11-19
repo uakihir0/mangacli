@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createRenderer } from "../src/api.js";
 import { BUILTIN_DEFAULTS } from "../src/model/defaults.js";
-import { sfxScale, sfxShifts } from "../src/text/sfx.js";
+import { sfxInkGap, sfxScale, sfxShifts } from "../src/text/sfx.js";
 import { flattenPath } from "../src/geom/path.js";
 import { boundsOf } from "../src/geom/vec.js";
 import type { Node, PathNode } from "../src/render/ir.js";
@@ -44,17 +44,17 @@ describe("SFX lettering", () => {
     expect(await render('perChar: { jitter: 0mm }')).not.toEqual(a);
   });
   it("scales the default white outline with font size and accepts overrides", async () => {
-    const svg = async (extra: string) => Buffer.from((await renderer.render(input(extra), { format: "svg" })).pages[0].data).toString();
+    const svg = async (extra: string) => Buffer.from((await renderer.render(input(`perChar: { scale: 1 }, ${extra}`), { format: "svg" })).pages[0].data).toString();
     expect(await svg("grow: 0")).toContain('stroke-width="1.2"');
     expect(await svg("grow: 0")).toContain('stroke-width="0.84"');
-    const large = input("grow: 0");
+    const large = input("grow: 0, perChar: { scale: 1 }");
     large.yaml = large.yaml.replace("fontSize: 10mm", "fontSize: 20mm");
     expect(Buffer.from((await renderer.render(large, { format: "svg" })).pages[0].data).toString()).toContain('stroke-width="2.4"');
     expect(await svg('outline: [{ width: 2mm, color: white }]')).toContain('stroke-width="4"');
     expect(await svg('outline: none')).not.toContain('stroke="#ffffff"');
   });
   it("paints every white glyph outline behind every glyph fill", async () => {
-    const result = await renderer.render(input('chars: [{ index: 1, color: red }, { index: 2, color: blue }]'), { format: "svg" });
+    const result = await renderer.render(input('perChar: { scale: 1 }, chars: [{ index: 1, color: red }, { index: 2, color: blue }]'), { format: "svg" });
     const svg = Buffer.from(result.pages[0].data).toString();
     const paths = [...svg.matchAll(/<path\b[^>]*>/g)].map(m => m[0]);
     const outlines = paths.flatMap((p, i) => p.includes('stroke="#ffffff"') ? [i] : []);
@@ -82,6 +82,7 @@ describe("SFX lettering", () => {
       expect(next.y).toBeLessThan(prev.y + prev.h);
       expect(next.x + next.w).toBeGreaterThan(prev.x);
       expect(next.y + next.h).toBeGreaterThan(prev.y);
+      expect(sfxInkGap(paths[i - 1].path, paths[i].path, writing === "vertical", 10)).toBeLessThan(0);
     }
   });
   it.each(["バンッ", "ダッ", "ブンッ", "ガシッ"])("preserves the original footprint for %s", async text => {
@@ -100,5 +101,11 @@ describe("SFX lettering", () => {
   it("rejects invalid small-kana scales", async () => {
     const result = await renderer.validate(input("smallKanaScale: -1"));
     expect(result.ok).toBe(false);
+  });
+  it("allows disabling brush pressure and rejects invalid controls", async () => {
+    const a = await renderer.render(input("brush: false"), { format: "svg" });
+    const b = await renderer.render(input("brush: { taper: 0, entry: 0, wobble: 0 }"), { format: "svg" });
+    expect(a.pages[0].data).toEqual(b.pages[0].data);
+    expect((await renderer.validate(input("brush: { taper: -1 }"))).ok).toBe(false);
   });
 });

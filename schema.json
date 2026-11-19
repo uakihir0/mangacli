@@ -4010,6 +4010,47 @@
                       "minimum": 0.1,
                       "maximum": 1
                     },
+                    "brush": {
+                      "anyOf": [
+                        {
+                          "type": "boolean",
+                          "const": false
+                        },
+                        {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "taper": {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "maximum": 2
+                                },
+                                "entry": {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "maximum": 2
+                                },
+                                "wobble": {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "maximum": 0.2
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "array"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
                     "perChar": {
                       "anyOf": [
                         {

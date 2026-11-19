@@ -2,7 +2,7 @@
 import { BLACK, WHITE, parseColor } from "../core/color.js";
 import { Rng, noise1, noise2 } from "../core/random.js";
 import { parseAngle, toMm, toRange } from "../core/units.js";
-import { type PathData, flattenPath, polyPath, smoothPath, transformPath } from "../geom/path.js";
+import { type PathData, flattenPath, polyPath, transformPath } from "../geom/path.js";
 import { type Rect, type Vec, applyMat, boundsOf, matMul, matRotate, matScale, matTranslate } from "../geom/vec.js";
 import { place, sizeValue } from "../layout/place.js";
 import type { RElement } from "../model/resolve.js";
@@ -16,7 +16,8 @@ import { type TextLayout, layoutText } from "../text/layout.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
 import { parseMarkup } from "../text/markup.js";
-import { isSmallKana, sfxScale, sfxShifts } from "../text/sfx.js";
+import { isSmallKana, sfxInkGap, sfxScale, sfxShifts } from "../text/sfx.js";
+import { brushGlyph, type BrushSpec } from "../text/brush.js";
 
 type Obj = Record<string, unknown>;
 
@@ -128,7 +129,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const grow = typeof p.grow === "number" ? p.grow : undefined;
   const pcs = (p.perChar ?? {}) as Obj;
   const rotR = toRange(pcs.rotate as never, (x) => parseAngle(x as string), { min: -0.1, max: 0.1, dist: "uniform" });
-  const scR = toRange(pcs.scale as never, (x) => Number(x), { min: 1, max: 1, dist: "uniform" });
+  const scR = toRange(pcs.scale as never, (x) => Number(x), { min: 0.96, max: 1.06, dist: "uniform" });
   const jitter = pcs.jitter !== undefined ? toMm(pcs.jitter as string, u) : 0;
   const chars = Array.isArray(p.chars) ? (p.chars as Obj[]) : [];
   // group glyphs by unit (char index order)
@@ -224,8 +225,8 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     const cy = g.cy;
     const cv = curveAt(along(g, i));
     const m = matMul(matTranslate(cx + t.jx + (vertical ? 0 : sh) + cv.dx, cy + t.jy + (vertical ? sh : 0) + cv.dy), matMul(matRotate(t.r + cv.ang), matMul(matScale(t.s), matTranslate(-cx, -cy))));
-    let path = transformPath(g.path, m);
-    // distort: flatten -> displace -> smooth
+    let path = transformPath(brushGlyph(g.path, em, el.seed ^ Math.imul(i + 1, 0x45d9f3b), p.brush as BrushSpec | false | undefined), m);
+    // distort: flatten -> displace
     if (warp > 0 || roughen > 0 || skew || persp || bulge) {
       const polys = flattenPath(path, 0.05 * u.k);
       const out: PathData = [];
@@ -254,7 +255,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
           }
           return { x, y };
         });
-        out.push(...(pts.length > 3 ? smoothPath(pts, true) : polyPath(pts, true)));
+        out.push(...polyPath(pts, true));
       }
       path = out;
     }
@@ -263,14 +264,18 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   }
   if (!pathSpec && style.letterSpacing < 0) {
     let end: number | undefined;
+    let previous: PathData | undefined;
     for (const unit of units) {
       const indices = tl.glyphs.flatMap((g, i) => g.unit === unit ? [i] : []);
       const points = indices.flatMap(i => flattenPath(paths[i], 0.05).flatMap(c => c.pts));
       if (!points.length) continue;
       const bb = boundsOf(points);
       const start = vertical ? bb.y : bb.x;
-      const delta = end === undefined ? 0 : end + style.letterSpacing * em * 0.4 - start;
+      const current = indices.flatMap(i => paths[i]);
+      const gap = previous ? sfxInkGap(previous, current, vertical, em) : undefined;
+      const delta = gap !== undefined ? -gap + style.letterSpacing * em * 0.4 : end === undefined ? 0 : end + style.letterSpacing * em * 0.4 - start;
       for (const i of indices) paths[i] = transformPath(paths[i], matTranslate(vertical ? 0 : delta, vertical ? delta : 0));
+      previous = indices.flatMap(i => paths[i]);
       end = start + delta + (vertical ? bb.h : bb.w);
     }
   }

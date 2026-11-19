@@ -249,7 +249,8 @@ fonts:
 | `dialogue` | 混植（アンチゴチ）: かな・約物は `zen-antique`（字面 1.04 倍）。その他は、インストール済みなら中ゴシックBBB（`GothicBBBPr6N-Medium` など）、無ければ `noto-sans-jp@600`、それも使えなければ `zen-kaku-gothic-new@500`。漢字をかなと同じか、わずかに黒い太さにそろえる。フォールバックは `noto-sans-jp@400` |
 | `thought`、`whisper` | `dialogue` と同じ |
 | `narration` | `shippori-mincho@500` |
-| `shout`、`sfx` | `dela-gothic-one` |
+| `shout` | `dela-gothic-one` |
+| `sfx` | `zen-kaku-gothic-new@900`（Black。筆圧加工前の骨格） |
 | `hand` | `yomogi` |
 | `title` | `zen-maru-gothic@900` |
 
@@ -602,9 +603,10 @@ ruby:
 | `path` | SfxPath | - | 文字を並べる経路（下表） |
 | `grow` | 数値 | 自動 | 省略時は通常サイズの仮名を先頭 95% → 末尾 130%（1 文字なら 130%）にし、詰めた後も元の面積以上を確保する。指定時は 1 + `grow` × (n − 1)。`0` で等サイズ・面積補正なし |
 | `smallKanaScale` | 数値（0.1〜1） | `0.7` | 促音・拗音などの小書き仮名は直前の通常文字の倍率にこれを掛ける。`1` で縮小を無効 |
-| `perChar` | `{ rotate, scale, jitter }` | `{ rotate: [-10deg, 10deg] }` | シードから再現可能な文字ごとの不規則な変形。既定では組み方向に直交する ±0.08em の位置揺れも付ける。`rotate`（Angle の Range）、`scale`（倍率の Range）、`jitter`（両軸のずれ、Length。`0mm` で位置揺れなし） |
+| `perChar` | `{ rotate, scale, jitter }` | `{ rotate: [-10deg, 10deg], scale: [0.96, 1.06] }` | シードから再現可能な文字ごとの不規則な変形。既定では組み方向に直交する ±0.08em の位置揺れも付ける。`rotate`（Angle の Range）、`scale`（倍率の Range）、`jitter`（両軸のずれ、Length。`0mm` で位置揺れなし） |
 | `chars` | CharOverride[] | - | 文字の番号ごとの上書き（`{ index, rotate, scale, offset, color }`） |
-| `distort` | Distort | `{ roughen: 0.25, warp: 0.15, skew: -8deg }` | 全体の歪み（下表） |
+| `brush` | `false` \| `{ taper, entry, wobble }` | `{ taper: 1, entry: 1, wobble: 0.04 }` | 骨格の輪郭を筆圧加工する。`taper`（0〜2）は抜きの強さ、`entry`（0〜2）は入りの強さ、`wobble`（0〜0.2）は筆画幅に対する低周波の幅揺れ。`false` で加工なし |
+| `distort` | Distort | `{ roughen: 0, warp: 0.08, skew: -8deg }` | 全体の歪み（下表）。既定では細かなギザギザを付けず、筆先の形を保持する |
 | `color` | Paint | `black` | 文字の塗り |
 | `outline` | Outline[] | 白、各文字サイズの 6% | 太い白フチ（太字の筆画幅の約 35%）。大小変形・面積補正後の文字サイズに比例し、全ての縁を全ての塗りより先に描く。`none` で無効、明示した幅で上書き可能 |
 | `edge` | Stroke | `none` | 字形の輪郭を手描きの線でなぞる（例: 白抜き文字の黒い輪郭） |
@@ -630,7 +632,7 @@ ruby:
 描画の手順:
 
 1. 字形の輪郭を取得し、`path` に沿って並べる。
-2. `grow`、`perChar`、`chars` の変形を文字ごとに適用する。
+2. `brush` で短い終端の凸角を検出し、下・右・左下向きの抜きを尖らせ、最後の約 1/4 を細くする。上・左向きの入りは 14% 広げ、斜めに押し込む。長辺には低周波の幅揺れを付ける。その後 `grow`、`perChar`、`chars` の変形を文字ごとに適用する。
 3. `distort` の歪みを、全体の座標に対する変換として適用する。
 4. `roughen` と `lettering` の揺らぎを輪郭に適用する（[9.10](09-hand-drawn.md#910-文字の手描き化)）。
 5. 縁取り（`outline`）を、歪めた後の輪郭のオフセットで作り、外側から描く。

@@ -96,7 +96,7 @@ const catalog = {
       whisper: "dialogue",
       narration: { font: "shippori-mincho@500", fallback: ["noto-sans-jp@400"] },
       shout: { font: "dela-gothic-one@400", fallback: ["noto-sans-jp@700"] },
-      sfx: { font: "dela-gothic-one@400", fallback: ["noto-sans-jp@700"] },
+      sfx: { font: "zen-kaku-gothic-new@900", fallback: ["noto-sans-jp@700"] },
       hand: { font: "yomogi@400", fallback: ["noto-sans-jp@400"] },
       title: { font: "zen-maru-gothic@900", fallback: ["noto-sans-jp@700"] },
     },
