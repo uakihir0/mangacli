@@ -357,7 +357,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     if ((clip.open as string[] | undefined)?.length) {
       const interiors = targets.map((pg, i) => {
         const interior = { ...envelope };
-        const inset = toMm(((pg.panel.props.border as Obj)?.width as string) ?? `${0.5 * geom.k}mm`, u);
+        const inset = toMm(((pg.panel.props.border as Obj)?.width as string) ?? `${0.5 * geom.k}mm`, u) / 2;
         for (const side of clip.open as string[]) {
           if (side === "top") { interior.y += inset; interior.h -= inset; }
           if (side === "bottom") interior.h -= inset;

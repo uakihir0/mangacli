@@ -27,6 +27,21 @@ pages:
 }
 
 describe("spanning elements", () => {
+  it.each([false, true])("does not redraw art inside the open frame stroke with a higher-z layer = %s", async (foreground) => {
+    const figure = await sharp({ create: { width: 100, height: 80, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0.5 } } }).png().toBuffer();
+    const doc = parse(scene("top", "art", "a"));
+    delete doc.pages[0].layout;
+    doc.page.baseFrame = "trim";
+    doc.pages[0].panels = [{ id: "a", box: ["10mm", "20mm", "80mm", "50mm"], border: { width: "2mm", color: "black" }, layers: foreground ? [{ type: "fill", paint: "white", region: "panel", z: 10 }] : [] }];
+    doc.assets = { figure: { src: "figure.png" } };
+    doc.pages[0].layers = [{ image: "figure", size: ["100mm", "80mm"], at: ["0mm", "0mm"], anchor: "top-left", fit: "fill", clip: { to: ["a"], open: ["top"] }, stack: "art", blend: "normal" }];
+    const result = await render(doc, { format: "png", dpi: 127, colorMode: "gray", assets: { figure } });
+    const { data, info } = await sharp(result.pages[0].data).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const at = (y: number) => data[(Math.round(y * 5) * info.width + 200) * info.channels];
+    expect(at(21.6)).toBe(at(30));
+    expect(at(30)).toBe(foreground ? 255 : 127);
+  });
+
   it.each([true, false])("preserves the backdrop through white breakout pixels with explicit multiply = %s", async (explicit) => {
     const figure = await sharp({ create: { width: 100, height: 80, channels: 4, background: "white" } }).png().toBuffer();
     const doc = parse(scene("top", "art", "a"));
@@ -55,7 +70,7 @@ describe("spanning elements", () => {
       doc.assets = { figure: { src: "figure.png" } };
       doc.pages[0].layers = [{ image: "figure", size: ["100mm", "80mm"], at: ["0mm", "0mm"], anchor: "top-left", fit: "fill", outline: "0.8mm white", clip: { to: ["a", "b"], open: ["top"] }, stack }];
       const result = await render(doc, { format, dpi: 127, colorMode: "gray", assets: { figure } });
-      const { data, info } = await sharp(result.pages[0].data).resize(500, 400).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+      const { data, info } = await sharp(result.pages[0].data, { density: 127 }).resize(500, 400).removeAlpha().raw().toBuffer({ resolveWithObject: true });
       const at = (x: number, y: number) => data[(Math.round(y * 5) * info.width + Math.round(x * 5)) * info.channels];
       for (const y of [19.4, 20, 20.6]) expect(at(40, y)).toBeGreaterThan(100);
       expect(at(40, 20)).toBeLessThan(160);
