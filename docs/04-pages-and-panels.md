@@ -25,6 +25,10 @@
 | 安全領域（safeArea） | 文字を収めるべき領域。仕上がりを `inset` だけ内側に縮めた矩形 | 内側 5 mm |
 | 基本枠（baseFrame） | コマ割りの基準となる領域 | 仕上がりの幅の 82.4 %、高さの 85.6 % を中央に配置（B5 で 150 × 220 mm）。px で定義した判型では、短辺の 4 % の余白を四辺に取る |
 
+原稿と印刷時の寸法を分けるには `page.printScale: 0.83` または `page.printSize: B5`（`[182mm, 257mm]` も可）を指定する。両方の同時指定はエラー。既定の倍率は 1、範囲は `0 < s <= 1`。`printSize` は `orientation` を反映した印刷幅 ÷ 原稿の仕上がり幅で倍率を求め、縦横とも同じ倍率で縮小する（縦横比が異なる場合、高さは指定サイズと一致しない）。見開きでは 1 ページ分の幅を使う。解決した倍率は API の `layout[].geom.printScale` に入る。
+
+長さには `14Q@print`、`0.3mm@print` のように `@print` を付けられる。印刷後の寸法を表し、原稿上では倍率で割った mm に解決する。文字サイズ、線幅などに共通。トーンは `lpi: "85@print"` または `tone(20%, 85lpi@print)` とし、原稿の線数は `85 * s` になる。接尾辞なしの長さ・線数は従来どおり原稿基準。
+
 ### 4.1.1 基本枠の指定
 
 ```yaml
@@ -57,6 +61,7 @@ page:
 | `A5` | 148 × 210 | mm | 同人誌など |
 | `A6` | 105 × 148 | mm | 文庫判 |
 | `B4` | 257 × 364 | mm | |
+| `manga-b4` | 220 × 310 | mm | 商業漫画原稿（暫定）。基本枠 180 × 270 mm、塗り足し 5 mm、`printSize: B5` |
 | `B5` | 182 × 257 | mm | 同人誌・漫画雑誌（**既定**） |
 | `B6` | 128 × 182 | mm | 単行本など |
 | `postcard` | 100 × 148 | mm | はがき |
@@ -69,6 +74,20 @@ page:
 - 任意の寸法は `size: [182mm, 257mm]`、`size: [1080px, 1350px]` のように指定する。
 - `orientation: landscape` を指定すると縦横を入れ替える。
 - プラグインで判型プリセットを追加できる（[11.8](11-api.md#118-プラグイン)）。
+
+`manga-b4` の数値は暫定。設定ファイルの `pageSizes`、または `override: true` のプラグインの `pageSizes` で同名プリセットを置換できる。プリセットは寸法に加え `baseFrame`、`bleed`、`printSize`、`dpi` を持てる。ドキュメント／各ページの明示指定が優先される（明示した `printScale` はプリセットの `printSize` を置き換える）。例:
+
+```ts
+export default {
+  pageSizes: {
+    "manga-b4": {
+      width: 220, height: 310, unit: "mm",
+      baseFrame: { size: ["180mm", "270mm"] },
+      bleed: "5mm", printSize: "B5", dpi: 600,
+    },
+  },
+};
+```
 
 ## 4.3 本の設定
 
@@ -415,12 +434,12 @@ book:
 | `enabled` | 真偽値 | `true` | ノンブルを使うか |
 | `show` | `print` \| `always` \| `never` | `print` | 描画する条件。`print` は印刷用プロファイル（[10.7](10-color-and-output.md#107-出力プロファイル)）でのみ描画する |
 | `start` | 整数 | `1` | 1 ページ目の番号 |
-| `position` | `bottom-outer` \| `bottom-center` \| `bottom-inner` \| `top-outer` \| `top-center` \| `outer-middle` | `bottom-outer` | 位置。`outer` / `inner` はページの左右（[4.3.1](#431-ページの左右)）で左右に読み替える |
-| `margin` | `[天地からの距離, 小口・のどからの距離]` | `[8mm, 12mm]` | 仕上がりの端からの距離 |
+| `position` | `bottom-outer` \| `bottom-center` \| `bottom-inner` \| `top-outer` \| `top-center` \| `outer-middle` | `bottom-outer` | 位置。`outer` / `inner` はページの左右（[4.3.1](#431-ページの左右)）で左右に読み替える。`outer-middle` は小口側の上下中央 |
+| `margin` | `[天地からの距離, 小口・のどからの距離]` | `[8mm, 12mm]` | 仕上がりの端からの距離。`outer-middle` で省略した場合、収まる幅があれば小口の仕上がり線と基本枠の間の中央に置く |
 | `font` | フォント名 | `ui` ロール | フォント |
 | `fontSize` | Length | 8 pt | 文字サイズ |
 | `color` | Color | `black` | 色 |
-| `format` | 文字列 | `"{n}"` | 書式。`{n}` が番号 |
+| `format` | 文字列 | `"{n}"` | 書式。文字列中のすべての `{n}` をページ番号に置き換える |
 | `writing` | `horizontal` \| `vertical` | `horizontal` | 向き |
 | `hidden` | 真偽値 | `false` | 隠しノンブル。`true` にすると、のど側の仕上がりの端から 3 mm 以内に 5 pt で置く |
 | `autoHide` | 真偽値 | `true` | ノンブルの位置が断ち切りのコマ（裁ち落としまで伸ばしたコマ）に重なるページでは、自動で隠しノンブルにする |

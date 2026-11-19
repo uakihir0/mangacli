@@ -1,10 +1,10 @@
 // Canonical document schema (spec 3-10). Validated after shorthand normalization.
 import { z } from "zod";
 
-const LEN_RE = /^[-+]?(?:\d+(?:\.\d+)?|\.\d+)\s*(mm|cm|in|pt|px|Q|H|em|%)?$/;
+const LEN_RE = /^[-+]?(?:\d+(?:\.\d+)?|\.\d+)\s*(mm|cm|in|pt|px|Q|H|em|%)?(@print)?$/;
 const ANG_RE = /^[-+]?(?:\d+(?:\.\d+)?|\.\d+)\s*(deg|rad|turn)?$/;
 
-export const Length = z.union([z.number(), z.string().regex(LEN_RE, "invalid length")]).describe("Length: number or '<n><unit>' (mm, cm, in, pt, px, Q, H, em, %)");
+export const Length = z.union([z.number(), z.string().regex(LEN_RE, "invalid length")]).describe("Length: number or '<n><unit>' (mm, cm, in, pt, px, Q, H, em, %), optionally suffixed @print");
 export const LengthAuto = z.union([Length, z.literal("auto")]);
 export const Angle = z.union([z.number(), z.string().regex(ANG_RE, "invalid angle")]).describe("Angle in degrees or '<n>deg|rad|turn'");
 export const Num = z.number();
@@ -19,7 +19,7 @@ export const ColorStr = z.string();
 const ToneObj = z
   .object({
     density: z.union([z.number(), z.string()]).optional(),
-    lpi: z.number().positive().max(200).optional(),
+    lpi: z.union([z.number().positive().max(200), z.string().regex(/^(?:\d+(?:\.\d+)?|\.\d+)@print$/).refine((v) => parseFloat(v) > 0 && parseFloat(v) <= 200)]).optional(),
     angle: Angle.optional(),
     dot: z.enum(["round", "square", "ellipse", "line", "cross", "noise"]).optional(),
     grain: Length.optional(),
@@ -327,6 +327,7 @@ const textProps = {
 
 const sfxProps = {
   ...textProps,
+  bleed: z.boolean().optional(),
   path: z.object({ kind: z.enum(["line", "arc", "wave", "points"]), angle: Angle.optional(), radius: Length.optional(), amplitude: Length.optional(), wavelength: Length.optional(), points: z.array(z.tuple([Length, Length])).optional() }).strict().optional(),
   grow: z.number().optional(),
   perChar: z.object({ rotate: RangeOf(Angle).optional(), scale: RangeOf(z.number()).optional(), jitter: Length.optional() }).strict().optional(),
@@ -491,7 +492,11 @@ const pageSettings = {
   background: Paint.optional(),
   color: z.enum(["mono", "color"]).optional(),
   foldMargin: Length.optional(),
+  printScale: z.number().positive().max(1).optional(),
+  printSize: z.union([z.string(), z.tuple([Length, Length])]).optional(),
 };
+
+const printSettingsValid = (value: { printScale?: number; printSize?: unknown }) => value.printScale === undefined || value.printSize === undefined;
 
 const Page = z
   .object({
@@ -508,14 +513,14 @@ const Page = z
     title: z.string().optional(),
     include: z.string().optional(),
   })
-  .strict();
+  .strict().refine(printSettingsValid, "printScale and printSize are mutually exclusive");
 
 const FontDef = z.union([
   z.object({ src: z.string(), index: z.number().int().optional(), variations: z.record(z.string(), z.number()).optional(), bold: z.string().optional(), fallback: z.array(z.string()).optional() }).strict(),
   z.object({ alias: z.string() }).strict(),
   z.object({ catalog: z.string(), weight: z.number().optional(), bold: z.string().optional(), fallback: z.array(z.string()).optional() }).strict(),
   z.object({ compose: z.array(z.object({ font: z.string(), ranges: z.array(z.string()).optional(), scale: z.number().optional(), baselineShift: Length.optional() }).strict()), fallback: z.array(z.string()).optional(), bold: z.string().optional() }).strict(),
-  z.object({ system: z.string() }).strict(),
+  z.object({ system: z.string().trim().min(1), index: z.number().int().min(0).max(65535).optional(), variations: z.record(z.string(), z.number()).optional(), bold: z.string().optional(), fallback: z.array(z.string()).optional() }).strict(),
 ]);
 
 const Asset = z
@@ -569,7 +574,7 @@ export const Document = z
     engine: z.number().int().positive().optional(),
     meta: z.object({ title: z.string().optional(), subtitle: z.string().optional(), author: z.union([z.string(), z.array(z.string())]).optional(), lang: z.string().optional(), description: z.string().optional(), copyright: z.string().optional(), keywords: z.array(z.string()).optional() }).strict().optional(),
     book: z.object({ binding: z.enum(["right", "left"]).optional(), readingDirection: z.enum(["rtl", "ltr"]).optional(), firstPageSide: z.enum(["left", "right"]).optional(), pageNumbers: PageNumbers.optional(), signature: z.union([z.number().int(), z.literal(false)]).optional() }).strict().optional(),
-    page: z.object(pageSettings).strict().optional(),
+    page: z.object(pageSettings).strict().refine(printSettingsValid, "printScale and printSize are mutually exclusive").optional(),
     seed: z.number().int().min(0).max(4294967295).optional(),
     hand: Hand.optional(),
     fonts: z.record(z.string(), FontDef).optional(),
