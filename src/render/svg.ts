@@ -1,17 +1,22 @@
 // SVG backend (spec 10.4.4): the display list as vector paths, mm units.
 import sharp from "sharp";
-import type { RGBA } from "../core/color.js";
+import { type RGBA, linearToSrgb, srgbToLinear } from "../core/color.js";
 import type { PathData } from "../geom/path.js";
 import type { Matrix } from "../geom/vec.js";
 import type { AssetRegistry } from "./assets.js";
 import { applyFilters } from "./filters.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
+import { cropMarkLines } from "./marks.js";
 
 export interface SvgOptions {
+  outputScale?: number;
+  marks?: { margin?: number; length?: number; width?: number };
   crop: "trim" | "bleed" | "marks";
   assets: AssetRegistry;
-  /** resolution of embedded images */
+  /** resolution of embedded images (the output dpi); line art keeps it up to the source resolution */
   imageDpi?: number;
+  /** cap on the embedded resolution of non-line-art images */
+  maxImageDpi?: number;
   colorMode: "color" | "gray" | "mono";
 }
 
@@ -41,6 +46,17 @@ function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 }
 
+// mono line art: the same 50% threshold as the raster backend, so 1-bit art stays 1-bit
+function binarize(src: Uint8Array): Uint8Array {
+  const d = Uint8Array.from(src);
+  for (let i = 0; i < d.length; i += 4) {
+    const lin = 0.2126 * srgbToLinear(d[i] / 255) + 0.7152 * srgbToLinear(d[i + 1] / 255) + 0.0722 * srgbToLinear(d[i + 2] / 255);
+    d[i] = d[i + 1] = d[i + 2] = linearToSrgb(lin) < 0.5 ? 0 : 255;
+    d[i + 3] = d[i + 3] > 127 ? 255 : 0;
+  }
+  return d;
+}
+
 const matrix = (m: Matrix) => `matrix(${m.map(n).join(" ")})`;
 
 export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<string> {
@@ -48,7 +64,8 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
   let uid = 0;
   const id = (p: string) => `${p}${++uid}`;
   const bleed = -list.boxes.bleed.x;
-  const box = o.crop === "trim" ? { x: bleed, y: bleed, w: list.boxes.trim.w, h: list.boxes.trim.h } : { x: 0, y: 0, w: list.size.width, h: list.size.height };
+  const margin = o.crop === "marks" ? o.marks?.margin ?? 10 : 0;
+  const box = o.crop === "trim" ? { x: bleed, y: bleed, w: list.boxes.trim.w, h: list.boxes.trim.h } : { x: -margin, y: -margin, w: list.size.width + 2 * margin, h: list.size.height + 2 * margin };
 
   const fillOf = (p: Paint): string => {
     if (p.type === "solid") {
@@ -113,12 +130,13 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
   };
 
   const image = async (im: ImageNode): Promise<string> => {
-    const dpi = o.imageDpi ?? 200;
+    const dpi = im.lineart ? o.imageDpi ?? 200 : Math.min(o.imageDpi ?? 200, o.maxImageDpi ?? Infinity);
     const w = Math.max(1, Math.min(im.sourceRect.w, Math.round((im.dest.w / 25.4) * dpi)));
     const h = Math.max(1, Math.min(im.sourceRect.h, Math.round((im.dest.h / 25.4) * dpi)));
     const px0 = await o.assets.pixels(im.assetKey, w, h, im.sourceRect);
     if (!px0) return "";
-    const px = im.filters.length ? await applyFilters(px0, im.filters, im.dest.w / px0.width) : px0;
+    const px1 = im.filters.length ? await applyFilters(px0, im.filters, im.dest.w / px0.width) : px0;
+    const px = im.lineart && o.colorMode === "mono" ? { ...px1, data: binarize(px1.data) } : px1;
     let img = sharp(px.data, { raw: { width: px.width, height: px.height, channels: 4 } });
     if (o.colorMode !== "color") img = img.grayscale();
     const png = await img.png().toBuffer();
@@ -153,13 +171,23 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
 
   const node = async (x: Node): Promise<string> => (x.kind === "group" ? group(x) : x.kind === "path" ? path(x) : image(x));
 
-  const body = await node(list.root);
+  let body = await node(list.root);
+  let marks = "";
+  if (o.crop === "marks") {
+    const clip = id("marks-clip");
+    defs.push(`<clipPath id="${clip}"><rect x="0" y="0" width="${n(list.size.width)}" height="${n(list.size.height)}"/></clipPath>`);
+    body = `<g clip-path="url(#${clip})">${body}</g>`;
+    const lines = cropMarkLines({ x: bleed, y: bleed, w: list.boxes.trim.w, h: list.boxes.trim.h }, bleed, o.marks?.length ?? 9);
+    const path = lines.map(([x0, y0, x1, y1]) => `M${n(x0)} ${n(y0)}L${n(x1)} ${n(y1)}`).join("");
+    marks = `<path d="${path}" fill="none" stroke="#000000" stroke-width="${n(o.marks?.width ?? 0.1)}" stroke-linecap="butt"/>`;
+  }
   return [
     `<?xml version="1.0" encoding="UTF-8"?>`,
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${n(box.w)}mm" height="${n(box.h)}mm" viewBox="${n(box.x)} ${n(box.y)} ${n(box.w)} ${n(box.h)}" data-page="${esc(list.page.id)}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${n(box.w * (o.outputScale ?? 1))}mm" height="${n(box.h * (o.outputScale ?? 1))}mm" viewBox="${n(box.x)} ${n(box.y)} ${n(box.w)} ${n(box.h)}" data-page="${esc(list.page.id)}">`,
     `<rect x="${n(box.x)}" y="${n(box.y)}" width="${n(box.w)}" height="${n(box.h)}" fill="#ffffff"/>`,
     defs.length ? `<defs>${defs.join("")}</defs>` : "",
     body,
+    ...(marks ? [marks] : []),
     `</svg>`,
     "",
   ].join("\n");

@@ -103,7 +103,18 @@ export const BUILTIN_STYLES: Record<string, Obj> = {
   gruff: { shape: { kind: "hexagon" }, stroke: { width: "0.25bmm" }, tail: { kind: "wedge" }, font: "dialogue" },
 };
 
-export const PAGE_PRESETS: Record<string, { w: number; h: number; unit: "mm" | "px" }> = {
+export interface PagePreset {
+  w: number;
+  h: number;
+  unit: "mm" | "px";
+  baseFrame?: "trim" | { size?: [string | number, string | number]; offset?: [string | number, string | number]; margins?: { top: string | number; bottom: string | number; inner: string | number; outer: string | number } };
+  bleed?: string | number;
+  printSize?: string | [string | number, string | number];
+  dpi?: number;
+}
+
+export const PAGE_PRESETS: Record<string, PagePreset> = {
+  "manga-b4": { w: 220, h: 310, unit: "mm", baseFrame: { size: ["180mm", "270mm"] }, bleed: "5mm", printSize: "B5" },
   A4: { w: 210, h: 297, unit: "mm" },
   A5: { w: 148, h: 210, unit: "mm" },
   A6: { w: 105, h: 148, unit: "mm" },

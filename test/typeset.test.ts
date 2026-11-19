@@ -25,6 +25,59 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
+  it.each(["noto-sans-jp", "dela-gothic-one"])("compresses scaled nonokagi exactly once with %s", async (id) => {
+    const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id }]]), "none", [], {});
+    await fonts.prepare("test", "〝ヤ〟あ");
+    for (const scale of [1, 1.5, 2]) {
+      const style = { ...defaultTextStyle({ font: "test", fontSize: 10 }), glyphScale: [1, scale] as [number, number], wrap: "none" as const };
+      const halfEm = 5 * scale;
+      for (const quote of "〝〟") {
+        const single = layoutText(quote, style, fonts);
+        expect(single.lines[0].length).toBeCloseTo(halfEm);
+        expect(single.glyphs[0].cy).toBeCloseTo(halfEm / 2);
+        const ink = boundsOf(flattenPath(single.glyphs[0].path).flatMap((p) => p.pts));
+        expect(ink.y).toBeGreaterThanOrEqual(0);
+        expect(ink.y + ink.h).toBeLessThanOrEqual(single.lines[0].rect.h);
+        expect(layoutText(quote, { ...style, punctCompress: false }, fonts).lines[0].length).toBeCloseTo(2 * halfEm);
+      }
+      const result = layoutText("〝ヤ〟あ", style, fonts);
+      expect(result.lines[0].length).toBeCloseTo(6 * halfEm);
+      expect(result.glyphs.map((g) => g.cy)).toEqual([0.5, 2, 3.5, 5].map((n) => n * halfEm));
+      const wrapped = layoutText("〝ヤ〟あ", { ...style, wrap: "char", maxExtent: 4 * halfEm }, fonts);
+      expect(wrapped.lines.map((l) => l.text)).toEqual(["〝ヤ〟", "あ"]);
+      expect(wrapped.lines.map((l) => l.length)).toEqual([4 * halfEm, 2 * halfEm]);
+    }
+  });
+  it.each(["noto-sans-jp", "dela-gothic-one"])("sets vertical nonokagi in half-em cells with %s", async (id) => {
+    const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id }]]), "none", [], {});
+    await fonts.prepare("test", "〝ヤバい〟って言った「」");
+    const style = { ...defaultTextStyle({ font: "test", fontSize: 10 }), wrap: "none" as const };
+    for (const quote of "〝〟") {
+      expect(layoutText(quote, style, fonts).lines[0].length).toBeCloseTo(5);
+      expect(layoutText(quote, { ...style, punctCompress: false }, fonts).lines[0].length).toBeCloseTo(10);
+      expect(layoutText(quote, { ...style, writing: "horizontal" }, fonts)).toEqual(layoutText(quote, { ...style, writing: "horizontal", punctCompress: false }, fonts));
+    }
+    for (const bracket of "「」") expect(layoutText(bracket, style, fonts).lines[0].length).toBeCloseTo(10);
+    const tight = layoutText("〝ヤバい〟って言った", style, fonts);
+    const full = layoutText("〝ヤバい〟って言った", { ...style, punctCompress: false }, fonts);
+    expect(tight.missing).toEqual([]);
+    expect(full.lines[0].length - tight.lines[0].length).toBeCloseTo(10);
+    const ink = tight.glyphs.map((g) => boundsOf(flattenPath(g.path).flatMap((p) => p.pts)));
+    for (const i of [0, 3, 4]) {
+      const gap = ink[i + 1].y - ink[i].y - ink[i].h;
+      expect(gap).toBeGreaterThanOrEqual(0);
+      expect(gap).toBeLessThan(5);
+    }
+    expect(ink[0].x).toBeGreaterThanOrEqual(5);
+    expect(ink[0].y + ink[0].h).toBeLessThanOrEqual(5);
+    expect(ink[4].x + ink[4].w).toBeLessThanOrEqual(5);
+    expect(ink[4].y).toBeGreaterThanOrEqual(35);
+    expect(ink[4].y + ink[4].h).toBeLessThanOrEqual(40);
+    expect(layoutText("〝〟〝〟", style, fonts).lines[0].length).toBeCloseTo(20);
+    const wrapped = layoutText("〝ヤバい〟", { ...style, wrap: "char", maxExtent: 40 }, fonts);
+    expect(wrapped.lines.map((l) => l.text)).toEqual(["〝ヤバい〟"]);
+    expect(layoutText("", style, fonts).glyphs).toEqual([]);
+  });
   it("detects active vertical forms when OpenType features change on the same font", async () => {
     const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id: "noto-sans-jp" }]]), "none", [], {});
     await fonts.prepare("test", "〟");
@@ -81,8 +134,8 @@ describe("typesetting", () => {
     expect(Math.abs(opening.y - neighbour.y)).toBeLessThan(1);
     expect(closing.x).toBeGreaterThanOrEqual(column.x);
     expect(closing.x + closing.w).toBeLessThanOrEqual(column.x + 5);
-    expect(closing.y).toBeGreaterThanOrEqual(45);
-    expect(closing.y + closing.h).toBeLessThanOrEqual(50);
+    expect(closing.y).toBeGreaterThanOrEqual(35);
+    expect(closing.y + closing.h).toBeLessThanOrEqual(40);
     const font = fonts.pick("test", 0x301d)!.font;
     for (const ch of "〝〟") {
       const gids = [hb.Direction.LTR, hb.Direction.TTB].map((dir) => {

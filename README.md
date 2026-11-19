@@ -89,6 +89,15 @@ In live preview, click an element warning to locate it with a highlight frame. C
 
 Run `mangacli <command> --help` for all options. `--json` prints machine-readable NDJSON.
 
+For PDF/X submission, ask your printer for the version and CMYK ICC profile. For example:
+
+```bash
+mangacli render manga.yaml -p print-mono -f pdf --pdf-x 4 \
+  --pdf-x-icc printer.icc --pdf-x-condition "Printer's output condition"
+```
+
+Use `--pdf-x 1a` for PDF/X-1a:2001 (ICC v2 only). Both modes keep the page raster 1-bit monochrome on the black plate. Without these flags, PDF output is unchanged. Run the printer's own preflight before submission.
+
 ## API
 
 ```ts
