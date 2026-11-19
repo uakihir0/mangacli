@@ -15,6 +15,8 @@ import type { Node, Paint } from "../render/ir.js";
 import { type TextLayout, layoutText } from "../text/layout.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
+import { parseMarkup } from "../text/markup.js";
+import { sfxScale, sfxShifts } from "../text/sfx.js";
 
 type Obj = Record<string, unknown>;
 
@@ -123,7 +125,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const em = style.fontSize;
   const rng = new Rng(el.seed);
   const vertical = style.writing === "vertical";
-  const grow = typeof p.grow === "number" ? p.grow : 0;
+  const grow = typeof p.grow === "number" ? p.grow : undefined;
   const pcs = (p.perChar ?? {}) as Obj;
   const rotR = toRange(pcs.rotate as never, (x) => parseAngle(x as string), { min: -0.1, max: 0.1, dist: "uniform" });
   const scR = toRange(pcs.scale as never, (x) => Number(x), { min: 1, max: 1, dist: "uniform" });
@@ -132,13 +134,13 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   // group glyphs by unit (char index order)
   const units = [...new Set(tl.glyphs.map((g) => g.unit))].sort((a, b) => a - b);
   const idxOf = new Map(units.map((uu, i) => [uu, i]));
-  const scales = units.map((_, i) => (1 + grow * i) * rng.range(scR.min, scR.max));
-  const shift: number[] = [];
-  let acc = 0;
-  units.forEach((_, i) => {
-    shift.push(acc + (scales[i] - 1) * em * 0.5);
-    acc += (scales[i] - 1) * em;
+  const parsed = parseMarkup(text, { markup: style.markup, normalize: style.normalize, vertical });
+  const scales = units.map((unit, i) => {
+    const char = parsed.units[unit];
+    return sfxScale(i, units.length, char?.kind === "char" ? char.ch : "", grow, p.smallKanaScale as number | undefined) * rng.range(scR.min, scR.max);
   });
+  const shift = sfxShifts(scales, em);
+  const acc = scales.reduce((sum, scale) => sum + (scale - 1) * em, 0);
   const dist = (p.distort ?? {}) as Obj;
   const roughen = typeof dist.roughen === "number" ? dist.roughen : 0.25;
   const warp = typeof dist.warp === "number" ? dist.warp : 0.15;
@@ -253,7 +255,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     colorsPer.push(t.color ?? g.color);
   }
   // letters set on a path: measure the real extent and move it to the origin
-  if (pathSpec) {
+  {
     const pts = flattenPath(paths.flat(), 0.2).flatMap((c) => c.pts);
     if (pts.length) {
       const bb = boundsOf(pts);
@@ -267,7 +269,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const pl = place(p, boxW, boxH, pc);
   const placed = transformPath(allPath, pl.matrix);
   const nodes: Node[] = [];
-  nodes.push(...outlineNodes(placed, p.outline, ctx, el));
+  nodes.push(...outlineNodes(placed, p.outline ?? [{ width: `${em * 0.07}mm`, color: "white" }], ctx, el));
   const paint = textPaint(p.color, ctx, el, pl.bbox);
   // hollow letters keep only the traced outline (black by default)
   const edge = (p.edge as Obj | undefined) ?? (p.hollow ? { width: "0.35bmm", color: (p.color as string) ?? "black" } : undefined);

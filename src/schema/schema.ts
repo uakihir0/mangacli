@@ -330,6 +330,7 @@ const sfxProps = {
   bleed: z.boolean().optional(),
   path: z.object({ kind: z.enum(["line", "arc", "wave", "points"]), angle: Angle.optional(), radius: Length.optional(), amplitude: Length.optional(), wavelength: Length.optional(), points: z.array(z.tuple([Length, Length])).optional() }).strict().optional(),
   grow: z.number().optional(),
+  smallKanaScale: z.number().min(0.1).max(1).optional(),
   perChar: z.object({ rotate: RangeOf(Angle).optional(), scale: RangeOf(z.number()).optional(), jitter: Length.optional() }).strict().optional(),
   chars: z.array(z.object({ index: z.number().int(), rotate: Angle.optional(), scale: z.number().optional(), offset: z.tuple([Length, Length]).optional(), color: ColorStr.optional() }).strict()).optional(),
   distort: z.object({ roughen: z.number().optional(), warp: z.number().optional(), skew: Angle.optional(), perspective: z.tuple([z.number(), z.number()]).optional(), bulge: z.number().optional() }).strict().optional(),

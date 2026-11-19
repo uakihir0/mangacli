@@ -25,7 +25,7 @@
 | `color` | Paint | `black`（吹き出しでは塗りに応じて自動、[6.5](06-balloons.md#65-塗りfill)） | 文字の塗り。トーンやグラデーションも使える |
 | `writing` | `vertical` \| `horizontal` | レンダリング時の言語（[3.10](03-document-format.md#310-meta)）が `ja` なら `vertical`、それ以外は `horizontal` | 縦書き（右から左へ列を進める）・横書き |
 | `lineHeight` | 数値 \| Length | 縦書き 1.45、横書き 1.4 | 行送り。数値は文字サイズの倍数、長さは絶対値（`H` 単位も使える） |
-| `letterSpacing` | Length（`em`） | `0`（`sfx` は `-0.05em`） | 字間（ベタ組みが 0） |
+| `letterSpacing` | Length（`em`） | `0`（`sfx` は `-0.22em`） | 字間（ベタ組みが 0） |
 | `align` | `start` \| `center` \| `end` \| `justify` | 吹き出しの縦書きは `start`、吹き出しの横書きは `center`、その他は `start` | 行の揃え。縦書きの `start` は天揃え |
 | `blockAlign` | `start` \| `center` \| `end` | `center` | 箱の中での文字のかたまりの位置（`text` で `size` を固定した場合） |
 | `wrap` | `auto` \| `none` \| `char` \| `phrase` \| `balanced` | `auto` | 改行の方法（[7.6](#76-改行と禁則処理)） |
@@ -598,14 +598,15 @@ ruby:
 | `fontSize` | Length | 12 mm | 基準の文字サイズ |
 | `bleed` | 真偽値 | `false` | 意図的なはみ出しの安全領域警告だけを抑制する |
 | `writing` | `vertical` \| `horizontal` | 本文と同じ（言語が `ja` なら `vertical`、それ以外は `horizontal`） | 並べる向き |
-| `letterSpacing` | Length（`em`） | `-0.05em` | 字間（描き文字は詰め気味にする） |
+| `letterSpacing` | Length（`em`） | `-0.22em` | 字間。文字を重ねて一体の描き文字にする |
 | `path` | SfxPath | - | 文字を並べる経路（下表） |
-| `grow` | 数値 | `0` | 文字ごとの大きさの増分。n 文字目の倍率は 1 + `grow` × (n − 1)。だんだん大きくなる擬音に使う（負で小さくなる） |
-| `perChar` | `{ rotate, scale, jitter }` | `{ rotate: [-6deg, 6deg] }` | 文字ごとの不規則な変形。`rotate`（Angle の Range）、`scale`（倍率の Range）、`jitter`（位置のずれの最大の距離、Length） |
+| `grow` | 数値 | 自動 | 省略時は先頭 85% → 末尾 115%（1 文字なら 100%）。指定時は 1 + `grow` × (n − 1)。`0` で等サイズ |
+| `smallKanaScale` | 数値（0.1〜1） | `0.65` | 促音・拗音などの小書き仮名に追加する倍率。`1` で無効 |
+| `perChar` | `{ rotate, scale, jitter }` | `{ rotate: [-10deg, 10deg] }` | シードから再現可能な文字ごとの不規則な変形。`rotate`（Angle の Range）、`scale`（倍率の Range）、`jitter`（位置のずれの最大の距離、Length） |
 | `chars` | CharOverride[] | - | 文字の番号ごとの上書き（`{ index, rotate, scale, offset, color }`） |
-| `distort` | Distort | `{ roughen: 0.25, warp: 0.15 }` | 全体の歪み（下表） |
+| `distort` | Distort | `{ roughen: 0.25, warp: 0.15, skew: -8deg }` | 全体の歪み（下表） |
 | `color` | Paint | `black` | 文字の塗り |
-| `outline` | Outline[] | `[{ width: 0.8mm, color: white }]` | 縁取り。既定は白フチ |
+| `outline` | Outline[] | 白、文字サイズの 7% | 太い白フチ（太字の筆画幅の約 35%）。文字サイズに比例する。`none` で無効、明示した幅で上書き可能 |
 | `edge` | Stroke | `none` | 字形の輪郭を手描きの線でなぞる（例: 白抜き文字の黒い輪郭） |
 | `hollow` | 真偽値 | `false` | 中を抜き、`edge` の線だけを描く |
 | `lettering` | Lettering | `hand` | 手書き風の揺らぎ（7.15） |
