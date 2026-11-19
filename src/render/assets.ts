@@ -164,7 +164,7 @@ export class AssetRegistry {
   }
 
   /** decoded RGBA pixels resized to (w,h) of the source crop */
-  async pixels(ref: string, outW: number, outH: number, src: { x: number; y: number; w: number; h: number }): Promise<{ data: Buffer; width: number; height: number } | null> {
+  async pixels(ref: string, outW: number, outH: number, src: { x: number; y: number; w: number; h: number }, cache = true): Promise<{ data: Buffer; width: number; height: number } | null> {
     const info = this.infos.get(ref);
     if (!info || !info.data) return null;
     const w = Math.max(1, Math.round(outW));
@@ -189,7 +189,7 @@ export class AssetRegistry {
     }
     const res = { data, width: oi.width, height: oi.height };
     if (this.pixelCache.size > 64) this.pixelCache.clear();
-    this.pixelCache.set(key, res);
+    if (cache) this.pixelCache.set(key, res);
     return res;
   }
 }
