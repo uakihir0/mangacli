@@ -695,7 +695,7 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
     }
     if (b.chars === "" && b.breakBefore === "forced") continue;
     const adv = b.adv + (cur.length ? ls : 0);
-    if (cur.length && len + adv > Lmax + 1e-6) {
+    if (cur.length && !b.space && len + adv > Lmax + 1e-6) {
       const prohibited = noStart(b.firstChar, style.kinsoku);
       // hanging: 、。，． hang outside the line end
       if (prohibited && style.hanging && /^[、。，．,.]$/.test(b.firstChar)) {

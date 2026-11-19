@@ -24,6 +24,9 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
+  it.each(["今日はいい ", "今日はいい<space=1em>", "今日はいい   "])("trims overflowing trailing spaces without splitting text: %s", async (text) => {
+    expect(await lines(text, { maxChars: 5 })).toEqual(["今日はいい"]);
+  });
   it("uses oikomi rather than leaving a single-character column", async () => {
     expect(await lines("ダメ！", { maxChars: 2 })).toEqual(["ダメ！"]);
   });
