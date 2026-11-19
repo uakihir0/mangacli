@@ -210,6 +210,7 @@ function normPanel(p: unknown, path: Path, bag: DiagnosticBag, chars: Set<string
 export function normDefaults(d: Obj, path: Path, bag: DiagnosticBag): Obj {
   const out: Obj = {};
   for (const [k, v] of Object.entries(d)) {
+    if (v == null) { out[k] = v; continue; }
     if (k === "effect" || k === "mark") {
       const m: Obj = {};
       if (isObj(v)) for (const [kk, vv] of Object.entries(v)) m[kk] = isObj(vv) ? normElementProps(vv, [...path, k, kk], bag, k) : vv;
@@ -238,7 +239,7 @@ export function normElementProps(v: Obj, path: Path, bag: DiagnosticBag, type = 
   if (typeof o.shape === "string" && type === "balloon") o.shape = { kind: o.shape };
   if ("tail" in o) o.tail = normTail(o.tail);
   if (Array.isArray(o.tails)) o.tails = o.tails.map(normTail);
-  if ("padding" in o && !Array.isArray(o.padding)) o.padding = [o.padding, o.padding];
+  if (o.padding != null && !Array.isArray(o.padding)) o.padding = [o.padding, o.padding];
   if (o.size === "auto") o.size = ["auto", "auto"];
   if (typeof o.lettering === "string") o.lettering = { mode: o.lettering };
   return o;

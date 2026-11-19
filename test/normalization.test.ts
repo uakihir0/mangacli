@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createRenderer, resolve } from "../src/api.js";
+import { DiagnosticBag } from "../src/core/diagnostics.js";
+import { normDefaults, normElementProps, normalizeDocument } from "../src/load/normalize.js";
+import { resolveDocument } from "../src/model/resolve.js";
+import { BUILTIN_DEFAULTS } from "../src/model/defaults.js";
 
 type Obj = Record<string, unknown>;
 const document = (layers: Obj[]) => ({ mangacli: 1, page: { size: ["60mm", "50mm"], bleed: 0 }, pages: [{ panels: [{ layers }] }] });
@@ -39,5 +43,49 @@ describe("context-sensitive property normalization", () => {
     const r = createRenderer({ profile: "preview" });
     const result = await r.validate(document([{ sfx: "A", edge: "clean" }]));
     expect(result.diagnostics.some((d) => d.message.includes('invalid stroke token "clean"'))).toBe(true);
+  });
+});
+
+describe("null resets", () => {
+  it("leaves null shorthand properties and null default roles untouched", () => {
+    const props = Object.fromEntries(["stroke", "edge", "outline", "textOutline", "halo", "hand", "pen", "shape", "tail", "tails", "padding", "size", "lettering"].map((key) => [key, null]));
+    const bag = new DiagnosticBag();
+    for (const type of [undefined, "balloon", "sfx", "effect", "fill"]) expect(normElementProps(props, [], bag, type)).toEqual(props);
+    expect(normElementProps({}, [], bag)).toEqual({});
+    expect(normDefaults({ effect: null, mark: null, balloon: props }, [], bag)).toEqual({ effect: null, mark: null, balloon: props });
+    expect(bag.items).toEqual([]);
+  });
+
+  it.each(["element", "document", "include", "locale", "config", "config-defaults", "character", "voice", "dialogue"])("resets padding from %s instead of creating null lengths", (source) => {
+    const balloon: Obj = { balloon: "A" };
+    const doc: Obj = document([balloon]);
+    const panel: Obj = (doc.pages as { panels: Obj[] }[])[0].panels[0];
+    const page = (doc.pages as Obj[])[0];
+    const props = { padding: null };
+    const config: Obj = {};
+    if (source === "element") Object.assign(balloon, props);
+    if (["document", "locale", "config"].includes(source)) balloon.style = "reset";
+    if (source === "document") doc.styles = { reset: props };
+    if (source === "locale") doc.locales = { ja: { styles: { reset: props } } };
+    if (source === "include") Object.defineProperty(page, "__includeDefaults", { value: { balloon: props } });
+    if (source === "config") config.styles = { reset: props };
+    if (source === "config-defaults") config.defaults = { balloon: props };
+    if (source === "character" || source === "voice") {
+      balloon.who = "speaker";
+      doc.characters = { speaker: source === "character" ? { balloon: props } : { voice: { say: props } } };
+    }
+    if (source === "dialogue") { delete panel.layers; panel.dialogue = [{ text: "A", ...props }]; }
+    const bag = new DiagnosticBag();
+    const resolved = resolveDocument(normalizeDocument(doc, bag), bag, { configStyles: config.styles as Record<string, Obj>, configDefaults: config.defaults as Obj });
+    expect(resolved.pages[0].panels[0].elements[0].props.padding).toEqual(BUILTIN_DEFAULTS.balloon.padding);
+    expect(bag.items.filter((d) => d.severity === "error")).toEqual([]);
+  });
+
+  it("renders a config padding reset using the builtin lengths", async () => {
+    const doc = { ...document([{ balloon: "A", style: "reset" }]), defaults: { balloon: { padding: "5mm" } } };
+    const r = createRenderer({ profile: "preview", dpi: 36, config: { styles: { reset: { padding: null } } } });
+    const result = await r.render(doc);
+    expect(result.failures).toEqual([]);
+    expect(result.pages).toHaveLength(1);
   });
 });
