@@ -1,0 +1,45 @@
+mangacli: 1
+meta: { title: 枠を越えて, lang: ja }
+book: { binding: right }
+seed: 20261103
+page:
+  size: B5
+  color: mono
+  baseFrame: { margins: { top: 32mm, bottom: 16mm, inner: 16mm, outer: 16mm } }
+  gutter: { row: 5mm, col: 3mm }
+assets:
+  taro:
+    src: ./assets/taro/normal.png
+    character: taro
+    anchors: { mouth: [500, 535] }
+    regions: { face: [285, 155, 430, 490] }
+pages:
+  - layout:
+      rows:
+        - { cols: [1], height: 1.1 }
+        - { cols: [1], height: 0.8 }
+        - { cols: [1], height: 1.1 }
+    layers:
+      - image: taro
+        id: spanning-taro
+        size: [auto, 260mm]
+        fit: contain
+        at: [65%, 250mm]
+        anchor: bottom
+        clip: { to: [p-top, p-middle, p-bottom], open: [top] }
+        stack: art
+        outline: 0.8mm white
+    panels:
+      - id: p-top
+        dialogue:
+          - taro: もう、逃げない。
+      - id: p-middle
+        layers:
+          - { effect: speed-lines, angle: 90deg }
+        dialogue:
+          - taro: この一歩で
+      - id: p-bottom
+        layers:
+          - { effect: focus-lines, center: [65%, 0%] }
+        dialogue:
+          - { taro: 未来を変える！！, as: shout }
