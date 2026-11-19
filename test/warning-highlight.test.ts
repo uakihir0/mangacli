@@ -34,6 +34,17 @@ it("returns no boxes for an empty page", async () => {
   expect(r.pages[0]!.elements).toEqual([]);
 });
 
+it.each(["png", "svg"] as const)("keeps %s boxes aligned with print-scaled output and marks", async (format) => {
+  const input = { yaml: yaml().replace("bleed: 3mm", "bleed: 3mm, printScale: 0.5"), filename: "/v/print-highlight.yaml" };
+  const base = await renderer.render(input, { format, crop: "trim", dpi: 254 });
+  const printed = await renderer.render(input, { format, crop: "trim", dpi: 254, output: "print" });
+  const b = base.pages[0]!.elements[0]!;
+  const p = printed.pages[0]!.elements[0]!;
+  expect(p).toEqual({ id: b.id, x: b.x / 2, y: b.y / 2, width: b.width / 2, height: b.height / 2 });
+  const marked = await renderer.render(input, { format, crop: "marks", dpi: 254, output: "print" });
+  expect(marked.pages[0]!.elements[0]).toEqual({ ...p, x: p.x + 115, y: p.y + 115 });
+});
+
 it("serves warning rows with the matching page and pixel box", async () => {
   const root = join(import.meta.dirname, "..");
   const dir = mkdtempSync(join(tmpdir(), "mc-highlight-"));

@@ -669,8 +669,9 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
             return { w: Math.round((bw * rasterDpi) / 25.4), h: Math.round((bh * rasterDpi) / 25.4) };
           };
           const size = fmt === "svg" ? svgSize() : { w: raster.width, h: raster.height };
-          const scale = dpi / 25.4;
-          const origin = fmt === "svg" ? { x: crop === "trim" ? 0 : -geom.bleedBox.x * scale, y: crop === "trim" ? 0 : -geom.bleedBox.y * scale } : part.trim;
+          const scale = rasterDpi / 25.4;
+          const svgMargin = crop === "marks" ? marks?.margin ?? 10 : 0;
+          const origin = fmt === "svg" ? { x: crop === "trim" ? 0 : (svgMargin - geom.bleedBox.x) * scale, y: crop === "trim" ? 0 : (svgMargin - geom.bleedBox.y) * scale } : part.trim;
           const trimX = fmt !== "svg" && parts.length > 1 && part.side === "right" ? Math.round(trimWidth / 2) : 0;
           const elements = info.elements.map(({ id, bbox }) => ({ id, x: bbox.x * scale + origin.x - trimX, y: bbox.y * scale + origin.y, width: bbox.w * scale, height: bbox.h * scale }))
             .filter((b) => b.x < size.w && b.y < size.h && b.x + b.width > 0 && b.y + b.height > 0);
