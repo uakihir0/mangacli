@@ -121,7 +121,7 @@ function glyphJson(f: LoadedFont, gid: number) {
   return j;
 }
 
-function shape(font: LoadedFont, text: string, dir: "ttb" | "ltr", lang: string) {
+function shape(font: LoadedFont, text: string, dir: "ttb" | "ltr", lang: string, features = shapeFeatures) {
   const buf = new hb.Buffer();
   buf.addText(text);
   buf.guessSegmentProperties();
@@ -131,7 +131,7 @@ function shape(font: LoadedFont, text: string, dir: "ttb" | "ltr", lang: string)
   } catch {
     /* ignore */
   }
-  hb.shape(font.font, buf, shapeFeatures.length ? shapeFeatures : undefined);
+  hb.shape(font.font, buf, features.length ? features : undefined);
   const infos = buf.getGlyphInfos();
   const pos = buf.getGlyphPositions();
   return infos.map((g, i) => ({ gid: g.codepoint, cluster: g.cluster, ...pos[i] }));
@@ -194,6 +194,7 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
   // per-line advances with letter spacing and punctuation compression
   const ls = style.letterSpacing * em;
   const lineData = lines.map((ln) => {
+    const offsets = ln.boxes.map(() => 0);
     const advs = ln.boxes.map((b, i) => {
       let a = b.adv;
       if (style.punctCompress && i + 1 < ln.boxes.length) {
@@ -201,12 +202,16 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
         // only full-width punctuation has the half-em of space that compression removes
         if (isClosingPunct(b.lastChar) && (isClosingPunct(nx.firstChar) || isOpeningPunct(nx.firstChar)) && b.orient !== "sideways" && b.adv > b.size * 0.8) a -= b.size * 0.5;
       }
-      if (style.punctCompress && i > 0 && isOpeningPunct(b.firstChar) && isClosingPunct(ln.boxes[i - 1].lastChar) && b.orient !== "sideways" && b.adv > b.size * 0.8) a -= b.size * 0.5;
+      if (style.punctCompress && i > 0 && isOpeningPunct(b.firstChar) && isClosingPunct(ln.boxes[i - 1].lastChar) && b.orient !== "sideways" && b.adv > b.size * 0.8) {
+        a -= b.size * 0.5;
+        // Opening punctuation loses leading space, not the space occupied by its ink.
+        offsets[i] = -b.size * 0.5;
+      }
       return a + (i + 1 < ln.boxes.length ? ls : 0);
     });
     const len = advs.reduce((x, y) => x + y, 0);
     const size = Math.max(em, ...ln.boxes.map((b) => b.size));
-    return { ln, advs, len, size };
+    return { ln, advs, offsets, len, size };
   });
   const blockLen = Math.max(0, ...lineData.map((d) => d.len));
   const rng = new Rng(style.seed);
@@ -235,8 +240,9 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
       let y = offset;
       const just = style.align === "justify" && c.d.ln.boxes.length > 1 && c !== cols[cols.length - 1] ? (blockLen - c.d.len) / (c.d.ln.boxes.length - 1) : 0;
       c.d.ln.boxes.forEach((b, bi) => {
-        emitBox(b, cx, y, true, glyphs, style, rng);
-        (b as Box & { _pos?: [number, number] })._pos = [cx, y];
+        const by = y + c.d.offsets[bi];
+        emitBox(b, cx, by, true, glyphs, style, rng);
+        (b as Box & { _pos?: [number, number] })._pos = [cx, by];
         y += c.d.advs[bi] + just;
       });
       outLines.push({ rect: { x: cx - c.d.size / 2, y: offset, w: c.d.size, h: c.d.len }, length: c.d.len, text: c.d.ln.boxes.map((b) => b.chars).join("") });
@@ -255,8 +261,9 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
     let x = offset;
     const just = style.align === "justify" && i < lineData.length - 1 && d.ln.boxes.length > 1 ? (blockLen - d.len) / (d.ln.boxes.length - 1) : 0;
     d.ln.boxes.forEach((b, bi) => {
-      emitBox(b, x, y + asc, false, glyphs, style, rng);
-      (b as Box & { _pos?: [number, number] })._pos = [x, y + asc];
+      const bx = x + d.offsets[bi];
+      emitBox(b, bx, y + asc, false, glyphs, style, rng);
+      (b as Box & { _pos?: [number, number] })._pos = [bx, y + asc];
       x += d.advs[bi] + just;
     });
     outLines.push({ rect: { x: offset, y, w: d.len, h: d.size }, length: d.len, text: d.ln.boxes.map((b) => b.chars).join("") });
@@ -424,8 +431,8 @@ let shapeFeatures: InstanceType<typeof hb.Feature>[] = [];
 /** tate-chu-yoko runs squeezed below ~60 %, collected per layout call */
 let tcyWarn: string[] = [];
 
-const VERT_TURN = new Set(Array.from("〜～ー－―—─━–‐…‥（）「」『』【】〔〕〈〉《》［］｛｝＝＜＞→←"));
-const vertCache = new Map<string, boolean>();
+const VERT_TURN = new Set(Array.from("ー－―—─━–‐…‥（）「」『』【】〔〕〈〉《》［］｛｝＝＜＞→←"));
+const WAVE_DASHES = new Set(["〜", "～"]);
 const SMALL_KANA = new Set(Array.from("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ"));
 const VERT_PUNCT = new Set(Array.from("、。，．"));
 
@@ -449,6 +456,15 @@ function inkBox(f: LoadedFont, gid: number): [number, number, number, number] {
   }
   return r;
 }
+
+function verticalWaveMatrix(f: LoadedFont, gid: number, m: Matrix, cx: number, cy: number): Matrix {
+  const [x0, y0, x1, y1] = inkBox(f, gid);
+  if (!isFinite(x0) || x1 - x0 <= y1 - y0) return m;
+  const sx = m[0];
+  const sy = -m[3];
+  return [0, sy, sx, 0, cx - (y0 + y1) / 2 * sx, cy - (x0 + x1) / 2 * sy];
+}
+
 function fitDashes(per: Box[], vertical: boolean) {
   for (let i = 0; i < per.length; i++) {
     if (!DASHES.has(per[i].chars)) continue;
@@ -457,6 +473,25 @@ function fitDashes(per: Box[], vertical: boolean) {
     for (let j = i + 1; j < per.length && DASHES.has(per[j].chars) && !per[j].glyphs.length; j++) span += per[j].adv;
     fitDash(per[i], vertical, span);
   }
+}
+
+function positionNonokagi(b: Box, lang: string, baselineShift: number) {
+  if ((b.chars !== "〝" && b.chars !== "〟") || b.glyphs.length !== 1) return;
+  const g = b.glyphs[0];
+  const [x0, y0, x1, y1] = inkBox(g.font, g.gid);
+  if (!isFinite(x0)) return;
+  const width = Math.abs(g.m[0]) * (x1 - x0);
+  const height = Math.abs(g.m[3]) * (y1 - y0);
+  const k = Math.min(1, 0.45 * b.size / Math.max(width, height));
+  g.m[0] *= k;
+  g.m[3] *= k;
+  const opening = b.chars === "〝";
+  if (!opening && !hasVertForm(g.font, b.chars, lang)) g.m[0] = -g.m[0];
+  const left = Math.min(g.m[0] * x0, g.m[0] * x1);
+  const right = Math.max(g.m[0] * x0, g.m[0] * x1);
+  // Keep the shaped outline (including vert/vrt2), anchored to its corner of the em box.
+  g.m[4] = baselineShift + (opening ? 0.45 : -0.45) * b.size - (opening ? right : left);
+  g.m[5] = (opening ? 0.05 * b.size : b.adv - 0.05 * b.size) - g.m[3] * (opening ? y1 : y0);
 }
 function fitDash(b: Box, vertical: boolean, span: number) {
   if (b.glyphs.length !== 1) return;
@@ -478,15 +513,9 @@ function fitDash(b: Box, vertical: boolean, span: number) {
 }
 /** whether the font substitutes a vertical form for ch (vert / vrt2) */
 function hasVertForm(f: LoadedFont, ch: string, lang: string): boolean {
-  const key = `${f.key}|${ch}`;
-  let v = vertCache.get(key);
-  if (v === undefined) {
-    const a = shape(f, ch, "ttb", lang)[0];
-    const b = shape(f, ch, "ltr", lang)[0];
-    v = !a || !b || a.gid !== b.gid;
-    vertCache.set(key, v);
-  }
-  return v;
+  const a = shape(f, ch, "ttb", lang)[0];
+  const b = shape(f, ch, "ltr", lang, [...shapeFeatures, new hb.Feature("vert", 0), new hb.Feature("vrt2", 0)])[0];
+  return !a || !b || a.gid !== b.gid;
 }
 
 function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: number, o: Orient, vertical: boolean, style: TextStyle, boxes: Box[]) {
@@ -532,7 +561,14 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
       pen[k] -= adv;
     }
     for (const b of per) if (b.adv === 0) b.adv = size;
+    // Inspect the shaped wave: an isolated glyph-ID probe can disagree with the run.
+    for (const b of per) {
+      if (!WAVE_DASHES.has(b.chars) || b.glyphs.length !== 1) continue;
+      const gl = b.glyphs[0];
+      gl.m = verticalWaveMatrix(gl.font, gl.gid, gl.m, bshift, b.adv / 2);
+    }
     fitDashes(per, true);
+    for (const b of per) positionNonokagi(b, style.lang, bshift);
     // fonts without vertical forms for small kana and 、。 get them moved toward the upper right
     // (judged from where the glyph's ink actually sits: some fonts map them to centred forms)
     for (const b of style.smallKanaFix === false ? [] : per) {
@@ -675,7 +711,7 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
     if (b.chars === "" && b.breakBefore === "forced") continue;
     const adv = b.adv + (cur.length ? ls : 0);
     if (cur.length && len + adv > Lmax + 1e-6) {
-      const prohibited = noStart(b.firstChar, style.kinsoku) && b.chars.length === 1 && b.adv <= b.size * 1.01;
+      const prohibited = noStart(b.firstChar, style.kinsoku);
       // hanging: 、。，． hang outside the line end
       if (prohibited && style.hanging && /^[、。，．,.]$/.test(b.firstChar)) {
         cur.push(b);
@@ -711,13 +747,13 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
         len += adv;
         continue;
       }
-      if (k < 0) k = cur.length;
-      // oidashi would leave a one-character line: fall back to oikomi (exceed by one character)
+      // No legal break, or oidashi would leave one character: use oikomi.
       if (prohibited && k <= 1) {
         cur.push(b);
         len += adv;
         continue;
       }
+      if (k < 0) k = cur.length;
       const carry = cur.slice(k);
       cur = cur.slice(0, k);
       push(true);
@@ -808,7 +844,8 @@ function placeRuby(parsed: ParsedText, boxes: Box[], glyphs: GlyphOut[], style: 
             const s = rsize / pk.font.upem;
             let pen = 0;
             for (const gl of g) {
-              const m: Matrix = [s, 0, 0, -s, x + gl.xOffset * s, y - (gl.yOffset + pk.font.vOriginFix) * s + pen];
+              let m: Matrix = [s, 0, 0, -s, x + gl.xOffset * s, y - (gl.yOffset + pk.font.vOriginFix) * s + pen];
+              if (WAVE_DASHES.has(c) && g.length === 1) m = verticalWaveMatrix(pk.font, gl.gid, m, x, y + rsize / 2);
               glyphs.push({ path: pathFromJson(glyphJson(pk.font, gl.gid), m), unit: sg.boxes[0].units[0], cx: x, cy: y });
               pen += -gl.yAdvance * s;
             }
@@ -913,4 +950,3 @@ export function breakFaults(tl: TextLayout, lang: string): number {
   if (lines.length >= 3 && single >= 2) bad += single;
   return bad;
 }
-

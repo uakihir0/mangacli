@@ -16,6 +16,7 @@ import { type ResolvedDoc, resolveDocument } from "./model/resolve.js";
 import { type EncodeOptions, EXT, MIME, type OutputFormat, encode } from "./output/encode.js";
 import { PROFILES, type Profile, applyOutput, resolveProfile } from "./output/profiles.js";
 import { PdfWriter } from "./output/pdf.js";
+import { type PdfXOptions, pdfXProfile } from "./output/pdfx.js";
 import { type Finish, applyFinish } from "./output/finish.js";
 import { AssetRegistry } from "./render/assets.js";
 import { type PageLayoutInfo, composePage } from "./render/compose.js";
@@ -43,6 +44,8 @@ export type MangaInput = string | URL | { yaml: string; filename?: string; baseD
 export interface RenderOptions {
   profile?: string;
   format?: OutputFormat | OutputFormat[];
+  /** Opt-in PDF/X export for opaque 1-bit monochrome PDF. */
+  pdfX?: PdfXOptions;
   colorMode?: "color" | "gray" | "mono";
   dpi?: number;
   scale?: number;
@@ -82,6 +85,8 @@ export interface RenderOptions {
   emit?: ("layout" | "ir" | "transcript" | "manifest")[];
   onProgress?: (e: { phase: string; pageId?: string; done: number; total: number }) => void;
   onDiagnostic?: (d: Diagnostic) => void;
+  /** internal: an installed font was loaded from this path */
+  onSystemFont?: (path: string) => void;
   signal?: AbortSignal;
   finish?: Finish | false;
   /** URL assets (spec 2.13): true, or limits */
@@ -282,6 +287,7 @@ function buildFonts(p: Project, o: RenderOptions): FontRegistry {
       }
       if (!isObj(v)) continue;
       if (typeof v.src === "string") defs.set(k, { kind: "file", path: v.src, index: v.index as number, variations: v.variations as Record<string, number>, bold: v.bold as string, fallback: v.fallback as string[] });
+      else if (typeof v.system === "string") defs.set(k, { kind: "system", name: v.system, index: v.index as number, variations: v.variations as Record<string, number>, bold: v.bold as string, fallback: v.fallback as string[] });
       else if (typeof v.alias === "string") defs.set(k, { kind: "alias", name: v.alias });
       else if (typeof v.catalog === "string") defs.set(k, { kind: "catalog", id: v.catalog, weight: v.weight as number, bold: v.bold as string, fallback: v.fallback as string[] });
       else if (Array.isArray(v.compose)) defs.set(k, { kind: "compose", items: v.compose as never, fallback: v.fallback as string[], bold: v.bold as string });
@@ -305,6 +311,7 @@ function buildFonts(p: Project, o: RenderOptions): FontRegistry {
     fontDir: o.fontDir,
     fontCacheDir: o.fontCacheDir,
     fontMirror: o.fontMirror,
+    onSystemFont: o.onSystemFont,
     onInfo: (code, message) => p.bag.info(code, message),
     onError: (code, message) => p.bag.error(code, message),
   }, o.fontCache);
@@ -460,6 +467,22 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   const nameTpl = options.name ?? (docOutput.name as string) ?? prof.name ?? "{name}-{page:03}";
   const emitted = new Set<string>();
   const seps0 = normalizeSeparations(options.separate ?? prof.separate);
+  // Transparent output omits the page ground (panel grounds stay; spec 10.15).
+  const bgOverride = options.background ?? (typeof docOutput.background === "string" ? docOutput.background : undefined);
+  const transparentOut = options.transparent ?? (bgOverride === "transparent" ? true : undefined) ?? prof.transparent ?? false;
+  let pdfX: ConstructorParameters<typeof PdfWriter>[1];
+  if (options.pdfX && !options.layoutOnly) {
+    if (!formats.includes("pdf") || (options.colorMode ?? prof.colorMode) !== "mono" || transparentOut || seps0) {
+      bag.error("OUTPUT_MODE_UNSUPPORTED", "PDF/X requires PDF output in opaque 1-bit monochrome mode, without separations or debug overlays");
+      return fail();
+    }
+    try {
+      pdfX = { ...options.pdfX, iccProfile: pdfXProfile(options.pdfX) };
+    } catch (e) {
+      bag.error("OUTPUT_MODE_UNSUPPORTED", (e as Error).message);
+      return fail();
+    }
+  }
   // print profiles hand spreads to the printer as two pages
   const spreadMode = options.spread ?? prof.spread ?? (prof.print ? "split" : "joined");
   const title = String((p.doc.meta as Obj | undefined)?.title ?? p.name);
@@ -540,9 +563,6 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const { list: list0, info } = await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor, characters: resolved.characters });
       info.number = pl.nombre;
       let list = plugins ? (plugins.hook("beforeRender", list0) as DisplayList) : list0;
-      // transparent output: no page ground (panel grounds stay; spec 10.15)
-      const bgOverride = options.background ?? (typeof docOutput.background === "string" ? (docOutput.background as string) : undefined);
-      const transparentOut = options.transparent ?? (bgOverride === "transparent" ? true : undefined) ?? prof.transparent ?? false;
       if (bgOverride && bgOverride !== "transparent") {
         // replace the page ground
         const paint = parsePaint(bgOverride, { u: info.geom.units, box: list.boxes.bleed, seed: resolved.seed, bag, path: ["output", "background"] });
@@ -576,8 +596,10 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       }
       if (dpi > lim.maxDpi) throw new Error(`SECURITY_LIMIT_EXCEEDED: ${Math.round(dpi)} dpi exceeds maxDpi (${lim.maxDpi})`);
       const runs: { name?: string; list?: string[] }[] = seps0 ? seps0 : [{}];
+      const splitMarks = geom.type === "spread" && spreadMode === "split" && crop === "marks";
+      const rasterCrop = splitMarks ? "bleed" : crop;
       for (const run of runs) {
-        const backend = new RasterBackend({ maxPixels: lim.maxOutputPixels, dpi, crop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
+        const backend = new RasterBackend({ maxPixels: lim.maxOutputPixels, dpi, crop: rasterCrop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
         const needRaster = formats.some((f) => f !== "svg");
         let full = needRaster ? await backend.render(list) : { data: new Uint8ClampedArray(0), width: 0, height: 0, dpi };
         if (plugins && needRaster) full = { ...full, ...(plugins.hook("afterRender", { data: full.data, width: full.width, height: full.height }) as object) };
@@ -587,7 +609,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         const quiet = prof.print || profName === "preview" || profName === "draft" || draft;
         const finish = options.finish === false ? undefined : (options.finish ?? profOwn ?? (quiet ? undefined : (prof.finish as Finish | undefined)));
         if (finish && needRaster && !run.list) full = { ...full, ...(await applyFinish(full, finish, { dpi, colorMode: colorMode as "color", seed: resolved.seed, bag })) };
-        if (options.debug) drawDebug(full, list, info, dpi, crop, options.debug, prof.marks?.margin ?? 10);
+        if (options.debug) drawDebug(full, list, info, dpi, rasterCrop, options.debug, prof.marks?.margin ?? 10);
         // spreads: one joined image, or two pages each with bleed on all sides (spec 10.9)
         const trimWidth = Math.round((geom.trimW * dpi) / 25.4 + 1e-6);
         const trimHeight = Math.round((geom.trimH * dpi) / 25.4 + 1e-6);
@@ -598,17 +620,25 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           const trimPx = Math.round((geom.trimW * dpi) / 25.4 + 1e-6);
           const edge = Math.round((full.width - trimPx) / 2);
           const half = Math.round(trimPx / 2);
-          // the fold gets bleed only (crop marks stay on the outer edges)
+          // Preserve artwork past the fold for each page's bleed.
           const inner = crop === "trim" ? 0 : Math.round((geom.bleed * dpi) / 25.4 + 1e-6);
           const leftW = edge + half + inner;
           const slice = (x0: number, w: number) => {
             const out = new Uint8ClampedArray(w * full.height * 4);
             for (let y = 0; y < full.height; y++) out.set(full.data.subarray((y * full.width + x0) * 4, (y * full.width + x0 + w) * 4), y * w * 4);
-            return { data: out, width: w, height: full.height };
+            const raster = { data: out, width: w, height: full.height };
+            return splitMarks ? backend.addMarks(raster, geom.bleed) : raster;
           };
           const left = { raster: slice(0, leftW), trim: { ...fullTrim, w: half }, side: "left" };
           const rightW = inner + (trimPx - half) + edge;
           const right = { raster: slice(full.width - rightW, rightW), trim: { ...fullTrim, x: fullTrim.x + half - (full.width - rightW), w: trimPx - half }, side: "right" };
+          if (splitMarks) {
+            for (const part of [left, right]) {
+              const margin = (part.raster.height - full.height) / 2;
+              part.trim.x += margin;
+              part.trim.y += margin;
+            }
+          }
           const first = geom.rtl ? right : left;
           const second = geom.rtl ? left : right;
           parts.push({ ...first, nombre: pl.nombre }, { ...second, nombre: pl.nombre === null ? null : pl.nombre + 1 });
@@ -625,7 +655,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
             const key = run.name ?? "";
             let pw = pdfs.get(key);
             if (!pw) {
-              pw = { writer: new PdfWriter({ title: typeof meta.title === "string" ? meta.title : undefined, author: typeof meta.author === "string" ? meta.author : undefined, date: sde ? new Date(Number(sde) * 1000) : undefined }), colorMode, dpi };
+              pw = { writer: new PdfWriter({ title: typeof meta.title === "string" ? meta.title : pdfX ? p.name : undefined, author: typeof meta.author === "string" ? meta.author : undefined, date: sde ? new Date(Number(sde) * 1000) : undefined }, pdfX), colorMode, dpi };
               pdfs.set(key, pw);
             }
             const bleedPx = crop === "trim" ? 0 : Math.round((geom.bleed * dpi) / 25.4 + 1e-6);
@@ -634,7 +664,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
             continue;
           }
           const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, compression: prof.compression, chroma: prof.chroma, tiffCompression: prof.tiffCompression, transparent: transparentOut || !!run.list, metadata: prof.metadata === false ? {} : { Software: `mangacli ${PKG_VERSION}`, Title: String(meta.title ?? ""), ...(meta.author ? { Author: String(meta.author) } : {}), ...(meta.copyright ? { Copyright: String(meta.copyright) } : {}), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed), ...(sourceHash ? { "mangacli:source-hash": sourceHash } : {}) } };
-          const svgOptions = { crop, marks: prof.marks, splitSide: splitSvg ? part.side as "left" | "right" : undefined, assets, colorMode, imageDpi: Math.min(dpi, 300) };
+          const svgOptions = { crop, marks: prof.marks, splitSide: splitSvg ? part.side as "left" | "right" : undefined, assets, colorMode, imageDpi: dpi, maxImageDpi: 300 };
           const data = fmt === "svg" ? Buffer.from(await renderSvg(list, svgOptions)) : await encode(raster.data, raster.width, raster.height, enc);
           const svgSize = () => {
             const { w: bw, h: bh } = svgBox(list, svgOptions);
@@ -679,6 +709,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
     timings[page.id] = performance.now() - tp;
     options.onProgress?.({ phase: "render", pageId: page.id, done: ++done, total });
   }
+  // A submission PDF must not silently omit pages if rendering failed.
+  if (pdfX && (bag.hasErrors || result.failures.length || (options.strict && bag.items.some((d) => d.severity === "warning")))) pdfs.clear();
   for (const [sep, pw] of pdfs) {
     if (!pw.writer.pageCount) continue;
     const data = pw.writer.build();

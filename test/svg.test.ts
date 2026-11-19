@@ -36,13 +36,13 @@ describe("SVG print output", () => {
       expect(files.filter((f) => f.endsWith(".svg"))).toHaveLength(2);
       expect(files.filter((f) => f.endsWith(".png"))).toHaveLength(2);
       const svgs = r.pages.filter((p) => p.format === "svg");
-      const width = crop === "marks" ? 198 : crop === "bleed" ? 188 : 182;
+      const width = crop === "marks" ? 208 : crop === "bleed" ? 188 : 182;
       const height = crop === "marks" ? 283 : crop === "bleed" ? 263 : 257;
       for (const svg of svgs) {
         expect(svgText(svg.data)).toContain(`width="${width}mm" height="${height}mm"`);
         const png = r.pages.find((p) => p.format === "png" && p.side === svg.side)!;
         expect([svg.width, svg.height]).toEqual([png.width, png.height]);
-        const x = svg.side === "left" ? (crop === "marks" ? -10 : crop === "trim" ? 3 : 0) : crop === "trim" ? 185 : 182;
+        const x = svg.side === "left" ? (crop === "marks" ? -10 : crop === "trim" ? 3 : 0) : crop === "marks" ? 172 : crop === "trim" ? 185 : 182;
         expect(svgText(svg.data)).toContain(`viewBox="${x} ${crop === "marks" ? -10 : crop === "trim" ? 3 : 0} ${width} ${height}"`);
       }
       const only = await render(input(true), { profile: "print-mono", crop, format: "svg", dpi: 25.4 });

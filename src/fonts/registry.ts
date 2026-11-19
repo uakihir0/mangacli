@@ -1,13 +1,16 @@
 // Font registry: definitions, roles, composite fonts, fallback (spec 7.3).
 import * as hb from "harfbuzzjs";
 import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PACKAGE_ROOT, type SetRole, catalogCoverage, coverageHas, findCatalogFont, loadCatalog, parseCatalogRef } from "./catalog.js";
 import { type FontFetchOptions, FontFetchError, ensureCatalogFont } from "./download.js";
 import { inRange } from "./ranges.js";
+import { findSystemFont, listSystemFonts, type SystemFontFace } from "./system.js";
 
 export type FontDef =
   | { kind: "file"; path: string; index?: number; variations?: Record<string, number>; bold?: string; fallback?: string[] }
+  | { kind: "system"; name: string; index?: number; variations?: Record<string, number>; bold?: string; fallback?: string[] }
   | { kind: "bytes"; data: Uint8Array; index?: number; bold?: string; fallback?: string[] }
   | { kind: "catalog"; id: string; weight?: number; bold?: string; fallback?: string[] }
   | { kind: "alias"; name: string }
@@ -58,7 +61,7 @@ const UI_FONT = join(PACKAGE_ROOT, "assets", "fonts", "Lato-Regular.ttf");
 /** A physical font descriptor */
 interface Phys {
   key: string;
-  load: () => Promise<Uint8Array>;
+  load: () => Promise<Uint8Array | { data: Uint8Array; index: number; label: string; path: string }>;
   index: number;
   variations?: Record<string, number>;
   /** cheap coverage check before loading */
@@ -75,13 +78,14 @@ export class FontRegistry {
   private loaded = new Map<string, LoadedFont>();
   private failed = new Set<string>();
   private chains = new Map<string, Chain>();
+  private systemFonts?: Promise<SystemFontFace[]>;
   readonly diagnostics: { code: string; message: string; severity: "error" | "warning" | "info" }[] = [];
 
   constructor(
     private defs: Map<string, FontDef>,
     private fontSet: string | "none",
     private globalFallback: string[],
-    private fetchOpts: FontFetchOptions,
+    private fetchOpts: FontFetchOptions & { onSystemFont?: (path: string) => void },
     /** cache shared between registries (catalog fonts are immutable) */
     private shared?: Map<string, LoadedFont>,
   ) {}
@@ -135,6 +139,17 @@ export class FontRegistry {
     switch (def.kind) {
       case "file":
         return { key: `file:${def.path}#${def.index ?? 0}`, label: name, index: def.index ?? 0, variations: def.variations, load: async () => readFileSync(def.path) };
+      case "system":
+        return {
+          key: `system:${name}`, label: name, index: def.index ?? 0, variations: def.variations,
+          load: async () => {
+            const query = JSON.stringify(def.name) + (def.index === undefined ? "" : ` (face ${def.index})`);
+            const face = findSystemFont(await (this.systemFonts ??= listSystemFonts()), def.name, def.index);
+            if (!face) throw Object.assign(new Error(`system font ${query} not found`), { code: "ENOENT" });
+            const label = face.postScriptNames[0] ?? face.fullNames[0] ?? face.families[0];
+            return { data: await readFile(face.path), index: face.index, label, path: face.path };
+          },
+        };
       case "bytes":
         return { key: `bytes:${name}`, label: name, index: def.index ?? 0, load: async () => def.data };
       case "catalog":
@@ -265,8 +280,14 @@ export class FontRegistry {
         }
         if (this.failed.has(p.key)) return;
         let lf: LoadedFont;
+        let system: { index: number; path: string } | undefined;
         try {
-          lf = makeLoaded(p, await p.load());
+          const loaded = await p.load();
+          if (loaded instanceof Uint8Array) lf = makeLoaded(p, loaded);
+          else {
+            system = loaded;
+            lf = makeLoaded({ ...p, index: loaded.index, label: loaded.label }, loaded.data);
+          }
         } catch (e) {
           this.failed.add(p.key);
           const err = e as Error & { code?: string };
@@ -276,6 +297,10 @@ export class FontRegistry {
           return;
         }
         this.loaded.set(p.key, lf);
+        if (system) {
+          this.fetchOpts.onInfo?.("FONT_SYSTEM_USED", `${p.label}: using installed font ${JSON.stringify(lf.label)} (face ${system.index})`);
+          this.fetchOpts.onSystemFont?.(system.path);
+        }
         if (shareable) this.shared?.set(p.key, lf);
       }),
     );
