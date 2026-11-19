@@ -1,0 +1,41 @@
+# A transparent character under the effect: the pen stops before the silhouette.
+mangacli: 1
+page: { size: [240mm, 100mm], bleed: 0mm, gutter: 4mm }
+characters:
+  taro: { name: Taro }
+assets:
+  hero:
+    src: ./art/effect-hero.png
+    character: taro
+    regions: { face: [285, 155, 430, 490] }
+  opaque:
+    src: ./art/p4-2.png
+    character: taro
+    regions: { face: [330, 240, 250, 260] }
+pages:
+  - id: focused
+    layout: { rows: [{ cols: [1, 1, 1] }] }
+    panels:
+      - layers:
+          - { image: hero, id: focus-hero, size: [64mm, 90mm], fit: contain }
+          - effect: focus-lines
+            center: focus-hero.face
+            inner: [3mm, 3mm]
+            count: 230
+            thickness: [0.12mm, 0.55mm]
+            clear: { element: focus-hero, mode: alpha, margin: 1mm }
+      - layers:
+          - { image: hero, id: speed-hero, size: [64mm, 90mm], fit: contain }
+          - effect: speed-lines
+            angle: 0deg
+            spacing: [0.6mm, 1.6mm]
+            length: [65%, 100%]
+            thickness: [0.12mm, 0.55mm]
+            followPath: [[0%, 65%], [50%, 30%], [100%, 55%]]
+      - layers:
+          - { image: opaque, id: opaque-hero }
+          - effect: focus-lines
+            center: opaque-hero.face
+            inner: [30%, 30%]
+            count: 180
+            thickness: [0.1mm, 0.35mm]
