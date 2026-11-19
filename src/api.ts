@@ -609,6 +609,13 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           const left = { raster: slice(0, leftW), trim: { ...fullTrim, w: half }, side: "left" };
           const rightW = inner + (trimPx - half) + edge;
           const right = { raster: slice(full.width - rightW, rightW), trim: { ...fullTrim, x: fullTrim.x + half - (full.width - rightW), w: trimPx - half }, side: "right" };
+          if (splitMarks) {
+            for (const part of [left, right]) {
+              const margin = (part.raster.height - full.height) / 2;
+              part.trim.x += margin;
+              part.trim.y += margin;
+            }
+          }
           const first = geom.rtl ? right : left;
           const second = geom.rtl ? left : right;
           parts.push({ ...first, nombre: pl.nombre }, { ...second, nombre: pl.nombre === null ? null : pl.nombre + 1 });
