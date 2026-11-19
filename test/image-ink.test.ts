@@ -4,6 +4,21 @@ import { render } from "../src/api.js";
 import { imageInkMask } from "../src/render/image-ink.js";
 
 describe("print image ink preservation", () => {
+  it.each([[4096, 32], [32, 4096]])("screens a thin %s by %s image without scanning outside its bounds", (width, height) => {
+    const rgba = new Uint8Array(width * height * 4);
+    const vertical = height > width;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const v = (vertical ? x : y) === 16 ? 80 : 180;
+        rgba.set([v, v, v, 255], (y * width + x) * 4);
+      }
+    }
+    const start = performance.now();
+    const mask = imageInkMask(rgba, width, height, 324);
+    console.info(`${width}x${height} ridge mask: ${Math.round(performance.now() - start)} ms`);
+    for (let p = 5; p < 4091; p++) expect(mask[vertical ? p * width + 16 : 16 * width + p]).toBe(1);
+  }, 2000);
+
   it("preserves a line whose luminance changes gradually along its length", () => {
     const width = 192;
     const rgba = new Uint8Array(width * width * 4);

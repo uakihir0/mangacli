@@ -45,9 +45,13 @@ export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number
       const end = Math.round((major - 1) * slope);
       for (let offset = -Math.max(0, end); offset < minor - Math.min(0, end); offset++) {
         const ray: number[] = [];
-        for (let p = 0; p < major; p++) {
+        const lower = -8 * offset - 4;
+        const upper = 8 * (minor - offset) - 4;
+        const first = Math.max(0, angle > 0 ? Math.ceil(lower / angle) : angle < 0 ? Math.floor(upper / angle) + 1 : 0);
+        const limit = Math.min(major, angle > 0 ? Math.ceil(upper / angle) : angle < 0 ? Math.floor(lower / angle) + 1 : major);
+        for (let p = first; p < limit; p++) {
           const q = offset + Math.round(p * slope);
-          if (q >= 0 && q < minor) ray.push(vertical ? p * width + q : q * width + p);
+          ray.push(vertical ? p * width + q : q * width + p);
         }
         for (const polarity of [1, 2]) {
           const bit = 1 << (normal + (polarity === 1 ? 0 : 4));
