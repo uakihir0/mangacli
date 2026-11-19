@@ -16,6 +16,7 @@ export interface RasterOptions {
   dpi: number;
   crop: "trim" | "bleed" | "marks";
   marks?: { margin?: number; length?: number; width?: number };
+  omitFoldMarks?: boolean;
   maxPixels?: number;
   /** 1-bit: screen ruling for images (overrides the element's) and dither mode */
   imageLpi?: number;
@@ -150,7 +151,7 @@ function toneFlatColor(spec: ToneSpec, color: RGBA, mode: ColorMode): string {
 }
 
 /** Japanese-style crop marks (トンボ): double corner marks on the trim and bleed lines, center crosses (spec 10.6) */
-function drawCropMarks(ctx: SKRSContext2D, trim: { x: number; y: number; w: number; h: number }, bleedPx: number, s: number, m?: { length?: number; width?: number }) {
+function drawCropMarks(ctx: SKRSContext2D, trim: { x: number; y: number; w: number; h: number }, bleedPx: number, s: number, m?: { length?: number; width?: number }, omitFoldMarks = false) {
   const L = (m?.length ?? 9) * s;
   const lw = Math.max(1, (m?.width ?? 0.1) * s);
   ctx.save();
@@ -187,10 +188,12 @@ function drawCropMarks(ctx: SKRSContext2D, trim: { x: number; y: number; w: numb
   const my = (y0 + y1) / 2;
   const c = L * 0.5;
   // center marks
-  line(mx, y0 - b, mx, y0 - b - L);
-  line(mx - c, y0 - b - L * 0.5, mx + c, y0 - b - L * 0.5);
-  line(mx, y1 + b, mx, y1 + b + L);
-  line(mx - c, y1 + b + L * 0.5, mx + c, y1 + b + L * 0.5);
+  if (!omitFoldMarks) {
+    line(mx, y0 - b, mx, y0 - b - L);
+    line(mx - c, y0 - b - L * 0.5, mx + c, y0 - b - L * 0.5);
+    line(mx, y1 + b, mx, y1 + b + L);
+    line(mx - c, y1 + b + L * 0.5, mx + c, y1 + b + L * 0.5);
+  }
   line(x0 - b, my, x0 - b - L, my);
   line(x0 - b - L * 0.5, my - c, x0 - b - L * 0.5, my + c);
   line(x1 + b, my, x1 + b + L, my);
@@ -235,7 +238,7 @@ export class RasterBackend {
       ctx.clip();
       await this.drawNode(dev, list.root, base, canvas);
       ctx.restore();
-      drawCropMarks(ctx, { x: bleedPx, y: bleedPx, w: trimPxW, h: trimPxH }, bleedOnly, s, o.marks);
+      drawCropMarks(ctx, { x: bleedPx, y: bleedPx, w: trimPxW, h: trimPxH }, bleedOnly, s, o.marks, o.omitFoldMarks);
     } else await this.drawNode(dev, list.root, base, canvas);
     const img = ctx.getImageData(0, 0, W, H);
     const data = img.data;
