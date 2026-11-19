@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as hb from "harfbuzzjs";
-import { FontRegistry } from "../src/fonts/registry.js";
+import { type FontDef, FontRegistry } from "../src/fonts/registry.js";
 import { type PathData, flattenPath, pathFromJson } from "../src/geom/path.js";
 import { boundsOf } from "../src/geom/vec.js";
 import { defaultTextStyle, layoutText } from "../src/text/layout.js";
@@ -14,6 +14,22 @@ const lines = async (t: string, o: Record<string, unknown> = {}) => {
 };
 
 describe("typesetting", () => {
+  it.each([-0.2, 0.2])("preserves composite font baselineShift %s for nonokagi", async (baselineShift) => {
+    const fonts = new FontRegistry(new Map<string, FontDef>([
+      ["base", { kind: "catalog", id: "noto-sans-jp" }],
+      ["plain", { kind: "compose", items: [{ font: "base", scale: 0.8 }] }],
+      ["shifted", { kind: "compose", items: [{ font: "base", scale: 0.8, baselineShift }] }],
+    ]), "none", [], {});
+    await fonts.prepare("plain", "〝ヤ〟");
+    await fonts.prepare("shifted", "〝ヤ〟");
+    const layouts = ["plain", "shifted"].map((font) => layoutText("〝ヤ〟", defaultTextStyle({ font, fontSize: 10 }), fonts));
+    const ink = layouts.map((l) => l.glyphs.map((g) => boundsOf(flattenPath(g.path).flatMap((p) => p.pts))));
+    expect(ink[0]).toHaveLength(3);
+    for (let i = 0; i < 3; i++) {
+      expect(ink[1][i].x - ink[0][i].x).toBeCloseTo(baselineShift * 8);
+      expect(ink[1][i].y).toBeCloseTo(ink[0][i].y);
+    }
+  });
   it.each([
     ["noto-sans-jp", true],
     ["dela-gothic-one", false],

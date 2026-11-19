@@ -459,7 +459,7 @@ function fitDashes(per: Box[], vertical: boolean) {
   }
 }
 
-function positionNonokagi(b: Box, lang: string) {
+function positionNonokagi(b: Box, lang: string, baselineShift: number) {
   if ((b.chars !== "〝" && b.chars !== "〟") || b.glyphs.length !== 1) return;
   const g = b.glyphs[0];
   const [x0, y0, x1, y1] = inkBox(g.font, g.gid);
@@ -474,7 +474,7 @@ function positionNonokagi(b: Box, lang: string) {
   const left = Math.min(g.m[0] * x0, g.m[0] * x1);
   const right = Math.max(g.m[0] * x0, g.m[0] * x1);
   // Keep the shaped outline (including vert/vrt2), anchored to its corner of the em box.
-  g.m[4] = (opening ? 0.45 : -0.45) * b.size - (opening ? right : left);
+  g.m[4] = baselineShift + (opening ? 0.45 : -0.45) * b.size - (opening ? right : left);
   g.m[5] = (opening ? 0.05 * b.size : b.adv - 0.05 * b.size) - g.m[3] * (opening ? y1 : y0);
 }
 function fitDash(b: Box, vertical: boolean, span: number) {
@@ -552,7 +552,7 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
     }
     for (const b of per) if (b.adv === 0) b.adv = size;
     fitDashes(per, true);
-    for (const b of per) positionNonokagi(b, style.lang);
+    for (const b of per) positionNonokagi(b, style.lang, bshift);
     // fonts without vertical forms for small kana and 、。 get them moved toward the upper right
     // (judged from where the glyph's ink actually sits: some fonts map them to centred forms)
     for (const b of style.smallKanaFix === false ? [] : per) {
@@ -933,4 +933,3 @@ export function breakFaults(tl: TextLayout, lang: string): number {
   if (lines.length >= 3 && single >= 2) bad += single;
   return bad;
 }
-
