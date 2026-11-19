@@ -134,6 +134,29 @@ describe("sfx text safety", () => {
       .toBe("sfx: 右の断裁線を 4.6mm 越えています、安全線まで 9.6mm 内側に入れてください");
   });
 
+  it("does not move a nearly full-width sfx past the opposite tolerance", async () => {
+    const doc = input("page", "16.748mm, 30mm");
+    doc.yaml = doc.yaml.replace("size: B5", "size: [32.986mm, 60mm]");
+    const result = await renderer.render(doc, { format: "svg" });
+    const message = result.diagnostics.find((d) => d.code === "TEXT_OUTSIDE_SAFE_AREA")!.message;
+    expect(message).toContain("反対側も許容範囲に収めるため");
+    const distance = Number(message.match(/ため ([\d.]+)mm/)![1]);
+    expect(distance).toBeGreaterThanOrEqual(0.01);
+    expect(distance).toBeLessThanOrEqual(0.5);
+    doc.yaml = doc.yaml.replace("16.748mm, 30mm", `${16.748 - distance}mm, 30mm`);
+    const moved = await renderer.render(doc, { format: "svg" });
+    expect(moved.diagnostics.filter((d) => d.code === "TEXT_OUTSIDE_SAFE_AREA")).toEqual([]);
+  });
+
+  it("requests shrinking when no movement can fit within both tolerances", async () => {
+    const doc = input("page", "16.748mm, 30mm");
+    doc.yaml = doc.yaml.replace("size: B5", "size: [32mm, 60mm]");
+    const result = await renderer.render(doc, { format: "svg" });
+    const message = result.diagnostics.find((d) => d.code === "TEXT_OUTSIDE_SAFE_AREA")!.message;
+    expect(message).toContain("移動だけでは安全領域の許容範囲に収まりません。幅を 0.5mm 以上小さくしてください");
+    expect(message).not.toContain("内側に入れてください");
+  });
+
   it("continues to skip px documents", async () => {
     const doc = input("page", "0, 0");
     doc.yaml = doc.yaml.replace("size: B5", "units: px, size: B5");

@@ -1324,7 +1324,20 @@ function checkTextSafety(items: Item[], geom: PageGeom, bag: DiagnosticBag, page
     ];
     const crossed = edges.filter((e) => e.crossed);
     if (!intentionalBleed && crossed.length) {
-      const details = crossed.map((e) => `${e.side}の${e.trim > 0 ? "断裁線" : "安全線"}を ${(e.trim > 0 ? e.trim : e.safe).toFixed(1)}mm 越えています、安全線まで ${movement(e.safe)}mm 内側に入れてください`);
+      const details = crossed.map((e) => {
+        const vertical = e.side === "上" || e.side === "下";
+        const excess = vertical ? b.h - s.h - 1 : b.w - s.w - 1;
+        const overflow = `${e.side}の${e.trim > 0 ? "断裁線" : "安全線"}を ${(e.trim > 0 ? e.trim : e.safe).toFixed(1)}mm 越えています`;
+        if (excess > 1e-9) return `${overflow}、移動だけでは安全領域の許容範囲に収まりません。${vertical ? "高さ" : "幅"}を ${movement(excess)}mm 以上小さくしてください`;
+        const opposite = edges[edges.indexOf(e) ^ 1]!;
+        const maxMove = -opposite.safe + 0.5;
+        const rounded = Number(movement(e.safe));
+        if (rounded <= maxMove) return `${overflow}、安全線まで ${rounded.toFixed(1)}mm 内側に入れてください`;
+        const minMove = e.safe - 0.5;
+        const hundredth = Math.floor(maxMove * 100) / 100;
+        const distance = hundredth >= minMove ? hundredth : maxMove;
+        return `${overflow}、反対側も許容範囲に収めるため ${distance}mm 内側に入れてください（安全線の許容差 0.5mm）`;
+      });
       bag.warn("TEXT_OUTSIDE_SAFE_AREA", `${it.el.id}: ${details.join("；")}`, { path: it.el.path, elementId: it.el.id, pageId: page.id });
     }
     if (geom.type === "spread") {
