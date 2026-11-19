@@ -11,6 +11,15 @@ pages:
 `, filename: "/v/effects.yaml" });
 const leaves = (n: Node): Node[] => n.kind === "group" ? n.children.flatMap(leaves) : [n];
 
+describe("effect direction validation", () => {
+  it.each(["cw", "ccw"])("accepts swirl-lines direction %s", async direction => {
+    expect((await validate(input("swirl-lines", 42, `direction: ${direction}`))).diagnostics).toEqual([]);
+  });
+  it.each([["lightning", "both"], ["smoke", "cw"], ["dust", "ccw"], ["swirl-lines", "90deg"]])("rejects %s direction %s", async (kind, direction) => {
+    expect((await validate(input(kind, 42, `direction: ${direction}`))).diagnostics.some(d => d.severity === "error")).toBe(true);
+  });
+});
+
 describe.each([ ["lightning", "bolts", 1], ["crack", "count", 2], ["dust", "puffs", 2], ["smoke", "density", 0.1] ] as const)("%s", (kind, param, value) => {
   it("renders without diagnostics, with independent ink and planes", async () => {
     expect((await validate(input(kind))).diagnostics).toEqual([]);

@@ -7275,7 +7275,11 @@
         },
         {
           "type": "string",
-          "const": "both"
+          "enum": [
+            "both",
+            "cw",
+            "ccw"
+          ]
         }
       ]
     },
