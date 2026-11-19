@@ -132,7 +132,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
   for (let attempt = 0; attempt < 12; attempt++) {
     const style = resolveTextStyle({ ...p, fontScale: ((p.fontScale as number) ?? 1) * scale }, u, ctx.lang, true, el.seed);
     const emCtx = { ...u, em: style.fontSize };
-    const pad = Array.isArray(p.padding) ? p.padding : ["0.45em", "0.9em"];
+    const pad = Array.isArray(p.padding) ? p.padding : ["0.7em", "0.65em"];
     const padV = toMm(pad[0] as string, emCtx);
     const padH = toMm(pad[1] as string, emCtx);
     let boxLimit: number | undefined;
@@ -167,7 +167,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       const maxL = Math.max(1e-6, ...lens);
       const fill = lens.reduce((a, b) => a + b, 0) / (L * maxL);
       const elong = Math.max(tl.width, tl.height) / Math.max(1e-6, Math.min(tl.width, tl.height));
-      params.squareness = Math.max(0, Math.min(0.3, 0.03 * (L - 1) + (fill - 0.7) * 0.1 + (elong > 2.5 ? 0.25 : 0)));
+      params.squareness = Math.max(0, Math.min(0.22, 0.025 * (L - 1) + (fill - 0.7) * 0.1 + (L === 1 && elong > 2.5 ? 0.14 : 0)));
     }
     // points relative to text block center
     const cx = tl.width / 2;
@@ -463,7 +463,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     // manga tails leave the side of the balloon: one aimed (nearly) straight down or up is turned
     // to the lower/upper left or right, by default toward the left
     let clamped = false;
-    if (t.allowVertical !== true && !offSide && plan.params.kind !== "cloud") {
+    if ((t.allowVertical ?? !!target) !== true && !offSide && plan.params.kind !== "cloud") {
       const a = Math.atan2(dir.y, dir.x);
       const lim = (40 * Math.PI) / 180;
       const fromDown = Math.abs(a - Math.PI / 2);
@@ -495,7 +495,8 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       continue;
     }
     const gap = t.gap !== undefined ? toMm(t.gap as string, u) : 2 * u.k;
-    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : Math.min(12 * u.k, Math.max(4.5 * u.k, minSide * 0.6));
+    const wedge = kind === "wedge";
+    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : wedge ? Math.min(16 * u.k, Math.max(6 * u.k, minSide * 0.8)) : Math.min(12 * u.k, Math.max(4.5 * u.k, minSide * 0.6));
     let length: number;
     if (t.length !== undefined) length = toMm(t.length as string, u);
     else if (target) {
@@ -519,16 +520,20 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
             break;
           }
       }
-      // a tail always reads as a pointer, even when the speaker's face is right beside the body
-      length = Math.min(maxLen, Math.max(4.5 * u.k, avail));
-    } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
+      length = Math.min(maxLen, Math.max(0, avail));
+    } else {
+      const freeLength = (kind === "zigzag" ? 11 : wedge ? 6 : 4.5) * u.k;
+      length = t.maxLength === undefined ? freeLength : Math.min(maxLen, freeLength);
+    }
     // off-panel tails run past the frame and are cut by it
     // on a spiky body the tail must outreach the spikes to read as the pointer
-    if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.4, 6 * u.k);
+    if (!target && t.length === undefined && t.maxLength === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.4, 6 * u.k);
     if (offSide && target) length = Math.hypot(target.x - R.x, target.y - R.y);
+    if (length <= 0) continue;
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
-    const bw = (t.width !== undefined ? toMm(t.width as string, u) : Math.min(2.8 * u.k, Math.max(1.6 * u.k, minSide * 0.13)) * (kind === "zigzag" ? 1.5 : 1)) * widthScale;
+    const defaultWidth = wedge ? Math.min(3.8 * u.k, Math.max(2.2 * u.k, minSide * 0.17)) : Math.min(2.8 * u.k, Math.max(1.6 * u.k, minSide * 0.13)) * (kind === "zigzag" ? 1.5 : 1);
+    const bw = (t.width !== undefined ? toMm(t.width as string, u) : defaultWidth) * widthScale;
     const bend = typeof t.bend === "number" ? t.bend : 0.1;
     const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : 0.12;
     const perp = { x: -dir.y, y: dir.x };
@@ -558,46 +563,28 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       }
     }
     const ctrl = { x: (R.x + tip.x) / 2 + perp.x * bend * length * 0.5, y: (R.y + tip.y) / 2 + perp.y * bend * length * 0.5 };
-    const tipBent = { x: tip.x + perp.x * bend * length * 0.25, y: tip.y + perp.y * bend * length * 0.25 };
+    const tipBent = target && wedge ? tip : { x: tip.x + perp.x * bend * length * 0.25, y: tip.y + perp.y * bend * length * 0.25 };
 
     if (kind === "bubbles") {
       const count = typeof t.count === "number" ? t.count : 3;
       let size = t.bubbleSize !== undefined ? toMm(t.bubbleSize as string, u) : Math.min(5 * u.k, Math.max(1.5 * u.k, minSide * 0.2));
-      const shrink = typeof t.shrink === "number" ? t.shrink : 0.62;
+      const shrink = typeof t.shrink === "number" ? t.shrink : 0.66;
       // the bubble chain must stop short of the speaker (face): scale it down to the available run
-      let spacing = 0.45;
-      if (target && t.length === undefined) {
-        const spanOf = (sp: number, sz0: number) => {
-          let span = gap * 0.6;
-          let sz = sz0;
-          for (let i = 0; i < count; i++) {
-            span += sz + (i + 1 < count ? sz * sp : 0);
-            sz *= shrink;
-          }
-          return span;
-        };
-        // a short run tightens the chain first, then shrinks it, but keeps all bubbles readable
-        if (spanOf(spacing, size) > length) spacing = 0.15;
-        const span = spanOf(spacing, size);
-        if (span > length) size = Math.max(1.4 * u.k, size * Math.max(0.5, length / span));
-      }
-      let dpos = gap * 0.6 + size / 2;
-      const total = target ? length : length + size;
-      // an explicit length spreads the chain evenly over it
-      const spread = t.length !== undefined && count > 1 ? Math.max(0, (length - dpos) / (count - 1)) : 0;
+      const initialGap = Math.min(gap * 0.6, length * 0.25);
+      const spacing = 0.42;
+      let span = 0;
+      for (let i = 0; i < count; i++) span += shrink ** i * (i + 1 < count ? 1 + spacing : 1);
+      const total = !target && t.length === undefined ? Math.min(maxLen, Math.max(length, initialGap + span * size)) : length;
+      size = Math.min(size, Math.max(0, total - initialGap) / Math.max(1, span));
+      let dpos = initialGap + size / 2;
+      const spread = t.length !== undefined && count > 1 ? Math.max(0, total - initialGap - span * size) / (count - 1) : 0;
       for (let i = 0; i < count; i++) {
-        if (!spread && dpos + size / 2 > total + 1e-6 && i > 1) break;
-        if (spread) dpos = gap * 0.6 + size / 2 + 0 + i * spread;
-        const tt = Math.min(1, dpos / Math.max(1e-6, total));
-        const c = quad(R, ctrl, tipBent, tt);
+        const lateral = bend * dpos * (1 - dpos / total);
+        const c = { x: R.x + dir.x * dpos + perp.x * lateral, y: R.y + dir.y * dpos + perp.y * lateral };
         const r = size / 2;
         const pts = blobPoly(c, r, tc.rng, 28, 0.06).map((q) => ({ x: c.x + (q.x - c.x) * 1, y: c.y + (q.y - c.y) * 0.88 }));
         extra.push({ pts, closed: true, kind: "bubble" });
-        if (spread) {
-          size *= shrink;
-          continue;
-        }
-        dpos += size / 2 + size * spacing;
+        dpos += size / 2 + size * spacing + spread;
         size *= shrink;
         dpos += size / 2;
       }

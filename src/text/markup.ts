@@ -335,13 +335,17 @@ export function assignTcy(units: Unit[], opt: { digits: number; marks: boolean; 
       i = j;
       continue;
     }
-    if (!opt) {
+    if (!opt || u.ruby !== undefined) {
       i++;
       continue;
     }
     const runOf = (re: RegExp) => {
       let j = i;
-      while (j < units.length && units[j].kind === "char" && re.test((units[j] as { ch: string }).ch) && !(units[j] as { ruby?: number }).ruby) j++;
+      while (j < units.length) {
+        const next = units[j];
+        if (next.kind !== "char" || next.ruby !== undefined || next.style.tcy || !re.test(next.ch)) break;
+        j++;
+      }
       return j;
     };
     if (/^[0-9]$/.test(u.ch)) {

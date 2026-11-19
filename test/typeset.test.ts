@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolveTextStyle } from "../src/elements/textstyle.js";
 import { FontRegistry } from "../src/fonts/registry.js";
+import { flattenPath } from "../src/geom/path.js";
 import { defaultTextStyle, layoutText } from "../src/text/layout.js";
 
 const reg = new FontRegistry(new Map() as never, "manga-basic", [], {});
@@ -29,6 +30,21 @@ describe("typesetting", () => {
   });
   it("breaks a long phrase at a word start", async () => {
     expect(await lines("宿題、まだ終わってなくてさ……")).toEqual(["宿題、まだ", "終わって", "なくてさ……"]);
+  });
+  it("sets doubled punctuation in one vertical cell and corners Japanese stops", async () => {
+    const text = "本!?当!!、。";
+    await reg.prepare("dialogue", text);
+    const style = defaultTextStyle({ font: "dialogue", fontSize: 10 });
+    const result = layoutText(text, style, reg);
+    expect(result.height).toBeCloseTo(layoutText("本字当字、。", style, reg).height);
+    const [comma, period] = result.glyphs.slice(-2);
+    for (const glyph of [comma, period]) {
+      const pts = flattenPath(glyph.path).flatMap((contour) => contour.pts);
+      const xs = pts.map((p) => p.x);
+      const ys = pts.map((p) => p.y);
+      expect((Math.min(...xs) + Math.max(...xs)) / 2).toBeGreaterThan(glyph.cx + 1.2);
+      expect((Math.min(...ys) + Math.max(...ys)) / 2).toBeLessThan(glyph.cy - 1.2);
+    }
   });
   it("keeps english words and their punctuation whole", async () => {
     const l = await lines("Unbelievable...", { writing: "horizontal", lang: "en", maxChars: 6 });

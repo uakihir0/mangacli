@@ -6,7 +6,7 @@ import polygonClipping from "polygon-clipping";
 import { polygonArea } from "../geom/path.js";
 import { type Rect, type Vec, boundsOf, rectIntersect } from "../geom/vec.js";
 import { isObj } from "../load/normalize.js";
-import { PAGE_PRESETS } from "../model/defaults.js";
+import { BUILTIN_DEFAULTS, PAGE_PRESETS } from "../model/defaults.js";
 import type { RPage, RPanel } from "../model/resolve.js";
 
 type Obj = Record<string, unknown>;
@@ -235,8 +235,8 @@ export function layoutPanels(page: RPage, geom: PageGeom, bag: DiagnosticBag): P
   const L = (isObj(page.layout) ? page.layout : page.layout === "free" ? { free: true } : {}) as Obj;
   // in a split tree, `gutter` on a node belongs to that node only; the page gutter applies elsewhere
   const gutterSpec = L.split ? page.settings.gutter : (L.gutter ?? page.settings.gutter);
-  let gCol = 2.5 * geom.k;
-  let gRow = 5 * geom.k;
+  let gCol = 3.5 * geom.k;
+  let gRow = 7 * geom.k;
   if (gutterSpec !== undefined) {
     if (isObj(gutterSpec)) {
       if (gutterSpec.col !== undefined) gCol = toMm(gutterSpec.col as string, u);
@@ -342,7 +342,7 @@ export function layoutPanels(page: RPage, geom: PageGeom, bag: DiagnosticBag): P
     let p = assigned[i];
     if (!p) {
       bag.warn("LAYOUT_EMPTY_SLOT", `layout slot ${i + 1} has no panel`, { path: page.path, pageId: page.id });
-      p = { id: `${page.id}-slot${i + 1}`, index: -1, props: { border: { width: "0.5bmm", color: "black", pen: { preset: "kabura-pen" }, style: "solid", ruler: true }, background: "paper" }, elements: [], path: page.path, seed: i };
+      p = { id: `${page.id}-slot${i + 1}`, index: -1, props: BUILTIN_DEFAULTS.panel, elements: [], path: page.path, seed: i };
     }
     out.push(makePanelGeom(p, lf.poly, geom, area, bag, i));
   });

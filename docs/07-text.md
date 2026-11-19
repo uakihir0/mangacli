@@ -311,7 +311,7 @@ CJK 以外の言語の横書きの吹き出しは、コミックの慣習に合�
 
 | 文字 | 補正 |
 |---|---|
-| 句読点（、。，．） | 字形を全角の枠の左下 1/4 から右上 1/4 へ平行移動する（右へ 0.5 em、上へ 0.5 em） |
+| 句読点（、。，．） | 字形が右上にない場合は、全角の枠の右上へ移動する。縦組み用字形がすでに右上にある場合は保持する |
 | 小書きの仮名（ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶ） | 右へ 0.1 em、上へ 0.1 em 移動 |
 
 縦組み用字形を持たないフォントを縦書きで使った場合は、情報（`FONT_NO_VERTICAL_FORMS`）を出す。
@@ -582,11 +582,11 @@ ruby:
 | `letterSpacing` | Length（`em`） | `-0.05em` | 字間（描き文字は詰め気味にする） |
 | `path` | SfxPath | - | 文字を並べる経路（下表） |
 | `grow` | 数値 | `0` | 文字ごとの大きさの増分。n 文字目の倍率は 1 + `grow` × (n − 1)。だんだん大きくなる擬音に使う（負で小さくなる） |
-| `perChar` | `{ rotate, scale, jitter }` | `{ rotate: [-6deg, 6deg] }` | 文字ごとの不規則な変形。`rotate`（Angle の Range）、`scale`（倍率の Range）、`jitter`（位置のずれの最大の距離、Length） |
+| `perChar` | `{ rotate, scale, jitter }` | `{ rotate: [-10deg, 10deg], scale: [0.86, 1.12] }` | 文字ごとの不規則な変形。`rotate`（Angle の Range）、`scale`（倍率の Range）、`jitter`（位置のずれの最大の距離、Length） |
 | `chars` | CharOverride[] | - | 文字の番号ごとの上書き（`{ index, rotate, scale, offset, color }`） |
-| `distort` | Distort | `{ roughen: 0.25, warp: 0.15 }` | 全体の歪み（下表） |
+| `distort` | Distort | `{ roughen: 0.25, warp: 0.15, skew: -8deg }` | 全体の歪み（下表） |
 | `color` | Paint | `black` | 文字の塗り |
-| `outline` | Outline[] | `[{ width: 0.8mm, color: white }]` | 縁取り。既定は白フチ |
+| `outline` | Outline[] | `[{ width: 0.13em, color: white }]` | 絵の上でも読める白フチ。文字サイズに比例する。`none` で無効 |
 | `edge` | Stroke | `none` | 字形の輪郭を手描きの線でなぞる（例: 白抜き文字の黒い輪郭） |
 | `hollow` | 真偽値 | `false` | 中を抜き、`edge` の線だけを描く |
 | `lettering` | Lettering | `hand` | 手書き風の揺らぎ（7.15） |

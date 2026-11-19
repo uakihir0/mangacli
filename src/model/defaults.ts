@@ -7,19 +7,19 @@ export const DEFAULT_BALLOON_FONT_SIZE = "16bQ";
 
 export const BUILTIN_DEFAULTS: Record<string, Obj> = {
   panel: {
-    border: { width: "0.5bmm", color: "black", pen: { preset: "kabura-pen" }, style: "solid", ruler: true, join: "clean" },
+    border: { width: "0.7bmm", color: "black", pen: { preset: "kabura-pen" }, style: "solid", ruler: true, join: "clean" },
     background: "paper",
   },
   balloon: {
     shape: { kind: "ellipse", irregularity: 0.12, tilt: ["-1.5deg", "1.5deg"] },
-    stroke: { width: "0.25bmm", color: "black", pen: { preset: "g-pen" }, style: "solid", dash: ["1.6bmm", "1.0bmm"], dot: { size: "0.45bmm", gap: "0.9bmm" }, double: { gap: "0.6bmm", inner: "0.2bmm" } },
+    stroke: { width: "0.34bmm", color: "black", pen: { preset: "g-pen" }, style: "solid", dash: ["1.6bmm", "1.0bmm"], dot: { size: "0.45bmm", gap: "0.9bmm" }, double: { gap: "0.6bmm", inner: "0.2bmm" } },
     fill: "paper",
-    tail: { kind: "wedge", gap: "2bmm", bend: 0.15, sideCurve: 0.25, root: "auto", count: 3, shrink: 0.62, segments: 3 },
+    tail: { kind: "wedge", gap: "2bmm", bend: 0.08, sideCurve: 0.35, root: "auto", count: 3, shrink: 0.66, segments: 3 },
     minSize: ["8bmm", "8bmm"],
     maxSize: ["75%", "80%"],
     aspect: "auto",
     aspectRange: [0.55, 1.8],
-    padding: ["0.6em", "0.8em"],
+    padding: ["0.7em", "0.65em"],
     minFontScale: 0.75,
     font: "dialogue",
     fontSize: DEFAULT_BALLOON_FONT_SIZE,
@@ -31,10 +31,10 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
     font: "sfx",
     fontSize: "12bmm",
     letterSpacing: "-0.05em",
-    perChar: { rotate: ["-6deg", "6deg"] },
-    distort: { roughen: 0.25, warp: 0.15 },
+    perChar: { rotate: ["-10deg", "10deg"], scale: [0.86, 1.12] },
+    distort: { roughen: 0.25, warp: 0.15, skew: "-8deg" },
     color: "black",
-    outline: [{ width: "0.8bmm", color: "white" }],
+    outline: [{ width: "0.13em", color: "white" }],
     lettering: { mode: "hand" },
     clip: "none",
   },
@@ -89,12 +89,12 @@ export const BUILTIN_MARK_DEFAULTS: Record<string, Obj> = {
 
 /** Built-in speech styles selected by `as` (spec 6.13). */
 export const BUILTIN_STYLES: Record<string, Obj> = {
-  say: { shape: { kind: "ellipse" }, stroke: { width: "0.25bmm", pen: { preset: "g-pen" }, style: "solid" }, tail: { kind: "wedge" }, font: "dialogue" },
-  think: { shape: { kind: "cloud" }, stroke: { width: "0.2bmm", pen: { preset: "maru-pen" }, style: "solid" }, tail: { kind: "bubbles" }, font: "thought" },
+  say: { shape: { kind: "ellipse" }, stroke: { pen: { preset: "g-pen" }, style: "solid" }, tail: { kind: "wedge" }, font: "dialogue" },
+  think: { shape: { kind: "cloud", depth: 0.23 }, stroke: { width: "0.3bmm", pen: { preset: "maru-pen" }, style: "solid" }, tail: { kind: "bubbles" }, font: "thought" },
   shout: { shape: { kind: "spike" }, stroke: { width: "0.3bmm", pen: { preset: "g-pen" }, style: "solid" }, tail: { kind: "wedge", widthScale: 1.3 }, font: "shout", fontScale: 1.4 },
   whisper: { shape: { kind: "ellipse" }, stroke: { width: "0.2bmm", style: "dashed" }, tail: { kind: "wedge", widthScale: 0.7 }, font: "whisper", fontScale: 0.85 },
   tremble: { shape: { kind: "wavy" }, stroke: { width: "0.22bmm" }, tail: { kind: "wedge" }, font: "dialogue" },
-  narration: { shape: { kind: "rect", ruler: true }, stroke: { width: "0.2bmm", pen: { preset: "g-pen" } }, tail: { kind: "none" }, font: "narration", autoPlace: "flow", padding: ["0.6em", "0.6em"] },
+  narration: { shape: { kind: "rect", ruler: true }, stroke: { width: "0.45bmm", pen: { preset: "g-pen" } }, tail: { kind: "none" }, font: "narration", autoPlace: "flow", padding: ["0.75em", "0.7em"] },
   monologue: { shape: { kind: "none" }, tail: { kind: "none" }, font: "narration", textOutline: [{ width: "0.8bmm", color: "white" }] },
   inverted: { shape: { kind: "ellipse" }, stroke: { width: "0.25bmm" }, tail: { kind: "wedge" }, font: "dialogue", fill: "black", color: "white" },
   scream: { shape: { kind: "burst" }, stroke: { width: "0.35bmm" }, tail: { kind: "wedge", widthScale: 1.5 }, font: "shout", fontScale: 1.5 },

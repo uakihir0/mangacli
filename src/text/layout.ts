@@ -555,10 +555,10 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
       // target: small kana up-right of centre, 、。 in the upper-right quarter
       const tx = (small ? 0.12 : 0.28) * size;
       const ty = -(small ? 0.14 : 0.28) * size;
-      // only glyphs the font left at the centre of the cell are moved (proper vertical forms stay)
       const centred = Math.abs(cx) < 0.05 * size && Math.abs(cy) < 0.05 * size;
-      const dx = centred || reduced ? tx - cx : 0;
-      const dy = centred || reduced ? ty - cy : 0;
+      const misplacedPunct = !small && !hasVertForm(f, b.chars, style.lang) && (cx < 0.12 * size || cy > -0.12 * size);
+      const dx = centred || reduced || misplacedPunct ? tx - cx : 0;
+      const dy = centred || reduced || misplacedPunct ? ty - cy : 0;
       if (dx || dy) g.m = [g.m[0], g.m[1], g.m[2], g.m[3], g.m[4] + dx, g.m[5] + dy];
     }
     boxes.push(...per);
@@ -913,4 +913,3 @@ export function breakFaults(tl: TextLayout, lang: string): number {
   if (lines.length >= 3 && single >= 2) bad += single;
   return bad;
 }
-
