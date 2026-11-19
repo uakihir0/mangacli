@@ -1803,7 +1803,43 @@
               "type": "object",
               "properties": {
                 "system": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "index": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 65535
+                },
+                "variations": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": "number"
+                      }
+                    },
+                    {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "array"
+                      ]
+                    }
+                  ]
+                },
+                "bold": {
                   "type": "string"
+                },
+                "fallback": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 }
               },
               "required": [
