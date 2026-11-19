@@ -1295,7 +1295,7 @@ function collectTranscript(el: RElement, panel: string | undefined, info: PageLa
 function checkTextSafety(items: Item[], geom: PageGeom, bag: DiagnosticBag, page: RPage) {
   if (geom.units.units === "px") return;
   for (const it of items) {
-    if (!["balloon", "text"].includes(it.el.type)) continue;
+    if (!["balloon", "text", "sfx"].includes(it.el.type)) continue;
     const b = it.bbox;
     const s = geom.safe;
     if (b.x < s.x - 0.5 || b.y < s.y - 0.5 || b.x + b.w > s.x + s.w + 0.5 || b.y + b.h > s.y + s.h + 0.5) {
