@@ -18,6 +18,11 @@ const manga = (font: Record<string, unknown>) => ({
   pages: [{ layers: [{ text: "写植の見本。", font: "lettering", fontSize: "5mm", at: ["50%", "50%"] }] }],
 });
 const options = { dpi: 144, fontDownload: "never" } as const;
+const numberManga = (system: string) => ({
+  ...manga({ system }),
+  book: { pageNumbers: { show: "always", font: "lettering", format: "巻{n}" } },
+  pages: [{ type: "blank" }],
+});
 
 async function writeNamedFont(path: string, records: { id: number; language: number; name: string }[]) {
   const strings = records.map(({ name }) => Buffer.from(name, "utf16le").swap16());
@@ -83,6 +88,12 @@ it("reports an unresolved system font as an error", async () => {
   expect(result.diagnostics.some(({ code }) => code === "FONT_SYSTEM_USED")).toBe(false);
 });
 
+it("reports a missing font used only for page numbers", async () => {
+  const result = await validate(numberManga("Mangacli Missing Font 002cf333"), options);
+  expect(result.ok).toBe(false);
+  expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "FONT_NOT_FOUND", severity: "error" }));
+});
+
 describe.runIf(process.env.MANGACLI_TEST_SYSTEM_FONTS === "1")("installed Linux Noto CJK", () => {
   it("renders Japanese by family name using the regular CFF face", async () => {
     const result = await render(manga({ system: "Noto Sans CJK JP" }), { ...options, format: "png" });
@@ -91,6 +102,11 @@ describe.runIf(process.env.MANGACLI_TEST_SYSTEM_FONTS === "1")("installed Linux 
     ]));
     expect(result.layout[0].text[0]).toMatchObject({ fonts: ["NotoSansCJKjp-Regular"], missing: [] });
     expect(result.pages[0].data.byteLength).toBeGreaterThan(1000);
+  });
+
+  it("loads an installed font used only for page numbers", async () => {
+    const result = await render(numberManga("NotoSerifCJKjp-Regular"), { ...options, format: "png" });
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "FONT_SYSTEM_USED", message: expect.stringContaining("NotoSerifCJKjp-Regular") }));
   });
 
   it("lists collection faces and renders the nonzero face by PostScript name and index", async () => {
