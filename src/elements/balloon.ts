@@ -475,9 +475,10 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     // `as: offscreen` without a side: the speaker is beyond the nearest panel edge
     const side = offscreenTailSide(t, plan.props);
     const offSide = side === "nearest" ? nearestSide(center, ctx.panel?.box ?? ctx.coordsBox) : side;
+    const offscreenOvershoot = 4 * u.k;
     if (offSide) {
       const pb = ctx.panel ? ctx.panel.box : ctx.coordsBox;
-      const ext = 4 * u.k;
+      const ext = offscreenOvershoot;
       target = offSide === "right" ? { x: pb.x + pb.w + ext, y: center.y + (pb.y + pb.h / 2 - center.y) * 0.3 } : offSide === "left" ? { x: pb.x - ext, y: center.y } : offSide === "top" ? { x: center.x, y: pb.y - ext } : { x: center.x, y: pb.y + pb.h + ext };
     } else if (t.to !== undefined) target = resolvePoint(t.to, pc);
     else if (who) {
@@ -529,10 +530,9 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     }
     const gap = t.gap !== undefined ? toMm(t.gap as string, u) : 2 * u.k;
     const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : Math.min(9 * u.k, Math.max(4.5 * u.k, minSide * 0.4));
-    const frameCut = !!offSide && t.length === undefined;
     let length: number;
     if (t.length !== undefined) length = toMm(t.length as string, u);
-    else if (frameCut && target) length = Math.hypot(target.x - R.x, target.y - R.y);
+    else if (offSide && target) length = Math.min(maxLen, Math.hypot(target.x - R.x, target.y - R.y));
     else if (target) {
       const dist = Math.hypot(target.x - R.x, target.y - R.y);
       let avail = dist - gap;
@@ -607,6 +607,9 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     }
     const ctrl = { x: (R.x + tip.x) / 2 + perp.x * bend * length * 0.5, y: (R.y + tip.y) / 2 + perp.y * bend * length * 0.5 };
     const tipBent = { x: tip.x + perp.x * bend * length * 0.25, y: tip.y + perp.y * bend * length * 0.25 };
+    const frameAxis = offSide === "left" || offSide === "right" ? "x" : "y";
+    const frameSign = offSide === "left" || offSide === "top" ? -1 : 1;
+    const frameCut = offSide && target && t.length === undefined && (tipBent[frameAxis] - target[frameAxis]) * frameSign > -offscreenOvershoot;
 
     if (kind === "bubbles") {
       const count = typeof t.count === "number" ? t.count : 3;
