@@ -199,11 +199,7 @@ function normDialogue(lines: unknown, path: Path, bag: DiagnosticBag, characters
       const who = charKeys[0];
       out = { who, text: ln[who], ...Object.fromEntries(Object.entries(ln).filter(([k]) => k !== who)) };
     }
-    if ("stroke" in out) out.stroke = normStroke(out.stroke, [...path, i, "stroke"], bag);
-    if (typeof out.shape === "string") out.shape = { kind: out.shape };
-    if ("tail" in out) out.tail = normTail(out.tail);
-    if ("textOutline" in out) out.textOutline = normOutline(out.textOutline, [...path, i, "textOutline"], bag);
-    return out;
+    return normElementProps(out, [...path, i], bag);
   });
 }
 

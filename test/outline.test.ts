@@ -92,6 +92,12 @@ describe("speech-role defaults", () => {
 });
 
 describe("halo", () => {
+  it.each(["0.6mm", "0.6mm white", 0.6])("normalizes dialogue halo %j", (halo) => {
+    const project = load({ mangacli: 1, pages: [{ panels: [{ dialogue: [{ text: "A", halo }] }] }] });
+    expect(project.bag.hasErrors).toBe(false);
+    expect(resolve(project).pages[0].panels[0].elements[0].props.halo).toEqual({ width: typeof halo === "number" ? halo : "0.6mm", ...(halo === "0.6mm white" ? { color: "white" } : {}) });
+  });
+
   it.each(["0.6mm white", { width: "0.6mm", color: "white" }, "0.6mm", 0.6, "none", false])("normalizes %j", (halo) => {
     const project = load({ mangacli: 1, pages: [{ panels: [{ layers: [{ balloon: "文", halo }] }] }] });
     expect(project.bag.hasErrors).toBe(false);
