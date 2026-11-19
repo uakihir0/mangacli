@@ -61,6 +61,26 @@ describe("effect silhouette clears", () => {
     expect(rings).toEqual([2]);
   });
 
+  it("uses feather as the alpha margin fallback for lines and fills", async () => {
+    expect(await lines({ clear: { element: "hero", mode: "alpha", feather: "3mm" } }))
+      .toEqual(await lines({ clear: { element: "hero", mode: "alpha", margin: "3mm" } }));
+    for (const [clear, expected] of [
+      [{ element: "hero", mode: "alpha", feather: "3mm" }, 3],
+      [{ element: "hero", mode: "alpha", feather: "3mm", margin: "2mm" }, 2],
+    ] as const) {
+      const list = await renderer.displayList(doc({ kind: "beta-flash", clear }), 1, { assets: { art: await art() } });
+      const dilations: number[] = [];
+      const visit = (node: Node) => {
+        if (node.kind !== "group") return;
+        if (node.alphaMaskOf) dilations.push(node.alphaMaskOf.dilate ?? 0);
+        node.children.forEach(visit);
+      };
+      visit(list.root);
+      expect(dilations.length).toBeGreaterThan(0);
+      expect(dilations.every((d) => d === expected)).toBe(true);
+    }
+  });
+
   it("splits a crossing and discards tiny or fully cleared fragments", () => {
     const pts = [{ x: 0, y: 0 }, { x: 10, y: 0 }];
     expect(splitClearLine(pts, (p) => p.x > 4 && p.x < 6, 0.1, 1)).toHaveLength(2);

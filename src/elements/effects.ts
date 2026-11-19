@@ -67,7 +67,7 @@ async function resolveClears(f: FxCtx): Promise<FxCtx["clears"]> {
   const clears: FxCtx["clears"] = [];
   for (const [i, spec] of raw.entries()) {
     const region = resolveRegion(spec, f.ctx, "panel", [...f.el.path, "clear", i]);
-    const margin = isObj(spec) && spec.margin !== undefined ? L(f, spec.margin) : region.alphaOf ? L(f, "1mm") : 0;
+    const margin = isObj(spec) && spec.margin !== undefined ? L(f, spec.margin) : region.alphaOf ? L(f, isObj(spec) ? spec.feather ?? "1mm" : "1mm") : 0;
     if (region.alphaOf) {
       const image = f.ctx.refs.get(region.alphaOf)?.imagePx;
       const silhouette = image && await effectSilhouette(f.ctx, image, margin, cache);
