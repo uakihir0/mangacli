@@ -506,7 +506,7 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
     const opts = await renderOptions({ ...o, profile: o.profile ?? "preview" }, file);
     opts.onSystemFont = (path) => watcher.add(path);
     // guides show where the paper is cut, so include the bleed around the trim unless marks are already shown
-    if (debug?.includes("guides") && opts.crop !== "marks") opts.crop = "bleed";
+    if (debug?.includes("guides")) opts.includeBleed = true;
     if (debug) opts.debug = Array.isArray(opts.debug) ? [...new Set([...opts.debug, ...debug])] : (opts.debug ?? debug);
     const r = await render(entry, opts);
     return { pages: r.pages.map((p) => ({ id: p.id, side: p.side, separation: p.separation, data: p.data, mime: p.mimeType, ext: p.format, width: p.width, height: p.height, elements: p.elements })), diags: r.diagnostics };

@@ -54,6 +54,8 @@ export interface RenderOptions {
   width?: number;
   height?: number;
   crop?: "trim" | "bleed" | "marks";
+  /** internal: widen a trim crop to the bleed, keeping bleed and marks crops (preview guides) */
+  includeBleed?: boolean;
   spread?: "joined" | "split";
   toneRendering?: "dots" | "flat" | "auto";
   transparent?: boolean;
@@ -549,7 +551,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
     const tp = performance.now();
     try {
       const pageBag = bag;
-      const crop = options.crop ?? prof.crop;
+      const crop0 = options.crop ?? prof.crop;
+      const crop = options.includeBleed && (crop0 ?? "trim") === "trim" ? "bleed" : crop0;
       const dpiFor = (geom: import("./layout/page.js").PageGeom) => {
         const sz = pageSize(page.settings, bag, page.path);
         const markW = crop === "marks" ? 2 * (((prof as { marks?: { margin?: number } }).marks?.margin) ?? 10) : 0;
