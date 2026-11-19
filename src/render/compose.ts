@@ -342,8 +342,8 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     });
     const panelUnion = panelPolys.length ? polygonClipping.union(panelPolys[0], ...panelPolys.slice(1)) : [];
     const bleedPoly = [rectPts(geom.bleedBox).map((p) => [p.x, p.y] as [number, number])];
+    const envelope = targets.length ? boundsOf(targets.flatMap((pg) => pg.polygon)) : geom.bleedBox;
     if ((clip.open as string[] | undefined)?.length && targets.length) {
-      const envelope = boundsOf(targets.flatMap((pg) => pg.polygon));
       const envelopePoly = [rectPts(envelope).map((p) => [p.x, p.y] as [number, number])];
       const withoutGutters = multiPolyPath(polygonClipping.union(polygonClipping.difference(bleedPoly, envelopePoly), panelUnion));
       it.nodes = [{ kind: "group", clip: withoutGutters, clipRule: "nonzero", children: it.nodes }];
@@ -355,8 +355,20 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       group.clipped.sort((a, b) => a.z - b.z || a.listIdx - b.listIdx);
     }
     if ((clip.open as string[] | undefined)?.length) {
-      const outside = multiPolyPath(polygonClipping.difference(bleedPoly, panelUnion));
-      it.nodes = [{ kind: "group", clip: outside, clipRule: "nonzero", children: it.nodes }];
+      const interiors = targets.map((pg, i) => {
+        const interior = { ...envelope };
+        const inset = toMm(((pg.panel.props.border as Obj)?.width as string) ?? `${0.5 * geom.k}mm`, u);
+        for (const side of clip.open as string[]) {
+          if (side === "top") { interior.y += inset; interior.h -= inset; }
+          if (side === "bottom") interior.h -= inset;
+          if (side === "left") { interior.x += inset; interior.w -= inset; }
+          if (side === "right") interior.w -= inset;
+        }
+        return polygonClipping.intersection(panelPolys[i], [rectPts(interior).map((p) => [p.x, p.y] as [number, number])]);
+      });
+      const interiorUnion = interiors.length ? polygonClipping.union(interiors[0], ...interiors.slice(1)) : [];
+      const outside = multiPolyPath(polygonClipping.difference(bleedPoly, interiorUnion));
+      it.nodes = [{ kind: "group", clip: outside, clipRule: "nonzero", children: [{ kind: "group", isolate: true, children: it.nodes }] }];
     } else it.nodes = [];
   }
 

@@ -27,6 +27,34 @@ pages:
 }
 
 describe("spanning elements", () => {
+  it.each(["png", "svg"] as const)("interrupts only figure-covered open frames for art and over spans in %s", async (format) => {
+    const figure = await sharp({ create: { width: 100, height: 80, channels: 4, background: "transparent" } })
+      .composite([{ input: await sharp({ create: { width: 20, height: 80, channels: 4, background: "#888888" } }).png().toBuffer(), left: 30, top: 0 }])
+      .png().toBuffer();
+    for (const stack of ["art", "over"]) {
+      const doc = parse(scene("top", stack));
+      delete doc.pages[0].layout;
+      doc.page.baseFrame = "trim";
+      doc.pages[0].panels = [
+        { id: "a", box: ["10mm", "20mm", "80mm", "20mm"], border: { width: "2mm", color: "black" } },
+        { id: "b", box: ["10mm", "50mm", "80mm", "20mm"], border: { width: "2mm", color: "black" } },
+      ];
+      doc.assets = { figure: { src: "figure.png" } };
+      doc.pages[0].layers = [{ image: "figure", size: ["100mm", "80mm"], at: ["0mm", "0mm"], anchor: "top-left", fit: "fill", outline: "0.8mm white", clip: { to: ["a", "b"], open: ["top"] }, stack }];
+      const result = await render(doc, { format, dpi: 127, colorMode: "gray", assets: { figure } });
+      const { data, info } = await sharp(result.pages[0].data).resize(500, 400).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+      const at = (x: number, y: number) => data[(Math.round(y * 5) * info.width + Math.round(x * 5)) * info.channels];
+      for (const y of [19.4, 20, 20.6]) expect(at(40, y)).toBeGreaterThan(100);
+      expect(at(40, 20)).toBeLessThan(160);
+      expect(Math.abs(at(40, 21) - at(40, 25))).toBeLessThan(3);
+      expect(at(70, 20)).toBeLessThan(10);
+      expect(at(40, 40)).toBeLessThan(40);
+      if (stack === "art") expect(at(40, 50)).toBeLessThan(40);
+      expect(at(40, 45)).toBeGreaterThan(240);
+      expect(at(10, 30)).toBeLessThan(10);
+    }
+  });
+
   it.each(["png", "svg"] as const)("keeps curved top breakouts continuous in %s", async (format) => {
     const doc = parse(scene("top", "over", "a"));
     doc.pages[0].panels[0].shape = { kind: "ellipse" };
