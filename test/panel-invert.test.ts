@@ -56,6 +56,21 @@ describe("post-composite filters", () => {
   it("leaves empty filter lists byte-identical", async () => {
     expect(await pixels(input("invert: false\n        filters: []"))).toEqual(await pixels(input()));
   });
+  it("removes page paper recursively for transparent output on inverted pages", async () => {
+    const doc = input("background: transparent", '[{ type: draw, kind: rect, at: [20mm, 20mm], size: [10mm, 10mm], fill: black }]', "invert: true");
+    for (const output of [{ transparent: true }, { background: "transparent" }]) {
+      const r = await render(doc, { ...options, ...output });
+      const data = await sharp(r.pages[0].data).ensureAlpha().raw().toBuffer();
+      expect(data[(10 * 200 + 10) * 4 + 3]).toBe(0);
+      expect(data[(100 * 200 + 100) * 4 + 3]).toBe(255);
+      expect(at(data, 100, 100)).toEqual([255, 255, 255]);
+    }
+  });
+  it("replaces output paper in place so page inversion also filters the override", async () => {
+    const r = await render(input("background: transparent", "[]", "invert: true"), { ...options, background: "red" });
+    const data = await sharp(r.pages[0].data).ensureAlpha().raw().toBuffer();
+    expect(at(data, 10, 10)).toEqual([0, 255, 255]);
+  });
   it("does not paint transparent pixels or pixels outside the panel clip", async () => {
     const small = await pixels(input("box: [10mm, 10mm, 20mm, 20mm]\n        invert: true"));
     expect(at(small, 20, 20)).toEqual([255, 255, 255]);
