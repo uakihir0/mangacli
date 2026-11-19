@@ -31,7 +31,7 @@ export function setFontRefs(setName: string): string[] {
   for (const r of Object.values(set) as SetRole[]) {
     if (typeof r === "string") continue;
     if (r.font) out.add(r.font);
-    for (const c of r.compose ?? []) out.add(c.font);
+    for (const c of r.compose ?? []) if (c.font) out.add(c.font);
     for (const f of r.fallback ?? []) out.add(f);
   }
   return [...out];

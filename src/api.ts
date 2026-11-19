@@ -28,7 +28,7 @@ import type { RElement, RPage } from "./model/resolve.js";
 import { RasterBackend, monoNodeWorkingBytes } from "./render/raster.js";
 import { DEFAULT_OUTPUT_BYTES, monoWorkingBytes } from "./render/mono.js";
 import { createCanvas } from "@napi-rs/canvas";
-import { renderSvg } from "./render/svg.js";
+import { renderSvg, svgBox } from "./render/svg.js";
 import { type MangaPlugin, PluginSet, withPlugins } from "./plugin.js";
 import { BODY_GENERATORS } from "./shapes/balloon.js";
 import { HAND_PRESETS, PEN_PRESETS } from "./ink/presets.js";
@@ -123,6 +123,7 @@ export interface RenderedPage {
   height: number;
   dpi: number;
   separation?: string;
+  elements: { id: string; x: number; y: number; width: number; height: number }[];
   data: Uint8Array;
   path?: string;
 }
@@ -677,6 +678,12 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const intent = geom.color;
       const colorMode = options.colorMode ?? (prof.colorMode === "intent" ? (intent === "mono" ? "gray" : "color") : prof.colorMode);
       const dpi = dpiFor(geom);
+      if (prof.print && colorMode === "mono" && formats.includes("svg")) bag.warn("SVG_MONO_APPROXIMATION", "SVG tones are a vector/gray approximation; use PNG/PDF for 1-bit print submission", { pageId: page.id });
+      if (bag.items.some((d) => d.code === "SVG_MONO_APPROXIMATION" && d.pageId === page.id && d.severity === "error")) {
+        if (throwOnError) throw errorFor(bag.items);
+        if (options.failFast) break;
+        continue;
+      }
       const outputScale = options.output === "print" ? geom.printScale : 1;
       const rasterDpi = dpi * outputScale;
       const marks = outputScale === 1 ? prof.marks : { margin: (prof.marks?.margin ?? 10) / outputScale, length: (prof.marks?.length ?? 9) / outputScale, width: (prof.marks?.width ?? 0.1) / outputScale };
@@ -716,7 +723,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         const fullTrim = { x: Math.round((full.width - trimWidth) / 2), y: Math.round((full.height - trimHeight) / 2), w: trimWidth, h: trimHeight };
         type PartRaster = { data: Uint8ClampedArray; packed?: Uint8Array; width: number; height: number };
         const parts: { raster: PartRaster | (() => Promise<PartRaster>); trim: typeof fullTrim; side: string; nombre: number | null }[] = [];
-        if (geom.type === "spread" && spreadMode === "split" && needRaster) {
+        const splitSvg = geom.type === "spread" && spreadMode === "split";
+        if (splitSvg && needRaster) {
           const trimPx = Math.round((geom.trimW * rasterDpi) / 25.4 + 1e-6);
           const edge = Math.round((full.width - trimPx) / 2);
           const half = Math.round(trimPx / 2);
@@ -746,6 +754,11 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           const first = geom.rtl ? right : left;
           const second = geom.rtl ? left : right;
           parts.push({ ...first, nombre: pl.nombre }, { ...second, nombre: pl.nombre === null ? null : pl.nombre + 1 });
+        } else if (splitSvg) {
+          parts.push(
+            { raster: full, trim: fullTrim, side: geom.rtl ? "right" : "left", nombre: pl.nombre },
+            { raster: full, trim: fullTrim, side: geom.rtl ? "left" : "right", nombre: pl.nombre === null ? null : pl.nombre + 1 },
+          );
         } else parts.push({ raster: packedMono && needRaster ? () => backend.renderMono(list, { x: 0, y: 0, width, height }) : full, trim: fullTrim, side: geom.side, nombre: pl.nombre });
         for (const part of parts) {
           const raster = typeof part.raster === "function" ? await part.raster() : part.raster;
@@ -770,18 +783,23 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
               pw.writer.addPage({ rgba: raster.data, packed: raster.packed, width: raster.width, height: raster.height, dpi, colorMode: (options.debug ? "color" : colorMode) as "color", transparent: transparentOut || !!run.list, trim, bleed: { x: trim.x - bleedPx, y: trim.y - bleedPx, w: trim.w + 2 * bleedPx, h: trim.h + 2 * bleedPx } });
               continue;
             }
-            if (fmt === "svg" && part !== parts[0]) continue;
             const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, compression: prof.compression, chroma: prof.chroma, tiffCompression: prof.tiffCompression, transparent: transparentOut || !!run.list, metadata: prof.metadata === false ? {} : { Software: `mangacli ${PKG_VERSION}`, Title: String(meta.title ?? ""), ...(meta.author ? { Author: String(meta.author) } : {}), ...(meta.copyright ? { Copyright: String(meta.copyright) } : {}), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed), ...(sourceHash ? { "mangacli:source-hash": sourceHash } : {}) } };
+            const svgOptions = { crop, marks, splitSide: splitSvg ? part.side as "left" | "right" : undefined, assets, colorMode, imageDpi: rasterDpi, maxImageDpi: 300, outputScale };
             const data = fmt === "psd" ? psds.get(part.side)!.build()
-              : fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: rasterDpi, maxImageDpi: 300, outputScale, marks }))
+              : fmt === "svg" ? Buffer.from(await renderSvg(list, svgOptions))
               : await encode(raster.data, raster.width, raster.height, { ...enc, packed: raster.packed });
             const svgSize = () => {
-              const bw = crop === "trim" ? geom.trimW : geom.bleedBox.w;
-              const bh = crop === "trim" ? geom.trimH : geom.bleedBox.h;
+              const { w: bw, h: bh } = svgBox(list, svgOptions);
               return { w: Math.round((bw * rasterDpi) / 25.4), h: Math.round((bh * rasterDpi) / 25.4) };
             };
             const size = fmt === "svg" ? svgSize() : { w: raster.width, h: raster.height };
-            const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: size.w, height: size.h, dpi, separation: run.name, data };
+            const scale = rasterDpi / 25.4;
+            const svgMargin = crop === "marks" ? marks?.margin ?? 10 : 0;
+            const origin = fmt === "svg" ? { x: crop === "trim" ? 0 : (svgMargin - geom.bleedBox.x) * scale, y: crop === "trim" ? 0 : (svgMargin - geom.bleedBox.y) * scale } : part.trim;
+            const trimX = fmt !== "svg" && parts.length > 1 && part.side === "right" ? Math.round(trimWidth / 2) : 0;
+            const elements = info.elements.map(({ id, bbox }) => ({ id, x: bbox.x * scale + origin.x - trimX, y: bbox.y * scale + origin.y, width: bbox.w * scale, height: bbox.h * scale }))
+              .filter((b) => b.x < size.w && b.y < size.h && b.x + b.width > 0 && b.y + b.height > 0);
+            const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: size.w, height: size.h, dpi, separation: run.name, elements, data };
             if (outDir) {
               const file = outName(page, pl.idx, part.side, part.nombre, geom.type === "spread" && parts.length === 1, parts.length > 1, run.name, EXT[fmt]);
               if (emitted.has(file)) {
@@ -825,7 +843,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   for (const [sep, pw] of pdfs) {
     if (!pw.writer.pageCount) continue;
     const data = pw.writer.build();
-    const rp: RenderedPage = { id: resolved.pages[0]?.id ?? "document", index: 0, number: null, side: "document", format: "pdf", mimeType: MIME.pdf, colorMode: pw.colorMode, width: 0, height: 0, dpi: pw.dpi, separation: sep || undefined, data };
+    const rp: RenderedPage = { id: resolved.pages[0]?.id ?? "document", index: 0, number: null, side: "document", format: "pdf", mimeType: MIME.pdf, colorMode: pw.colorMode, width: 0, height: 0, dpi: pw.dpi, separation: sep || undefined, elements: [], data };
     if (outDir) {
       const file = join(outDir, `${p.name}${sep ? `-${sep}` : ""}.pdf`);
       mkdirSync(dirname(file), { recursive: true });
@@ -894,7 +912,10 @@ function roundList(list: DisplayList): unknown {
   return JSON.parse(JSON.stringify(list, (_, v) => (typeof v === "number" ? Math.round(v * 1000) / 1000 : v)));
 }
 
-/** debug overlay (spec 10.11.1): boxes, panels with reading order, elements, text, balloons, order, grid */
+/** colours of the `guides` debug layer (exported for tests) */
+export const GUIDE_COLORS = { safe: "rgb(0,150,255)", fold: "rgb(230,0,0)", foldBand: "rgba(255,0,0,0.18)" } as const;
+
+/** debug overlay (spec 10.11.1): guides, boxes, panels with reading order, elements, text, balloons, order, grid */
 function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: number }, list: DisplayList, info: PageLayoutInfo, dpi: number, crop: string, layers: boolean | string[], markMargin = 10) {
   const s = dpi / 25.4;
   const off = crop === "bleed" ? list.boxes.bleed.x : crop === "marks" ? list.boxes.bleed.x - markMargin : 0;
@@ -943,6 +964,41 @@ function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: num
     rect(list.boxes.trim, "#ff0000");
     rect(list.boxes.baseFrame, "#00a0ff");
     rect(list.boxes.safe, "#00c000", [2, 2]);
+  }
+  if (want("guides")) {
+    // placement guides: the safe line text must stay inside, and the spread fold band text must avoid
+    const fm = info.geom.foldMargin;
+    const glw = Math.max(2 / s, 0.25);
+    if (fm > 0) {
+      const cx = list.boxes.trim.x + list.boxes.trim.w / 2;
+      const y0 = list.boxes.bleed.y;
+      const h = list.boxes.bleed.h;
+      g.fillStyle = GUIDE_COLORS.foldBand;
+      g.fillRect(cx - fm, y0, 2 * fm, h);
+      g.strokeStyle = GUIDE_COLORS.fold;
+      g.lineWidth = glw;
+      g.setLineDash([2, 1]);
+      for (const x of [cx - fm, cx + fm]) {
+        g.beginPath();
+        g.moveTo(x, y0);
+        g.lineTo(x, y0 + h);
+        g.stroke();
+      }
+      g.setLineDash([]);
+      g.beginPath();
+      g.moveTo(cx, y0);
+      g.lineTo(cx, y0 + h);
+      g.stroke();
+      label(`fold ±${Math.round(fm * 10) / 10}mm`, cx + fm + 1, list.boxes.safe.y + 4, GUIDE_COLORS.fold);
+    }
+    if (info.geom.units.units !== "px") {
+      g.strokeStyle = GUIDE_COLORS.safe;
+      g.lineWidth = glw;
+      g.setLineDash([3, 1.5]);
+      g.strokeRect(list.boxes.safe.x, list.boxes.safe.y, list.boxes.safe.w, list.boxes.safe.h);
+      g.setLineDash([]);
+      label("safe", list.boxes.safe.x + 1, list.boxes.safe.y - 1, GUIDE_COLORS.safe);
+    }
   }
   if (want("panels"))
     for (const pn of info.panels) {
