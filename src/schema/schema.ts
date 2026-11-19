@@ -480,8 +480,6 @@ const BaseFrame = z.union([
 ]);
 
 const pageSettings = {
-  printScale: z.number().positive().max(1).optional(),
-  printSize: z.union([z.string(), z.tuple([Length, Length])]).optional(),
   size: z.union([z.string(), z.tuple([Length, Length])]).optional(),
   orientation: z.enum(["portrait", "landscape"]).optional(),
   units: z.enum(["mm", "px", "pt", "in", "cm"]).optional(),
@@ -493,6 +491,8 @@ const pageSettings = {
   background: Paint.optional(),
   color: z.enum(["mono", "color"]).optional(),
   foldMargin: Length.optional(),
+  printScale: z.number().positive().max(1).optional(),
+  printSize: z.union([z.string(), z.tuple([Length, Length])]).optional(),
 };
 
 const printSettingsValid = (value: { printScale?: number; printSize?: unknown }) => value.printScale === undefined || value.printSize === undefined;
