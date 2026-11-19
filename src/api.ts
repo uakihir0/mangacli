@@ -691,7 +691,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           if (fmt === "svg" && part !== parts[0]) continue;
           const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, compression: prof.compression, chroma: prof.chroma, tiffCompression: prof.tiffCompression, transparent: transparentOut || !!run.list, metadata: prof.metadata === false ? {} : { Software: `mangacli ${PKG_VERSION}`, Title: String(meta.title ?? ""), ...(meta.author ? { Author: String(meta.author) } : {}), ...(meta.copyright ? { Copyright: String(meta.copyright) } : {}), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed), ...(sourceHash ? { "mangacli:source-hash": sourceHash } : {}) } };
           const data = fmt === "psd" ? psds.get(part.side)!.build()
-            : fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: rasterDpi, maxImageDpi: 300, outputScale, marks }))
+            : fmt === "svg" ? Buffer.from(await renderSvg(list, { bag, crop, assets, colorMode: colorMode as "color", imageDpi: rasterDpi, maxImageDpi: 300, outputScale, marks }))
             : await encode(raster.data, raster.width, raster.height, enc);
           const svgSize = () => {
             const margin = crop === "marks" ? 2 * (marks?.margin ?? 10) : 0;

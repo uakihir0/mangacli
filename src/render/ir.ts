@@ -55,6 +55,7 @@ export interface NodeTag {
 
 export interface GroupNode {
   kind: "group";
+  filters?: ImageFilter[];
   transform?: Matrix;
   opacity?: number;
   blend?: BlendMode;

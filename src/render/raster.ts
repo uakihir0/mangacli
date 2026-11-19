@@ -285,7 +285,7 @@ export class RasterBackend {
       if (this.visible(g)) await this.drawGlow(dev, g, g.glow, m, mm);
       return;
     }
-    const needOff = (g.opacity !== undefined && g.opacity < 0.999) || (g.blend && g.blend !== "normal") || !!g.alphaMaskOf || !!g.softClip || !!g.isolate;
+    const needOff = !!g.filters?.length || (g.opacity !== undefined && g.opacity < 0.999) || (g.blend && g.blend !== "normal") || !!g.alphaMaskOf || !!g.softClip || !!g.isolate;
     if (!needOff) {
       if (g.clip) {
         ctx.save();
@@ -330,6 +330,12 @@ export class RasterBackend {
         octx.restore();
       }
     }
+    if (g.filters?.length) {
+      const pixels = octx.getImageData(0, 0, r.w, r.h);
+      const filtered = await applyFilters({ data: pixels.data, width: r.w, height: r.h }, g.filters, 1 / dev.scale);
+      pixels.data.set(filtered.data);
+      octx.putImageData(pixels, 0, 0);
+    }
     let op = g.opacity ?? 1;
     if (dev.opts.colorMode === "mono" && (op < 0.999 || g.softClip)) {
       // screen the (partial) coverage into dots instead of grey edges
@@ -356,6 +362,10 @@ export class RasterBackend {
       op = 1;
     }
     ctx.save();
+    if (g.clip && g.filters?.length) {
+      setM(ctx, mm);
+      ctx.clip(buildPath(g.clip), g.clipRule ?? "nonzero");
+    }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = op;
     ctx.globalCompositeOperation = (g.blend && g.blend !== "normal" ? g.blend : "source-over") as never;

@@ -1,5 +1,29 @@
 # 4. ページとコマ
 
+## コマ・ページの合成後フィルタ
+
+コマに `invert: true` を 1 行加えると、背景・絵・効果線・描き文字を合成した後に反転する。吹き出し（中の文字を含む）と通常の文字・ナレーションは既定では反転しない。
+
+```yaml
+pages:
+  - panels:
+      - invert: true
+        layers:
+          - { effect: focus-lines }
+          - { sfx: ドン, at: [50%, 60%] }
+          - { balloon: 反転しても読める, place: top-right }
+      - filters: [grayscale, "threshold(0.5)"]
+        exclude: []
+        layers:
+          - { balloon: この吹き出しも処理する }
+```
+
+`filters` は画像と同じフィルタを記述順に適用する。`invert: true` はその末尾に `invert` を追加する指定。`exclude` は処理から外す要素種別で、`balloons`、`text`、`sfx`、`effects`、`images` を指定できる。省略時は `[balloons, text]`、`[]` は全要素を処理する。除外要素は相互の順序を保って処理済みの絵の上に重ねる。コマの枠線は処理しない。コマからはみ出す要素も、所属するコマの指定に従う。
+
+`pages[]` にも同じ指定ができ、コマとページレイヤーを合成した後に処理する（`page` に書けば全ページの既定値）。ページの紙の背景・コマ枠も含め、ノンブルは常に除外する。コマとページ両方に指定すると順に適用する。透過部分は反転しても不透明にならない。
+
+PNG・PDF・PSD はラスターフィルタを使用する。SVG は `invert`、`grayscale`、`brightness`、`contrast`、`threshold`、`levels` に対応し、未対応のフィルタは `SVG_FILTER_UNSUPPORTED` 警告を出して省略する。実例は [panel-invert.yaml](examples/panel-invert.yaml)。
+
 ## 4.1 ページの幾何
 
 1 ページは、外側から次の 4 つの領域を持つ。
