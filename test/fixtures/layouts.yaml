@@ -1,0 +1,18 @@
+mangacli: 1
+page: { size: [100mm, 80mm], bleed: 3mm }
+output: { metadata: false }
+pages:
+  - layout:
+      split: rows
+      sizes: [2, 3]
+      slant: [3mm]
+      children:
+        - split: cols
+          sizes: [1, 2]
+          children: [panel, panel]
+        - panel
+    panels:
+      - bleed: [top, left]
+        layers: [{ mark: heart }]
+      - layers: [{ effect: speed-lines }]
+      - layers: [{ type: draw, kind: rect, size: [20mm, 10mm], rotate: 15deg }]
