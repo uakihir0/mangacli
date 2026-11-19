@@ -27,6 +27,19 @@ pages:
 }
 
 describe("spanning elements", () => {
+  it.each([true, false])("preserves the backdrop through white breakout pixels with explicit multiply = %s", async (explicit) => {
+    const figure = await sharp({ create: { width: 100, height: 80, channels: 4, background: "white" } }).png().toBuffer();
+    const doc = parse(scene("top", "art", "a"));
+    doc.page.background = "#888888";
+    doc.assets = { figure: { src: "figure.png", kind: explicit ? "photo" : "lineart" } };
+    doc.pages[0].layers = [{ image: "figure", size: ["100mm", "80mm"], at: ["0mm", "0mm"], anchor: "top-left", fit: "fill", clip: { to: ["a"], open: ["top"] }, stack: "art", ...(explicit ? { blend: "multiply" } : {}) }];
+    const result = await render(doc, { format: "png", dpi: 127, colorMode: "gray", assets: { figure } });
+    const box = result.layout[0].panels.find((p) => p.id === "a")!.box;
+    const { data, info } = await sharp(result.pages[0].data).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const at = (x: number, y: number) => data[(Math.round(y * 5) * info.width + Math.round(x * 5)) * info.channels];
+    expect(at(box.x + box.w / 2, box.y - 2)).toBe(136);
+  });
+
   it.each(["png", "svg"] as const)("interrupts only figure-covered open frames for art and over spans in %s", async (format) => {
     const figure = await sharp({ create: { width: 100, height: 80, channels: 4, background: "transparent" } })
       .composite([{ input: await sharp({ create: { width: 20, height: 80, channels: 4, background: "#888888" } }).png().toBuffer(), left: 30, top: 0 }])

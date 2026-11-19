@@ -368,7 +368,8 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       });
       const interiorUnion = interiors.length ? polygonClipping.union(interiors[0], ...interiors.slice(1)) : [];
       const outside = multiPolyPath(polygonClipping.difference(bleedPoly, interiorUnion));
-      it.nodes = [{ kind: "group", clip: outside, clipRule: "nonzero", children: [{ kind: "group", isolate: true, children: it.nodes }] }];
+      const needsBackdrop = (node: Node): boolean => node.kind === "group" && (!!node.blend && node.blend !== "normal" || node.children.some(needsBackdrop));
+      it.nodes = [{ kind: "group", clip: outside, clipRule: "nonzero", children: [{ kind: "group", isolate: !it.nodes.some(needsBackdrop), children: it.nodes }] }];
     } else it.nodes = [];
   }
 
