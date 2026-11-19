@@ -252,7 +252,7 @@ fonts:
 | `shout` | ゴシックMB101 U（インストール済み）→ 新ゴ U（インストール済み）→ `zen-kaku-gothic-new@900`（`as: shout`、`as: scream`） |
 | `sfx` | `dela-gothic-one` |
 | `hand` | `yomogi` |
-| `title` | `zen-maru-gothic@900` |
+| `title` | システムのゴシックMB101 U・新ゴ U、なければ `noto-sans-jp@900`（扉の題字向けの、画の端が四角い極太ゴシック。ない字は `zen-kaku-gothic-new@900`） |
 
 | ロール | `comic-basic` のフォント（欧米のコミックの写植） |
 |---|---|
