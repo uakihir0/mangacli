@@ -1,4 +1,4 @@
-import { fileURLToPath } from "node:url";
+ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createRenderer } from "../src/api.js";
 import { flattenPath, polygonArea } from "../src/geom/path.js";
@@ -7,7 +7,7 @@ import type { Node } from "../src/render/ir.js";
 import { phraseBoundaries } from "../src/text/linebreak.js";
 
 const r = createRenderer({ profile: "preview" });
-const y = (s: string) => ({ yaml: s, filename: fileURLToPath(new URL("../docs/examples/feat.yaml", import.meta.url)) });
+ const y = (s: string) => ({ yaml: s, filename: fileURLToPath(new URL("../docs/examples/feat.yaml", import.meta.url)) });
 const page = (layers: string) => `mangacli: 1\npage: { size: [80mm, 60mm], bleed: 0, baseFrame: trim }\npages:\n  - panels:\n      - layers:\n${layers}`;
 
 describe("features", () => {
