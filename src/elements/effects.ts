@@ -313,7 +313,7 @@ function betaFlash(f: FxCtx): Node[] {
   if (core) pre.push({ kind: "path", path: f.region.path, fillRule: f.region.fillRule, paint: core, tag: tag(f.el, "fill") });
   // black outside the outer boundary
   const ring = [...polyPath(f.region.polys[0] ?? [], true), ...polyPath(outerPoly.slice().reverse(), true)];
-  pre.push({ kind: "path", path: ring, fillRule: "evenodd", paint: { type: "solid", color: f.color }, tag: tag(f.el, "ink") });
+  pre.push({ kind: "path", path: ring, fillRule: "evenodd", paint: { type: "solid", color: f.color }, tag: tag(f.el, "fill") });
   return wrap(f, inksToNodes(inks, f.color, tag(f.el, "ink")), pre);
 }
 

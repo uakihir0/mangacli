@@ -34,6 +34,17 @@ async function lines(effect: Record<string, unknown>, image?: Buffer) {
 }
 
 describe("effect silhouette clears", () => {
+  it("masks the beta-flash solid ring with the dilated figure", async () => {
+    const list = await renderer.displayList(doc({ kind: "beta-flash", clear: { element: "hero", mode: "alpha", margin: "2mm" } }), 1, { assets: { art: await art() } });
+    const rings: number[] = [];
+    const visit = (node: Node, dilation = 0) => {
+      if (node.kind === "group") for (const child of node.children) visit(child, node.alphaMaskOf?.invert ? node.alphaMaskOf.dilate ?? 0 : dilation);
+      else if (node.kind === "path" && node.tag?.elementId === "fx" && node.fillRule === "evenodd") rings.push(dilation);
+    };
+    visit(list.root);
+    expect(rings).toEqual([2]);
+  });
+
   it("splits a crossing and discards tiny or fully cleared fragments", () => {
     const pts = [{ x: 0, y: 0 }, { x: 10, y: 0 }];
     expect(splitClearLine(pts, (p) => p.x > 4 && p.x < 6, 0.1, 1)).toHaveLength(2);
