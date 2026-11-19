@@ -25,6 +25,31 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
+  it.each(["dela-gothic-one", "noto-sans-jp"])("keeps TCY marks full height and vertical dashes thin with %s", async (id) => {
+    const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id }]]), "none", [], {});
+    await fonts.prepare("test", "──っ！！!?勝");
+    const style = defaultTextStyle({ font: "test", fontSize: 10 });
+    const body = ink(layoutText("勝", style, fonts).glyphs[0].path);
+    for (const text of ["！！", "!!", "！？", "<tcy>！！！</tcy>"]) {
+      const result = layoutText(text, style, fonts);
+      expect(result.errors).toEqual([]);
+      expect(result.missing).toEqual([]);
+      const rects = result.glyphs.map((g) => ink(g.path));
+      for (const rect of rects) {
+        expect(rect.h / body.h).toBeGreaterThan(0.8);
+        expect(rect.h / body.h).toBeLessThan(1.2);
+      }
+      expect(Math.max(...rects.map((r) => r.x + r.w)) - Math.min(...rects.map((r) => r.x))).toBeLessThanOrEqual(10 + 1e-8);
+    }
+    const dashes = layoutText("──っ！！", style, fonts).glyphs.slice(0, 2).map((g) => ink(g.path));
+    for (const dash of dashes) {
+      expect(dash.w).toBeCloseTo(0.7);
+      expect(dash.h).toBeCloseTo(10);
+    }
+    expect(dashes[0].y + dashes[0].h).toBeCloseTo(dashes[1].y);
+    expect(layoutText("", style, fonts).glyphs).toEqual([]);
+    expect(layoutText("<unknown>！！</unknown>", style, fonts).errors[0]?.code).toBe("TEXT_UNKNOWN_TAG");
+  });
   it("detects active vertical forms when OpenType features change on the same font", async () => {
     const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id: "noto-sans-jp" }]]), "none", [], {});
     await fonts.prepare("test", "〟");

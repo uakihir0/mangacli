@@ -361,7 +361,6 @@ export function assignTcy(units: Unit[], opt: { digits: number; marks: boolean; 
         gid++;
         for (let k = i; k < j; k++) {
           const uu = units[k] as { ch: string; tcyGroup?: number };
-          uu.ch = uu.ch === "！" ? "!" : uu.ch === "？" ? "?" : uu.ch;
           uu.tcyGroup = gid;
         }
       }
