@@ -122,20 +122,29 @@ export async function readSystemFontFaces(path: string): Promise<SystemFontFace[
           const header = offset === 0 ? head : await read(file, offset, 12);
           if (!sfntTags.has(header.toString("latin1", 0, 4))) continue;
           const tables = await read(file, offset + 12, header.readUInt16BE(4) * 16);
+          let names: ReturnType<typeof parseNames> | undefined;
+          let regular: boolean | undefined;
           for (let pos = 0; pos < tables.length; pos += 16) {
-            if (tables.toString("latin1", pos, pos + 4) !== "name") continue;
+            const tag = tables.toString("latin1", pos, pos + 4);
+            const start = tables.readUInt32BE(pos + 8);
             const length = tables.readUInt32BE(pos + 12);
-            if (length >= 6 && length <= 1024 * 1024) {
-              const names = parseNames(await read(file, tables.readUInt32BE(pos + 8), length));
-              const get = (...ids: number[]) => [...new Set(ids.flatMap((id) => [...(names.get(id) ?? [])]))];
-              const families = get(16, 1, 21), fullNames = get(4), postScriptNames = get(6);
-              const modernStyles = get(17, 22);
-              const regular = (modernStyles.length ? modernStyles : get(2)).some((name) => /^(regular|normal|roman|book|標準)$/i.test(name));
-              if (families.length || fullNames.length || postScriptNames.length)
-                faces.push({ path, index, families, fullNames, postScriptNames, regular });
+            if (tag === "name" && length >= 6 && length <= 1024 * 1024) {
+              names = parseNames(await read(file, start, length));
+            } else if (tag === "OS/2" && length >= 64) {
+              const os2 = await read(file, start, 64);
+              const weight = os2.readUInt16BE(4);
+              const flags = os2.readUInt16BE(62);
+              // fsSelection marks italic (bit 0), bold (5), and oblique (9).
+              if (weight > 0 && weight <= 1000) regular = weight === 400 && (flags & 0x221) === 0;
             }
-            break;
           }
+          if (!names) continue;
+          const get = (...ids: number[]) => [...new Set(ids.flatMap((id) => [...(names.get(id) ?? [])]))];
+          const families = get(16, 1, 21), fullNames = get(4), postScriptNames = get(6);
+          const styles = get(17, 22);
+          regular ??= (styles.length ? styles : get(2)).some((name) => /^(regular|normal|roman|book|標準)$/i.test(name));
+          if (families.length || fullNames.length || postScriptNames.length)
+            faces.push({ path, index, families, fullNames, postScriptNames, regular });
         } catch {
           // A broken face need not hide the rest of the collection.
         }

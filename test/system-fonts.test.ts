@@ -24,7 +24,7 @@ const numberManga = (system: string) => ({
   pages: [{ type: "blank" }],
 });
 
-async function writeNamedFont(path: string, records: { id: number; language: number; name: string }[]) {
+async function writeNamedFont(path: string, records: { id: number; language: number; name: string }[], metrics?: { weight: number; selection?: number }) {
   const strings = records.map(({ name }) => Buffer.from(name, "utf16le").swap16());
   const storage = 6 + records.length * 12;
   const name = Buffer.alloc(storage);
@@ -36,13 +36,21 @@ async function writeNamedFont(path: string, records: { id: number; language: num
     [3, 1, language, id, strings[i].length, offset].forEach((n, j) => name.writeUInt16BE(n, record + j * 2));
     offset += strings[i].length;
   });
-  const sfnt = Buffer.alloc(28);
+  const sfnt = Buffer.alloc(metrics ? 44 : 28);
   sfnt.write("OTTO");
-  sfnt.writeUInt16BE(1, 4);
+  sfnt.writeUInt16BE(metrics ? 2 : 1, 4);
   sfnt.write("name", 12);
   sfnt.writeUInt32BE(sfnt.length, 20);
   sfnt.writeUInt32BE(storage + offset, 24);
-  await writeFile(path, Buffer.concat([sfnt, name, ...strings]));
+  const os2 = Buffer.alloc(metrics ? 64 : 0);
+  if (metrics) {
+    sfnt.write("OS/2", 28);
+    sfnt.writeUInt32BE(sfnt.length + storage + offset, 36);
+    sfnt.writeUInt32BE(os2.length, 40);
+    os2.writeUInt16BE(metrics.weight, 4);
+    os2.writeUInt16BE(metrics.selection ?? 0, 62);
+  }
+  await writeFile(path, Buffer.concat([sfnt, name, ...strings, os2]));
 }
 
 it("reads localized Unicode names and resolves normalized family and PostScript names", async () => {
@@ -74,6 +82,21 @@ it("prefers the regular family face over a heavier face with a legacy Regular su
     await writeNamedFont(regular, [name(1, "Example Gothic"), name(2, "Regular")]);
     const faces = [...await readSystemFontFaces(heavy), ...await readSystemFontFaces(regular)];
     expect(findSystemFont(faces, "Example Gothic")?.path).toBe(regular);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+it("uses OpenType weight and slope rather than assuming a style is literally named Regular", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "mc-font-"));
+  try {
+    const names = (style: string) => [{ id: 1, language: 0x0409, name: "Example Roman" }, { id: 17, language: 0x0409, name: style }];
+    const bold = join(dir, "Bold.otf"), italic = join(dir, "Italic.otf"), regular = join(dir, "Regular.otf");
+    await writeNamedFont(bold, names("10 Bold"), { weight: 700 });
+    await writeNamedFont(italic, names("10 Italic"), { weight: 400, selection: 1 });
+    await writeNamedFont(regular, names("10 Regular"), { weight: 400 });
+    const faces = [...await readSystemFontFaces(bold), ...await readSystemFontFaces(italic), ...await readSystemFontFaces(regular)];
+    expect(findSystemFont(faces, "Example Roman")?.path).toBe(regular);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
