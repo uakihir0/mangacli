@@ -104,6 +104,40 @@ async function inkBox(data: Buffer, region: { left: number; top: number; width: 
 }
 
 describe("print export", () => {
+  it("keeps raster crop-mark length, width and margin in output millimeters", async () => {
+    const doc = input("size: [100mm, 150mm], bleed: 4mm, printScale: 0.5");
+    const options = { profile: "preview", dpi: 254, crop: "marks" as const, config: { output: { marks: { length: 9, width: 0.4, margin: 12 } } } };
+    const a = (await render(doc, options)).pages[0];
+    const b = (await render(doc, { ...options, output: "print" })).pages[0];
+    expect(b.width).toBe(780);
+    expect(b.height).toBe(1030);
+    const manuscriptMark = await inkBox(Buffer.from(a.data), { left: 0, top: 150, width: 120, height: 20 });
+    const printMark = await inkBox(Buffer.from(b.data), { left: 0, top: 130, width: 120, height: 20 });
+    expect(printMark[2] - printMark[0]).toBe(manuscriptMark[2] - manuscriptMark[0]);
+    expect(printMark[3] - printMark[1]).toBe(manuscriptMark[3] - manuscriptMark[1]);
+    const fitted = await render(doc, { output: "print", profile: "preview", crop: "marks", width: 740 });
+    expect(fitted.pages[0].width).toBe(740);
+    expect(fitted.pages[0].height).toBe(990);
+    expect(fitted.pages[0].dpi).toBeCloseTo(254);
+  });
+  it("keeps PDF mark margins physical while scaling trim and bleed", async () => {
+    const doc = input("size: [100mm, 150mm], bleed: 4mm, printScale: 0.5");
+    const r = await render(doc, { output: "print", profile: "print-gray", dpi: 254, crop: "marks", format: "pdf" });
+    const pdf = Buffer.from(r.pages[0].data).toString("latin1");
+    const box = pdf.match(/\/MediaBox \[([^\]]+)\] \/TrimBox \[([^\]]+)\] \/BleedBox \[([^\]]+)\]/)!;
+    const media = box[1].split(" ").map(Number), bleed = box[3].split(" ").map(Number);
+    expect((media[2] - media[0]) * 25.4 / 72).toBeCloseTo(74, 1);
+    expect((bleed[0] - media[0]) * 25.4 / 72).toBeCloseTo(10, 1);
+  });
+  it("exports SVG crop marks with physical dimensions outside scaled artwork", async () => {
+    const doc = input("size: [100mm, 150mm], bleed: 4mm, printScale: 0.5");
+    const r = await render(doc, { output: "print", profile: "preview", crop: "marks", format: "svg" });
+    const svg = Buffer.from(r.pages[0].data).toString();
+    expect(svg).toContain('width="74mm" height="99mm"');
+    expect(svg).toContain('viewBox="-20 -20 148 198"');
+    expect(svg).toContain('stroke-width="0.2"');
+    expect(svg).toContain("M0 4L-18 4");
+  });
   it.each(["trim", "bleed", "marks"] as const)("preserves scaled PDF trim boxes with %s crop", async (crop) => {
     const doc = { yaml: "mangacli: 1\npage: { size: [100mm, 150mm], bleed: 4mm, printScale: 0.5 }\npages:\n  - type: spread\n    panels: [{}]\n" };
     for (const spread of ["split", "joined"] as const) {

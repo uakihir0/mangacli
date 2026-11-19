@@ -522,8 +522,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         const sz = pageSize(page.settings, bag, page.path);
         const markW = crop === "marks" ? 2 * (((prof as { marks?: { margin?: number } }).marks?.margin) ?? 10) : 0;
         const outputScale = options.output === "print" ? geom.printScale : 1;
-        const cropW = (crop === "bleed" || crop === "marks" ? geom.bleedBox.w + markW : geom.trimW) * outputScale;
-        const cropH = (crop === "bleed" || crop === "marks" ? geom.bleedBox.h + markW : geom.trimH) * outputScale;
+        const cropW = (crop === "bleed" || crop === "marks" ? geom.bleedBox.w : geom.trimW) * outputScale + markW;
+        const cropH = (crop === "bleed" || crop === "marks" ? geom.bleedBox.h : geom.trimH) * outputScale + markW;
         let d: number;
         const W0 = options.width ?? (options.dpi || options.scale ? undefined : prof.width);
         const H0 = options.height ?? (options.dpi || options.scale ? undefined : prof.height);
@@ -574,10 +574,11 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const dpi = dpiFor(geom);
       const outputScale = options.output === "print" ? geom.printScale : 1;
       const rasterDpi = dpi * outputScale;
+      const marks = outputScale === 1 ? prof.marks : { margin: (prof.marks?.margin ?? 10) / outputScale, length: (prof.marks?.length ?? 9) / outputScale, width: (prof.marks?.width ?? 0.1) / outputScale };
       if (dpi > lim.maxDpi) throw new Error(`SECURITY_LIMIT_EXCEEDED: ${Math.round(dpi)} dpi exceeds maxDpi (${lim.maxDpi})`);
       const runs: { name?: string; list?: string[] }[] = seps0 ? seps0 : [{}];
       for (const run of runs) {
-        const backend = new RasterBackend({ maxPixels: lim.maxOutputPixels, dpi: rasterDpi, crop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
+        const backend = new RasterBackend({ maxPixels: lim.maxOutputPixels, dpi: rasterDpi, crop, marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
         const needRaster = formats.some((f) => f !== "svg");
         let full = needRaster ? await backend.render(list) : { data: new Uint8ClampedArray(0), width: 0, height: 0, dpi };
         if (plugins && needRaster) full = { ...full, ...(plugins.hook("afterRender", { data: full.data, width: full.width, height: full.height }) as object) };
@@ -587,7 +588,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         const quiet = prof.print || profName === "preview" || profName === "draft" || draft;
         const finish = options.finish === false ? undefined : (options.finish ?? profOwn ?? (quiet ? undefined : (prof.finish as Finish | undefined)));
         if (finish && needRaster && !run.list) full = { ...full, ...(await applyFinish(full, finish, { dpi, colorMode: colorMode as "color", seed: resolved.seed, bag })) };
-        if (options.debug) drawDebug(full, list, info, rasterDpi, crop, options.debug, prof.marks?.margin ?? 10);
+        if (options.debug) drawDebug(full, list, info, rasterDpi, crop, options.debug, marks?.margin ?? 10);
         // spreads: one joined image, or two pages each with bleed on all sides (spec 10.9)
         const trimWidth = Math.round((geom.trimW * rasterDpi) / 25.4 + 1e-6);
         const trimHeight = Math.round((geom.trimH * rasterDpi) / 25.4 + 1e-6);
@@ -629,10 +630,11 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           }
           if (fmt === "svg" && part !== parts[0]) continue;
           const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, compression: prof.compression, chroma: prof.chroma, tiffCompression: prof.tiffCompression, transparent: transparentOut || !!run.list, metadata: prof.metadata === false ? {} : { Software: `mangacli ${PKG_VERSION}`, Title: String(meta.title ?? ""), ...(meta.author ? { Author: String(meta.author) } : {}), ...(meta.copyright ? { Copyright: String(meta.copyright) } : {}), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed), ...(sourceHash ? { "mangacli:source-hash": sourceHash } : {}) } };
-          const data = fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: Math.min(rasterDpi, 300), outputScale })) : await encode(raster.data, raster.width, raster.height, enc);
+          const data = fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: Math.min(rasterDpi, 300), outputScale, marks })) : await encode(raster.data, raster.width, raster.height, enc);
           const svgSize = () => {
-            const bw = crop === "trim" ? geom.trimW : geom.bleedBox.w;
-            const bh = crop === "trim" ? geom.trimH : geom.bleedBox.h;
+            const margin = crop === "marks" ? 2 * (marks?.margin ?? 10) : 0;
+            const bw = (crop === "trim" ? geom.trimW : geom.bleedBox.w) + margin;
+            const bh = (crop === "trim" ? geom.trimH : geom.bleedBox.h) + margin;
             return { w: Math.round((bw * rasterDpi) / 25.4), h: Math.round((bh * rasterDpi) / 25.4) };
           };
           const size = fmt === "svg" ? svgSize() : { w: raster.width, h: raster.height };
