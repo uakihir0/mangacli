@@ -55,6 +55,9 @@ mangacli render <file | -> [options]
 | `-o, --out <dir>` | 出力先。既定は `output.dir`、なければ `./out` |
 | `-p, --profile <name>` | 出力プロファイル（[10.7](10-color-and-output.md#107-出力プロファイル)）。既定 `web` |
 | `-f, --format <fmt[,fmt]>` | 出力形式 |
+| `--pdf-x <1a\|4>` | 白黒二値 PDF の入稿用規格。PDF/X-1a:2001 または PDF/X-4。下の 2 オプションと併用 |
+| `--pdf-x-icc <path>` | 印刷所指定の CMYK 出力プロファイル。1a は ICC v2、4 は ICC v2 または v4 |
+| `--pdf-x-condition <name>` | 印刷所指定の出力条件名 |
 | `--color <color\|gray\|mono>` | カラーモード |
 | `--dpi <n>`、`--scale <n>`、`--width <px>`、`--height <px>` | 解像度・寸法（[10.5](10-color-and-output.md#105-解像度とサイズ)） |
 | `--crop <trim\|bleed\|marks>` | 出力範囲 |
