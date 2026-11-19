@@ -2,9 +2,57 @@ import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { render } from "../src/api.js";
 import { imageInkMask } from "../src/render/image-ink.js";
-import { linearToSrgb } from "../src/core/color.js";
+import { linearToSrgb, srgbToLinear } from "../src/core/color.js";
 
 describe("print image ink preservation", () => {
+  it.each(["line", "mesh"])("does not protect a gray light %s below the white-core cutoff", (shape) => {
+    const size = 144;
+    const rgba = new Uint8Array(size * size * 4);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const wrap = (v: number) => Math.abs(((v % 36) + 54) % 36 - 18);
+        const distance = shape === "mesh" ? Math.min(wrap(x + y), wrap(x - y)) / Math.SQRT2 : Math.abs(y - size / 2);
+        const v = Math.round(linearToSrgb(0.01 + 0.19 * Math.exp(-distance * distance / (2 * 1.3 ** 2))) * 255);
+        rgba.set([v, v, v, 255], (y * size + x) * 4);
+      }
+    }
+    for (const curve of ["linear", "perceptual"] as const) expect(imageInkMask(rgba, size, size, 324, curve).some(Boolean)).toBe(false);
+  });
+
+  it.each([["line", 0.55], ["line", 0.72], ["mesh", 0.55], ["mesh", 0.72]] as const)("screens a gray %s with core luminance %s without excess ink", async (shape, core) => {
+    const size = 324;
+    const rgba = new Uint8Array(size * size * 4);
+    let sourceDensity = 0;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const wrap = (v: number) => Math.abs(((v % 36) + 54) % 36 - 18);
+        const distance = shape === "mesh" ? Math.min(wrap(x + y), wrap(x - y)) / Math.SQRT2 : Math.abs(y - size / 2);
+        const value = 0.96 - (0.96 - core) * Math.exp(-distance * distance / (2 * 1.3 ** 2));
+        const v = Math.round(linearToSrgb(value) * 255);
+        sourceDensity += 1 - srgbToLinear(v / 255);
+        rgba.set([v, v, v, 255], (y * size + x) * 4);
+      }
+    }
+    for (const curve of ["linear", "perceptual"] as const) expect(imageInkMask(rgba, size, size, 324, curve).some(Boolean)).toBe(false);
+    const art = await sharp(rgba, { raw: { width: size, height: size, channels: 4 } }).png().toBuffer();
+    const result = await render({ yaml: `mangacli: 1
+book: { pageNumbers: { enabled: false } }
+page: { size: [25.4mm, 25.4mm], bleed: 0mm }
+assets:
+  art: { src: art.png, kind: background }
+pages:
+  - layers:
+      - { image: art, at: [0mm, 0mm], anchor: top-left, size: [25.4mm, 25.4mm], fit: fill }
+` }, { profile: "print-mono", dpi: 324, crop: "trim", assets: { art } });
+    expect(result.failures).toEqual([]);
+    const pixels = await sharp(result.pages[0].data).removeAlpha().raw().toBuffer();
+    let ink = 0;
+    for (let i = 0; i < pixels.length; i += 3) if (pixels[i] === 0) ink++;
+    expect(ink).toBeGreaterThan(0);
+    expect(ink).toBeLessThan(size * size);
+    expect(ink / (size * size)).toBeLessThanOrEqual(sourceDensity / (size * size) + 0.01);
+  });
+
   it("does not promote a single low-contrast crossing into a mesh", () => {
     const size = 96;
     const rgba = new Uint8Array(size * size * 4);
@@ -27,7 +75,7 @@ describe("print image ink preservation", () => {
         const wrap = (v: number) => Math.abs(((v % spacing) + spacing * 1.5) % spacing - spacing / 2);
         const distance = Math.min(wrap(x + y), wrap(x - y)) / Math.SQRT2;
         const background = light ? 0.01 : 0.96;
-        const contrast = light ? 0.4 * (0.8 + 0.2 * Math.sin(x / 12)) : 0.25;
+        const contrast = light ? 0.94 * (0.95 + 0.05 * Math.sin(x / 12)) : 0.92;
         const value = background + (light ? 1 : -1) * contrast * Math.exp(-distance * distance / (2 * 1.3 ** 2));
         const v = Math.round(linearToSrgb(value) * 255);
         const i = y * size + x;

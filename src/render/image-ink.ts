@@ -123,6 +123,19 @@ export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number
     }
   }
   preserveMesh(meshMask, mask, width, height, dpi);
+  const darkCore = toneCurve === "perceptual" ? linearToSrgb(0.22) : 0.22;
+  const lightCore = toneCurve === "perceptual" ? linearToSrgb(0.3) : 0.3;
+  for (let i = 0; i < mask.length; i++) {
+    if (mask[i] === 1 && gray[i] > darkCore) mask[i] = 0;
+    if (mask[i] !== 2 || gray[i] >= lightCore) continue;
+    const x = i % width, y = Math.floor(i / width);
+    let core = gray[i];
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx >= 0 && xx < width && yy >= 0 && yy < height) core = Math.max(core, gray[yy * width + xx]);
+    }
+    if (core < lightCore) mask[i] = 0;
+  }
   return mask;
 }
 
