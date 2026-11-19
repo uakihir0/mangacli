@@ -346,9 +346,12 @@ const effectProps = z
     bolts: z.number().int().nonnegative().optional(), branches: z.number().int().nonnegative().optional(),
     jaggedness: z.number().min(0).max(1).optional(), branching: z.number().min(0).max(1).optional(),
     puffs: z.number().int().nonnegative().optional(), debris: z.number().int().nonnegative().optional(),
-    shade: Paint.optional(), target: Region.optional(),
+    shade: z.unknown().optional(), target: z.unknown().optional(),
   })
   .catchall(z.unknown()).superRefine((v, ctx) => {
+    if (v.kind === "crack") {
+      for (const [key, schema] of Object.entries({ shade: Paint, target: Region })) if (v[key] !== undefined && !schema.safeParse(v[key]).success) ctx.addIssue({ code: "custom", path: [key], message: `invalid ${key}` });
+    }
     const direction = v.kind === "swirl-lines" ? z.enum(["cw", "ccw"]) : v.kind === "dust" ? z.union([Angle, z.literal("both")]) : ["lightning", "smoke"].includes(v.kind) ? Angle : undefined;
     if (direction && v.direction !== undefined && !direction.safeParse(v.direction).success) ctx.addIssue({ code: "custom", path: ["direction"], message: `invalid direction for ${v.kind}` });
     if (["lightning", "crack", "dust", "smoke"].includes(v.kind)) {
