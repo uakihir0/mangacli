@@ -11,11 +11,12 @@ export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number
   }
   const midpoint = toneCurve === "perceptual" ? 0.5 : srgbToLinear(0.5);
   const radius = Math.max(2, Math.round(dpi * 0.24 / 25.4));
-  const minLength = dpi * 1.5 / 25.4;
-  const maxGap = Math.max(1, Math.round(dpi * 0.16 / 25.4));
+  const minLength = dpi * 2 / 25.4;
+  const maxGap = Math.max(1, Math.round(dpi * 0.32 / 25.4));
   const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
-  for (const [dx, dy] of directions) {
-    const candidates = new Uint8Array(width * height);
+  const candidates = new Uint8Array(width * height);
+  for (let direction = 0; direction < directions.length; direction++) {
+    const [dx, dy] = directions[direction];
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const i = y * width + x;
@@ -25,37 +26,57 @@ export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number
         if (x0 < 0 || x1 >= width || y0 < 0 || y0 >= height || y1 < 0 || y1 >= height) continue;
         const a = gray[y0 * width + x0], b = gray[y1 * width + x1];
         if (v <= midpoint && Math.min(a, b) - v >= 0.12) {
-          candidates[i] = 1;
+          candidates[i] |= 1 << direction;
         }
         if (v > midpoint && v - Math.max(a, b) >= 0.12) {
-          candidates[i] = 2;
+          candidates[i] |= 1 << (direction + 4);
         }
       }
     }
-    const tx = -dy, ty = dx;
-    const inside = (x: number, y: number) => x >= 0 && x < width && y >= 0 && y < height;
-    const step = Math.hypot(tx, ty);
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        if (inside(x - tx, y - ty)) continue;
+  }
+  const tolerance = Math.max(1, Math.round(dpi * 0.08 / 25.4));
+  for (const vertical of [false, true]) {
+    const major = vertical ? height : width;
+    const minor = vertical ? width : height;
+    for (let angle = -8; angle <= 8; angle++) {
+      const slope = angle / 8;
+      const normal = Math.abs(slope) <= 0.5 ? (vertical ? 0 : 1) : slope > 0 ? 3 : 2;
+      const step = Math.hypot(1, slope);
+      const end = Math.round((major - 1) * slope);
+      for (let offset = -Math.max(0, end); offset < minor - Math.min(0, end); offset++) {
         const ray: number[] = [];
-        for (let xx = x, yy = y; inside(xx, yy); xx += tx, yy += ty) ray.push(yy * width + xx);
+        for (let p = 0; p < major; p++) {
+          const q = offset + Math.round(p * slope);
+          if (q >= 0 && q < minor) ray.push(vertical ? p * width + q : q * width + p);
+        }
         for (const polarity of [1, 2]) {
+          const bit = 1 << (normal + (polarity === 1 ? 0 : 4));
+          const matches = new Int32Array(ray.length).fill(-1);
+          for (let p = 0; p < ray.length; p++) {
+            const i = ray[p];
+            const q = vertical ? i % width : Math.floor(i / width);
+            for (let d = -tolerance; d <= tolerance; d++) {
+              if (q + d < 0 || q + d >= minor) continue;
+              const j = i + d * (vertical ? 1 : width);
+              if (candidates[j] & bit) { matches[p] = j; break; }
+            }
+          }
           let start = -1, last = -1, count = 0;
+          let reference = 0;
           const flush = () => {
             const length = last - start + 1;
             if (start >= 0 && length * step >= minLength && count / length >= 0.85) {
               for (let p = start; p <= last; p++) {
-                const i = ray[p];
-                if ((gray[i] <= midpoint) === (polarity === 1)) mask[i] = polarity;
+                const i = matches[p] >= 0 ? matches[p] : ray[p];
+                if ((gray[i] <= midpoint) === (polarity === 1) && Math.abs(gray[i] - reference) <= 0.035) mask[i] = polarity;
               }
             }
             start = last = -1;
             count = 0;
           };
           for (let p = 0; p < ray.length; p++) {
-            if (candidates[ray[p]] === polarity) {
-              if (start < 0) start = p;
+            if (matches[p] >= 0 && (start < 0 || Math.abs(gray[matches[p]] - reference) <= 0.035)) {
+              if (start < 0) { start = p; reference = gray[matches[p]]; }
               last = p;
               count++;
             } else if (start >= 0 && p - last > maxGap) flush();

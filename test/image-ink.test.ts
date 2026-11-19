@@ -4,6 +4,24 @@ import { render } from "../src/api.js";
 import { imageInkMask } from "../src/render/image-ink.js";
 
 describe("print image ink preservation", () => {
+  it.each([1 / 2, 1 / 3, Math.tan(20 * Math.PI / 180), Math.tan(70 * Math.PI / 180)])("preserves long lines at slope %s", (slope) => {
+    const width = 192;
+    for (const light of [false, true]) {
+      const rgba = new Uint8Array(width * width * 4);
+      for (let i = 0; i < width * width; i++) rgba.set(light ? [80, 80, 80, 255] : [180, 180, 180, 255], i * 4);
+      const line: number[] = [];
+      for (let p = 10; p < 170; p++) {
+        const x = slope <= 1 ? p : 10 + Math.round((p - 10) / slope);
+        const y = slope <= 1 ? 10 + Math.round((p - 10) * slope) : p;
+        const i = y * width + x;
+        rgba.set(light ? [180, 180, 180, 255] : [80, 80, 80, 255], i * 4);
+        line.push(i);
+      }
+      const mask = imageInkMask(rgba, width, width, 324);
+      for (const i of line) expect(mask[i], `light=${light}, pixel=${i}`).toBe(light ? 2 : 1);
+    }
+  });
+
   it.each(["linear", "perceptual"] as const)("does not classify an isoluminant red line as ink (%s)", (toneCurve) => {
     const width = 96;
     const rgba = new Uint8Array(width * width * 4);
