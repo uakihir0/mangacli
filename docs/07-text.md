@@ -600,13 +600,13 @@ ruby:
 | `writing` | `vertical` \| `horizontal` | 本文と同じ（言語が `ja` なら `vertical`、それ以外は `horizontal`） | 並べる向き |
 | `letterSpacing` | Length（`em`） | `-0.22em` | 字間。文字を重ねて一体の描き文字にする |
 | `path` | SfxPath | - | 文字を並べる経路（下表） |
-| `grow` | 数値 | 自動 | 省略時は先頭 85% → 末尾 115%（1 文字なら 100%）。指定時は 1 + `grow` × (n − 1)。`0` で等サイズ |
-| `smallKanaScale` | 数値（0.1〜1） | `0.65` | 促音・拗音などの小書き仮名に追加する倍率。`1` で無効 |
-| `perChar` | `{ rotate, scale, jitter }` | `{ rotate: [-10deg, 10deg] }` | シードから再現可能な文字ごとの不規則な変形。`rotate`（Angle の Range）、`scale`（倍率の Range）、`jitter`（位置のずれの最大の距離、Length） |
+| `grow` | 数値 | 自動 | 省略時は通常サイズの仮名を先頭 95% → 末尾 130%（1 文字なら 130%）にし、詰めた後も元の面積以上を確保する。指定時は 1 + `grow` × (n − 1)。`0` で等サイズ・面積補正なし |
+| `smallKanaScale` | 数値（0.1〜1） | `0.7` | 促音・拗音などの小書き仮名は直前の通常文字の倍率にこれを掛ける。`1` で縮小を無効 |
+| `perChar` | `{ rotate, scale, jitter }` | `{ rotate: [-10deg, 10deg] }` | シードから再現可能な文字ごとの不規則な変形。既定では組み方向に直交する ±0.08em の位置揺れも付ける。`rotate`（Angle の Range）、`scale`（倍率の Range）、`jitter`（両軸のずれ、Length。`0mm` で位置揺れなし） |
 | `chars` | CharOverride[] | - | 文字の番号ごとの上書き（`{ index, rotate, scale, offset, color }`） |
 | `distort` | Distort | `{ roughen: 0.25, warp: 0.15, skew: -8deg }` | 全体の歪み（下表） |
 | `color` | Paint | `black` | 文字の塗り |
-| `outline` | Outline[] | 白、文字サイズの 7% | 太い白フチ（太字の筆画幅の約 35%）。文字サイズに比例する。`none` で無効、明示した幅で上書き可能 |
+| `outline` | Outline[] | 白、各文字サイズの 6% | 太い白フチ（太字の筆画幅の約 35%）。大小変形・面積補正後の文字サイズに比例し、全ての縁を全ての塗りより先に描く。`none` で無効、明示した幅で上書き可能 |
 | `edge` | Stroke | `none` | 字形の輪郭を手描きの線でなぞる（例: 白抜き文字の黒い輪郭） |
 | `hollow` | 真偽値 | `false` | 中を抜き、`edge` の線だけを描く |
 | `lettering` | Lettering | `hand` | 手書き風の揺らぎ（7.15） |

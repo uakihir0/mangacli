@@ -1,7 +1,10 @@
 const SMALL_KANA = new Set(Array.from("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ"));
 
-export function sfxScale(index: number, count: number, char: string, grow?: number, smallKanaScale = 0.65): number {
-  const ramp = grow === undefined ? (count > 1 ? 0.85 + 0.3 * index / (count - 1) : 1) : 1 + grow * index;
+export const isSmallKana = (char: string): boolean => SMALL_KANA.has(char);
+
+export function sfxScale(index: number, count: number, char: string, grow?: number, smallKanaScale = 0.7): number {
+  const t = count > 1 ? index / (count - 1) : 1;
+  const ramp = grow === undefined ? 0.95 * (1 - t) + 1.3 * t : 1 + grow * index;
   return ramp * (SMALL_KANA.has(char) ? smallKanaScale : 1);
 }
 

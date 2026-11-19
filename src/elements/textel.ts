@@ -16,7 +16,7 @@ import { type TextLayout, layoutText } from "../text/layout.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
 import { parseMarkup } from "../text/markup.js";
-import { sfxScale, sfxShifts } from "../text/sfx.js";
+import { isSmallKana, sfxScale, sfxShifts } from "../text/sfx.js";
 
 type Obj = Record<string, unknown>;
 
@@ -135,9 +135,15 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const units = [...new Set(tl.glyphs.map((g) => g.unit))].sort((a, b) => a - b);
   const idxOf = new Map(units.map((uu, i) => [uu, i]));
   const parsed = parseMarkup(text, { markup: style.markup, normalize: style.normalize, vertical });
-  const scales = units.map((unit, i) => {
+  const unitChars = units.map(unit => {
     const char = parsed.units[unit];
-    return sfxScale(i, units.length, char?.kind === "char" ? char.ch : "", grow, p.smallKanaScale as number | undefined) * rng.range(scR.min, scR.max);
+    return char?.kind === "char" ? char.ch : "";
+  });
+  const fullCount = unitChars.filter(char => !isSmallKana(char)).length;
+  let fullIndex = -1;
+  const scales = units.map((_, i) => {
+    if (!isSmallKana(unitChars[i])) fullIndex++;
+    return sfxScale(grow === undefined ? Math.max(0, fullIndex) : i, grow === undefined ? fullCount : units.length, unitChars[i], grow, p.smallKanaScale as number | undefined) * rng.range(scR.min, scR.max);
   });
   const shift = sfxShifts(scales, em);
   const acc = scales.reduce((sum, scale) => sum + (scale - 1) * em, 0);
@@ -157,8 +163,9 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     const ov = chars.find((c) => c.index === i);
     const r = ov?.rotate !== undefined ? parseAngle(ov.rotate as string) : rng.range(rotR.min, rotR.max);
     const s = scales[i] * (typeof ov?.scale === "number" ? (ov.scale as number) : 1);
-    const jx = rng.range(-jitter, jitter) + (Array.isArray(ov?.offset) ? toMm(ov!.offset[0] as string, u) : 0);
-    const jy = rng.range(-jitter, jitter) + (Array.isArray(ov?.offset) ? toMm(ov!.offset[1] as string, u) : 0);
+    const perpendicular = pcs.jitter === undefined ? rng.range(-0.08, 0.08) * em : 0;
+    const jx = rng.range(-jitter, jitter) + (vertical ? perpendicular : 0) + (Array.isArray(ov?.offset) ? toMm(ov!.offset[0] as string, u) : 0);
+    const jy = rng.range(-jitter, jitter) + (vertical ? 0 : perpendicular) + (Array.isArray(ov?.offset) ? toMm(ov!.offset[1] as string, u) : 0);
     void uu;
     return { r, s, jx, jy, color: (ov?.color as string | undefined) };
   });
@@ -254,14 +261,30 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     paths.push(path);
     colorsPer.push(t.color ?? g.color);
   }
-  // letters set on a path: measure the real extent and move it to the origin
+  if (!pathSpec && style.letterSpacing < 0) {
+    let end: number | undefined;
+    for (const unit of units) {
+      const indices = tl.glyphs.flatMap((g, i) => g.unit === unit ? [i] : []);
+      const points = indices.flatMap(i => flattenPath(paths[i], 0.05).flatMap(c => c.pts));
+      if (!points.length) continue;
+      const bb = boundsOf(points);
+      const start = vertical ? bb.y : bb.x;
+      const delta = end === undefined ? 0 : end + style.letterSpacing * em * 0.4 - start;
+      for (const i of indices) paths[i] = transformPath(paths[i], matTranslate(vertical ? 0 : delta, vertical ? delta : 0));
+      end = start + delta + (vertical ? bb.h : bb.w);
+    }
+  }
+  let footprintScale = 1;
   {
     const pts = flattenPath(paths.flat(), 0.2).flatMap((c) => c.pts);
     if (pts.length) {
       const bb = boundsOf(pts);
-      for (let k = 0; k < paths.length; k++) paths[k] = transformPath(paths[k], [1, 0, 0, 1, -bb.x, -bb.y]);
-      boxW = bb.w;
-      boxH = bb.h;
+      const baseAlong = (vertical ? tl.height : tl.width) + Math.max(0, units.length - 1) * Math.max(0, -0.05 - style.letterSpacing) * em;
+      const baseArea = baseAlong * (vertical ? tl.width : tl.height);
+      if (grow === undefined && bb.w * bb.h > 0) footprintScale = Math.max(1, Math.sqrt(baseArea * 1.15 / (bb.w * bb.h)));
+      for (let k = 0; k < paths.length; k++) paths[k] = transformPath(paths[k], [footprintScale, 0, 0, footprintScale, -bb.x * footprintScale, -bb.y * footprintScale]);
+      boxW = bb.w * footprintScale;
+      boxH = bb.h * footprintScale;
     }
   }
   const allPath = paths.flat();
@@ -269,7 +292,10 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const pl = place(p, boxW, boxH, pc);
   const placed = transformPath(allPath, pl.matrix);
   const nodes: Node[] = [];
-  nodes.push(...outlineNodes(placed, p.outline ?? [{ width: `${em * 0.07}mm`, color: "white" }], ctx, el));
+  paths.forEach((path, i) => {
+    const scale = perCharT[idxOf.get(tl.glyphs[i].unit) ?? 0].s * footprintScale;
+    nodes.push(...outlineNodes(transformPath(path, pl.matrix), p.outline ?? [{ width: `${em * scale * 0.06}mm`, color: "white" }], ctx, el));
+  });
   const paint = textPaint(p.color, ctx, el, pl.bbox);
   // hollow letters keep only the traced outline (black by default)
   const edge = (p.edge as Obj | undefined) ?? (p.hollow ? { width: "0.35bmm", color: (p.color as string) ?? "black" } : undefined);
