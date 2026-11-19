@@ -10,6 +10,16 @@ import { BODY_GENERATORS } from "../src/shapes/balloon.js";
 const fonts = new FontRegistry(new Map() as never, "manga-basic", [], {});
 
 describe("electronic balloon outline", () => {
+  it.each([3, 6])("sets the default tooth width to about half of %s mm lettering", async (fontSize) => {
+    const { body } = await plan("あ", "vertical", { as: "electronic", size: ["31mm", "24mm"], fontSize: `${fontSize}mm`, hand: "clean" });
+    const valleys = body.contour.pts.filter((_, i) => i % 2 === 0);
+    for (let i = 0; i < valleys.length; i++) {
+      const a = valleys[i];
+      const b = valleys[(i + 1) % valleys.length];
+      expect(Math.abs(Math.hypot(a.x - b.x, a.y - b.y) - fontSize / 2)).toBeLessThan(fontSize * 0.05);
+    }
+  });
+
   it.each([[16, 29], [31, 15], [18, 18]])("spaces equally deep teeth on a %s × %s mm body", (w, h) => {
     const params = { kind: "electronic", irregularity: 0, tilt: 0 };
     const electronic = BODY_GENERATORS.electronic;

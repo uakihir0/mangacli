@@ -3,7 +3,7 @@ import { BLACK, WHITE, parseColor } from "../core/color.js";
 import { Rng } from "../core/random.js";
 import { type UnitContext, parseAngle, toMm } from "../core/units.js";
 import { type PathData, distToPolyline, flattenPath, pointInPolygon, polyPath, polygonArea, rayPolygon, transformPath } from "../geom/path.js";
-import { type Rect, type Vec, boundsOf, matTranslate, rot } from "../geom/vec.js";
+import { type Rect, type Vec, boundsOf, dot, lerp, matTranslate, rot, sub } from "../geom/vec.js";
 import type { HandSpec } from "../ink/presets.js";
 import { type ShapeContour, inkShape } from "../ink/shape.js";
 import { blobPoly } from "../ink/stroke.js";
@@ -132,6 +132,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
   let scale = 1;
   for (let attempt = 0; attempt < 12; attempt++) {
     const style = resolveTextStyle({ ...p, fontScale: ((p.fontScale as number) ?? 1) * scale }, u, ctx.lang, true, el.seed);
+    if (kind === "electronic") params.toothPitch = Math.max(style.fontSize / 2, 0.3 * u.k);
     const emCtx = { ...u, em: style.fontSize };
     const pad = Array.isArray(p.padding) ? p.padding : ["0.45em", "0.9em"];
     let padV = toMm(pad[0] as string, emCtx);
@@ -680,11 +681,10 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     const sideB: Vec[] = [];
     const N = Math.max(12, Math.ceil(length / (0.3 * u.k)));
     const zig = kind === "zigzag";
+    const straightBolt = zig && plan.params.kind === "electronic";
     const segs = Math.max(2, typeof t.segments === "number" ? Math.round(t.segments) : 3);
-    // lightning bolt: straight segments between alternating offsets, sharp joints
     const zigV: Vec[] = [];
     if (zig) {
-      // amplitude bounded by the segment length so the band never folds over itself
       const amp = Math.min(bw * 0.8, (length / segs) * 0.5);
       for (let k = 0; k <= segs; k++) {
         const tt = k / segs;
@@ -692,21 +692,36 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         zigV.push({ x: R.x + (tip.x - R.x) * tt + perp.x * o, y: R.y + (tip.y - R.y) * tt + perp.y * o });
       }
     }
-    const NN = zig ? segs * Math.max(4, Math.ceil(N / segs)) : N;
+    const steps = straightBolt ? segs : zig ? segs * Math.max(4, Math.ceil(N / segs)) : N;
     // outward normal at the root (from the body centre); a tail that runs along the outline is "slanted"
     const nl = Math.hypot(R.x - center.x, R.y - center.y) || 1;
     const nOut = { x: (R.x - center.x) / nl, y: (R.y - center.y) / nl };
     const slanted = !zig && !offSide && nOut.x * dir.x + nOut.y * dir.y < 0.55;
+    const boltSign = Math.sign(dot(sub(A.p, B.p), perp)) || 1;
     const zigCorners: number[] = [];
-    for (let i = 0; i <= NN; i++) {
-      const tt = i / NN;
+    for (let i = 0; i <= steps; i++) {
+      const tt = i / steps;
+      if (straightBolt) {
+        // Both sides run directly from the same root opening to the first bend.
+        if (i === 0) {
+          sideA.push(A.p);
+          sideB.push(B.p);
+        } else {
+          const mid = zigV[i];
+          const half = bw * (1 - tt) / 2 * boltSign;
+          sideA.push({ x: mid.x + perp.x * half, y: mid.y + perp.y * half });
+          sideB.push({ x: mid.x - perp.x * half, y: mid.y - perp.y * half });
+          if (i < steps) zigCorners.push(i);
+        }
+        continue;
+      }
       let cl = arcFn ? arcFn(tt) : quad(R, ctrl, tipBent, tt);
       if (zig) {
         const pos = tt * segs;
         const k = Math.min(segs - 1, Math.floor(pos));
         const u = pos - k;
-        cl = { x: zigV[k].x + (zigV[k + 1].x - zigV[k].x) * u, y: zigV[k].y + (zigV[k + 1].y - zigV[k].y) * u };
-        if (i > 0 && i < NN && Math.abs(u) < 1e-9) zigCorners.push(i);
+        cl = lerp(zigV[k], zigV[k + 1], u);
+        if (i > 0 && i < steps && Math.abs(u) < 1e-9) zigCorners.push(i);
       }
       // automatic off-panel tails stay open where the frame cuts them
       const f = zig ? Math.max(0, 1 - tt) ** 1.15 : frameCut ? 1 - 0.65 * Math.pow(tt, 0.8) : Math.pow(1 - tt, 1 + sideCurve * 1.6);

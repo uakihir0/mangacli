@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createRenderer } from "../src/api.js";
-import type { Vec } from "../src/geom/vec.js";
+import { type Vec, cross, len, sub } from "../src/geom/vec.js";
 import type { Node, PathNode } from "../src/render/ir.js";
 
 const r = createRenderer({ profile: "preview" });
@@ -53,6 +53,21 @@ const tip = (pts: Vec[]) => pts.reduce((p, q) => (q.x > p.x ? q : p));
 const rightOf = (pts: Vec[], cx: number) => 2 * cx - Math.min(...pts.map((p) => p.x));
 
 describe("balloon tails", () => {
+  it("gives the electronic tail two straight-sided bends before the tip", async () => {
+    const balloon = 'balloon: "電話", id: b, as: electronic, hand: clean, at: [40mm, 35mm], size: [24mm, 24mm]';
+    const body = await outline(`{${balloon}, tail: none}`);
+    const { pts } = await outline(`{${balloon}, tail: { direction: 0deg, length: 11mm }}`);
+    const bodyEdge = tip(body.pts).x;
+    const tailCorners = pts.filter((p, i) => {
+      if (p.x <= bodyEdge + 0.5) return false;
+      const a = sub(p, pts[(i + pts.length - 1) % pts.length]);
+      const b = sub(pts[(i + 1) % pts.length], p);
+      return Math.abs(cross(a, b)) > 0.1 * len(a) * len(b);
+    });
+    // Two bends on each edge, meeting at a single tip.
+    expect(tailCorners).toHaveLength(5);
+  });
+
   const shout = `{ balloon: "父ちゃん！", id: b, as: shout, at: [40mm, 35mm], tail: { to: [125mm, 35mm] } }`;
   it("keeps a shout tail aimed far away to a moderate length", async () => {
     const { pts, origin } = await outline(shout);

@@ -26,6 +26,7 @@ export interface ShapeParams {
   secondary?: boolean;
   corners?: number;
   jag?: number;
+  toothPitch?: number; // mm (electronic)
   points?: [number, number][];
   strokes?: number | "auto";
   join?: "clean" | "overshoot" | "gap";
@@ -335,12 +336,13 @@ const wavy: BodyGenerator = (w, h, p, seed) => {
 };
 
 const electronic: BodyGenerator = (w, h, p) => {
-  const n = Math.max(5, Math.round(p.corners ?? 8));
   const a = w / 2;
   const b = h / 2;
   const exponent = 3.2;
   const base = sampleRadial((t) => seRadius(a, b, exponent, t), 256, 0);
-  const pitch = polylineLength(base, true) / n;
+  const perimeter = polylineLength(base, true);
+  const n = Math.max(5, Math.round(p.corners ?? (p.toothPitch ? perimeter / p.toothPitch : 8)));
+  const pitch = perimeter / n;
   const depth = Math.min(pitch, Math.min(w, h) * 0.5) * Math.max(0, Math.min(p.jag ?? 0.25, 1));
   // Equal arc-length steps keep teeth the same width on long and short sides.
   const pts = resample(base, pitch / 2, true).map((q, i) => {
