@@ -135,7 +135,7 @@ export const Region = RegionBase;
 
 const Mask = z.union([z.object({ region: Region, invert: z.boolean().optional(), feather: Length.optional() }).strict(), Region]);
 
-const Clip = z.union([z.enum(["panel", "none", "trim", "auto"]), z.object({ to: z.literal("panel"), open: z.array(z.enum(["top", "right", "bottom", "left"])) }).strict()]);
+const Clip = z.union([z.enum(["panel", "none", "trim", "auto"]), z.object({ to: z.union([z.literal("panel"), z.array(z.string()).min(1)]), open: z.array(z.enum(["top", "right", "bottom", "left"])).optional() }).strict()]);
 
 const common = {
   id: z.string().optional(),
@@ -160,7 +160,7 @@ const common = {
   seed: z.number().int().min(0).max(4294967295).optional(),
   separation: z.string().optional(),
   note: z.string().optional(),
-  stack: z.enum(["over", "under"]).optional(),
+  stack: z.enum(["over", "under", "art"]).optional(),
 };
 
 const TextValue = z.union([z.string(), z.record(z.string(), z.string())]);

@@ -48,6 +48,12 @@ pages:
 describe("cut balloon ink", () => {
   const clean = cleanClippedBalloonInk(rect(0, 0, 40, 30));
 
+  it("preserves all outlines when a balloon is clipped to multiple panels", () => {
+    const clip = [...rect(0, 0, 40, 30), ...rect(50, 0, 90, 30)];
+    const nodes = [ink(rect(-1, 1, 1, 1.2)), ink(rect(55, 4, 55.2, 20))];
+    expect(cleanClippedBalloonInk(clip)(nodes)).toBe(nodes);
+  });
+
   it("drops an L-shaped corner fragment across pens without changing longer or uncut ink", () => {
     const clippedX = ink(rect(-1, 0.95, 1.15, 1.15));
     const clippedY = ink(rect(0.95, -1, 1.15, 1.15));

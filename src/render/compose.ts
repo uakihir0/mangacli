@@ -152,6 +152,14 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   };
   for (const pg of drawOrder) await layoutGroup(pg.panel.elements, baseCtx(pg), drawOrder.indexOf(pg), 0);
   await layoutGroup(page.layers, baseCtx(), 0, 1);
+  for (const el of [...page.layers, ...panels.flatMap((pg) => pg.panel.elements)]) {
+    if (el.type !== "image") continue;
+    const target = refs.get(el.id);
+    if (!target) continue;
+    const clip = el.props.clip;
+    const ids = isObj(clip) && Array.isArray(clip.to) ? clip.to : undefined;
+    for (const pg of panels) if (ids ? ids.includes(pg.panel.id) : target.panelId === undefined && rectIntersect(target.bbox, pg.box)) refs.includeInPanel(el.id, pg.panel.id);
+  }
 
   // phase B: balloons plans, text, sfx, effects, fills, marks, draw
   const renderOthers = async (els: RElement[], ctx: ElemCtx, panelIdx: number, source: number) => {
@@ -293,7 +301,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       // the outer edge of the panel area is cut by the frame there, as lettering usually is
       if (it.free && el.type === "balloon" && el.props.clip === "auto" && crossesOuterEdge(pg, it.bbox, u.k)) it.free = false;
       if (it.free) {
-        if (isObj(el.props.clip)) it.openClip = openClipPath(pg, el.props.clip as Obj, geom, u);
+        if (isObj(el.props.clip) && !Array.isArray(el.props.clip.to)) it.openClip = openClipPath(pg, el.props.clip as Obj, geom, u);
         items.push(it);
       } else {
         clipped.push(it);
@@ -317,6 +325,41 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     info.elements.push({ id: el.id, type: el.type, bbox: it.bbox });
   }
 
+  for (const it of items) {
+    const clip = it.el.props.clip;
+    if (!isObj(clip) || !Array.isArray(clip.to)) continue;
+    const targets: PanelGeom[] = [];
+    for (const id of new Set(clip.to)) {
+      const pg = panels.find((p) => p.panel.id === id);
+      if (pg) targets.push(pg);
+      else bag.error("REF_NOT_FOUND", `unknown panel ${id}`, { path: [...it.el.path, "clip", "to"], elementId: it.el.id, pageId: page.id });
+    }
+    it.openClip = targets.flatMap((pg) => openClipPath(pg, clip, geom, u));
+    const panelPolys = targets.map((pg) => {
+      const poly = panelShapePoly(pg, geom);
+      const pts = poly !== pg.polygon ? flattenPath(smoothPath(poly, true), 0.02)[0].pts : poly;
+      return [pts.map((p) => [p.x, p.y] as [number, number])];
+    });
+    const panelUnion = panelPolys.length ? polygonClipping.union(panelPolys[0], ...panelPolys.slice(1)) : [];
+    const bleedPoly = [rectPts(geom.bleedBox).map((p) => [p.x, p.y] as [number, number])];
+    if ((clip.open as string[] | undefined)?.length && targets.length) {
+      const envelope = boundsOf(targets.flatMap((pg) => pg.polygon));
+      const envelopePoly = [rectPts(envelope).map((p) => [p.x, p.y] as [number, number])];
+      const withoutGutters = multiPolyPath(polygonClipping.union(polygonClipping.difference(bleedPoly, envelopePoly), panelUnion));
+      it.nodes = [{ kind: "group", clip: withoutGutters, clipRule: "nonzero", children: it.nodes }];
+    }
+    if (it.el.props.stack !== "art") continue;
+    for (const pg of targets) {
+      const group = panelNodes.find((p) => p.pg === pg)!;
+      group.clipped.push({ ...it, nodes: [{ kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.nodes }] });
+      group.clipped.sort((a, b) => a.z - b.z || a.listIdx - b.listIdx);
+    }
+    if ((clip.open as string[] | undefined)?.length) {
+      const outside = multiPolyPath(polygonClipping.difference(bleedPoly, panelUnion));
+      it.nodes = [{ kind: "group", clip: outside, clipRule: "nonzero", children: it.nodes }];
+    } else it.nodes = [];
+  }
+
   // build tree
   const root: GroupNode = { kind: "group", children: [] };
   const background = page.settings.background ?? "paper";
@@ -338,7 +381,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       if (path.length) pageBackground.push({ kind: "path", path, fillRule: "evenodd", paint: { type: "solid", color: WHITE }, tag: bgTag });
     }
   }
-  for (const it of items.filter((i) => i.stackUnder)) root.children.push(...it.nodes);
+  for (const it of items.filter((i) => i.stackUnder)) root.children.push(it.openClip ? { kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.nodes } : { kind: "group", children: it.nodes });
   for (const { pg, clipped } of panelNodes) {
     if (pg.panel.props.visible === false) continue;
     root.children.push(...panelTree(pg, clipped, geom, bgPaint, !!bgImage, bag));
@@ -346,7 +389,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   const free = items.filter((i) => !i.stackUnder);
   free.sort((a, b) => a.z - b.z || a.layer - b.layer || a.source - b.source || a.panelIdx - b.panelIdx || (a.layer === 1 && b.layer === 1 ? b.listIdx - a.listIdx : a.listIdx - b.listIdx));
   for (const it of free) {
-    if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, children: it.el.type === "balloon" ? cleanClippedBalloonInk(it.openClip)(it.nodes) : it.nodes });
+    if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.el.type === "balloon" ? cleanClippedBalloonInk(it.openClip)(it.nodes) : it.nodes });
     else root.children.push(...it.nodes);
   }
   // page numbers
@@ -367,6 +410,10 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
 
 function rectPts(r: Rect): Vec[] {
   return [{ x: r.x, y: r.y }, { x: r.x + r.w, y: r.y }, { x: r.x + r.w, y: r.y + r.h }, { x: r.x, y: r.y + r.h }];
+}
+
+function multiPolyPath(polys: polygonClipping.MultiPolygon) {
+  return polys.flatMap((poly) => poly.flatMap((ring) => polyPath(ring.map(([x, y]) => ({ x, y })), true)));
 }
 
 function gutterPath(area: Rect, panels: PanelGeom[], geom: PageGeom) {
@@ -631,7 +678,7 @@ function isBledEdge(a: Vec, c: Vec, geom: PageGeom, pg: PanelGeom): boolean {
 function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["units"]) {
   const open = new Set((clip.open as string[]) ?? []);
   const bw = toMm(((pg.panel.props.border as Obj)?.width as string) ?? `${0.5 * geom.k}mm`, u);
-  const poly = pg.polygon;
+  const poly = panelShapePoly(pg, geom);
   const n = poly.length;
   const lines: { p: Vec; d: Vec }[] = [];
   for (let i = 0; i < n; i++) {
@@ -641,7 +688,7 @@ function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["uni
     const l = Math.hypot(d.x, d.y) || 1;
     const nrm = { x: d.y / l, y: -d.x / l }; // outward for CW polygon (y-down)
     const side = nrm.y < -0.7 ? "top" : nrm.y > 0.7 ? "bottom" : nrm.x < -0.7 ? "left" : nrm.x > 0.7 ? "right" : "";
-    const off = open.has(side) ? 500 : -bw / 2;
+    const off = poly === pg.polygon && open.has(side) ? 500 : -bw / 2;
     lines.push({ p: { x: a.x + nrm.x * off, y: a.y + nrm.y * off }, d: { x: d.x / l, y: d.y / l } });
   }
   const pts: Vec[] = [];
@@ -656,7 +703,20 @@ function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["uni
     const t = ((L2.p.x - L1.p.x) * L2.d.y - (L2.p.y - L1.p.y) * L2.d.x) / den;
     pts.push({ x: L1.p.x + L1.d.x * t, y: L1.p.y + L1.d.y * t });
   }
-  return polyPath(pts, true);
+  if (poly === pg.polygon) return polyPath(pts, true);
+  const path = smoothPath(pts, true);
+  if (!open.size) return path;
+  let expanded = polygonClipping.union([flattenPath(path, 0.02)[0].pts.map((p) => [p.x, p.y] as [number, number])]);
+  const directions: Record<string, [number, number]> = { top: [0, -500], right: [500, 0], bottom: [0, 500], left: [-500, 0] };
+  for (const side of open) {
+    const [dx, dy] = directions[side];
+    const strips = expanded.flatMap((polygon) => polygon.flatMap((ring) => ring.slice(0, -1).map((a, i) => {
+      const b = ring[i + 1];
+      return [[a, b, [b[0] + dx, b[1] + dy], [a[0] + dx, a[1] + dy]]] as polygonClipping.Polygon;
+    })));
+    expanded = polygonClipping.union(expanded, ...strips);
+  }
+  return multiPolyPath(expanded);
 }
 
 // ---- misc elements ---------------------------------------------------------------
@@ -993,10 +1053,13 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   const pid = ctx.panel?.panel.id;
   const hard: Rect[] = [];
   for (const t of refs.all()) {
-    if (t.type !== "image" || (pid && t.panelId !== pid)) continue;
+    if (t.type !== "image" || (pid && t.panelId !== undefined && t.panelId !== pid)) continue;
     // faces are roughly elliptical: the corners of the face box are free space
-    for (const [k, rg] of Object.entries(t.regions)) if (k === "face" || k === "avoid") obstacles.push({ r: rg.bbox, w: 60, ellipse: k === "face" });
-    if (t.anchors.mouth) hard.push({ x: t.anchors.mouth.x - 2 * u.k, y: t.anchors.mouth.y - 2 * u.k, w: 4 * u.k, h: 4 * u.k });
+    for (const [k, rg] of Object.entries(t.regions)) if ((k === "face" || k === "avoid") && rectIntersect(rg.bbox, panelBox)) obstacles.push({ r: rg.bbox, w: 60, ellipse: k === "face" });
+    if (t.anchors.mouth) {
+      const mouth = { x: t.anchors.mouth.x - 2 * u.k, y: t.anchors.mouth.y - 2 * u.k, w: 4 * u.k, h: 4 * u.k };
+      if (rectIntersect(mouth, panelBox)) hard.push(mouth);
+    }
   }
   const placedRects: Rect[] = [];
   const setCenter = (pl: BalloonPlan, c: Vec) => {
