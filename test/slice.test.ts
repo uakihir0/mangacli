@@ -69,6 +69,28 @@ describe("slice", () => {
     expect(at(20.5, 15)).toBe(128); // no flash in the padded part of the image box
   });
 
+  it("moves an overlay panel's knockout with its fragments", async () => {
+    const { at } = await pixels({ yaml: `mangacli: 1
+book: { pageNumbers: { enabled: false } }
+page: { size: [40mm, 40mm], bleed: 0, baseFrame: trim }
+pages:
+  - panels:
+      - background: black
+      - overlay: true
+        z: 1
+        box: [10mm, 8mm, 14mm, 14mm]
+        background: black
+        border: none
+        knockout: 2mm
+        layers:
+          - { effect: slice, cuts: [{ from: left, to: right, shift: 5mm }] }
+` }, { profile: "preview", dpi: 254 });
+    expect(at(9, 11)).toBe(255);
+    expect(at(9, 17)).toBe(0);
+    expect(at(9, 25)).toBe(255);
+    expect(at(11, 25)).toBe(0);
+  });
+
   it("uses four translated vector clips for crossing cuts and ignores coincident and missing lines", async () => {
     const input = scene(`- effect: slice
   cuts:

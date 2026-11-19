@@ -464,13 +464,13 @@ function panelShapePoly(pg: PanelGeom, geom: PageGeom): Vec[] {
 function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: ReturnType<typeof parsePaint>, bag: DiagnosticBag, slice?: ReturnType<typeof planSlice>): Node[] {
   const u = geom.units;
   const p = pg.panel.props;
-  const out: Node[] = [];
+  const content: Node[] = [];
   const poly = panelShapePoly(pg, geom);
   const isShaped = poly !== pg.polygon;
   if (p.knockout !== undefined) {
     const kw = toMm(p.knockout as string, u);
     const ext = offsetConvex(poly, kw);
-    out.push({ kind: "path", path: polyPath(ext, true), fillRule: "nonzero", paint: pageBg ?? { type: "solid", color: WHITE } });
+    content.push({ kind: "path", path: polyPath(ext, true), fillRule: "nonzero", paint: pageBg ?? { type: "solid", color: WHITE } });
   }
   const bg = parsePaint(p.background ?? "paper", { u, box: pg.fullBox, seed: pg.panel.seed, bag, path: [...pg.panel.path, "background"] });
   const inner: Node[] = [];
@@ -478,12 +478,11 @@ function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: Retur
   const clip = isShaped ? smoothPath(poly, true) : polyPath(poly, true);
   const cleanBalloonInk = cleanClippedBalloonInk(clip);
   for (const it of clipped) inner.push(...(it.el.type === "balloon" ? cleanBalloonInk(it.nodes) : it.nodes));
-  const content: Node[] = [
+  content.push(
     { kind: "group", clip, children: inner, tag: { elementId: pg.panel.id, elementType: "panel", role: "art", separation: "art" } },
     ...borderNodes(pg, poly, isShaped, geom, bag),
-  ];
-  out.push(...(slice ? slice(content) : content));
-  return out;
+  );
+  return slice ? slice(content) : content;
 }
 
 function offsetConvex(poly: Vec[], d: number): Vec[] {
