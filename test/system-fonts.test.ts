@@ -17,39 +17,56 @@ const manga = (font: Record<string, unknown>) => ({
 });
 const options = { dpi: 144, fontDownload: "never" } as const;
 
+async function writeNamedFont(path: string, records: { id: number; language: number; name: string }[]) {
+  const strings = records.map(({ name }) => Buffer.from(name, "utf16le").swap16());
+  const storage = 6 + records.length * 12;
+  const name = Buffer.alloc(storage);
+  name.writeUInt16BE(records.length, 2);
+  name.writeUInt16BE(storage, 4);
+  let offset = 0;
+  records.forEach(({ id, language }, i) => {
+    const record = 6 + i * 12;
+    [3, 1, language, id, strings[i].length, offset].forEach((n, j) => name.writeUInt16BE(n, record + j * 2));
+    offset += strings[i].length;
+  });
+  const sfnt = Buffer.alloc(28);
+  sfnt.write("OTTO");
+  sfnt.writeUInt16BE(1, 4);
+  sfnt.write("name", 12);
+  sfnt.writeUInt32BE(sfnt.length, 20);
+  sfnt.writeUInt32BE(storage + offset, 24);
+  await writeFile(path, Buffer.concat([sfnt, name, ...strings]));
+}
+
 it("reads localized Unicode names and resolves normalized family and PostScript names", async () => {
   const dir = await mkdtemp(join(tmpdir(), "mc-font-"));
   try {
     const path = join(dir, "names.otf");
-    const records = [
+    await writeNamedFont(path, [
       { id: 1, language: 0x0409, name: "Example Gothic" },
       { id: 1, language: 0x0411, name: "見本ゴシック" },
       { id: 2, language: 0x0409, name: "Regular" },
       { id: 6, language: 0x0409, name: "ExampleGothic-Regular" },
-    ];
-    const strings = records.map(({ name }) => Buffer.from(name, "utf16le").swap16());
-    const storage = 6 + records.length * 12;
-    const name = Buffer.alloc(storage);
-    name.writeUInt16BE(records.length, 2);
-    name.writeUInt16BE(storage, 4);
-    let offset = 0;
-    records.forEach(({ id, language }, i) => {
-      const record = 6 + i * 12;
-      [3, 1, language, id, strings[i].length, offset].forEach((n, j) => name.writeUInt16BE(n, record + j * 2));
-      offset += strings[i].length;
-    });
-    const sfnt = Buffer.alloc(28);
-    sfnt.write("OTTO");
-    sfnt.writeUInt16BE(1, 4);
-    sfnt.write("name", 12);
-    sfnt.writeUInt32BE(sfnt.length, 20);
-    sfnt.writeUInt32BE(storage + offset, 24);
-    await writeFile(path, Buffer.concat([sfnt, name, ...strings]));
+    ]);
     const faces = await readSystemFontFaces(path);
     expect(faces).toMatchObject([{ families: ["Example Gothic", "見本ゴシック"], index: 0, regular: true }]);
     expect(findSystemFont(faces, "見本ゴシック")).toBe(faces[0]);
     expect(findSystemFont(faces, "examplegothic-regular", 0)).toBe(faces[0]);
     expect(findSystemFont(faces, "Example Gothic", 1)).toBeUndefined();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+it("prefers the regular family face over a heavier face with a legacy Regular subfamily", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "mc-font-"));
+  try {
+    const heavy = join(dir, "ExtraBold.otf"), regular = join(dir, "Regular.otf");
+    const name = (id: number, name: string) => ({ id, language: 0x0409, name });
+    await writeNamedFont(heavy, [name(1, "Example Gothic ExtraBold"), name(2, "Regular"), name(16, "Example Gothic"), name(17, "ExtraBold")]);
+    await writeNamedFont(regular, [name(1, "Example Gothic"), name(2, "Regular")]);
+    const faces = [...await readSystemFontFaces(heavy), ...await readSystemFontFaces(regular)];
+    expect(findSystemFont(faces, "Example Gothic")?.path).toBe(regular);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

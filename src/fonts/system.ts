@@ -129,7 +129,8 @@ export async function readSystemFontFaces(path: string): Promise<SystemFontFace[
               const names = parseNames(await read(file, tables.readUInt32BE(pos + 8), length));
               const get = (...ids: number[]) => [...new Set(ids.flatMap((id) => [...(names.get(id) ?? [])]))];
               const families = get(16, 1, 21), fullNames = get(4), postScriptNames = get(6);
-              const regular = get(17, 2, 22).some((name) => /^(regular|normal|roman|book|標準)$/i.test(name));
+              const modernStyles = get(17, 22);
+              const regular = (modernStyles.length ? modernStyles : get(2)).some((name) => /^(regular|normal|roman|book|標準)$/i.test(name));
               if (families.length || fullNames.length || postScriptNames.length)
                 faces.push({ path, index, families, fullNames, postScriptNames, regular });
             }
