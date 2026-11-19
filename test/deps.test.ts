@@ -32,11 +32,12 @@ describe("collectDeps", () => {
         '          - { image: "./assets/2.jpg" }',
         "          - { image: https://example.com/remote.png }",
         "          - { text: '#fff.png' }  # comment: ./commented.png",
+        '          - [{ text: "Chapter #1" }, { src: ./assets/3.png }, { text: \'it\'\'s #2\' }, { src: ./assets/4.png }]',
       ].join("\n"),
     });
     const deps = collectDeps(join(dir, "manga.yaml"));
     expect(deps.sort()).toEqual(
-      ["manga.yaml", "assets/taro.png", "assets/hana.webp", "assets/1.png", "assets/2.jpg"].map((f) => join(dir, f)).sort(),
+      ["manga.yaml", "assets/taro.png", "assets/hana.webp", "assets/1.png", "assets/2.jpg", "assets/3.png", "assets/4.png"].map((f) => join(dir, f)).sort(),
     );
   });
 
