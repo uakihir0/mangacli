@@ -182,7 +182,7 @@ function normDialogue(lines: unknown, path: Path, bag: DiagnosticBag, characters
       const who = charKeys[0];
       out = { who, text: ln[who], ...Object.fromEntries(Object.entries(ln).filter(([k]) => k !== who)) };
     }
-    return normElementProps(out, [...path, i], bag);
+    return normElementProps(out, [...path, i], bag, "balloon");
   });
 }
 
@@ -212,30 +212,30 @@ export function normDefaults(d: Obj, path: Path, bag: DiagnosticBag): Obj {
   for (const [k, v] of Object.entries(d)) {
     if (k === "effect" || k === "mark") {
       const m: Obj = {};
-      if (isObj(v)) for (const [kk, vv] of Object.entries(v)) m[kk] = isObj(vv) ? normElementProps(vv, [...path, k, kk], bag) : vv;
+      if (isObj(v)) for (const [kk, vv] of Object.entries(v)) m[kk] = isObj(vv) ? normElementProps(vv, [...path, k, kk], bag, k) : vv;
       out[k] = m;
     } else if (k === "panel" && isObj(v)) {
       const pp: Obj = { ...v };
       if ("border" in pp) pp.border = normStroke(pp.border, [...path, k, "border"], bag);
       if ("hand" in pp) pp.hand = normHand(pp.hand);
       out[k] = pp;
-    } else out[k] = isObj(v) ? normElementProps(v, [...path, k], bag) : v;
+    } else out[k] = isObj(v) ? normElementProps(v, [...path, k], bag, (ELEMENT_TYPES as readonly string[]).includes(k) ? k : "balloon") : v;
   }
   return out;
 }
 
 /** normalize property shorthands for a partial element (styles/defaults/characters) */
-export function normElementProps(v: Obj, path: Path, bag: DiagnosticBag): Obj {
+export function normElementProps(v: Obj, path: Path, bag: DiagnosticBag, type = v.type): Obj {
   const o: Obj = { ...v };
   if ("stroke" in o) o.stroke = normStroke(o.stroke, [...path, "stroke"], bag);
   if (isObj(o.stroke) && "hand" in o.stroke) o.stroke = { ...o.stroke, hand: normHand(o.stroke.hand) };
-  if ("edge" in o) o.edge = normStroke(o.edge, [...path, "edge"], bag);
+  if ("edge" in o && type === "sfx") o.edge = normStroke(o.edge, [...path, "edge"], bag);
   if ("outline" in o) o.outline = normOutline(o.outline, [...path, "outline"], bag);
   if ("textOutline" in o) o.textOutline = normOutline(o.textOutline, [...path, "textOutline"], bag);
   if ("halo" in o) o.halo = normHalo(o.halo, [...path, "halo"], bag);
   if ("hand" in o) o.hand = normHand(o.hand);
   if ("pen" in o) o.pen = normPen(o.pen);
-  if (typeof o.shape === "string") o.shape = { kind: o.shape };
+  if (typeof o.shape === "string" && type === "balloon") o.shape = { kind: o.shape };
   if ("tail" in o) o.tail = normTail(o.tail);
   if (Array.isArray(o.tails)) o.tails = o.tails.map(normTail);
   if ("padding" in o && !Array.isArray(o.padding)) o.padding = [o.padding, o.padding];
@@ -308,11 +308,11 @@ export function normalizeDocument(input: unknown, bag: DiagnosticBag): Obj {
         continue;
       }
       const cc: Obj = { ...v };
-      if (isObj(cc.balloon)) cc.balloon = normElementProps(cc.balloon, ["characters", k, "balloon"], bag);
-      if (isObj(cc.text)) cc.text = normElementProps(cc.text, ["characters", k, "text"], bag);
+      if (isObj(cc.balloon)) cc.balloon = normElementProps(cc.balloon, ["characters", k, "balloon"], bag, "balloon");
+      if (isObj(cc.text)) cc.text = normElementProps(cc.text, ["characters", k, "text"], bag, "text");
       if (isObj(cc.voice)) {
         const vo: Obj = {};
-        for (const [kk, vv] of Object.entries(cc.voice)) vo[kk] = isObj(vv) ? normElementProps(vv, ["characters", k, "voice", kk], bag) : vv;
+        for (const [kk, vv] of Object.entries(cc.voice)) vo[kk] = isObj(vv) ? normElementProps(vv, ["characters", k, "voice", kk], bag, "balloon") : vv;
         cc.voice = vo;
       }
       c[k] = cc;
