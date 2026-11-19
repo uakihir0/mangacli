@@ -1314,6 +1314,7 @@ function checkTextSafety(items: Item[], geom: PageGeom, bag: DiagnosticBag, page
     if (!["balloon", "text", "sfx"].includes(it.el.type)) continue;
     const b = it.bbox;
     const s = geom.safe;
+    const intentionalBleed = it.el.type === "sfx" && it.el.props.bleed === true;
     const t = geom.trim;
     const edges = [
       { side: "上", crossed: b.y < s.y - 0.5, safe: s.y - b.y, trim: t.y - b.y },
@@ -1322,7 +1323,7 @@ function checkTextSafety(items: Item[], geom: PageGeom, bag: DiagnosticBag, page
       { side: "右", crossed: b.x + b.w > s.x + s.w + 0.5, safe: b.x + b.w - s.x - s.w, trim: b.x + b.w - t.x - t.w },
     ];
     const crossed = edges.filter((e) => e.crossed);
-    if (crossed.length) {
+    if (!intentionalBleed && crossed.length) {
       const details = crossed.map((e) => `${e.side}の${e.trim > 0 ? "断裁線" : "安全線"}を ${(e.trim > 0 ? e.trim : e.safe).toFixed(1)}mm 越えています、安全線まで ${movement(e.safe)}mm 内側に入れてください`);
       bag.warn("TEXT_OUTSIDE_SAFE_AREA", `${it.el.id}: ${details.join("；")}`, { path: it.el.path, elementId: it.el.id, pageId: page.id });
     }
