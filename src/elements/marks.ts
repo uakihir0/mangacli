@@ -142,7 +142,7 @@ export function renderMark(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
     const fx = p.flip === "x" || p.flip === "xy" || p.flip === true ? -1 : 1;
     const fy = p.flip === "y" || p.flip === "xy" ? -1 : 1;
     const image: Node = { kind: "image", assetKey: info.key, dest: { x: -w / 2, y: -h / 2, w, h }, sourceRect: { x: 0, y: 0, w: info.width, h: info.height }, transform: [ca * fx, sa * fx, -sa * fy, ca * fy, c.x, c.y], smoothing: "high", lineart: info.kind === "lineart", monoLpi: 60, filters: [], tag: tag(el, "art") };
-    return { nodes: [{ kind: "group", blend: resolveAssetBlend(info, p.blend), children: [image] }], bbox: pl.bbox };
+    return { nodes: [{ kind: "group", opacity: typeof p.opacity === "number" ? p.opacity : undefined, blend: resolveAssetBlend(info, p.blend), children: [image] }], bbox: pl.bbox };
   }
   switch (kind) {
     case "sweat":

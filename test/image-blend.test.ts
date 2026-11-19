@@ -6,15 +6,17 @@ describe("image blend precedence", () => {
   describe.each(["mark", "scatter"])("%s assets", (type) => {
     describe.each(["print-gray", "print-mono"])("%s", (profile) => {
       it.each([
-        [undefined, undefined, "multiply", 0],
-        ["normal", undefined, "normal", 255],
-        ["screen", undefined, "screen", 255],
-        [undefined, "normal", "normal", 255],
-        ["normal", "multiply", "normal", 255],
-        ["multiply", "normal", "multiply", 0],
-      ] as const)("layer=%s asset=%s uses %s", async (layerBlend, assetBlend, expectedBlend, expectedPixel) => {
+        [undefined, undefined, "multiply", 0, 1],
+        ["normal", undefined, "normal", 255, 1],
+        ["screen", undefined, "screen", 255, 1],
+        [undefined, "normal", "normal", 255, 1],
+        ["normal", "multiply", "normal", 255, 1],
+        ["multiply", "normal", "multiply", 0, 1],
+        ["multiply", undefined, "multiply", 0, 0.5],
+        [undefined, undefined, "multiply", 0, 0.5],
+      ] as const)("layer=%s asset=%s uses %s pixel=%s opacity=%s", async (layerBlend, assetBlend, expectedBlend, expectedPixel, opacity) => {
         const asset = await sharp({ create: { width: 32, height: 32, channels: 4, background: "white" } }).png().toBuffer();
-        const blend = layerBlend ? `, blend: ${layerBlend}` : "";
+        const blend = `, opacity: ${opacity}${layerBlend ? `, blend: ${layerBlend}` : ""}`;
         const layer = type === "mark"
           ? `{ type: mark, kind: asset, asset: art, size: 10mm, at: [50%, 50%]${blend} }`
           : `{ type: scatter, count: 1, itemScale: [1, 1], itemRotate: [0deg, 0deg], items: [{ asset: art, size: 4mm }]${blend} }`;
