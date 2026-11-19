@@ -9,6 +9,22 @@ type Obj = Record<string, unknown>;
 const document = (layers: Obj[]) => ({ mangacli: 1, page: { size: ["60mm", "50mm"], bleed: 0 }, pages: [{ panels: [{ layers }] }] });
 
 describe("context-sensitive property normalization", () => {
+  it.each(["named", "speech", "inherited"])("normalizes same-name style layers before overlaying (%s)", async (mode) => {
+    const name = mode === "speech" ? "say" : "bubble";
+    const layer = mode === "speech" ? { balloon: "A", as: "say" } : { balloon: "A", style: mode === "inherited" ? "child" : name };
+    const doc = {
+      ...document([layer]),
+      styles: { [name]: { shape: { kind: "ellipse", tilt: ["12deg", "12deg"], irregularity: 0.7 } }, child: { extends: name } },
+      locales: { ja: { styles: { [name]: { shape: "cloud" } } } },
+    };
+    const config = { styles: { [name]: { shape: { kind: "rect", lobes: 9 } } } };
+    const shape = resolve(doc, { config }).pages[0].panels[0].elements[0].props.shape;
+    expect(shape).toMatchObject({ kind: "cloud", tilt: ["12deg", "12deg"], irregularity: 0.7, lobes: 9 });
+    expect((await createRenderer({ config, profile: "preview", dpi: 36 }).render(doc)).failures).toEqual([]);
+    const reset = { ...doc, locales: { ja: { styles: { [name]: { shape: null } } } } };
+    expect(resolve(reset, { config }).pages[0].panels[0].elements[0].props.shape).toEqual(BUILTIN_DEFAULTS.balloon.shape);
+  });
+
   it.each(["element", "style", "config-style", "defaults", "config-defaults"])("keeps fill/effect edges and SFX strokes distinct in %s", async (source) => {
     const layers: Obj[] = [{ type: "fill", paint: "black" }, { effect: "hatching" }, { sfx: "A" }];
     const props = [{ edge: "soft" }, { edge: "clean" }, { edge: "0.4mm black" }];

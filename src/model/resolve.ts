@@ -93,13 +93,22 @@ function overlay(a: Obj, b: Obj | undefined): Obj {
   return out;
 }
 
-function resolveStyles(rawStyles: Record<string, Obj>, bag: DiagnosticBag, type?: string, names = Object.keys(rawStyles)): Record<string, Obj> {
+function overlayStyleLayers(sources: Record<string, Obj>[], name: string, bag: DiagnosticBag, type: string): Obj {
+  let acc: Obj = {};
+  for (const source of sources) {
+    if (source[name]) acc = overlay(acc, normElementProps(source[name], ["styles", name], bag, type));
+  }
+  return acc;
+}
+
+function resolveStyles(rawStyles: Record<string, Obj>, bag: DiagnosticBag, type?: string, names = Object.keys(rawStyles), sources?: Record<string, Obj>[]): Record<string, Obj> {
   const styles: Record<string, Obj> = {};
   const resolving = new Set<string>();
   const resolveStyle = (name: string, path: Path): Obj | undefined => {
     if (styles[name]) return styles[name];
-    const raw = rawStyles[name];
+    let raw = rawStyles[name];
     if (!raw) return undefined;
+    if (sources && type !== undefined) raw = overlayStyleLayers(sources, name, bag, type);
     if (resolving.has(name)) {
       bag.error("STYLE_CYCLE", `style "${name}" extends itself`, { path });
       return {};
@@ -140,10 +149,11 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
   const rawStyles: Record<string, Obj> = {};
   const userStyles: Record<string, Obj> = {};
   const configStyles = Object.fromEntries(Object.entries(opts.configStyles ?? {}).map(([k, v]) => [k, normElementProps(v, ["styles", k], bag)]));
-  for (const src of [configStyles, (doc.styles ?? {}) as Record<string, Obj>, ((locale?.styles ?? {}) as Record<string, Obj>)]) {
+  const styleSources = [configStyles, (doc.styles ?? {}) as Record<string, Obj>, ((locale?.styles ?? {}) as Record<string, Obj>)];
+  for (const src of styleSources) {
     for (const [k, v] of Object.entries(src)) userStyles[k] = userStyles[k] ? overlay(userStyles[k], v) : deepClone(v);
   }
-  for (const src of [BUILTIN_STYLES, configStyles, (doc.styles ?? {}) as Record<string, Obj>, ((locale?.styles ?? {}) as Record<string, Obj>)]) {
+  for (const src of [BUILTIN_STYLES, ...styleSources]) {
     for (const [k, v] of Object.entries(src)) rawStyles[k] = rawStyles[k] ? overlay(rawStyles[k], v) : deepClone(v);
   }
   const builtinStyles = resolveStyles(BUILTIN_STYLES, bag);
@@ -151,7 +161,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
   const contextualStyles = new Map<string, Record<string, Obj>>();
   const styleFor = (type: string, name: string): Obj | undefined => {
     const key = JSON.stringify([type, name]);
-    if (!contextualStyles.has(key)) contextualStyles.set(key, resolveStyles(rawStyles, bag, type, [name]));
+    if (!contextualStyles.has(key)) contextualStyles.set(key, resolveStyles(rawStyles, bag, type, [name], [BUILTIN_STYLES, ...styleSources]));
     return contextualStyles.get(key)![name];
   };
 
@@ -259,7 +269,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       if (type === "balloon") {
         const name = as!;
         if (!styles[name]) bag.error("REF_NOT_FOUND", `unknown speech type "${name}"`, { path: [...path, "as"], hint: suggestHint(name, Object.keys(BUILTIN_STYLES)) });
-        const st = userStyles[name];
+        const st = userStyles[name] && overlayStyleLayers(styleSources, name, bag, type);
         if (st) {
           for (const parent of Array.isArray(st.extends) ? st.extends : st.extends ? [st.extends] : []) mergeProps(styleFor(type, String(parent)));
           const own = normElementProps(st, path, bag, type);
