@@ -483,6 +483,14 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   const outputRuns = hasPsd ? [...regularRuns, { name: undefined, formats: psdFormats }] : regularRuns;
   // Transparent output omits the page ground (panel grounds stay; spec 10.15).
   const bgOverride = options.background ?? (typeof docOutput.background === "string" ? docOutput.background : undefined);
+  const withBackground = (list: DisplayList, geom: import("./layout/page.js").PageGeom): DisplayList => {
+    if (!bgOverride || bgOverride === "transparent") return list;
+    const paint = parsePaint(bgOverride, { u: geom.units, box: list.boxes.bleed, seed: resolved.seed, bag, path: ["output", "background"] });
+    if (!paint) return list;
+    const kids = list.root.children.filter((c) => !(c.kind === "path" && c.tag?.elementType === "page" && c.tag.role === "background"));
+    const bgNode: Node = { kind: "path", path: polyPath([{ x: list.boxes.bleed.x, y: list.boxes.bleed.y }, { x: list.boxes.bleed.x + list.boxes.bleed.w, y: list.boxes.bleed.y }, { x: list.boxes.bleed.x + list.boxes.bleed.w, y: list.boxes.bleed.y + list.boxes.bleed.h }, { x: list.boxes.bleed.x, y: list.boxes.bleed.y + list.boxes.bleed.h }], true), fillRule: "nonzero", paint, tag: { elementId: list.page.id, elementType: "page", role: "background", separation: "background" } };
+    return { ...list, background: paint, root: { ...list.root, children: [bgNode, ...kids] } };
+  };
   const transparentOut = options.transparent ?? (bgOverride === "transparent" ? true : undefined) ?? prof.transparent ?? false;
   let pdfX: ConstructorParameters<typeof PdfWriter>[1];
   if (options.pdfX && !options.layoutOnly) {
@@ -565,6 +573,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       try {
         composed = await composePage(resolved, page, pl.physical, { bag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: (g) => resolution(page, g), characters: resolved.characters });
         if (plugins) composed.list = plugins.hook("beforeRender", composed.list) as DisplayList;
+        composed.list = withBackground(composed.list, composed.info.geom);
       } catch (e) {
         if (e instanceof MangaError && !(e instanceof MangaRenderError)) throw e;
         result.failures.push({ pageId: page.id, index: pl.idx + 1, error: e as Error });
@@ -653,15 +662,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const { list: list0, info } = prepared.get(pl.idx) ?? await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor, characters: resolved.characters });
       info.number = pl.nombre;
       let list = plugins && !prepared.has(pl.idx) ? (plugins.hook("beforeRender", list0) as DisplayList) : list0;
-      if (bgOverride && bgOverride !== "transparent") {
-        // replace the page ground
-        const paint = parsePaint(bgOverride, { u: info.geom.units, box: list.boxes.bleed, seed: resolved.seed, bag, path: ["output", "background"] });
-        if (paint) {
-          const kids = list.root.children.filter((c) => !(c.kind === "path" && c.tag?.elementType === "page" && c.tag.role === "background"));
-          const bgNode: Node = { kind: "path", path: polyPath([{ x: list.boxes.bleed.x, y: list.boxes.bleed.y }, { x: list.boxes.bleed.x + list.boxes.bleed.w, y: list.boxes.bleed.y }, { x: list.boxes.bleed.x + list.boxes.bleed.w, y: list.boxes.bleed.y + list.boxes.bleed.h }, { x: list.boxes.bleed.x, y: list.boxes.bleed.y + list.boxes.bleed.h }], true), fillRule: "nonzero", paint, tag: { elementId: page.id, elementType: "page", role: "background", separation: "background" } };
-          list = { ...list, background: paint, root: { ...list.root, children: [bgNode, ...kids] } };
-        }
-      }
+      if (!prepared.has(pl.idx)) list = withBackground(list, info.geom);
       if (transparentOut && regularFormats.length && (options.colorMode ?? prof.colorMode) === "mono") bag.error("OUTPUT_MODE_UNSUPPORTED", "1-bit output cannot have a transparent background", { pageId: page.id });
       if (transparentOut && formats.some((f) => f === "jpeg")) bag.error("OUTPUT_MODE_UNSUPPORTED", "jpeg cannot store a transparent background", { pageId: page.id });
       if (transparentOut) list = { ...list, background: null, root: { ...list.root, children: list.root.children.filter((c) => !(c.kind === "path" && c.tag?.elementType === "page" && c.tag.role === "background")) } };
