@@ -1,0 +1,16 @@
+# Reproduction of the three-panel vertical punctuation sample.
+mangacli: 1
+seed: 1
+pages:
+  - layout:
+      rows: [[1], [1], [1]]
+    panels:
+      - layers:
+          - balloon: "ねえ…\n聞いてる？"
+            at: [50%, 50%]
+      - layers:
+          - balloon: "さすがに\nひどいんじゃ\nないですか"
+            at: [50%, 50%]
+      - layers:
+          - balloon: "<b>本当!?\n東京の\nカフェで\n話そう…\n明日また\n来るね</b>"
+            at: [50%, 50%]
