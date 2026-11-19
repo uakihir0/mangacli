@@ -8,6 +8,7 @@ import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec
 import { makeToneSampler } from "./screen.js";
 import { distanceSquared } from "./edt.js";
 import { applyFilters } from "./filters.js";
+import { imageInkMask } from "./image-ink.js";
 
 export type ColorMode = "color" | "gray" | "mono";
 export type ToneRendering = "dots" | "flat" | "auto";
@@ -686,6 +687,7 @@ export class RasterBackend {
     octx.drawImage(tmp, 0, 0);
     const od = octx.getImageData(0, 0, r.w, r.h);
     const dd = od.data;
+    const inkMask = mono && !n.lineart && dev.opts.monoImages !== "dither" ? imageInkMask(dd, r.w, r.h, dev.opts.dpi) : null;
     let curDensity = 0;
     // density map for edge-aware screening
     const dens = new Float32Array(r.w * r.h);
@@ -723,19 +725,8 @@ export class RasterBackend {
         } else if (n.lineart) ink = linearToSrgb(lin) < 0.5;
         else {
           const de = dens[y * r.w + x];
-          let lo = de;
-          let hi = de;
-          for (let oy = -2; oy <= 2; oy += 2)
-            for (let ox = -2; ox <= 2; ox += 2) {
-              const xx = Math.min(r.w - 1, Math.max(0, x + ox));
-              const yy = Math.min(r.h - 1, Math.max(0, y + oy));
-              const v = dens[yy * r.w + xx];
-              if (v < lo) lo = v;
-              if (v > hi) hi = v;
-            }
           curDensity = de;
-          if (hi - lo > 0.55) ink = linearToSrgb(lin) < 0.5; // hard edge: threshold, no dot fringe
-          else ink = de > 0.88 ? true : de < 0.08 ? false : sampler!(x, y) === 1;
+          ink = inkMask![y * r.w + x] === 1 || (de >= 0.08 && sampler!(x, y) === 1);
         }
         dd[i] = dd[i + 1] = dd[i + 2] = ink ? 0 : 255;
         dd[i + 3] = a > 127 ? 255 : 0;
