@@ -16,7 +16,7 @@ import { textValue } from "../elements/textstyle.js";
 import type { FontRegistry } from "../fonts/registry.js";
 import { miterFrameEdges } from "../geom/miter.js";
 import { flattenPath, parseSvgPath, polyPath, smoothPath, transformPath } from "../geom/path.js";
-import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
+import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, matMul, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
 import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
@@ -103,6 +103,7 @@ async function prepareFonts(page: RPage, o: ComposeOptions) {
 
 export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: number, o: ComposeOptions): Promise<{ list: DisplayList; info: PageLayoutInfo }> {
   const bag = o.bag;
+  const diagnosticStart = bag.items.length;
   const book = bookOf(doc.doc);
   const geom = computePageGeom(page, physicalIndex, book, bag);
   const u = geom.units;
@@ -185,7 +186,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
             // marks tied to the art are drawn before the balloons are placed, so balloons avoid them
             const refTo = [p0(el.props.target), p0(el.props.at), p0(el.props.anchorTo)].filter(Boolean) as string[];
             if (refTo.some((r) => balloonIds.has(r))) break;
-            const r = renderMisc(el, c2);
+            const r = await renderMisc(el, c2);
             processed.set(el.id, mkItem(el, r.nodes, r.bbox, panelIdx, i, source, ctx));
             break;
           }
@@ -270,7 +271,8 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       if (["image", "balloon", "text", "sfx"].includes(el.type) || el.props.visible === false || processed.has(el.id)) continue;
       const c2 = { ...ctx, coordsBox: coordsFor(el, ctx, geom) };
       try {
-        const nodes = renderMisc(el, c2);
+        const nodes = await renderMisc(el, c2);
+        info.elements.push(...(nodes.elements ?? []).map(({ id, type, bbox, transform }) => ({ id, type, bbox: transform ? boundsOf(rectPts(bbox).map((p) => applyMat(transform, p))) : bbox, panel: ctx.panel?.panel.id })));
         processed.set(el.id, mkItem(el, nodes.nodes, nodes.bbox, panelIdx, i, source, ctx));
       } catch (e) {
         bag.error("RENDER_FAILED", `${el.id}: ${(e as Error).message}`, { path: el.path, elementId: el.id });
@@ -359,6 +361,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   if (pageFiltered) list.root.children = [...compositeNodes(list.root.children, page.settings, bag, page.path), ...nombre];
   // safe area / fold checks
   checkTextSafety(items.concat(panelNodes.flatMap((p) => p.clipped)), geom, bag, page);
+  for (const d of bag.items.slice(diagnosticStart)) d.pageId ??= page.id;
   return { list, info };
 }
 
@@ -667,11 +670,14 @@ function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["uni
 
 // ---- misc elements ---------------------------------------------------------------
 
-function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
+type GroupBounds = { bbox: Rect; transform?: Matrix };
+type GroupElement = GroupBounds & { id: string; type: string };
+
+async function renderMisc(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[]; bbox: Rect; bounds?: GroupBounds; elements?: GroupElement[]; rendered?: boolean }> {
   const p = el.props;
   switch (el.type) {
     case "effect": {
-      const nodes = renderEffect(el, ctx);
+      const nodes = await renderEffect(el, ctx);
       return { nodes, bbox: ctx.panel?.box ?? ctx.geom.trim };
     }
     case "fill": {
@@ -748,9 +754,12 @@ function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
       const sized = gw !== "auto" && gh !== "auto";
       const cctx: ElemCtx = sized ? { ...ctx, coordsBox: { x: 0, y: 0, w: gw as number, h: gh as number }, localFrame: true } : ctx;
       const nodes: Node[] = [];
+      const elements: GroupElement[] = [];
       for (const c of el.children ?? []) {
-        const r = c.type === "text" ? renderText(c, cctx) : c.type === "sfx" ? renderSfx(c, cctx) : renderMisc(c, cctx);
+        const r: Awaited<ReturnType<typeof renderMisc>> = c.type === "text" ? renderText(c, cctx) : c.type === "sfx" ? renderSfx(c, cctx) : await renderMisc(c, cctx);
         nodes.push(...r.nodes);
+        if (!(r.rendered ?? r.nodes.length > 0)) continue;
+        elements.push({ id: c.id, type: c.type, ...(r.bounds ?? { bbox: r.bbox }) }, ...(r.elements ?? []));
       }
       let transform: [number, number, number, number, number, number] | undefined;
       let bbox = ctx.coordsBox;
@@ -763,7 +772,9 @@ function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
         const pl = place({ ...p, at: undefined, anchor: [0.5, 0.5] }, 0, 0, pc, c);
         transform = pl.matrix as typeof transform;
       }
-      return { nodes: [{ kind: "group", transform, children: nodes, tag: tag(el, "fill") }], bbox };
+      if (transform) for (const e of elements) e.transform = e.transform ? matMul(transform, e.transform) : transform;
+      const bounds = { bbox: sized ? { x: 0, y: 0, w: gw as number, h: gh as number } : ctx.coordsBox, transform };
+      return { nodes: [{ kind: "group", transform, children: nodes, tag: tag(el, "fill") }], bbox, bounds, elements, rendered: elements.length > 0 };
     }
   }
   return { nodes: [], bbox: ctx.coordsBox };
@@ -854,7 +865,7 @@ function renderDraw(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
   return { nodes, bbox: boundsOf(pts) };
 }
 
-function renderScatter(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
+async function renderScatter(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[]; bbox: Rect }> {
   const p = el.props;
   const u = ctx.u;
   const reg = resolveRegion(p.region, ctx, ctx.panel ? "panel" : "page", [...el.path, "region"]);
@@ -927,7 +938,7 @@ function renderScatter(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect 
       // an inline element definition placed at the point
       const { weight: _w, ...def } = item;
       const sub: RElement = { id: `${el.id}-s${placed.length}`, type: String(item.type), path: el.path, seed: rng.nextU32(), props: { ...def, at, rotate: def.rotate ?? deg, scale: s } };
-      const r = sub.type === "text" ? renderText(sub, ctx) : sub.type === "sfx" ? renderSfx(sub, ctx) : renderMisc(sub, ctx);
+      const r = sub.type === "text" ? renderText(sub, ctx) : sub.type === "sfx" ? renderSfx(sub, ctx) : await renderMisc(sub, ctx);
       nodes.push(...r.nodes);
     }
   }
@@ -972,6 +983,7 @@ function silhouetteCover(r: Rect, sils: Silhouette[]): number {
 }
 
 function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, processed: Map<string, { bbox: Rect }>, sils: Silhouette[] = [], replan?: (pl: BalloonPlan, props: Obj) => BalloonPlan | null) {
+  plans = [...plans].sort((a, b) => Number(a.props.as === "aside") - Number(b.props.as === "aside"));
   const u = ctx.u;
   const geom = ctx.geom;
   const rtl = geom.rtl;
@@ -1110,11 +1122,14 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const who = pl.props.who as string | undefined;
     const offSide = isObj(pl.props.tail) ? ((pl.props.tail as Obj).offscreen as string | undefined) : undefined;
     const speaker = who && !offSide ? refs.point(who, pid) : null;
+    const aside = pl.props.as === "aside";
+    const face = aside && who ? refs.target(who, pid)?.regions.face?.bbox : undefined;
     // cost weights (spec 6.12.2), overridable per balloon with autoPlace.weights
     const W = { order: 120, rise: 30, flow: 3, start: 4, overlap: 50, avoid: 60, figure: 25, speaker: 1.5, tail: 4, top: 1, outside: 30, offscreen: 8, reshape: 3, ...((apOf(pl).weights as Record<string, number> | undefined) ?? {}) };
+    if (aside) Object.assign(W, { order: 0, rise: 0, flow: 0, start: 0, top: 0, figure: 0, speaker: face ? 0 : 1.5, overlap: 10000, avoid: 10000, outside: 10000 });
     // the balloon may also be set with shorter or longer lines when that finds it a free place
     const variants: { vp: BalloonPlan; extra: number }[] = [{ vp: pl, extra: 0 }];
-    if (replan && apOf(pl).reshape !== false && pl.props.maxChars === undefined && Array.from(pl.text.plain ?? "").length > 5) {
+    if (!aside && replan && apOf(pl).reshape !== false && pl.props.maxChars === undefined && Array.from(pl.text.plain ?? "").length > 5) {
       const base = pl.text.lines.length ? Math.max(...pl.text.lines.map((l) => Array.from(l.text ?? "").length)) : 8;
       for (const m of [Math.max(3, Math.round(base * 0.6)), Math.round(base * 1.5)]) {
         if (m === base) continue;
@@ -1129,14 +1144,34 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
       const w = vp.outer.w;
       const h = vp.outer.h;
       const R = (w + h) / 4;
-      for (let y = area.y + h / 2; y <= area.y + area.h - h / 2 + 0.01 || (area.h < h && y <= area.y + h / 2 + 0.01); y += step) {
-        for (let x = area.x + w / 2; x <= area.x + area.w - w / 2 + 0.01 || (area.w < w && x <= area.x + w / 2 + 0.01); x += step) {
+      const xs: number[] = [];
+      const ys: number[] = [];
+      for (let x = area.x + w / 2; x <= Math.max(area.x + w / 2, area.x + area.w - w / 2) + 0.01; x += step) xs.push(x);
+      for (let y = area.y + h / 2; y <= Math.max(area.y + h / 2, area.y + area.h - h / 2) + 0.01; y += step) ys.push(y);
+      if (face) {
+        const gap = Math.max(w, h) * 0.05 + 0.4 * u.k;
+        xs.push(...[face.x - gap - w / 2, face.x + face.w + gap + w / 2].filter(x => x >= area.x + w / 2 && x <= area.x + area.w - w / 2));
+        ys.push(Math.min(area.y + area.h - h / 2, Math.max(area.y + h / 2, face.y + face.h * 0.6)));
+      }
+      for (const y of ys) {
+        for (const x of xs) {
           const c = { x, y };
           const rect = { x: x - w / 2, y: y - h / 2, w, h };
           const A = w * h;
           let cost = extra;
+          const clearance = aside ? rectInset(rect, -Math.max(w, h) * 0.05 - 0.35 * u.k) : rect;
+          if (aside) {
+            for (const ob of obstacles) if (rectOverlapArea(clearance, ob.r) > 0) cost += 10000;
+            if (face) {
+              const gap = Math.max(w, h) * 0.05 + 0.4 * u.k;
+              const left = Math.abs(rect.x + w - (face.x - gap));
+              const right = Math.abs(rect.x - (face.x + face.w + gap));
+              const dy = Math.abs(c.y - (face.y + face.h * 0.6));
+              cost += (Math.min(left, right) + dy * 1.5) / Math.max(1, u.k);
+            }
+          }
           // lettering keeps a little air around it: text and SFX boxes count with a margin
-          for (const ob of obstacles) cost += (ob.w === 60 ? W.avoid : ob.w) * (ob.ellipse ? ellipseOverlap(rect, ob.r) : rectOverlapArea(rect, rectInset(ob.r, -air)) / A);
+          for (const ob of obstacles) if (!aside) cost += (ob.w === 60 ? W.avoid : ob.w) * (ob.ellipse ? ellipseOverlap(rect, ob.r) : rectOverlapArea(rect, rectInset(ob.r, -air)) / A);
           for (const hr of hard) if (rectOverlapArea(rect, hr) > 0) cost += 1000;
           if (sils.length) cost += W.figure * silhouetteCover(rect, sils);
           if (speaker) cost += W.speaker * Math.abs(Math.hypot(x - speaker.x, y - speaker.y) / R - 1.6);
@@ -1171,7 +1206,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         }
         const A = cell.w * cell.h;
         // balloons that touch read as one shape: keep about 2 mm between them
-        for (const pr of st.rects) cost += W.overlap * (rectOverlapArea(cell.rect, pr) / A) + W.overlap * 0.3 * (rectOverlapArea(cell.rect, rectInset(pr, -air)) / A);
+        for (const pr of st.rects) cost += W.overlap * (rectOverlapArea(cell.rect, pr) / A) + W.overlap * 0.3 * (rectOverlapArea(cell.rect, rectInset(pr, -air)) / A) + (aside && rectOverlapArea(rectInset(cell.rect, -Math.max(cell.w, cell.h) * 0.05 - 0.7 * u.k), pr) > 0 ? 10000 : 0);
         // tail path crossing other balloons
         if (speaker) for (const pr of st.rects) if (segRect(cell.c, speaker, pr)) cost += W.tail;
         return { cell, cost };
@@ -1210,7 +1245,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   // reading-order and overlap checks over the final positions
   const rects = plans.filter((pl) => pl.center).map((pl) => ({ pl, r: { x: pl.center!.x + pl.outer.x, y: pl.center!.y + pl.outer.y, w: pl.outer.w, h: pl.outer.h } }));
   // each balloon must read after the one before it, by the same row rule the placement uses (spec 6.12.3)
-  const unlinked = rects.filter((r) => !r.pl.props.connect);
+  const unlinked = rects.filter((r) => !r.pl.props.connect && r.pl.props.as !== "aside");
   for (let i = 1; i < unlinked.length; i++) {
     if (orderCost(unlinked[i - 1].r, unlinked[i].r, 1, 0) > 0.3) {
       ctx.bag.info("BALLOON_ORDER_MISMATCH", `balloon ${unlinked[i].pl.el.id} reads before ${unlinked[i - 1].pl.el.id} by its position`, { path: unlinked[i].pl.el.path, elementId: unlinked[i].pl.el.id });
@@ -1227,6 +1262,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     }
   }
   for (const a of rects) {
+    if ((a.pl.props.tail as Obj | undefined)?.kind === "none" && !a.pl.props.tails) continue;
     if (linked.has(a.pl.el.id)) continue;
     const who = a.pl.props.who as string | undefined;
     const sp = who ? refs.point(who, pid) : null;
@@ -1391,7 +1427,7 @@ function checkTextSafety(items: Item[], geom: PageGeom, bag: DiagnosticBag, page
       bag.warn("TEXT_OUTSIDE_SAFE_AREA", `${it.el.id}: ${details.join("；")}`, { path: it.el.path, elementId: it.el.id, pageId: page.id });
     }
     if (geom.type === "spread") {
-      const fm = page.settings.foldMargin !== undefined ? toMm(page.settings.foldMargin as string, geom.units) : 10;
+      const fm = geom.foldMargin;
       const cx = geom.trimW / 2;
       if (b.x < cx + fm && b.x + b.w > cx - fm) {
         const relation = b.x <= cx && b.x + b.w >= cx
