@@ -247,11 +247,12 @@ function spiky(w: number, h: number, p: ShapeParams, seed: number, burst: boolea
   const per = ellipsePerimeter(a, b);
   const pitch = burst ? 6.5 : 5;
   const n = p.count === undefined || p.count === "auto" ? Math.max(burst ? 8 : 10, Math.round(per / pitch)) : Math.max(5, Math.round(p.count));
-  const dep: [number, number] = Array.isArray(p.depth) ? p.depth : typeof p.depth === "number" ? [p.depth * 0.8, p.depth * 1.2] : burst ? [0.2, 0.6] : [0.18, 0.28];
-  const jit = p.angleJitter ?? (burst ? 0.3 : 0.2);
+  const dep: [number, number] = Array.isArray(p.depth) ? p.depth : typeof p.depth === "number" ? [p.depth * 0.8, p.depth * 1.2] : burst ? [0.2, 0.6] : [0.12, 0.3];
+  const jit = p.angleJitter ?? (burst ? 0.7 : 0.65);
   const curve = p.curve ?? (burst ? 0.35 : 0.5);
   const step = TAU / n;
   const phase = rng.range(0, step);
+  const accentOffset = Math.floor(rng.range(0, 5));
   const tipAng: number[] = [];
   for (let i = 0; i < n; i++) tipAng.push(phase + i * step + rng.range(-jit / 2, jit / 2) * step);
   const Rm = (a + b) / 2;
@@ -274,9 +275,10 @@ function spiky(w: number, h: number, p: ShapeParams, seed: number, burst: boolea
   for (let i = 0; i < n; i++) {
     const ta = tipAng[i];
     const nextA = i + 1 < n ? tipAng[i + 1] : tipAng[0] + TAU;
-    const nextValley = i + 1 < n ? valleyAt((ta + nextA) / 2) : firstValley;
+    const nextValley = i + 1 < n ? valleyAt(ta + (nextA - ta) * rng.range(0.35, 0.65)) : firstValley;
     let d = rng.sample(dep[0], dep[1], "uniform");
-    if (burst && p.secondary !== false && rng.chance(0.3)) d = rng.range(0.07, 0.14);
+    if (p.depth === undefined && (i + accentOffset) % 5 === 0) d = rng.range(burst ? 0.58 : 0.42, burst ? 0.7 : 0.55);
+    else if (burst && p.secondary !== false && rng.chance(0.3)) d = rng.range(0.07, 0.14);
     else if (burst && rng.chance(0.25)) d *= 1.3;
     const rb = base(ta);
     const tip = { x: Math.cos(ta) * (rb + Rm * d), y: Math.sin(ta) * (rb + Rm * d) };
@@ -293,7 +295,7 @@ function spiky(w: number, h: number, p: ShapeParams, seed: number, burst: boolea
     prevValley = nextValley;
   }
   const tilted = pts.map((q) => rot(q, p.tilt));
-  const inner = valleys.map((q) => rot(q, p.tilt));
+  const inner = shrinkTo(valleys, 0.98).map((q) => rot(q, p.tilt));
   return { contour: { pts: tilted, closed: true, corners }, inner, kind: burst ? "burst" : "spike", smooth: false, ruler: false };
 }
 
