@@ -851,9 +851,11 @@ function placeRuby(parsed: ParsedText, boxes: Box[], glyphs: GlyphOut[], style: 
   const font = style.ruby.font ?? style.font;
   for (const r of parsed.rubies) {
     const bs = boxes.filter((b) => b.ruby === r.id) as (Box & { _pos?: [number, number] })[];
-    if (!bs.length || !bs[0]._pos) continue;
+    if (!bs.length) continue;
     const segments: { text: string; boxes: typeof bs }[] = r.mono ? bs.map((b, k) => ({ text: r.mono![k] ?? "", boxes: [b] })) : [{ text: r.text, boxes: bs }];
     for (const sg of segments) {
+      sg.boxes = sg.boxes.filter((b) => b._pos);
+      if (!sg.boxes.length) continue;
       const first = sg.boxes[0]._pos!;
       const last = sg.boxes[sg.boxes.length - 1];
       const lp = last._pos!;

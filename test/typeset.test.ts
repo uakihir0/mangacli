@@ -25,6 +25,21 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
+  it.each(["vertical", "horizontal"] as const)("places ruby only over positioned bases in %s text", async (writing) => {
+    for (const text of ["<ruby=ことば>言葉 </ruby>", "<ruby=こ と ば>言葉 </ruby>", "<ruby=ことば>言葉</ruby>"]) {
+      await reg.prepare("dialogue", text);
+      const result = layoutText(text, { ...defaultTextStyle({ font: "dialogue", fontSize: 10 }), writing, maxChars: 2 }, reg);
+      expect(result.lines.map((line) => line.text).join("")).toBe("言葉");
+      expect(result.glyphs.length).toBeGreaterThan(2);
+    }
+  });
+  it("omits ruby whose entire base was trimmed", async () => {
+    const text = "<ruby=あ> </ruby>";
+    await reg.prepare("dialogue", text);
+    const result = layoutText(text, defaultTextStyle({ font: "dialogue", fontSize: 10 }), reg);
+    expect(result.glyphs).toEqual([]);
+    expect(result.lines.map((line) => line.text)).toEqual([""]);
+  });
   it("uses oikomi rather than leaving a single-character column", async () => {
     expect(await lines("ダメ！", { maxChars: 2 })).toEqual(["ダメ！"]);
   });
