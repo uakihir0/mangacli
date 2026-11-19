@@ -21,9 +21,9 @@ type Obj = Record<string, unknown>;
 function outlineNodes(path: PathData, outlines: unknown, ctx: ElemCtx, el: RElement): Node[] {
   const list = Array.isArray(outlines) ? (outlines as Obj[]) : [];
   return list
-    .map((o) => ({ w: toMm(o.width as string, ctx.u), c: parseColor((o.color as string) ?? "white") ?? WHITE }))
+    .map((o) => ({ w: toMm(o.width as string, ctx.u), c: parseColor((o.color as string) ?? "white") ?? WHITE, j: o.join === "miter" ? ("miter" as const) : ("round" as const) }))
     .sort((a, b) => b.w - a.w)
-    .map((o) => ({ kind: "path" as const, path, fillRule: "nonzero" as const, paint: null, stroke: { width: o.w * 2, paint: { type: "solid" as const, color: o.c }, join: "round" as const }, tag: tag(el, "text") }));
+    .map((o) => ({ kind: "path" as const, path, fillRule: "nonzero" as const, paint: null, stroke: { width: o.w * 2, paint: { type: "solid" as const, color: o.c }, join: o.j }, tag: tag(el, "text") }));
 }
 
 export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; layout?: TextLayout } {

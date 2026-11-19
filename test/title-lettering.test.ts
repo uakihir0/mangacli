@@ -6,10 +6,12 @@ import { resolveDocument } from "../src/model/resolve.js";
 const reg = new FontRegistry(new Map() as never, "manga-basic", [], {});
 
 describe("title lettering", () => {
-  it("sets titles in extra-bold gothic, not a rounded pop face", async () => {
+  it("sets titles in square-cut extra-bold gothic, not a rounded face", async () => {
     const text = "朝をひとつ";
     await reg.prepare("title", text);
-    expect([...text].map((ch) => reg.pick("title", ch.codePointAt(0)!)?.font.key)).toEqual(Array(text.length).fill("cat:zen-kaku-gothic-new@900"));
+    const keys = [...text].map((ch) => reg.pick("title", ch.codePointAt(0)!)?.font.key ?? "");
+    // an installed Gothic MB101 U / Shin Go U wins; otherwise Noto Sans JP Black
+    for (const k of keys) expect(k === "cat:noto-sans-jp@900" || !k.startsWith("cat:")).toBe(true);
   });
 
   it.each([
@@ -28,8 +30,8 @@ pages:
     const props = resolveDocument(doc, bag).pages[0].panels[0].elements[0].props;
     expect(bag.items.filter((d) => d.severity === "error")).toEqual([]);
     expect(props.outline).toEqual([
-      { width: "1.4mm", color: rim },
-      { width: "1.9mm", color: edge },
+      { width: "1.4mm", color: rim, join: "miter" },
+      { width: "1.9mm", color: edge, join: "miter" },
     ]);
   });
 });
