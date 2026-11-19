@@ -6,6 +6,7 @@ import sharp from "sharp";
 import { render } from "../src/api.js";
 import type { DocumentInput } from "../src/schema/schema.js";
 import { RasterBackend } from "../src/render/raster.js";
+import { monoWorkingBytes } from "../src/render/mono.js";
 
 const document = (binding: "left" | "right"): DocumentInput => ({
   mangacli: 1,
@@ -29,13 +30,18 @@ pages:
 ` };
     const opts = { profile: "print-mono", dpi: 100, crop: "trim", spread: "split", format: "png", assets: { art } } as const;
     const calls = vi.spyOn(RasterBackend.prototype, "render");
+    const renderMono = RasterBackend.prototype.renderMono;
+    const bands = vi.spyOn(RasterBackend.prototype, "renderMono").mockImplementation(function (this: RasterBackend, list, viewport) {
+      return renderMono.call(this, list, viewport, viewport.width * 7);
+    });
     let direct;
     try {
       direct = await render(doc, opts);
-      expect(calls.mock.calls).toHaveLength(2);
+      expect(calls.mock.calls.length).toBeGreaterThan(2);
       expect(calls.mock.calls.every(([, viewport]) => viewport !== undefined)).toBe(true);
     } finally {
       calls.mockRestore();
+      bands.mockRestore();
     }
     const sliced = await render(doc, { ...opts, plugins: [{ name: "reference", hooks: { afterRender: (r) => r } }] });
     for (const [i, page] of direct.pages.entries()) {
@@ -83,7 +89,7 @@ pages:
   });
 
   it("allows sides that fit when the joined raster does not", async () => {
-    const r = await render(document("right"), { profile: "print-mono", dpi: 100, crop: "trim", spread: "split", format: "png", limits: { maxOutputPixels: 3000 } });
+    const r = await render(document("right"), { profile: "print-gray", dpi: 100, crop: "trim", spread: "split", format: "png", limits: { maxOutputPixels: 3000 } });
     expect(r.pages).toHaveLength(2);
     expect(r.pages.every((p) => p.width * p.height <= 3000)).toBe(true);
   });
@@ -93,7 +99,7 @@ pages:
     doc.pages.unshift({ id: "small", type: "blank", size: ["1mm", "1mm"] });
     const dir = mkdtempSync(join(tmpdir(), "mc-preflight-"));
     const phases: string[] = [];
-    const r = await render(doc, { profile: "print-mono", dpi: 100, crop: "trim", spread: "split", format: "png", outDir: dir, limits: { maxOutputPixels: 100 }, throwOnError: false, onProgress: (p) => phases.push(p.phase) });
+    const r = await render(doc, { profile: "print-gray", dpi: 100, crop: "trim", spread: "split", format: "png", outDir: dir, limits: { maxOutputPixels: 100 }, throwOnError: false, onProgress: (p) => phases.push(p.phase) });
     expect(readdirSync(dir)).toEqual([]);
     expect(phases).not.toContain("layout");
     expect(r.diagnostics.find((d) => d.code === "OUTPUT_TOO_LARGE")?.message).toMatch(/spread\/left: \d+x\d+.*maxOutputPixels \(100\).*highest whole dpi that fits: \d+.*--max-output-pixels/);
@@ -104,5 +110,54 @@ pages:
     doc.pages.unshift({ id: "small", type: "blank", size: ["1mm", "1mm"] });
     const r = await render(doc, { profile: "print-mono", dpi: 100, crop: "trim", pages: "small", format: "png", limits: { maxOutputPixels: 100 } });
     expect(r.pages).toHaveLength(1);
+  });
+  it("budgets packed mono by bytes rather than pixels and preflights all pages", async () => {
+    const doc = document("right");
+    const opts = { profile: "print-mono", dpi: 100, crop: "trim", spread: "split", format: "png", limits: { maxOutputPixels: 1 } } as const;
+    expect((await render(doc, opts)).pages).toHaveLength(2);
+    const dir = mkdtempSync(join(tmpdir(), "mc-mono-budget-"));
+    const calls = vi.spyOn(RasterBackend.prototype, "render");
+    try {
+      const failed = await render(doc, { ...opts, outDir: dir, limits: { maxOutputBytes: 100 }, throwOnError: false });
+      expect(failed.diagnostics.some((d) => d.code === "OUTPUT_TOO_LARGE" && d.message.includes("--max-output-bytes"))).toBe(true);
+      expect(calls).not.toHaveBeenCalled();
+      expect(readdirSync(dir)).toEqual([]);
+    } finally { calls.mockRestore(); }
+    const empty = await render({ mangacli: 1, pages: [{ type: "blank" }] }, { profile: "print-mono", dpi: 25, format: "png" });
+    expect(empty.pages).toHaveLength(1);
+    expect(monoWorkingBytes(12426 + 946, 17481 + 946)).toBeLessThan(384 * 1024 * 1024);
+    const absurd = await render({ mangacli: 1, page: { size: "A3" }, pages: [{ type: "spread" }] }, { profile: "print-mono", dpi: 2400, spread: "joined", format: "pdf", throwOnError: false });
+    expect(absurd.diagnostics.some((d) => d.code === "OUTPUT_TOO_LARGE" && d.message.includes("maxOutputBytes"))).toBe(true);
+  });
+  it("includes image working buffers in the mono preflight", async () => {
+    const art = await sharp({ create: { width: 1, height: 1, channels: 3, background: "white" } }).png().toBuffer();
+    const doc = { yaml: `mangacli: 1
+page: { size: [12mm, 15mm], bleed: 0 }
+pages:
+  - type: spread
+    layers:
+      - { image: art, size: [24mm, 15mm], at: [0mm, 0mm], anchor: top-left, filters: [invert] }
+` };
+    const calls = vi.spyOn(RasterBackend.prototype, "render");
+    try {
+      const r = await render(doc, { profile: "print-mono", dpi: 100, format: "png", assets: { art }, limits: { maxOutputBytes: monoWorkingBytes(47, 59) + 1000 }, throwOnError: false });
+      expect(r.diagnostics.some((d) => d.message.includes("including node buffers"))).toBe(true);
+      expect(calls).not.toHaveBeenCalled();
+      expect(r.files).toEqual([]);
+    } finally { calls.mockRestore(); }
+  });
+  it.each(["trim", "bleed", "marks"] as const)("tiny bands preserve tones, glyphs and marks: %s", async (crop) => {
+    const doc = document("right");
+    doc.pages[0].layers = [{ text: "CURVE", fontSize: "3mm", writing: "horizontal", at: ["12mm", "7mm"], anchor: "center" }];
+    const opts = { profile: "print-mono", dpi: 100, crop, spread: "split", format: ["png", "tiff", "pdf"] } as const;
+    const original = RasterBackend.prototype.renderMono;
+    const bands = vi.spyOn(RasterBackend.prototype, "renderMono").mockImplementation(function (this: RasterBackend, list, viewport) {
+      return original.call(this, list, viewport, viewport.width * 5);
+    });
+    let banded;
+    try { banded = await render(doc, { ...opts, format: [...opts.format] }); }
+    finally { bands.mockRestore(); }
+    const single = await render(doc, { ...opts, format: [...opts.format], plugins: [{ name: "single", hooks: { afterRender: (r) => r } }] });
+    expect(banded.pages.map((p) => p.data)).toEqual(single.pages.map((p) => p.data));
   });
 });

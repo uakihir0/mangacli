@@ -32,11 +32,17 @@ describe("cli", () => {
     const dir = mkdtempSync(join(tmpdir(), "mc-limit-"));
     const f = join(dir, "spread.yaml");
     writeFileSync(f, "mangacli: 1\npage: { size: [12mm, 15mm], bleed: 0 }\npages: [{ id: spread, type: spread }]\n");
-    const args = ["render", f, "-p", "print-mono", "--dpi", "100", "--spread", "split", "-f", "png", "-o", join(dir, "out"), "-q"];
+    const args = ["render", f, "-p", "print-gray", "--dpi", "100", "--spread", "split", "-f", "png", "-o", join(dir, "out"), "-q"];
     expect(cli(...args, "--max-output-pixels", "100").status).toBe(2);
     expect(existsSync(join(dir, "out"))).toBe(false);
     expect(cli(...args, "--max-output-pixels", "3000").status).toBe(0);
     expect(cli(...args, "--max-output-pixels", "bad").status).toBe(3);
     expect(cli(...args, "--max-output-pixels", "0").status).toBe(3);
+    const mono = [...args];
+    mono[mono.indexOf("print-gray")] = "print-mono";
+    expect(cli(...mono, "--max-output-bytes", "100").status).toBe(2);
+    expect(cli(...mono, "--max-output-bytes", "40000000", "--max-output-pixels", "1").status).toBe(0);
+    expect(cli(...mono, "--max-output-bytes", "nope").status).toBe(3);
+    expect(cli(...mono, "--max-output-bytes", "0").status).toBe(3);
   });
 });

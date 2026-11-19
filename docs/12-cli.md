@@ -57,7 +57,8 @@ mangacli render <file | -> [options]
 | `-f, --format <fmt[,fmt]>` | 出力形式 |
 | `--color <color\|gray\|mono>` | カラーモード |
 | `--dpi <n>`、`--scale <n>`、`--width <px>`、`--height <px>` | 解像度・寸法（[10.5](10-color-and-output.md#105-解像度とサイズ)） |
-| `--max-output-pixels <n>` | 出力 1 ページの画素数上限（既定 200000000、分割見開きは片側ごと）。例: B4 / 1200 dpi は `--max-output-pixels 250000000`。メモリ使用量に注意。 |
+| `--max-output-pixels <n>` | グレー・カラー・RGBA 互換経路の出力 1 ページの画素数上限（既定 200000000、分割見開きは片側ごと）。 |
+| `--max-output-bytes <n>` | 不透明 mono 1-bit PNG/TIFF G4/PDF の推定メモリ予算（既定 402653184 bytes = 384 MiB）。B4 / 1200 dpi 分割はトンボ付きでも既定で出力可能。バンドと packed バッファを使い、画素数上限は適用しない。巨大画像・フィルターなどのノード作業領域も推定に含む。 |
 | `--crop <trim\|bleed\|marks>` | 出力範囲 |
 | `--pages <range>` | 出力するページ。数値は `pages` のリストでの順番（見開きも 1 つ、ノンブルではない）。例: `1-3,5`、`p7`（ID）、`3-`（3 番目以降） |
 | `--lang <tag>` | 本文の言語（[7.16](07-text.md#716-多言語)） |

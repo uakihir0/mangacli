@@ -23,7 +23,8 @@ import type { DisplayList, Node } from "./render/ir.js";
 import { parsePaint } from "./model/values.js";
 import { polyPath } from "./geom/path.js";
 import type { RElement, RPage } from "./model/resolve.js";
-import { RasterBackend } from "./render/raster.js";
+import { RasterBackend, monoNodeWorkingBytes } from "./render/raster.js";
+import { DEFAULT_OUTPUT_BYTES, monoWorkingBytes } from "./render/mono.js";
 import { createCanvas } from "@napi-rs/canvas";
 import { renderSvg } from "./render/svg.js";
 import { type MangaPlugin, PluginSet, withPlugins } from "./plugin.js";
@@ -144,6 +145,7 @@ export interface Limits {
   maxElementsPerPage?: number;
   maxTextLength?: number;
   maxOutputPixels?: number;
+  maxOutputBytes?: number;
   maxDpi?: number;
 }
 
@@ -152,7 +154,7 @@ function cfgOf(o: RenderOptions): Obj | undefined {
   return o.config === true ? undefined : o.config;
 }
 
-const DEFAULT_LIMITS: Required<Limits> = { maxSourceBytes: 10e6, maxPages: 1000, maxElementsPerPage: 5000, maxTextLength: 2000, maxOutputPixels: 200e6, maxDpi: 2400 };
+const DEFAULT_LIMITS: Required<Limits> = { maxSourceBytes: 10e6, maxPages: 1000, maxElementsPerPage: 5000, maxTextLength: 2000, maxOutputPixels: 200e6, maxOutputBytes: DEFAULT_OUTPUT_BYTES, maxDpi: 2400 };
 
 function limitsOf(o: RenderOptions): Required<Limits> {
   return { ...DEFAULT_LIMITS, ...((cfgOf(o)?.limits as Limits | undefined) ?? {}), ...(o.limits ?? {}) };
@@ -463,6 +465,10 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   // print profiles hand spreads to the printer as two pages
   const spreadMode = options.spread ?? prof.spread ?? (prof.print ? "split" : "joined");
   const crop = options.crop ?? prof.crop;
+  const profOwn = (PROFILES as Record<string, Profile>)[profName] ? undefined : (resolveProfile(profName, { ...(((cfgOf(options)?.output as Obj)?.profiles ?? {}) as Record<string, Obj>), ...((docOutput.profiles ?? {}) as Record<string, Obj>) }) as { finish?: Finish }).finish;
+  const quiet = prof.print || profName === "preview" || profName === "draft" || draft;
+  const finish = options.finish === false ? undefined : (options.finish ?? profOwn ?? (quiet ? undefined : (prof.finish as Finish | undefined)));
+  const packedMono = (options.colorMode ?? prof.colorMode) === "mono" && !finish && !options.debug && !plugins?.plugins.some((p) => p.hooks?.afterRender) && !seps0 && !(options.transparent ?? prof.transparent) && options.background !== "transparent" && docOutput.background !== "transparent" && formats.every((f) => ["png", "tiff", "pdf", "svg"].includes(f));
   const resolution = (page: RPage, geom: import("./layout/page.js").PageGeom) => {
     const sz = pageSize(page.settings, bag, page.path);
     const margin = crop === "marks" ? 2 * (prof.marks?.margin ?? 10) : 0;
@@ -492,20 +498,61 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const g = computePageGeom(page, pl.physical, bookOf(p.doc), bag);
       const dpi = resolution(page, g);
       for (const size of outputSizes(g, dpi)) {
-        if (size.w * size.h <= lim.maxOutputPixels) continue;
+        const cost = (w: number, h: number) => packedMono ? monoWorkingBytes(w, h) : w * h;
+        const limit = packedMono ? lim.maxOutputBytes : lim.maxOutputPixels;
+        if (cost(size.w, size.h) <= limit) continue;
         let lo = 0, hi = Math.floor(dpi);
         while (lo < hi) {
           const mid = Math.ceil((lo + hi) / 2);
-          if (outputSizes(g, mid).every((s) => s.w * s.h <= lim.maxOutputPixels)) lo = mid;
+          if (outputSizes(g, mid).every((s) => cost(s.w, s.h) <= limit)) lo = mid;
           else hi = mid - 1;
         }
-        const message = `page ${page.id}/${size.side}: ${size.w}x${size.h} exceeds maxOutputPixels (${lim.maxOutputPixels}); highest whole dpi that fits: ${lo}; use --dpi ${lo} or raise --max-output-pixels (API: limits.maxOutputPixels) to at least ${Math.max(...outputSizes(g, dpi).map((s) => s.w * s.h))}`;
+        const message = packedMono
+          ? `page ${page.id}/${size.side}: ${size.w}x${size.h} estimated ${cost(size.w, size.h)} bytes exceeds maxOutputBytes (${limit}); highest whole dpi that fits: ${lo}; use --dpi ${lo} or raise --max-output-bytes (API: limits.maxOutputBytes) to at least ${Math.max(...outputSizes(g, dpi).map((s) => cost(s.w, s.h)))}`
+          : `page ${page.id}/${size.side}: ${size.w}x${size.h} exceeds maxOutputPixels (${lim.maxOutputPixels}); highest whole dpi that fits: ${lo}; use --dpi ${lo} or raise --max-output-pixels (API: limits.maxOutputPixels) to at least ${Math.max(...outputSizes(g, dpi).map((s) => s.w * s.h))}`;
         bag.error("OUTPUT_TOO_LARGE", message, { pageId: page.id });
         result.failures.push({ pageId: page.id, index: pl.idx + 1, error: new Error(`OUTPUT_TOO_LARGE: ${message}`) });
       }
     }
     if (bag.hasErrors) {
       if (throwOnError) throw new MangaRenderError("OUTPUT_TOO_LARGE", result.failures.map((f) => f.error.message).join("\n"), bag.items, result.failures);
+      return result;
+    }
+  }
+  const prepared = new Map<number, Awaited<ReturnType<typeof composePage>>>();
+  if (packedMono && !options.layoutOnly && formats.some((f) => f !== "svg")) {
+    for (const pl of plan) {
+      if (!selected.has(pl.idx)) continue;
+      const page = resolved.pages[pl.idx];
+      let composed: Awaited<ReturnType<typeof composePage>>;
+      try {
+        composed = await composePage(resolved, page, pl.physical, { bag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: (g) => resolution(page, g), characters: resolved.characters });
+        if (plugins) composed.list = plugins.hook("beforeRender", composed.list) as DisplayList;
+      } catch (e) {
+        if (e instanceof MangaError && !(e instanceof MangaRenderError)) throw e;
+        result.failures.push({ pageId: page.id, index: pl.idx + 1, error: e as Error });
+        const m = /^([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+): ([\s\S]*)$/.exec((e as Error).message);
+        bag.error(m?.[1] ?? "RENDER_FAILED", `page ${page.id}: ${m?.[2] ?? (e as Error).message}`, { pageId: page.id });
+        if (options.failFast) break;
+        continue;
+      }
+      prepared.set(pl.idx, composed);
+      const g = composed.info.geom, dpi = resolution(page, g);
+      const rasterCrop = g.type === "spread" && spreadMode === "split" && crop === "marks" ? "bleed" : crop;
+      const cost = (d: number) => Math.max(...outputSizes(g, d).map((s) => monoWorkingBytes(s.w, s.h))) + monoNodeWorkingBytes(composed.list, d, rasterCrop, prof.marks?.margin);
+      if (cost(dpi) <= lim.maxOutputBytes) continue;
+      let lo = 0, hi = Math.floor(dpi);
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        if (cost(mid) <= lim.maxOutputBytes) lo = mid;
+        else hi = mid - 1;
+      }
+      const message = `page ${page.id}: estimated ${cost(dpi)} bytes including node buffers exceeds maxOutputBytes (${lim.maxOutputBytes}); highest whole dpi that fits: ${lo}; use --dpi ${lo} or raise --max-output-bytes (API: limits.maxOutputBytes) to at least ${cost(dpi)}`;
+      bag.error("OUTPUT_TOO_LARGE", message, { pageId: page.id });
+      result.failures.push({ pageId: page.id, index: pl.idx + 1, error: new Error(`OUTPUT_TOO_LARGE: ${message}`) });
+    }
+    if (bag.hasErrors) {
+      if (throwOnError) throw new MangaRenderError(result.failures.some((f) => f.error.message.startsWith("OUTPUT_TOO_LARGE:")) ? "OUTPUT_TOO_LARGE" : "RENDER_FAILED", result.failures.map((f) => f.error.message).join("\n"), bag.items, result.failures);
       return result;
     }
   }
@@ -565,9 +612,9 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         return resolution(page, geom);
       };
       if (!options.layoutOnly) options.onProgress?.({ phase: "layout", pageId: page.id, done, total });
-      const { list: list0, info } = await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor, characters: resolved.characters });
+      const { list: list0, info } = prepared.get(pl.idx) ?? await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor, characters: resolved.characters });
       info.number = pl.nombre;
-      let list = plugins ? (plugins.hook("beforeRender", list0) as DisplayList) : list0;
+      let list = plugins && !prepared.has(pl.idx) ? (plugins.hook("beforeRender", list0) as DisplayList) : list0;
       // transparent output: no page ground (panel grounds stay; spec 10.15)
       const bgOverride = options.background ?? (typeof docOutput.background === "string" ? (docOutput.background as string) : undefined);
       const transparentOut = options.transparent ?? (bgOverride === "transparent" ? true : undefined) ?? prof.transparent ?? false;
@@ -601,14 +648,14 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const splitMarks = geom.type === "spread" && spreadMode === "split" && crop === "marks";
       const rasterCrop = splitMarks ? "bleed" : crop;
       for (const run of runs) {
-        const backend = new RasterBackend({ maxPixels: geom.type === "spread" && spreadMode === "split" ? Number.MAX_SAFE_INTEGER : lim.maxOutputPixels, dpi, crop: rasterCrop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
+        const backend = new RasterBackend({ maxPixels: packedMono || (geom.type === "spread" && spreadMode === "split") ? Number.MAX_SAFE_INTEGER : lim.maxOutputPixels, dpi, crop: rasterCrop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
         const needRaster = formats.some((f) => f !== "svg");
-        const profOwn = (PROFILES as Record<string, Profile>)[profName] ? undefined : (resolveProfile(profName, { ...(((cfgOf(options)?.output as Obj)?.profiles ?? {}) as Record<string, Obj>), ...((docOutput.profiles ?? {}) as Record<string, Obj>) }) as { finish?: Finish }).finish;
-        const quiet = prof.print || profName === "preview" || profName === "draft" || draft;
-        const finish = options.finish === false ? undefined : (options.finish ?? profOwn ?? (quiet ? undefined : (prof.finish as Finish | undefined)));
         const directSplit = geom.type === "spread" && spreadMode === "split" && !plugins?.plugins.some((p) => p.hooks?.afterRender) && !finish && !options.debug;
         const px = (mm: number) => Math.round(mm * dpi / 25.4 + 1e-6);
-        let full = needRaster && !directSplit ? await backend.render(list) : { data: new Uint8ClampedArray(0), width: directSplit ? px(geom.trimW) + (crop === "trim" ? 0 : 2 * px(geom.bleed)) : 0, height: directSplit ? px(geom.trimH) + (crop === "trim" ? 0 : 2 * px(geom.bleed)) : 0, dpi };
+        const margin = crop === "marks" && !splitMarks ? px(prof.marks?.margin ?? 10) : 0;
+        const width = px(geom.trimW) + (crop === "trim" ? 0 : 2 * px(geom.bleed)) + 2 * margin;
+        const height = px(geom.trimH) + (crop === "trim" ? 0 : 2 * px(geom.bleed)) + 2 * margin;
+        let full = needRaster && !directSplit && !packedMono ? await backend.render(list) : { data: new Uint8ClampedArray(0), width, height, dpi };
         if (plugins && needRaster) full = { ...full, ...(plugins.hook("afterRender", { data: full.data, width: full.width, height: full.height }) as object) };
         // finishing passes: off for print profiles unless the profile itself asks for them
         // finishing: never for print/preview/draft unless the profile itself (not the document) asks for it
@@ -618,7 +665,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         const trimWidth = Math.round((geom.trimW * dpi) / 25.4 + 1e-6);
         const trimHeight = Math.round((geom.trimH * dpi) / 25.4 + 1e-6);
         const fullTrim = { x: Math.round((full.width - trimWidth) / 2), y: Math.round((full.height - trimHeight) / 2), w: trimWidth, h: trimHeight };
-        type PartRaster = { data: Uint8ClampedArray; width: number; height: number };
+        type PartRaster = { data: Uint8ClampedArray; packed?: Uint8Array; width: number; height: number };
         const parts: { raster: PartRaster | (() => Promise<PartRaster>); trim: typeof fullTrim; side: string; nombre: number | null }[] = [];
         if (geom.type === "spread" && spreadMode === "split" && needRaster) {
           const trimPx = Math.round((geom.trimW * dpi) / 25.4 + 1e-6);
@@ -628,6 +675,10 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           const inner = crop === "trim" ? 0 : Math.round((geom.bleed * dpi) / 25.4 + 1e-6);
           const leftW = edge + half + inner;
           const slice = async (x0: number, w: number) => {
+            if (packedMono) {
+              const raster = await backend.renderMono(list, { x: x0, y: 0, width: w, height: full.height });
+              return splitMarks ? backend.addMonoMarks(raster, geom.bleed) : raster;
+            }
             const out = directSplit ? undefined : new Uint8ClampedArray(w * full.height * 4);
             if (out) for (let y = 0; y < full.height; y++) out.set(full.data.subarray((y * full.width + x0) * 4, (y * full.width + x0 + w) * 4), y * w * 4);
             const raster = out ? { data: out, width: w, height: full.height } : await backend.render(list, { x: x0, width: w });
@@ -639,7 +690,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           const first = geom.rtl ? right : left;
           const second = geom.rtl ? left : right;
           parts.push({ ...first, nombre: pl.nombre }, { ...second, nombre: pl.nombre === null ? null : pl.nombre + 1 });
-        } else parts.push({ raster: full, trim: fullTrim, side: geom.side, nombre: pl.nombre });
+        } else parts.push({ raster: packedMono && needRaster ? () => backend.renderMono(list, { x: 0, y: 0, width, height }) : full, trim: fullTrim, side: geom.side, nombre: pl.nombre });
         for (const part of parts) {
           const raster = typeof part.raster === "function" ? await part.raster() : part.raster;
           for (const fmt of formats) {
@@ -652,12 +703,12 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
               }
               const bleedPx = crop === "trim" ? 0 : Math.round((geom.bleed * dpi) / 25.4 + 1e-6);
               const trim = part.trim;
-              pw.writer.addPage({ rgba: raster.data, width: raster.width, height: raster.height, dpi, colorMode: (options.debug ? "color" : colorMode) as "color", transparent: transparentOut || !!run.list, trim, bleed: { x: trim.x - bleedPx, y: trim.y - bleedPx, w: trim.w + 2 * bleedPx, h: trim.h + 2 * bleedPx } });
+              pw.writer.addPage({ rgba: raster.data, packed: raster.packed, width: raster.width, height: raster.height, dpi, colorMode: (options.debug ? "color" : colorMode) as "color", transparent: transparentOut || !!run.list, trim, bleed: { x: trim.x - bleedPx, y: trim.y - bleedPx, w: trim.w + 2 * bleedPx, h: trim.h + 2 * bleedPx } });
               continue;
             }
             if (fmt === "svg" && part !== parts[0]) continue;
             const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, compression: prof.compression, chroma: prof.chroma, tiffCompression: prof.tiffCompression, transparent: transparentOut || !!run.list, metadata: prof.metadata === false ? {} : { Software: `mangacli ${PKG_VERSION}`, Title: String(meta.title ?? ""), ...(meta.author ? { Author: String(meta.author) } : {}), ...(meta.copyright ? { Copyright: String(meta.copyright) } : {}), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed), ...(sourceHash ? { "mangacli:source-hash": sourceHash } : {}) } };
-            const data = fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: Math.min(dpi, 300) })) : await encode(raster.data, raster.width, raster.height, enc);
+            const data = fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: Math.min(dpi, 300) })) : await encode(raster.data, raster.width, raster.height, { ...enc, packed: raster.packed });
             const svgSize = () => {
               const bw = crop === "trim" ? geom.trimW : geom.bleedBox.w;
               const bh = crop === "trim" ? geom.trimH : geom.bleedBox.h;
