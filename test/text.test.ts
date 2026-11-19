@@ -19,6 +19,18 @@ describe("markup", () => {
     const s = chars("えっ...そんな—").map((u) => u.ch).join("");
     expect(s).toBe("えっ…そんな――");
   });
+  it("uses nonokagi for double quotes only in vertical text", () => {
+    expect(chars("“ヤバい”って言った").map((u) => u.ch).join("")).toBe("〝ヤバい〟って言った");
+    expect(chars("“ヤバい”って言った", false).map((u) => u.ch).join("")).toBe("“ヤバい”って言った");
+    expect(chars('"ヤバい"').map((u) => u.ch).join("")).toBe('"ヤバい"');
+    expect(chars("").map((u) => u.ch).join("")).toBe("");
+  });
+  it("normalizes quotes across markup and without markup", () => {
+    expect(chars("“<b>ヤバい</b>”").map((u) => u.ch).join("")).toBe("〝ヤバい〟");
+    const p = parseMarkup("“ヤバい”", { vertical: true, markup: false });
+    expect(p.units.flatMap((u) => u.kind === "char" ? [u.ch] : []).join("")).toBe("〝ヤバい〟");
+    expect(parseMarkup("“<foo>”", { vertical: true }).errors[0]?.code).toBe("TEXT_UNKNOWN_TAG");
+  });
   it("keeps !? runs for tate-chu-yoko and converts lone marks", () => {
     expect(chars("本当!?").map((u) => u.ch).join("")).toBe("本当!?");
     expect(chars("本当!").map((u) => u.ch).join("")).toBe("本当！");
@@ -33,6 +45,12 @@ describe("markup", () => {
 });
 
 describe("line breaking", () => {
+  it.each(["strict", "normal", "loose", "none"] as const)("classifies nonokagi in %s kinsoku", (level) => {
+    expect(noEnd("〝", level)).toBe(level !== "none");
+    expect(noStart("〟", level)).toBe(level !== "none");
+    expect(noStart("〝", level)).toBe(false);
+    expect(noEnd("〟", level)).toBe(false);
+  });
   it("applies kinsoku", () => {
     expect(noStart("、", "strict")).toBe(true);
     expect(noStart("っ", "strict")).toBe(true);

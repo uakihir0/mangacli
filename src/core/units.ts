@@ -5,6 +5,7 @@ export type LengthUnit = "mm" | "cm" | "in" | "pt" | "px" | "Q" | "H" | "em" | "
 export interface Quantity {
   value: number;
   unit: LengthUnit;
+  print?: boolean;
 }
 
 export type LengthInput = number | string;
@@ -14,9 +15,10 @@ const LEN_RE = /^([-+]?(?:\d+(?:\.\d+)?|\.\d+))\s*(mm|cm|in|pt|px|Q|H|em|%|bmm|b
 export function parseLength(input: LengthInput): Quantity | null {
   if (typeof input === "number") return isFinite(input) ? { value: input, unit: "" } : null;
   if (typeof input !== "string") return null;
-  const m = input.trim().match(LEN_RE);
+  const print = input.trim().endsWith("@print");
+  const m = input.trim().replace(/@print$/, "").match(LEN_RE);
   if (!m) return null;
-  return { value: parseFloat(m[1]), unit: (m[2] ?? "") as LengthUnit };
+  return { value: parseFloat(m[1]), unit: (m[2] ?? "") as LengthUnit, ...(print ? { print: true } : {}) };
 }
 
 export function isLength(input: unknown): input is LengthInput {
@@ -27,6 +29,7 @@ export interface UnitContext {
   /** unit for bare numbers */
   units: "mm" | "px" | "pt" | "in" | "cm";
   dpi: number;
+  printScale?: number;
   /** B5 scale factor for built-in defaults (short side / 182mm) */
   k: number;
   /** current font size in mm (for em) */
@@ -36,6 +39,7 @@ export interface UnitContext {
 }
 
 export function quantityToMm(q: Quantity, ctx: UnitContext): number {
+  if (q.print) return quantityToMm({ ...q, print: false }, ctx) / (ctx.printScale ?? 1);
   switch (q.unit) {
     case "mm":
       return q.value;

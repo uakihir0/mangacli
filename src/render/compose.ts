@@ -14,6 +14,7 @@ import { resolveRegion } from "../elements/region.js";
 import { renderSfx, renderText } from "../elements/textel.js";
 import { textValue } from "../elements/textstyle.js";
 import type { FontRegistry } from "../fonts/registry.js";
+import { miterFrameEdges } from "../geom/miter.js";
 import { flattenPath, parseSvgPath, polyPath, smoothPath, transformPath } from "../geom/path.js";
 import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
 import { inkLine, inkShape } from "../ink/shape.js";
@@ -27,6 +28,7 @@ import { BODY_GENERATORS } from "../shapes/balloon.js";
 import { defaultTextStyle, layoutText } from "../text/layout.js";
 import { parseMarkup } from "../text/markup.js";
 import type { AssetRegistry } from "./assets.js";
+import { cleanClippedBalloonInk } from "./balloon-clip.js";
 import type { DisplayList, GroupNode, Node } from "./ir.js";
 
 type Obj = Record<string, unknown>;
@@ -323,7 +325,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   const free = items.filter((i) => !i.stackUnder);
   free.sort((a, b) => a.z - b.z || a.layer - b.layer || a.source - b.source || a.panelIdx - b.panelIdx || (a.layer === 1 && b.layer === 1 ? b.listIdx - a.listIdx : a.listIdx - b.listIdx));
   for (const it of free) {
-    if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, children: it.nodes });
+    if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, children: it.el.type === "balloon" ? cleanClippedBalloonInk(it.openClip)(it.nodes) : it.nodes });
     else root.children.push(...it.nodes);
   }
   // page numbers
@@ -432,8 +434,10 @@ function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: Retur
   const bg = parsePaint(p.background ?? "paper", { u, box: pg.fullBox, seed: pg.panel.seed, bag, path: [...pg.panel.path, "background"] });
   const inner: Node[] = [];
   if (bg) inner.push({ kind: "path", path: polyPath(poly, true), fillRule: "nonzero", paint: bg, tag: { elementId: pg.panel.id, elementType: "panel", role: "background", separation: "background" } });
-  for (const it of clipped) inner.push(...it.nodes);
-  out.push({ kind: "group", clip: isShaped ? smoothPath(poly, true) : polyPath(poly, true), children: inner, tag: { elementId: pg.panel.id, elementType: "panel", role: "art", separation: "art" } });
+  const clip = isShaped ? smoothPath(poly, true) : polyPath(poly, true);
+  const cleanBalloonInk = cleanClippedBalloonInk(clip);
+  for (const it of clipped) inner.push(...(it.el.type === "balloon" ? cleanBalloonInk(it.nodes) : it.nodes));
+  out.push({ kind: "group", clip, children: inner, tag: { elementId: pg.panel.id, elementType: "panel", role: "art", separation: "art" } });
   out.push(...borderNodes(pg, poly, isShaped, geom, bag));
   return out;
 }
@@ -474,6 +478,16 @@ function borderNodes(pg: PanelGeom, poly: Vec[], shaped: boolean, geom: PageGeom
   const cy = pg.polygon.reduce((a, q) => a + q.y, 0) / n;
   const sideName = (d: Vec, nrm: Vec) => (Math.abs(d.x) >= Math.abs(d.y) ? (nrm.y > 0 ? "top" : "bottom") : nrm.x > 0 ? "left" : "right");
   const L = (v: unknown, fb: string) => toMm((v as string) ?? fb, u);
+  const edges = pg.polygon.map((a, i) => {
+    const c = pg.polygon[(i + 1) % n];
+    const d = { x: c.x - a.x, y: c.y - a.y };
+    let nrm = { x: -d.y, y: d.x };
+    if (nrm.x * (cx - a.x) + nrm.y * (cy - a.y) < 0) nrm = { x: -nrm.x, y: -nrm.y };
+    const sides = isObj(b0.sides) ? (b0.sides as Obj) : {};
+    const sv = sides[sideName(d, nrm)];
+    return sv === undefined ? main : sv === "none" ? null : resolveB({ ...b0, ...(isObj(sv) ? sv : {}), sides: undefined }, [...pg.panel.path, "border", "sides"]);
+  });
+  const miters = miterFrameEdges(pg.polygon, edges.map((e) => e?.st.width ?? main.st.width));
   for (let i = 0; i < n; i++) {
     const a = pg.polygon[i];
     const c = pg.polygon[(i + 1) % n];
@@ -485,13 +499,17 @@ function borderNodes(pg: PanelGeom, poly: Vec[], shaped: boolean, geom: PageGeom
     let nrm = { x: -dir.y, y: dir.x };
     if (nrm.x * (cx - a.x) + nrm.y * (cy - a.y) < 0) nrm = { x: -nrm.x, y: -nrm.y };
     // per-side overrides (spec 4.9 sides)
-    const sides = isObj(b0.sides) ? (b0.sides as Obj) : {};
-    const sv = sides[sideName(dir, nrm)];
-    const E = sv === undefined ? main : sv === "none" ? null : resolveB({ ...b0, ...(isObj(sv) ? sv : {}), sides: undefined }, [...pg.panel.path, "border", "sides"]);
+    const E = edges[i];
     if (!E || E.style === "none" || E.st.width <= 0) continue;
     const { st, hand, b } = E;
     const ruler = b.ruler !== false;
     const join = (b.join as string) ?? "clean";
+    if (join === "clean" && E.style === "solid" && ruler) {
+      const node: Node = { kind: "path", path: polyPath(miters[i], true), fillRule: "nonzero", paint: { type: "solid", color: st.color }, tag: t };
+      const opacity = st.pen.opacity ?? 1;
+      nodes.push(opacity >= 0.999 ? node : { kind: "group", opacity, children: [node], tag: t });
+      continue;
+    }
     let e0 = st.width / 2;
     let e1 = st.width / 2;
     if (join === "overshoot") {
@@ -1295,10 +1313,11 @@ function collectTranscript(el: RElement, panel: string | undefined, info: PageLa
 function checkTextSafety(items: Item[], geom: PageGeom, bag: DiagnosticBag, page: RPage) {
   if (geom.units.units === "px") return;
   for (const it of items) {
-    if (!["balloon", "text"].includes(it.el.type)) continue;
+    if (!["balloon", "text", "sfx"].includes(it.el.type)) continue;
     const b = it.bbox;
     const s = geom.safe;
-    if (b.x < s.x - 0.5 || b.y < s.y - 0.5 || b.x + b.w > s.x + s.w + 0.5 || b.y + b.h > s.y + s.h + 0.5) {
+    const intentionalBleed = it.el.type === "sfx" && it.el.props.bleed === true;
+    if (!intentionalBleed && (b.x < s.x - 0.5 || b.y < s.y - 0.5 || b.x + b.w > s.x + s.w + 0.5 || b.y + b.h > s.y + s.h + 0.5)) {
       bag.warn("TEXT_OUTSIDE_SAFE_AREA", `${it.el.id} extends outside the safe area`, { path: it.el.path, elementId: it.el.id, pageId: page.id });
     }
     if (geom.type === "spread") {

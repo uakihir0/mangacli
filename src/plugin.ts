@@ -8,8 +8,10 @@ import type { Vec } from "./geom/vec.js";
 import { parseSvgPath, flattenPath } from "./geom/path.js";
 import type { HandSpec, PenSpec } from "./ink/presets.js";
 import type { DisplayList, Node, Paint } from "./render/ir.js";
+import type { PagePreset } from "./model/defaults.js";
 
 type Obj = Record<string, unknown>;
+export type PluginPageSize = Omit<PagePreset, "w" | "h" | "unit"> & { width: number; height: number; unit?: "mm" | "px" };
 
 /** a closed outline with chainable transforms (centered coordinates, mm) */
 export class Contour {
@@ -116,7 +118,7 @@ export interface MangaPlugin {
   handPresets?: Record<string, Partial<HandSpec>>;
   /** expands to a layout object ({ rows } or { split }) */
   layoutTemplates?: Record<string, (params: Obj) => Obj>;
-  pageSizes?: Record<string, { width: number; height: number; unit?: "mm" | "px" }>;
+  pageSizes?: Record<string, PluginPageSize>;
   styles?: Record<string, Obj>;
   hooks?: {
     afterLoad?(doc: Obj): Obj | void;
@@ -137,7 +139,7 @@ export class PluginSet {
   readonly pens = new Map<string, Partial<PenSpec>>();
   readonly hands = new Map<string, Partial<HandSpec>>();
   readonly templates = new Map<string, (params: Obj) => Obj>();
-  readonly pageSizes = new Map<string, { width: number; height: number; unit?: "mm" | "px" }>();
+  readonly pageSizes = new Map<string, PluginPageSize>();
   readonly styles: Record<string, Obj> = {};
   readonly conflicts: string[] = [];
 
