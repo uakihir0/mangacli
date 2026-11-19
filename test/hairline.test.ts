@@ -64,12 +64,9 @@ describe("mono hairline protection", () => {
       for (let px = 0; px < 16; px++) for (let py = 0; py < 16; py++) {
         const { backend, list, node } = setup(0.015, px / 16, py / 16, slope);
         if (transpose) node.path = node.path.map((p) => [p[0], p[2], p[1]]) as PathNode["path"];
-        // Exercise both native strokes and the centerlines of filled ink outlines.
-        if (px % 2) {
-          node.paint = node.stroke!.paint;
-          node.inkStrokes = [{ path: node.path, width: 0.015 }];
-          delete node.stroke;
-        }
+        node.paint = node.stroke!.paint;
+        node.inkStrokes = [{ path: node.path, width: 0.015 }];
+        delete node.stroke;
         const result = await backend.render(list);
         for (let x = 6; x < 45; x++) {
           let black = false;
@@ -88,6 +85,27 @@ describe("mono hairline protection", () => {
     list.root.children = [];
     expect((await backend.render(list)).data.every((v) => v === 255)).toBe(true);
     expect(bag.items).toEqual([]);
+  });
+
+  it("measures perpendicular device width under nonuniform scaling", async () => {
+    const { backend, list, node, bag } = setup(0.10, 0, 0, 0);
+    node.paint = node.stroke!.paint;
+    node.inkStrokes = [{ path: node.path, width: 0.10 }];
+    list.root.transform = [0.1, 0, 0, 1, 0, 0];
+    await backend.render(list);
+    expect(bag.items).toEqual([]);
+    node.path = node.path.map((p) => [p[0], p[2], p[1]]) as PathNode["path"];
+    node.inkStrokes = [{ path: node.path, width: 0.10 }];
+    await backend.render(list);
+    expect(bag.items).toHaveLength(1);
+  });
+
+  it("does not clamp text outlines or faux-bold native strokes", async () => {
+    const { backend, list, node, bag } = setup(0.015, 0.3, 0.7, 0);
+    node.tag = { elementId: "text", elementType: "text", role: "text", separation: "text" };
+    const result = await backend.render(list);
+    expect(bag.items).toEqual([]);
+    expect(Array.from({ length: 50 }, (_, y) => result.data[(y * 50 + 20) * 4]).filter((v) => v === 0).length).toBeLessThan(2);
   });
 
   it.each(["gray", "color"] as const)("does not thicken or warn in %s output", async (colorMode) => {

@@ -454,12 +454,15 @@ export class RasterBackend {
 
   private async drawPath(dev: Dev, n: PathNode, m: Matrix): Promise<void> {
     const ctx = dev.ctx;
-    // Smallest singular value keeps the minimum valid under nonuniform transforms.
-    const a = m[0] ** 2 + m[1] ** 2;
-    const b = m[2] ** 2 + m[3] ** 2;
-    const c = m[0] * m[2] + m[1] * m[3];
-    const scale = Math.sqrt(Math.max(0, (a + b - Math.hypot(a - b, 2 * c)) / 2));
-    const effectiveWidth = (width: number) => {
+    const effectiveWidth = (width: number, path: PathData) => {
+      let scale = Infinity;
+      for (let i = 1; i < path.length; i++) {
+        const dx = path[i][1]! - path[i - 1][1]!;
+        const dy = path[i][2]! - path[i - 1][2]!;
+        const length = Math.hypot(dx, dy);
+        const deviceLength = Math.hypot(m[0] * dx + m[2] * dy, m[1] * dx + m[3] * dy);
+        if (length && deviceLength) scale = Math.min(scale, Math.abs(m[0] * m[3] - m[1] * m[2]) * length / deviceLength);
+      }
       if (dev.opts.colorMode !== "mono" || scale <= 0 || width * scale >= MONO_MIN_STROKE_PIXELS) return width;
       const minimum = MONO_MIN_STROKE_PIXELS / scale;
       const id = n.tag?.elementId ?? "stroke";
@@ -471,7 +474,7 @@ export class RasterBackend {
     };
     if (n.paint && n.inkStrokes && dev.opts.colorMode === "mono") {
       for (const ink of n.inkStrokes) {
-        const width = effectiveWidth(ink.width);
+        const width = effectiveWidth(ink.width, ink.path);
         if (width === ink.width) continue;
         ctx.save();
         setM(ctx, m);
@@ -489,7 +492,7 @@ export class RasterBackend {
       setM(ctx, m);
       const st = this.paintStyle(dev, n.stroke.paint);
       if (st) ctx.strokeStyle = st as string;
-      ctx.lineWidth = effectiveWidth(n.stroke.width);
+      ctx.lineWidth = n.stroke.width;
       ctx.lineJoin = n.stroke.join;
       ctx.lineCap = "round";
       ctx.stroke(buildPath(n.path));
