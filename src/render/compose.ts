@@ -5,7 +5,7 @@ import { Rng } from "../core/random.js";
 import { breakFaults } from "../text/layout.js";
 import { parseAngle, toMm } from "../core/units.js";
 import { type ElemCtx, type Silhouette, placeCtx, tag } from "../elements/context.js";
-import { type BalloonPlan, planBalloon, renderBalloon, renderConnected } from "../elements/balloon.js";
+import { type BalloonPlan, hasOffscreenTail, planBalloon, renderBalloon, renderConnected } from "../elements/balloon.js";
 import { renderEffect } from "../elements/effects.js";
 import { layoutImage } from "../elements/image.js";
 import { inksToNodes } from "../elements/inkir.js";
@@ -290,7 +290,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       if (!it) continue;
       // clip: auto — a balloon may lie over a frame line between panels, but one that runs past
       // the outer edge of the panel area is cut by the frame there, as lettering usually is
-      if (it.free && el.type === "balloon" && el.props.clip === "auto" && !isOffscreen(el) && crossesOuterEdge(pg, it.bbox, u.k)) it.free = false;
+      if (it.free && el.type === "balloon" && el.props.clip === "auto" && crossesOuterEdge(pg, it.bbox, u.k)) it.free = false;
       if (it.free) {
         if (isObj(el.props.clip)) it.openClip = openClipPath(pg, el.props.clip as Obj, geom, u);
         items.push(it);
@@ -352,7 +352,7 @@ function rectPts(r: Rect): Vec[] {
 
 function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listIdx: number, source: number, ctx: ElemCtx): Item {
   const clip = el.props.clip;
-  const free = source === 1 || clip === "none" || clip === "trim" || isObj(clip) || (el.type === "balloon" && clip !== "panel" && !isOffscreen(el));
+  const free = source === 1 || clip === "none" || clip === "trim" || isObj(clip) || (el.type === "balloon" && clip !== "panel" && !hasOffscreenTail(el.props));
   const layer = el.type === "balloon" ? 1 : el.type === "text" || el.type === "sfx" ? 2 : 0;
   const op = typeof el.props.opacity === "number" && el.type !== "image" && el.type !== "effect" ? el.props.opacity : undefined;
   const blend = el.type !== "image" && typeof el.props.blend === "string" && el.props.blend !== "normal" ? (el.props.blend as GroupNode["blend"]) : undefined;
@@ -383,11 +383,6 @@ function crossesOuterEdge(pg: PanelGeom, b: Rect, k: number): boolean {
   const tol = 0.5 * k;
   const past: Record<string, boolean> = { top: b.y < pb.y - tol, bottom: b.y + b.h > pb.y + pb.h + tol, left: b.x < pb.x - tol, right: b.x + b.w > pb.x + pb.w + tol };
   return pg.edgeSides.some((s) => s !== null && past[s]);
-}
-
-function isOffscreen(el: RElement): boolean {
-  const t = el.props.tail;
-  return isObj(t) && !!(t as Obj).offscreen;
 }
 
 function coordsFor(el: RElement, ctx: ElemCtx, geom: PageGeom): Rect {
@@ -970,13 +965,14 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const tl = { ...r.bbox };
     // a balloon must not run off the trimmed page (it may cross gutters and panel borders)
     const lim = rectInset(geom.trim, 1 * u.k);
-    if (!isOffscreen(pl.el) && (tl.x < lim.x - 0.01 || tl.y < lim.y - 0.01 || tl.x + tl.w > lim.x + lim.w + 0.01 || tl.y + tl.h > lim.y + lim.h + 0.01)) {
+    const offscreen = hasOffscreenTail(pl.props);
+    if (!offscreen && (tl.x < lim.x - 0.01 || tl.y < lim.y - 0.01 || tl.x + tl.w > lim.x + lim.w + 0.01 || tl.y + tl.h > lim.y + lim.h + 0.01)) {
       tl.x = Math.min(Math.max(tl.x, lim.x), Math.max(lim.x, lim.x + lim.w - tl.w));
       tl.y = Math.min(Math.max(tl.y, lim.y), Math.max(lim.y, lim.y + lim.h - tl.h));
       ctx.bag.info("BALLOON_SHIFTED", `balloon ${pl.el.id} was moved inside the page`, { path: pl.el.path, elementId: pl.el.id });
     }
     // a balloon cut by the outer frame (clip: auto) keeps its text clear of the frame line
-    if (ctx.panel && pl.props.clip === "auto" && !isOffscreen(pl.el)) {
+    if (ctx.panel && pl.props.clip === "auto" && !offscreen) {
       const pb = ctx.panel.box;
       const m = Math.max(2.5 * u.k, pl.text.fontSize * 0.8);
       const tx = tl.x - pl.outer.x + pl.innerCenter.x + pl.textOffset.x - pl.text.width / 2;

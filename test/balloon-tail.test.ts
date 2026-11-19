@@ -68,4 +68,14 @@ describe("balloon tails", () => {
     const target = origin.x + 59;
     expect(target - tip(pts).x).toBeGreaterThan(0.4 * (target - rightOf(pts, origin.x + 40)));
   });
+  it("honors a short off-screen tail length while automatic tails still reach the frame", async () => {
+    const balloon = 'balloon: "", id: b, as: offscreen, at: [26mm, 24mm], size: [18mm, 14mm], shape: { kind: ellipse, irregularity: 0 }';
+    const none = await outline(`{${balloon}, tail: none}`);
+    const auto = await outline(`{${balloon}, tail: { offscreen: left, bend: 0 }}`);
+    const short = await outline(`{${balloon}, tail: { offscreen: left, bend: 0, length: 3.8mm }}`);
+    const left = (pts: Vec[]) => Math.min(...pts.map((p) => p.x));
+    expect(left(none.pts) - left(short.pts)).toBeCloseTo(3.8, 1);
+    expect(left(short.pts)).toBeGreaterThan(short.origin.x);
+    expect(left(auto.pts)).toBeLessThan(auto.origin.x);
+  });
 });

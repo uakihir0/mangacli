@@ -365,6 +365,18 @@ interface TailCtx {
   rng: Rng;
 }
 
+function balloonTails(props: Obj): Obj[] {
+  return Array.isArray(props.tails) ? (props.tails as Obj[]) : isObj(props.tail) ? [props.tail as Obj] : [];
+}
+
+function offscreenTailSide(tail: Obj, props: Obj): string | undefined {
+  return tail.kind === "none" ? undefined : (tail.offscreen as string | undefined) ?? (props.as === "offscreen" ? "nearest" : undefined);
+}
+
+export function hasOffscreenTail(props: Obj): boolean {
+  return balloonTails(props).some((tail) => offscreenTailSide(tail, props) !== undefined);
+}
+
 function arcLengths(pts: Vec[]): number[] {
   const s = [0];
   for (let i = 1; i <= pts.length; i++) s.push(s[i - 1] + Math.hypot(pts[i % pts.length].x - pts[i - 1].x, pts[i % pts.length].y - pts[i - 1].y));
@@ -461,12 +473,12 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     let target: Vec | null = null;
     const who = plan.props.who as string | undefined;
     // `as: offscreen` without a side: the speaker is beyond the nearest panel edge
-    const offSide = (t.offscreen as string | undefined) ?? (plan.props.as === "offscreen" ? nearestSide(center, ctx.panel ? ctx.panel.box : ctx.coordsBox) : undefined);
+    const side = offscreenTailSide(t, plan.props);
+    const offSide = side === "nearest" ? nearestSide(center, ctx.panel?.box ?? ctx.coordsBox) : side;
     if (offSide) {
       const pb = ctx.panel ? ctx.panel.box : ctx.coordsBox;
-      const side = offSide;
       const ext = 4 * u.k;
-      target = side === "right" ? { x: pb.x + pb.w + ext, y: center.y + (pb.y + pb.h / 2 - center.y) * 0.3 } : side === "left" ? { x: pb.x - ext, y: center.y } : side === "top" ? { x: center.x, y: pb.y - ext } : { x: center.x, y: pb.y + pb.h + ext };
+      target = offSide === "right" ? { x: pb.x + pb.w + ext, y: center.y + (pb.y + pb.h / 2 - center.y) * 0.3 } : offSide === "left" ? { x: pb.x - ext, y: center.y } : offSide === "top" ? { x: center.x, y: pb.y - ext } : { x: center.x, y: pb.y + pb.h + ext };
     } else if (t.to !== undefined) target = resolvePoint(t.to, pc);
     else if (who) {
       target = ctx.refs.point(who, ctx.panel?.panel.id);
@@ -517,8 +529,10 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     }
     const gap = t.gap !== undefined ? toMm(t.gap as string, u) : 2 * u.k;
     const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : Math.min(9 * u.k, Math.max(4.5 * u.k, minSide * 0.4));
+    const frameCut = !!offSide && t.length === undefined;
     let length: number;
     if (t.length !== undefined) length = toMm(t.length as string, u);
+    else if (frameCut && target) length = Math.hypot(target.x - R.x, target.y - R.y);
     else if (target) {
       const dist = Math.hypot(target.x - R.x, target.y - R.y);
       let avail = dist - gap;
@@ -552,10 +566,8 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       // a tail always reads as a pointer, even when the speaker's face is right beside the body
       length = Math.min(maxLen, Math.max(4.5 * u.k, avail));
     } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
-    // off-panel tails run past the frame and are cut by it
     // on a spiky body the tail must outreach the spikes to read as the pointer
     if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.15, 6 * u.k);
-    if (offSide && target) length = Math.hypot(target.x - R.x, target.y - R.y);
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
     // a wedge's base is a quarter to a third of the body, so the tail reads as a triangle at a glance
@@ -682,8 +694,8 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         cl = { x: zigV[k].x + (zigV[k + 1].x - zigV[k].x) * u, y: zigV[k].y + (zigV[k + 1].y - zigV[k].y) * u };
         if (i > 0 && i < NN && Math.abs(u) < 1e-9) zigCorners.push(i);
       }
-      // off-panel tails stay open where the frame cuts them
-      const f = zig ? Math.max(0, 1 - tt) ** 1.15 : offSide ? 1 - 0.65 * Math.pow(tt, 0.8) : Math.pow(1 - tt, 1 + sideCurve * 1.6);
+      // automatic off-panel tails stay open where the frame cuts them
+      const f = zig ? Math.max(0, 1 - tt) ** 1.15 : frameCut ? 1 - 0.65 * Math.pow(tt, 0.8) : Math.pow(1 - tt, 1 + sideCurve * 1.6);
       if (slanted) {
         // the tail leaves the outline at a slant: bow the centre line outward first, and keep
         // the width square to the local direction so it never collapses into a line
@@ -767,7 +779,7 @@ function buildBody(plan: BalloonPlan, ctx: ElemCtx, skipTails = false): BodyBuil
   const translate = (pts: Vec[]) => pts.map((q) => ({ x: q.x * cr - q.y * sr + center.x, y: q.x * sr + q.y * cr + center.y }));
   const body = plan.body;
   let contour: ShapeContour = { ...body.contour, pts: translate(body.contour.pts) };
-  const tails: Obj[] = skipTails ? [] : Array.isArray(p.tails) ? (p.tails as Obj[]) : isObj(p.tail) ? [p.tail as Obj] : [];
+  const tails = skipTails ? [] : balloonTails(p);
   let tailContour = contour;
   if (p.as === "aside" && plan.text.glyphs.length) {
     const pts = plan.text.glyphs.flatMap(g => flattenPath(g.path).flatMap(q => q.pts));
