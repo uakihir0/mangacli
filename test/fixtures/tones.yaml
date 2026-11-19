@@ -1,0 +1,24 @@
+# Feature catalog: docs/14-quality.md §14.3.1
+mangacli: 1
+meta: { lang: ja }
+page: { size: [100mm, 60mm], bleed: 0, color: color }
+output: { metadata: false }
+pages:
+  - layout: { template: grid, params: { cols: 4, rows: 2 } }
+    panels:
+      - layers:
+          - { type: fill, paint: { tone: { density: 0.1, lpi: 30, dot: round, angle: 30deg } } }
+      - layers:
+          - { type: fill, paint: { tone: { density: 0.22, lpi: 35, dot: square, angle: 30deg } } }
+      - layers:
+          - { type: fill, paint: { tone: { density: 0.33999999999999997, lpi: 40, dot: ellipse, angle: 30deg } } }
+      - layers:
+          - { type: fill, paint: { tone: { density: 0.45999999999999996, lpi: 45, dot: line, angle: 30deg } } }
+      - layers:
+          - { type: fill, paint: { tone: { density: 0.58, lpi: 50, dot: cross, angle: 30deg } } }
+      - layers:
+          - { type: fill, paint: { tone: { density: 0.7, lpi: 55, dot: noise, angle: 30deg } } }
+      - layers:
+          - { type: fill, paint: "tone-gradient(70%, 0%, 180deg)" }
+      - layers:
+          - { type: fill, region: { subtract: [{ rect: [0, 0, 100%, 100%] }, { ellipse: [30%, 30%, 30%, 30%] }], feather: 1mm }, paint: tone(40%) }

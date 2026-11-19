@@ -1,0 +1,34 @@
+# Feature catalog: docs/14-quality.md §14.3.1
+mangacli: 1
+meta: { lang: ja }
+page: { size: [100mm, 96mm], bleed: 0, color: color }
+output: { metadata: false }
+pages:
+  - layout: { template: grid, params: { cols: 4, rows: 4 } }
+    panels:
+      - layers:
+          - { balloon: あ, shape: ellipse, minSize: [14mm, 12mm], hand: clean, fill: black, color: white }
+      - layers:
+          - { balloon: あ, shape: round-rect, minSize: [14mm, 12mm], hand: ink, fill: white, color: black }
+      - layers:
+          - { balloon: あ, shape: rect, minSize: [14mm, 12mm], hand: clean, fill: white, color: black }
+      - layers:
+          - { balloon: あ, shape: cloud, minSize: [14mm, 12mm], hand: ink, fill: black, color: white }
+      - layers:
+          - { balloon: あ, shape: spike, minSize: [14mm, 12mm], hand: clean, fill: white, color: black }
+      - layers:
+          - { balloon: あ, shape: burst, minSize: [14mm, 12mm], hand: ink, fill: white, color: black }
+      - layers:
+          - { balloon: あ, shape: wavy, minSize: [14mm, 12mm], hand: clean, fill: black, color: white }
+      - layers:
+          - { balloon: あ, shape: flash, minSize: [14mm, 12mm], hand: ink, fill: white, color: black }
+      - layers:
+          - { balloon: あ, shape: electronic, minSize: [14mm, 12mm], hand: clean, fill: white, color: black }
+      - layers:
+          - { balloon: あ, shape: hexagon, minSize: [14mm, 12mm], hand: ink, fill: black, color: white }
+      - layers:
+          - { balloon: あ, shape: none, minSize: [14mm, 12mm], hand: clean, fill: white, color: black }
+      - layers:
+          - { balloon: 多角, shape: { kind: polygon, points: [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]] } }
+      - layers:
+          - { balloon: 道, shape: { kind: path, d: "M0 0 L1 0 L1 1 L0 1 Z" } }
