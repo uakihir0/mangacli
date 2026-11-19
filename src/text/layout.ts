@@ -717,13 +717,30 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
         if (k < 0 && canBreakBetween(cur[cur.length - 1], b, "word", style)) k = cur.length;
       }
       if (k < 0 && (wrap === "phrase" || wrap === "balanced")) {
-        if (canBreakBetween(cur[cur.length - 1], b, "char", style)) k = cur.length;
-        for (let j = cur.length - 1; j >= 1 && k < 0; j--) {
-          if (canBreakBetween(cur[j - 1], cur[j], "char", style)) {
+        const upcoming = [...cur, ...boxes.slice(i)];
+        let fallback = -1;
+        for (let j = cur.length; j >= 1; j--) {
+          if (!canBreakBetween(upcoming[j - 1], upcoming[j], "char", style)) continue;
+          if (fallback < 0) fallback = j;
+          let extent = 0;
+          let lastBreak = -1;
+          let needsOikomi = false;
+          for (let n = j; n < upcoming.length; n++) {
+            const next = upcoming[n];
+            if (next.breakBefore === "forced") break;
+            if (n > j && canBreakBetween(upcoming[n - 1], next, "char", style)) lastBreak = n - j;
+            extent += next.adv + (n > j ? ls : 0);
+            if (extent > Lmax + 1e-6) {
+              needsOikomi = noStart(next.firstChar, style.kinsoku) && lastBreak <= 1;
+              break;
+            }
+          }
+          if (!needsOikomi) {
             k = j;
             break;
           }
         }
+        if (k < 0) k = fallback;
       }
       if (k < 0 && canBreakBetween(cur[cur.length - 1], b, wrap, style)) k = cur.length;
       // a latin word longer than the line overflows rather than splitting mid-word (the balloon grows)
@@ -732,8 +749,8 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
         len += adv;
         continue;
       }
-      // No legal break: use oikomi.
-      if (prohibited && k < 0) {
+      // No legal break, or oidashi would leave one character: use oikomi.
+      if (prohibited && k <= 1) {
         cur.push(b);
         len += adv;
         continue;

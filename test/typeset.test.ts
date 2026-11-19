@@ -24,6 +24,9 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
+  it("uses oikomi rather than leaving a single-character column", async () => {
+    expect(await lines("ダメ！", { maxChars: 2 })).toEqual(["ダメ！"]);
+  });
   it("does not expose prohibited starts when trimming a space at a break", async () => {
     const result = await lines("え<space=1em>！", { maxChars: 2 });
     for (const line of result) expect(noStart(Array.from(line)[0] ?? "", "strict")).toBe(false);
