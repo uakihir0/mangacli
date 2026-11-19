@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const root = join(import.meta.dirname, "..");
-const cli = (...args: string[]) => spawnSync(join(root, "node_modules/.bin/tsx"), [join(root, "src/cli/index.ts"), ...args, "--no-config"], { cwd: root, encoding: "utf8" });
+const cli = (...args: string[]) => spawnSync(process.execPath, ["--import", "tsx", join(root, "src/cli/index.ts"), ...args, "--no-config"], { cwd: root, encoding: "utf8" });
 
 describe("cli", () => {
   it("validates an example (exit 0)", () => {
