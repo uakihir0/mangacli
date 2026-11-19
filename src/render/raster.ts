@@ -52,6 +52,7 @@ interface Dev {
   /** Logical device frame; only the destination canvas is offset. */
   offsetX: number;
   offsetY: number;
+  clipBounds?: Rect;
 }
 
 function buildPath(pd: PathData): Path2D {
@@ -171,6 +172,63 @@ export function monoNodeWorkingBytes(list: DisplayList, dpi: number, crop: "trim
 
 function setDeviceM(dev: Dev, m: Matrix = [1, 0, 0, 1, 0, 0]) {
   dev.ctx.setTransform(m[0], m[1], m[2], m[3], m[4] - dev.offsetX, m[5] - dev.offsetY);
+}
+
+function clipPath(dev: Dev, pd: PathData, m: Matrix, rule: "nonzero" | "evenodd"): Rect {
+  const b = pathBounds(pd, m);
+  const parent = dev.clipBounds ?? { x: 0, y: 0, w: dev.W, h: dev.H };
+  const x = Math.max(parent.x, Math.floor(b?.x ?? 0));
+  const y = Math.max(parent.y, Math.floor(b?.y ?? 0));
+  const right = Math.min(parent.x + parent.w, Math.ceil(b ? b.x + b.w : 0));
+  const bottom = Math.min(parent.y + parent.h, Math.ceil(b ? b.y + b.h : 0));
+  const bounds = { x, y, w: Math.max(0, right - x), h: Math.max(0, bottom - y) };
+  const ctx = dev.ctx;
+  // Skia's supersampled clip falls back to binary at device coordinate 8192.
+  if (!(dev.offsetX || dev.offsetY) || (right < 8192 && bottom < 8192)) {
+    setDeviceM(dev, m);
+    ctx.clip(buildPath(pd), rule);
+    return bounds;
+  }
+  const hard = new Path2D();
+  const points = pd.length === 5 && pd[4][0] === "Z" && pd.slice(0, 4).every((c, i) => c[0] === (i ? "L" : "M"))
+    ? pd.slice(0, 4).map((c) => applyMat(m, { x: c[1]!, y: c[2]! })) : [];
+  if (new Set(points.map((p) => `${p.x},${p.y}`)).size === 4 && points.every((p, i) => p.x === points[(i + 1) % 4].x || p.y === points[(i + 1) % 4].y)) {
+    const left = Math.round(b!.x), top = Math.round(b!.y);
+    hard.rect(left, top, Math.round(b!.x + b!.w) - left, Math.round(b!.y + b!.h) - top);
+  } else {
+    const left = Math.max(x, dev.offsetX), top = Math.max(y, dev.offsetY);
+    const endX = Math.min(right, dev.offsetX + ctx.canvas.width), endY = Math.min(bottom, dev.offsetY + ctx.canvas.height);
+    if (endX <= left || endY <= top) {
+      setDeviceM(dev);
+      ctx.clip(hard);
+      return bounds;
+    }
+    const vertical = bottom >= 8192;
+    const strip = Math.max(1, Math.min(128, Math.floor(MONO_BAND_PIXELS / (vertical ? dev.H : dev.W))));
+    const mask = createCanvas(vertical ? strip : dev.W, vertical ? dev.H : strip);
+    const mc = mask.getContext("2d");
+    for (let start = vertical ? left : top; start < (vertical ? endX : endY); start += strip) {
+      const tx = vertical ? start : left, ty = vertical ? top : start;
+      const w = Math.min(vertical ? strip : endX - left, endX - tx), h = Math.min(vertical ? endY - top : strip, endY - ty);
+      mc.reset();
+      setM(mc, [m[0], m[1], m[2], m[3], m[4] - (vertical ? tx : 0), m[5] - (vertical ? 0 : ty)]);
+      mc.clip(buildPath(pd), rule);
+      mc.setTransform(1, 0, 0, 1, 0, 0);
+      mc.fillStyle = "#fff";
+      mc.fillRect(0, 0, mask.width, mask.height);
+      const data = mc.getImageData(vertical ? 0 : left, vertical ? top : 0, w, h).data;
+      for (let row = 0; row < h; row++) for (let col = 0; col < w;) {
+        if (!data[(row * w + col) * 4 + 3]) { col++; continue; }
+        const start = col++;
+        while (col < w && data[(row * w + col) * 4 + 3]) col++;
+        hard.rect(tx + start, ty + row, col - start, 1);
+      }
+    }
+    mask.width = mask.height = 1;
+  }
+  setDeviceM(dev);
+  ctx.clip(hard);
+  return bounds;
 }
 
 function blit(dev: Dev, canvas: Canvas, x: number, y: number) {
@@ -389,9 +447,8 @@ export class RasterBackend {
     if (!needOff) {
       if (g.clip) {
         ctx.save();
-        setDeviceM(dev, mm);
-        ctx.clip(buildPath(g.clip), g.clipRule ?? "nonzero");
-        for (const c of g.children) await this.drawNode(dev, c, mm, canvas);
+        const clipBounds = clipPath(dev, g.clip, mm, g.clipRule ?? "nonzero");
+        for (const c of g.children) await this.drawNode({ ...dev, clipBounds }, c, mm, canvas);
         ctx.restore();
       } else for (const c of g.children) await this.drawNode(dev, c, mm, canvas);
       return;
@@ -402,7 +459,7 @@ export class RasterBackend {
     const off = createCanvas(r.w, r.h);
     const octx = off.getContext("2d");
     const shift: Matrix = [1, 0, 0, 1, -r.x, -r.y];
-    const sub: Dev = { ...dev, ctx: octx, W: r.w, H: r.h, offsetX: 0, offsetY: 0, base: matMul(shift, dev.base) };
+    const sub: Dev = { ...dev, ctx: octx, W: r.w, H: r.h, offsetX: 0, offsetY: 0, clipBounds: undefined, base: matMul(shift, dev.base) };
     const subM = matMul(shift, mm);
     if (g.clip) {
       octx.save();
@@ -469,7 +526,7 @@ export class RasterBackend {
     if (!r) return;
     const source = createCanvas(r.w, r.h);
     const shift: Matrix = [1, 0, 0, 1, -r.x, -r.y];
-    const sub: Dev = { ...dev, ctx: source.getContext("2d"), W: r.w, H: r.h, offsetX: 0, offsetY: 0, base: matMul(shift, dev.base), opts: { ...dev.opts, colorMode: "color" } };
+    const sub: Dev = { ...dev, ctx: source.getContext("2d"), W: r.w, H: r.h, offsetX: 0, offsetY: 0, clipBounds: undefined, base: matMul(shift, dev.base), opts: { ...dev.opts, colorMode: "color" } };
     for (const child of g.children) await this.drawNode(sub, child, matMul(shift, mm), source);
 
     const out = createCanvas(r.w, r.h);
@@ -677,8 +734,7 @@ export class RasterBackend {
     const cellPx = (25.4 / Math.max(1, spec.lpi)) * dev.scale;
     const flat = mode !== "mono" && (dev.opts.toneRendering === "flat" || (dev.opts.toneRendering === "auto" && cellPx < 6));
     ctx.save();
-    setDeviceM(dev, m);
-    ctx.clip(buildPath(n.path), n.fillRule);
+    clipPath(dev, n.path, m, n.fillRule);
     if (flat && p.type === "tone" && !spec.gradient && !spec.softEdge) {
       ctx.fillStyle = toneFlatColor(spec, color, mode);
       setDeviceM(dev);
