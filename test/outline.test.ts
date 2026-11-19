@@ -143,6 +143,20 @@ describe("halo", () => {
     pages: [{ panels: [{ border: "none", background: "black", layers: [{ balloon: "", id: "b", at: ["30mm", "20mm"], size: ["20mm", "14mm"], hand: false, shape: { kind: "ellipse", irregularity: 0 }, fill: "white", stroke: "0.3mm black", halo, tail: { kind, direction: "45deg", length: "18mm", bend: 0, width: "2mm", bubbleSize: "3mm" } }] }] }],
   });
 
+  it.each(["none", "0mm black"])("does not halo tail or connector ink disabled by %s", async (stroke) => {
+    const doc = balloonDoc("line");
+    const first = doc.pages[0].panels[0].layers[0];
+    first.stroke = stroke;
+    delete (first as Obj).halo;
+    const list = await renderer.displayList(doc, 1);
+    expect(paths(list.root).filter((n) => n.stroke && flattenPath(n.path).some((p) => !p.closed)).length).toBe(0);
+    first.at = ["20mm", "20mm"];
+    const second = { ...first, id: "second", at: ["55mm", "20mm"] };
+    (first as Obj).connect = { to: "second", style: "line" };
+    doc.pages[0].panels[0].layers.push(second);
+    expect(paths((await renderer.displayList(doc, 1)).root).filter((n) => n.stroke && flattenPath(n.path).some((p) => !p.closed)).length).toBe(0);
+  });
+
   it.each(["wedge", "zigzag", "bubbles", "line"])("adds halo pixels beyond the %s tail tip, beneath all own ink", async (kind) => {
     const doc = balloonDoc(kind);
     const list = await renderer.displayList(doc, 1);

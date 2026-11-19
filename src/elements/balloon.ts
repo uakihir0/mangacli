@@ -828,7 +828,7 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
     const res = inkShape(contour, { line: isFlash ? { ...bb.stroke, style: "none" } : bb.stroke, hand: plan.hand, rng: bb.rng.fork("body"), ruler: bb.ruler, join: plan.params.join ?? (bb.ruler ? "clean" : "overshoot"), strokes: plan.params.strokes, sizeHint: Math.min(plan.outer.w, plan.outer.h) });
     fillPoly = res.fill;
     const fn = fillNode(res.fill, plan.fill, tag(el, "fill"));
-    if (!isFlash) addHalo(res.fill, true, bb.stroke.width);
+    if (!isFlash && res.inks.length) addHalo(res.fill, true, bb.stroke.width);
     if (fn) nodes.push(fn);
     if (isFlash) {
       const compact = plan.text.lines.length <= 1 && Math.max(plan.text.width, plan.text.height) <= plan.text.fontSize * 3.5 && !Array.isArray(plan.props.size);
@@ -839,13 +839,13 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
   for (const ex of bb.extra) {
     if (ex.kind === "bubble") {
       const res = inkShape({ pts: ex.pts, closed: true, smooth: true }, { line: bb.stroke, hand: plan.hand, rng: bb.rng.fork("bub"), strokes: 1 });
-      addHalo(res.fill, true, bb.stroke.width);
+      if (res.inks.length) addHalo(res.fill, true, bb.stroke.width);
       const fn = fillNode(res.fill, plan.fill, tag(el, "fill"));
       if (fn) nodes.push(fn);
       nodes.push(...inksToNodes(res.inks, bb.stroke.color, t));
     } else {
       const res = inkShape({ pts: ex.pts, closed: false, smooth: true }, { line: { ...bb.stroke, width: bb.stroke.width * 1.1 }, hand: plan.hand, rng: bb.rng.fork("lt") });
-      addHalo(res.fill, false, bb.stroke.width * 1.1);
+      if (res.inks.length) addHalo(res.fill, false, bb.stroke.width * 1.1);
       nodes.push(...inksToNodes(res.inks, bb.stroke.color, t));
     }
   }
@@ -955,8 +955,8 @@ export function renderConnected(a: BalloonPlan, b: BalloonPlan, style: string, w
       const p1 = { x: cb.x - dir.x * hb.t, y: cb.y - dir.y * hb.t };
       const st = resolveStroke(a.props.stroke, a.hand, ctx.u);
       const halo = balloonHalo(a, ctx);
-      if (halo) nodes.unshift({ kind: "path", path: polyPath([p0, p1], false), fillRule: "nonzero", paint: null, stroke: { width: st.width + halo.width * 2, paint: halo.paint, join: "round" }, tag: tag(a.el, "fill") });
       const inks = inkShape({ pts: [p0, p1], closed: false }, { line: st, hand: a.hand, rng: new Rng(a.el.seed ^ 0x3c), taper: false }).inks;
+      if (halo && inks.length) nodes.unshift({ kind: "path", path: polyPath([p0, p1], false), fillRule: "nonzero", paint: null, stroke: { width: st.width + halo.width * 2, paint: halo.paint, join: "round" }, tag: tag(a.el, "fill") });
       nodes.push(...inksToNodes(inks, st.color, tag(a.el, "ink")));
     }
     const bx = boundsOf([...ra.contour, ...rb.contour]);
