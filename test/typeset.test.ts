@@ -1,3 +1,6 @@
+import { cpSync, mkdtempSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import * as hb from "harfbuzzjs";
 import { findCatalogFont } from "../src/fonts/catalog.js";
@@ -264,6 +267,18 @@ describe("typesetting", () => {
     await fonts.prepare("dialogue", "見た");
     expect(fonts.pick("dialogue", "見".codePointAt(0)!)!.font.label).toBe("GothicBBBPr6N-Medium");
     expect(fonts.pick("dialogue", "た".codePointAt(0)!)!.font.key).toMatch(/zen-antique/);
+  });
+  it("falls back to Zen Kaku Gothic New 500 when Noto Sans JP cannot be fetched", async () => {
+    const src = dirname(await ensureCatalogFont(findCatalogFont("zen-kaku-gothic-new", 500)!));
+    await ensureCatalogFont(findCatalogFont("zen-antique", 400)!);
+    const dir = mkdtempSync(join(tmpdir(), "mangacli-fonts-"));
+    for (const f of readdirSync(src)) if (!f.startsWith("noto-sans-jp")) cpSync(join(src, f), join(dir, f));
+    const errors: string[] = [];
+    const fonts = new FontRegistry(new Map() as never, "manga-basic", [], { fontCacheDir: dir, fontDownload: "never", onError: (code) => errors.push(code) });
+    (fonts as unknown as { systemFonts: Promise<SystemFontFace[]> }).systemFonts = Promise.resolve([]);
+    await fonts.prepare("dialogue", "見た");
+    expect(fonts.pick("dialogue", "見".codePointAt(0)!)!.font.key).toBe("cat:zen-kaku-gothic-new@500");
+    expect(errors).toContain("FONT_DOWNLOAD_DISABLED");
   });
   it("skips a missing 中ゴシックBBB without a diagnostic", async () => {
     const errors: string[] = [];

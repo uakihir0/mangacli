@@ -257,12 +257,21 @@ export class FontRegistry {
     const ch = this.chain(name);
     const cps = new Set<number>();
     for (const ch2 of text) cps.add(ch2.codePointAt(0)!);
+    // a font that fails to load (offline, not installed) hands its characters to the next candidate
+    for (let failed = -1; failed !== this.failed.size; ) {
+      failed = this.failed.size;
+      await this.prepareRound(ch, cps);
+    }
+  }
+
+  private async prepareRound(ch: Chain, cps: Set<number>): Promise<void> {
     const need = new Set<string>();
     const pending: Phys[] = [];
     for (const cp of cps) {
       if (cp < 0x20 || cp === 0x200b) continue;
       for (const it of ch.items) {
         if (it.ranges && !it.ranges.some((r) => inRange(r, cp))) continue;
+        if (this.failed.has(it.phys.key)) continue;
         const lf = this.loaded.get(it.phys.key);
         const ok = lf ? lf.has(cp) : it.phys.coverage ? it.phys.coverage(cp) : true;
         if (!lf && !it.phys.coverage) {
@@ -286,7 +295,7 @@ export class FontRegistry {
       }
     }
     // always load the primary (first unrestricted) font for metrics
-    const primary = ch.items.find((i) => !i.ranges) ?? ch.items[0];
+    const primary = ch.items.find((i) => !i.ranges && !this.failed.has(i.phys.key)) ?? ch.items[0];
     if (primary && !this.loaded.has(primary.phys.key) && !need.has(primary.phys.key)) pending.push(primary.phys);
     await this.loadPending(pending);
   }
