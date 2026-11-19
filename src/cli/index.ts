@@ -160,6 +160,7 @@ async function renderOptions(o: Obj, entry: string): Promise<RenderOptions> {
     pdfX,
     colorMode: oneOf(o.color === true ? undefined : o.color, "--color", ["color", "gray", "mono"] as const),
     dpi: parsePositiveNumber(o.dpi, "--dpi"),
+    output: oneOf(o.outputSize, "--output-size", ["manuscript", "print"] as const),
     scale: parsePositiveNumber(o.scale, "--scale"),
     width: parsePositiveNumber(o.width, "--width"),
     height: parsePositiveNumber(o.height, "--height"),
@@ -247,7 +248,7 @@ async function cmdRender(file: string, o: Obj, onSystemFont?: (path: string) => 
     process.stdout.write(r.pages[0].data);
   }
   if (o.contactSheet && r.pages.length && opts.outDir) {
-    const sheet = await contactSheet(r.pages.filter((p) => p.format !== "pdf" && p.format !== "svg" && !p.separation), !!(opts.config as Obj | undefined) && false);
+    const sheet = await contactSheet(r.pages.filter((p) => p.format !== "pdf" && p.format !== "svg" && p.format !== "psd" && !p.separation), !!(opts.config as Obj | undefined) && false);
     if (sheet) {
       const base = typeof input === "string" ? basename(input).replace(/\.[^.]+$/, "") : "manga";
       const f = join(opts.outDir, `${base}-contact.png`);
@@ -831,12 +832,13 @@ const renderOpts = (c: ReturnType<typeof cli.command>) =>
   common(c)
     .option("-o, --out <dir>", "Output directory")
     .option("-p, --profile <name>", "Output profile (print-mono, print-gray, print-color, web, sns, preview, draft)")
-    .option("-f, --format <fmt>", "png, jpeg, webp, avif, tiff, pdf, svg (comma separated)")
+    .option("-f, --format <fmt>", "png, jpeg, webp, avif, tiff, pdf, svg, psd (comma separated)")
     .option("--pdf-x <version>", "Monochrome print PDF: 1a (PDF/X-1a:2001) or 4 (PDF/X-4)")
     .option("--pdf-x-icc <path>", "CMYK printer ICC profile for PDF/X")
     .option("--pdf-x-condition <name>", "Printer's output condition for PDF/X")
     .option("--color <mode>", "color | gray | mono")
     .option("--dpi <n>", "Resolution")
+    .option("--output-size <size>", "manuscript | print")
     .option("--scale <n>", "Scale factor on the design resolution")
     .option("--width <px>", "Output width")
     .option("--height <px>", "Output height")

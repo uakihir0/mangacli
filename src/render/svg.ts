@@ -2,15 +2,16 @@
 import sharp from "sharp";
 import { type RGBA, linearToSrgb, srgbToLinear } from "../core/color.js";
 import type { PathData } from "../geom/path.js";
-import type { Matrix } from "../geom/vec.js";
-import { cropMarkLines } from "./marks.js";
+import { type Matrix, rectInset } from "../geom/vec.js";
 import type { AssetRegistry } from "./assets.js";
 import { applyFilters } from "./filters.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
+import { cropMarkLines } from "./marks.js";
 
 export interface SvgOptions {
-  crop: "trim" | "bleed" | "marks";
+  outputScale?: number;
   marks?: { margin?: number; length?: number; width?: number };
+  crop: "trim" | "bleed" | "marks";
   splitSide?: "left" | "right";
   assets: AssetRegistry;
   /** resolution of embedded images (the output dpi); line art keeps it up to the source resolution */
@@ -172,6 +173,13 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
     if (g.transform) attrs.push(`transform="${matrix(g.transform)}"`);
     if (g.opacity !== undefined && g.opacity < 1) attrs.push(`opacity="${n(g.opacity)}"`);
     if (g.blend && g.blend !== "normal") attrs.push(`style="mix-blend-mode:${g.blend}"`);
+    if (g.glow) {
+      const { blur, color, bounds } = g.glow;
+      const b = rectInset(bounds, -3 * blur);
+      const fid = id("glow");
+      defs.push(`<filter id="${fid}" filterUnits="userSpaceOnUse" x="${n(b.x)}" y="${n(b.y)}" width="${n(b.w)}" height="${n(b.h)}"><feGaussianBlur in="SourceAlpha" stdDeviation="${n(blur)}" result="blur"/><feFlood flood-color="${rgb(gray(color, o.colorMode))}" flood-opacity="${n(color.a)}"/><feComposite in2="blur" operator="in"/></filter>`);
+      attrs.push(`filter="url(#${fid})"`);
+    }
     if (g.clip) {
       const cid = id("c");
       defs.push(`<clipPath id="${cid}"><path d="${d(g.clip)}"${g.clipRule === "evenodd" ? ' clip-rule="evenodd"' : ""}/></clipPath>`);
@@ -190,12 +198,13 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
     const margin = o.marks?.margin ?? 10;
     const artwork = { x: box.x + margin, w: box.w - 2 * margin };
     defs.push(`<clipPath id="artwork-bleed"><rect x="${n(artwork.x)}" width="${n(artwork.w)}" height="${n(list.size.height)}"/></clipPath>`);
-    cropMarkLines({ x: artwork.x + bleed, y: bleed, w: artwork.w - 2 * bleed, h: list.boxes.trim.h }, bleed, o.marks?.length ?? 9,
-      (x0, y0, x1, y1) => marks.push(`<path d="M${n(x0)} ${n(y0)}L${n(x1)} ${n(y1)}"/>`));
+    for (const [x0, y0, x1, y1] of cropMarkLines({ x: artwork.x + bleed, y: bleed, w: artwork.w - 2 * bleed, h: list.boxes.trim.h }, bleed, o.marks?.length ?? 9)) {
+      marks.push(`<path d="M${n(x0)} ${n(y0)}L${n(x1)} ${n(y1)}"/>`);
+    }
   }
   return [
     `<?xml version="1.0" encoding="UTF-8"?>`,
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${n(box.w)}mm" height="${n(box.h)}mm" viewBox="${n(box.x)} ${n(box.y)} ${n(box.w)} ${n(box.h)}" data-page="${esc(list.page.id)}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${n(box.w * (o.outputScale ?? 1))}mm" height="${n(box.h * (o.outputScale ?? 1))}mm" viewBox="${n(box.x)} ${n(box.y)} ${n(box.w)} ${n(box.h)}" data-page="${esc(list.page.id)}">`,
     `<rect x="${n(box.x)}" y="${n(box.y)}" width="${n(box.w)}" height="${n(box.h)}" fill="#ffffff"/>`,
     defs.length ? `<defs>${defs.join("")}</defs>` : "",
     o.crop === "marks" ? `<g clip-path="url(#artwork-bleed)">${body}</g><g data-type="crop-marks" fill="none" stroke="#000000" stroke-width="${n(o.marks?.width ?? 0.1)}" stroke-linecap="butt">${marks.join("")}</g>` : body,
