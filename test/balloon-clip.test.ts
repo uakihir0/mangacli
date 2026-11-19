@@ -4,7 +4,7 @@ import { createRenderer } from "../src/api.js";
 import { BLACK } from "../src/core/color.js";
 import { flattenPath, pointInPolygon, polyPath, type PathData } from "../src/geom/path.js";
 import { cleanClippedBalloonInk } from "../src/render/balloon-clip.js";
-import type { PathNode } from "../src/render/ir.js";
+import type { Node, PathNode } from "../src/render/ir.js";
 
 function rect(x0: number, y0: number, x1: number, y1: number): PathData {
   return polyPath([{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }], true);
@@ -87,5 +87,35 @@ describe("cut balloon ink", () => {
     const containsInk = await renderCorner("panel", "black");
     expect(await containsInk(0.39, 0.39, 1.8, 1.8)).toBe(false);
     expect(await containsInk(12, 4, 1.5, 2)).toBe(true);
+  });
+});
+
+describe("off-screen balloon clipping", () => {
+  it.each([
+    ["as: offscreen", true],
+    ["as: offscreen, from: bottom", true],
+    ["tails: [{ offscreen: bottom }]", true],
+    ["as: offscreen, tail: none", false],
+    ["as: offscreen, clip: none", false],
+    ["tails: [{ kind: none, offscreen: bottom }]", false],
+  ])("handles %s at a gutter", async (options, clipped) => {
+    const r = createRenderer({ profile: "preview" });
+    const { root } = await r.displayList({ filename: "/v/offscreen.yaml", yaml: `mangacli: 1
+page: { size: [100mm, 110mm], bleed: 0mm }
+pages:
+  - layout: { template: grid, params: { rows: 2, cols: 1 } }
+    panels:
+      - id: first
+        layers:
+          - { balloon: "", id: b, size: [14mm, 12mm], at: [50%, 78%], ${options} }
+      - {}
+` }, 1);
+    function panelClip(n: Node, inside = false): boolean | undefined {
+      if (n.tag?.elementId === "b" && n.tag.role === "fill") return inside;
+      if (n.kind !== "group") return undefined;
+      const underPanel = inside || (n.clip !== undefined && n.tag?.elementId === "first");
+      return n.children.map((c) => panelClip(c, underPanel)).find((v) => v !== undefined);
+    }
+    expect(panelClip(root)).toBe(clipped);
   });
 });
