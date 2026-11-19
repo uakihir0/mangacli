@@ -494,7 +494,7 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
   const entry = resolve(file);
   const port = o.port !== undefined ? Number(o.port) : 4173;
   const host = (o.host as string) ?? "127.0.0.1";
-  type PreviewPage = { id: string; side: string; separation?: string; data: Uint8Array; mime: string; ext: string };
+  type PreviewPage = { id: string; side: string; separation?: string; data: Uint8Array; mime: string; ext: string; width: number; height: number; elements: { id: string; x: number; y: number; width: number; height: number }[] };
   let pages: PreviewPage[] = [];
   let diags: Diagnostic[] = [];
   let version = 0;
@@ -506,14 +506,20 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
     const opts = await renderOptions({ ...o, profile: o.profile ?? "preview" }, file);
     opts.onSystemFont = (path) => watcher.add(path);
     // guides show where the paper is cut, so include the bleed around the trim unless marks are already shown
-    if (debug?.includes("guides") && opts.crop !== "marks") opts.crop = "bleed";
+    if (debug?.includes("guides")) opts.includeBleed = true;
     if (debug) opts.debug = Array.isArray(opts.debug) ? [...new Set([...opts.debug, ...debug])] : (opts.debug ?? debug);
     const r = await render(entry, opts);
-    return { pages: r.pages.map((p) => ({ id: p.id, side: p.side, separation: p.separation, data: p.data, mime: p.mimeType, ext: p.format })), diags: r.diagnostics };
+    return { pages: r.pages.map((p) => ({ id: p.id, side: p.side, separation: p.separation, data: p.data, mime: p.mimeType, ext: p.format, width: p.width, height: p.height, elements: p.elements })), diags: r.diagnostics };
   };
   const guidedPages = () => {
     if (guided?.version !== version) guided = { version, pages: renderPages(["guides"]).then((r) => r.pages, () => pages) };
     return guided.pages;
+  };
+  // guided pages are PNG only, so match the same page, separation and half; svg keeps a split spread joined, so it stays plain then
+  const guidedFor = async (i: number) => {
+    const cur = pages[i]!;
+    const same = (await guidedPages()).filter((p) => p.id === cur.id && p.separation === cur.separation);
+    return (cur.ext === "svg" ? (same.length === 1 ? same[0] : undefined) : same.find((p) => p.side === cur.side)) ?? cur;
   };
   const build = async () => {
     try {
@@ -540,17 +546,40 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
   };
   const html = () => `<!doctype html><meta charset="utf-8"><title>mangacli preview</title>
 <style>body{margin:0;background:#3a3a3a;font:13px system-ui;color:#ddd}header{padding:8px 12px;background:#222;position:sticky;top:0;display:flex;gap:16px;align-items:center}header label{margin-left:auto;cursor:pointer}.legend{display:flex;gap:10px;align-items:center}.legend span{display:flex;gap:4px;align-items:center}body:not(.guides) .legend{display:none}
-main{display:flex;flex-wrap:wrap;flex-direction:row-reverse;gap:16px;padding:16px;justify-content:center}figure{margin:0}
+main{display:flex;flex-wrap:wrap;flex-direction:row-reverse;gap:16px;padding:16px;justify-content:center}figure{margin:0;position:relative}
 img{max-height:85vh;box-shadow:0 2px 12px #0008;background:#fff}figcaption{text-align:center;padding:4px}
-.d{padding:2px 12px}.error{color:#ff8080}.warning{color:#ffd480}</style>
+.d{padding:2px 12px}.error{color:#ff8080}.warning{color:#ffd480}.d[data-page]{cursor:pointer}.d.selected{background:#665020}header{z-index:2}.highlight{position:absolute;border:3px solid #ff36b1;box-shadow:0 0 0 1px #fff;pointer-events:none;box-sizing:border-box;z-index:1}</style>
 <header>${esc(relative(process.cwd(), entry))} — ${pages.length} page(s)
 <label title="${esc(t("断裁位置・塗り足し・安全領域の線と見開き中央の危険帯を重ねて表示（塗り足しまで表示）", "Overlay the trim, bleed and safe lines and the spread fold danger band (shows the bleed area)"))}"><input type="checkbox" id="guides"> ${esc(t("ガイド（断裁・塗り足し・安全線・ノド）", "Guides (trim, bleed, safe line, fold)"))}</label>${guideLegend()}</header>
-<section>${diags.filter((d) => d.severity !== "info").map((d) => `<div class="d ${d.severity}">${esc(d.code)} ${d.location ? `${d.location.line}:${d.location.column} ` : ""}${esc(d.message)}</div>`).join("")}</section>
-<main>${pages.map((p, i) => `<figure><img data-src="/page/${i}.${p.ext}?v=${version}"><figcaption>${i + 1} · ${esc(p.id)}</figcaption></figure>`).join("")}</main>
+<section>${diags.filter((d) => d.severity !== "info").map((d) => {
+    let i = -1;
+    let overlap = 0;
+    if (d.elementId) pages.forEach((p, index) => {
+      if (d.pageId && p.id !== d.pageId) return;
+      const b = p.elements.find((e) => e.id === d.elementId);
+      if (!b) return;
+      const area = Math.max(0, Math.min(p.width, b.x + b.width) - Math.max(0, b.x)) * Math.max(0, Math.min(p.height, b.y + b.height) - Math.max(0, b.y));
+      if (area > overlap) { overlap = area; i = index; }
+    });
+    const page = i >= 0 ? i : d.elementId && d.pageId ? pages.findIndex((p) => p.id === d.pageId) : -1;
+    const b = pages[i]?.elements.find((e) => e.id === d.elementId);
+    const attrs = page < 0 ? "" : ` tabindex="0" role="button" data-page="${page}" data-key="${esc(JSON.stringify([d.code, d.elementId]))}"${b ? ` data-box="${esc(JSON.stringify(b))}"` : ""}`;
+    return `<div class="d ${d.severity}"${attrs}>${esc(d.code)} ${d.location ? `${d.location.line}:${d.location.column} ` : ""}${esc(d.message)}</div>`;
+  }).join("")}</section>
+<main>${pages.map((p, i) => `<figure><img data-width="${p.width}" data-height="${p.height}" data-src="/page/${i}.${p.ext}?v=${version}"><figcaption>${i + 1} · ${esc(p.id)}</figcaption></figure>`).join("")}</main>
 <script>const box=document.getElementById("guides"),saved=localStorage.getItem("mangacli-guides");
 box.checked=saved===null?${o.guides ? "true" : "false"}:saved==="1";
 const show=()=>{document.body.classList.toggle("guides",box.checked);for(const img of document.querySelectorAll("img[data-src]"))img.src=img.dataset.src+(box.checked?"&guides=1":"")};
 box.onchange=()=>{localStorage.setItem("mangacli-guides",box.checked?"1":"0");show()};show();
+const rows=[...document.querySelectorAll('.d[data-page]')],figures=[...document.querySelectorAll('figure')];
+const frame=document.createElement('div');frame.className='highlight';let selected=null;
+const clear=()=>{if(selected)selected.classList.remove('selected');selected=null;frame.remove();sessionStorage.removeItem('mangacli-selection')};
+const guideBoxes={};
+const position=()=>{if(!selected||!selected.dataset.box)return;const page=Number(selected.dataset.page),img=figures[page].querySelector('img');if(!img.naturalWidth)return;let b=JSON.parse(selected.dataset.box),w=Number(img.dataset.width),h=Number(img.dataset.height);if(box.checked){const gb=guideBoxes[page];if(!gb){guideBoxes[page]=fetch('/boxes/'+page+'?v=${version}').then(r=>r.json()).then(j=>{guideBoxes[page]=j;position()});return}if(gb.then)return;const e=gb.elements.find(e=>e.id===JSON.parse(selected.dataset.key)[1]);frame.hidden=!e;if(!e)return;b=e;w=gb.width;h=gb.height}else frame.hidden=false;const sx=img.clientWidth/w,sy=img.clientHeight/h;Object.assign(frame.style,{left:(img.offsetLeft+b.x*sx-3)+'px',top:(img.offsetTop+b.y*sy-3)+'px',width:(b.width*sx+6)+'px',height:(b.height*sy+6)+'px'})};
+const select=(row,scroll=true)=>{clear();selected=row;row.classList.add('selected');sessionStorage.setItem('mangacli-selection',row.dataset.key);const fig=figures[Number(row.dataset.page)];if(row.dataset.box){fig.append(frame);position()}if(scroll)fig.scrollIntoView({block:'center',behavior:'smooth'})};
+for(const row of rows){row.onclick=()=>selected===row?clear():select(row);row.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();row.click()}}}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')clear()});window.addEventListener('resize',position);for(const img of document.querySelectorAll('img'))img.addEventListener('load',position);
+const previous=sessionStorage.getItem('mangacli-selection'),restored=rows.find(r=>r.dataset.key===previous);if(restored)select(restored,false);else clear();
 new EventSource("/events").onmessage=()=>location.reload()</script>`;
   const esc = (x: string) => x.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
   const server = http.createServer((req, res) => {
@@ -569,14 +598,17 @@ new EventSource("/events").onmessage=()=>location.reload()</script>`;
         res.writeHead(200, { "content-type": p.mime, "cache-control": "no-store" });
         res.end(p.data);
       };
-      if (url.searchParams.get("guides") === "1") {
-        // guided pages are PNG only, so match the same page, separation and half; svg keeps a split spread joined, so it stays plain then
-        const cur = pages[Number(m[1])]!;
-        void guidedPages().then((g) => {
-          const same = g.filter((p) => p.id === cur.id && p.separation === cur.separation);
-          send((cur.ext === "svg" ? (same.length === 1 ? same[0] : undefined) : same.find((p) => p.side === cur.side)) ?? cur);
-        });
-      } else send(pages[Number(m[1])]);
+      if (url.searchParams.get("guides") === "1") void guidedFor(Number(m[1])).then(send);
+      else send(pages[Number(m[1])]);
+      return;
+    }
+    // element boxes in the guided image, which can differ in size and offset from the plain one
+    const bm = url.pathname.match(/^\/boxes\/(\d+)$/);
+    if (bm && pages[Number(bm[1])]) {
+      void guidedFor(Number(bm[1])).then((p) => {
+        res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+        res.end(JSON.stringify({ width: p.width, height: p.height, elements: p.elements }));
+      });
       return;
     }
     if (url.pathname === "/") {

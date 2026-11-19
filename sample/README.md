@@ -13,10 +13,14 @@ mangacli の作例として、生成 AI（Sogni）で描いた絵に mangacli �
 
 ```bash
 cd sample/tools && npm install && cd ../..
-(while :; do node sample/tools/daemon.mjs; sleep 5; done) &   # Relaxed で生成を流し続ける（接続が切れたら繋ぎ直す）（sample/.env に SOGNI_API_KEY・SOGNI_APP_ID）
+(while :; do node sample/tools/daemon.mjs; sleep 5; done) &   # Relaxed で生成を流し続ける（接続が切れたら繋ぎ直す）
 node sample/tools/enqueue.mjs sample/art/prompts.json     # 足りない絵をジョブとして積む（--n 3 で候補を 3 枚ずつ）
 npx mangacli render sample/manga.yaml -p print-mono
 npx mangacli render sample/effect-figure-clear.yaml -p preview
 ```
 
-同じ `SOGNI_APP_ID` の接続は 1 本までなので、デーモンは 1 つだけ動かす。
+`SOGNI_API_KEY` と `SOGNI_APP_ID` は環境変数または `sample/.env` に設定する（環境変数を優先）。同じ `SOGNI_APP_ID` の接続は 1 本までなので、デーモンは 1 つだけ動かす。
+
+新しい作品を作る場合は [漫画制作スキル](../.agents/skills/manga-production/SKILL.md) も参照。
+
+完了イベントを取り逃した場合、デーモンは Sogni に結果を再照会する。これは同じ生成ジョブの画像を回収する処理で、再生成はしない。

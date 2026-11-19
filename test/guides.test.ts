@@ -65,6 +65,17 @@ describe("preview guides overlay", () => {
     }
   });
 
+  it("marks the inner trim and bleed edge of each split page", async () => {
+    const r = await renderer.render(doc("spread"), { format: "png", crop: "bleed", dpi: 254, spread: "split", debug: ["guides"] });
+    for (const p of r.pages) {
+      const px = await pixels(p.data);
+      expect(px.width).toBe(860);
+      const [trim, edge] = p.side === "left" ? [83, 85.9] : [3, 0.1];
+      expect(isMagenta(px.at(trim, 30))).toBe(true);
+      expect(along(px, edge, isOrange)).toBe(true);
+    }
+  });
+
   it("draws only the safe line on a single page", async () => {
     const px = await pixels((await renderer.render(doc("page"), { format: "png", crop: "trim", dpi: 254, debug: ["guides"] })).pages[0]!.data);
     expect(hasSafeLine(px, 5)).toBe(true);
@@ -126,6 +137,8 @@ describe("preview guides overlay", () => {
       expect(isRed(atPx(guided, 0.47))).toBe(true);
       // guided pages include the 3mm bleed on each side so the trim and bleed lines are both visible
       expect(Math.abs(guided.width - plain.width * (166 / 160))).toBeLessThanOrEqual(1);
+      const boxes = await (await fetch(`${base}/boxes/${src.match(/\/page\/(\d+)/)![1]}`)).json();
+      expect(boxes.width).toBe(guided.width);
     } finally {
       proc.kill();
     }

@@ -54,6 +54,8 @@ export interface RenderOptions {
   width?: number;
   height?: number;
   crop?: "trim" | "bleed" | "marks";
+  /** internal: widen a trim crop to the bleed, keeping bleed and marks crops (preview guides) */
+  includeBleed?: boolean;
   spread?: "joined" | "split";
   toneRendering?: "dots" | "flat" | "auto";
   transparent?: boolean;
@@ -122,6 +124,7 @@ export interface RenderedPage {
   height: number;
   dpi: number;
   separation?: string;
+  elements: { id: string; x: number; y: number; width: number; height: number }[];
   data: Uint8Array;
   path?: string;
 }
@@ -548,7 +551,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
     const tp = performance.now();
     try {
       const pageBag = bag;
-      const crop = options.crop ?? prof.crop;
+      const crop0 = options.crop ?? prof.crop;
+      const crop = options.includeBleed && (crop0 ?? "trim") === "trim" ? "bleed" : crop0;
       const dpiFor = (geom: import("./layout/page.js").PageGeom) => {
         const sz = pageSize(page.settings, bag, page.path);
         const markW = crop === "marks" ? 2 * (((prof as { marks?: { margin?: number } }).marks?.margin) ?? 10) : 0;
@@ -630,7 +634,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         const quiet = prof.print || profName === "preview" || profName === "draft" || draft;
         const finish = options.finish === false ? undefined : (options.finish ?? profOwn ?? (quiet ? undefined : (prof.finish as Finish | undefined)));
         if (finish && needRaster && !run.list) full = { ...full, ...(await applyFinish(full, finish, { dpi, colorMode: colorMode as "color", seed: resolved.seed, bag })) };
-        if (options.debug) drawDebug(full, list, info, rasterDpi, rasterCrop, options.debug, marks?.margin ?? 10);
+        if (options.debug) drawDebug(full, list, info, rasterDpi, rasterCrop, options.debug, marks?.margin ?? 10, geom.type === "spread" && spreadMode === "split");
         // spreads: one joined image, or two pages each with bleed on all sides (spec 10.9)
         const trimWidth = Math.round((geom.trimW * rasterDpi) / 25.4 + 1e-6);
         const trimHeight = Math.round((geom.trimH * rasterDpi) / 25.4 + 1e-6);
@@ -700,7 +704,13 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
             return { w: Math.round((bw * rasterDpi) / 25.4), h: Math.round((bh * rasterDpi) / 25.4) };
           };
           const size = fmt === "svg" ? svgSize() : { w: raster.width, h: raster.height };
-          const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: size.w, height: size.h, dpi, separation: run.name, data };
+          const scale = rasterDpi / 25.4;
+          const svgMargin = crop === "marks" ? marks?.margin ?? 10 : 0;
+          const origin = fmt === "svg" ? { x: crop === "trim" ? 0 : (svgMargin - geom.bleedBox.x) * scale, y: crop === "trim" ? 0 : (svgMargin - geom.bleedBox.y) * scale } : part.trim;
+          const trimX = fmt !== "svg" && parts.length > 1 && part.side === "right" ? Math.round(trimWidth / 2) : 0;
+          const elements = info.elements.map(({ id, bbox }) => ({ id, x: bbox.x * scale + origin.x - trimX, y: bbox.y * scale + origin.y, width: bbox.w * scale, height: bbox.h * scale }))
+            .filter((b) => b.x < size.w && b.y < size.h && b.x + b.width > 0 && b.y + b.height > 0);
+          const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: size.w, height: size.h, dpi, separation: run.name, elements, data };
           if (outDir) {
             const file = outName(page, pl.idx, part.side, part.nombre, geom.type === "spread" && parts.length === 1, parts.length > 1, run.name, EXT[fmt]);
             if (emitted.has(file)) {
@@ -743,7 +753,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   for (const [sep, pw] of pdfs) {
     if (!pw.writer.pageCount) continue;
     const data = pw.writer.build();
-    const rp: RenderedPage = { id: resolved.pages[0]?.id ?? "document", index: 0, number: null, side: "document", format: "pdf", mimeType: MIME.pdf, colorMode: pw.colorMode, width: 0, height: 0, dpi: pw.dpi, separation: sep || undefined, data };
+    const rp: RenderedPage = { id: resolved.pages[0]?.id ?? "document", index: 0, number: null, side: "document", format: "pdf", mimeType: MIME.pdf, colorMode: pw.colorMode, width: 0, height: 0, dpi: pw.dpi, separation: sep || undefined, elements: [], data };
     if (outDir) {
       const file = join(outDir, `${p.name}${sep ? `-${sep}` : ""}.pdf`);
       mkdirSync(dirname(file), { recursive: true });
@@ -816,7 +826,7 @@ function roundList(list: DisplayList): unknown {
 export const GUIDE_COLORS = { safe: "rgb(0,150,255)", trim: "rgb(220,0,220)", bleed: "rgb(255,140,0)", fold: "rgb(230,0,0)", foldBand: "rgba(255,0,0,0.18)" } as const;
 
 /** debug overlay (spec 10.11.1): guides, boxes, panels with reading order, elements, text, balloons, order, grid */
-function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: number }, list: DisplayList, info: PageLayoutInfo, dpi: number, crop: string, layers: boolean | string[], markMargin = 10) {
+function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: number }, list: DisplayList, info: PageLayoutInfo, dpi: number, crop: string, layers: boolean | string[], markMargin = 10, split = false) {
   const s = dpi / 25.4;
   const off = crop === "bleed" ? list.boxes.bleed.x : crop === "marks" ? list.boxes.bleed.x - markMargin : 0;
   const want = (k: string) => layers === true || (Array.isArray(layers) && layers.includes(k));
@@ -923,6 +933,19 @@ function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: num
       g.lineWidth = glw;
       g.strokeRect(t.x, t.y, t.w, t.h);
       label(bleedShown ? "trim" : "trim (image edge)", list.boxes.trim.x + 1, list.boxes.trim.y + list.boxes.trim.h - 1, GUIDE_COLORS.trim);
+      if (split) {
+        // split pages are cut at the fold: its trim line, and the bleed edges that become each page's inner image edge
+        const cx = list.boxes.trim.x + list.boxes.trim.w / 2;
+        const vline = (x: number) => { g.beginPath(); g.moveTo(x, t.y); g.lineTo(x, t.y + t.h); g.stroke(); };
+        vline(cx);
+        if (bleedShown) {
+          g.strokeStyle = GUIDE_COLORS.bleed;
+          g.setLineDash([0.8, 0.8]);
+          vline(cx - info.geom.bleed + glw / 2);
+          vline(cx + info.geom.bleed - glw / 2);
+          g.setLineDash([]);
+        }
+      }
     }
   }
   if (want("panels"))
