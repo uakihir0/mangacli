@@ -21,11 +21,20 @@ function expectDots(path: PathData, mark: string, em: number) {
     expect(Math.abs((dots[i].x0 + dots[i].x1) / 2 - center)).toBeLessThan(em * 0.02);
     if (i) expect(dots[i].y0).toBeGreaterThan(dots[i - 1].y1);
   }
-  if (mark === "…") expect(dots.at(-1)!.y1 - dots[0].y0).toBeGreaterThanOrEqual(em * 0.8);
+  if (mark === "…") {
+    for (const dot of dots) {
+      for (const diameter of [dot.x1 - dot.x0, dot.y1 - dot.y0]) {
+        expect(diameter / em).toBeGreaterThanOrEqual(0.12);
+        expect(diameter / em).toBeLessThanOrEqual(0.15);
+      }
+    }
+    expect((dots[2].y1 - dots[0].y0) / em).toBeLessThan(0.7);
+    expect(dots[1].y0 - dots[0].y1).toBeCloseTo(dots[2].y0 - dots[1].y1);
+  }
 }
 
 describe("vertical ellipsis", () => {
-  it.each(["regular", "bold", "dialogue"])("preserves three-dot and two-dot outlines in %s", async (font) => {
+  it.each(["regular", "bold", "dialogue"])("centers compact three-dot and font-shaped two-dot leaders in %s", async (font) => {
     await reg.prepare(font, "ねえ話そう…‥次");
     await reg.prepare("bold", "ねえ話そう…‥次");
     for (const mark of ["…", "‥"]) {
@@ -41,6 +50,32 @@ describe("vertical ellipsis", () => {
         }
       }
     }
+  });
+
+  it("fits six dots into two full-width cells without a synthetic bold stroke", async () => {
+    await reg.prepare("bold", "……");
+    const em = 10;
+    const result = layoutText("<b>……</b>", defaultTextStyle({ font: "bold", fontSize: em }), reg);
+    expect(result.missing).toEqual([]);
+    expect(result.lines[0].length).toBeCloseTo(2 * em);
+    expect(result.glyphs).toHaveLength(2);
+    for (const [i, glyph] of result.glyphs.entries()) {
+      expect(glyph.bold).toBe(false);
+      expectDots(glyph.path, "…", em);
+      const ys = flattenPath(glyph.path).flatMap(({ pts }) => pts.map((p) => p.y));
+      expect(Math.min(...ys)).toBeGreaterThan(i * em);
+      expect(Math.max(...ys)).toBeLessThan((i + 1) * em);
+      expect((Math.min(...ys) + Math.max(...ys)) / 2).toBeCloseTo((i + 0.5) * em);
+    }
+  });
+
+  it("keeps horizontal ellipses in the font's horizontal form", async () => {
+    await reg.prepare("regular", "…");
+    const result = layoutText("…", defaultTextStyle({ writing: "horizontal", font: "regular", fontSize: 10 }), reg);
+    const dots = flattenPath(result.glyphs[0].path);
+    expect(dots).toHaveLength(3);
+    const edge = (dot: (typeof dots)[number]) => Math.min(...dot.pts.map((p) => p.x));
+    expect(Math.max(...dots.map(edge)) - Math.min(...dots.map(edge))).toBeGreaterThan(5);
   });
 
   it.each([false, true])("keeps ellipsis dots in the six-column balloon (bold: %s)", async (bold) => {

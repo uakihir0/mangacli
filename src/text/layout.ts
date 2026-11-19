@@ -400,7 +400,7 @@ function buildBoxes(parsed: ParsedText, style: TextStyle, reg: FontRegistry, mis
       const bx = boxes[b];
       const uu = units[bx.units[0]] as Unit & { kind: "char" };
       bx.color = st.color;
-      bx.bold = bold;
+      bx.bold = bold && !(vertical && o === "upright" && bx.chars === "…");
       bx.ruby = uu.ruby;
       bx.nobr = st.nobr;
       bx.emph = uu.emph;
@@ -431,13 +431,26 @@ let shapeFeatures: InstanceType<typeof hb.Feature>[] = [];
 /** tate-chu-yoko runs squeezed below ~60 %, collected per layout call */
 let tcyWarn: string[] = [];
 
-const VERT_TURN = new Set(Array.from("ー－―—─━–‐…‥（）「」『』【】〔〕〈〉《》［］｛｝＝＜＞→←"));
+const VERT_TURN = new Set(Array.from("ー－―—─━–‐‥（）「」『』【】〔〕〈〉《》［］｛｝＝＜＞→←"));
 const WAVE_DASHES = new Set(["〜", "～"]);
 const SMALL_KANA = new Set(Array.from("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ"));
 const VERT_PUNCT = new Set(Array.from("、。，．"));
 
 /** dashes are drawn cell to cell so a run (――) is one continuous line; some fonts overhang the cell */
 const DASHES = new Set(["―", "—", "─", "━"]);
+// A compact upright ellipsis in em units, centered on the text column.
+const VERT_ELLIPSIS: PathData = [0.23, 0.5, 0.77].flatMap((y): PathData => {
+  const r = 0.065;
+  const k = r * 0.55228475;
+  return [
+    ["M", r, y],
+    ["C", r, y + k, k, y + r, 0, y + r],
+    ["C", -k, y + r, -r, y + k, -r, y],
+    ["C", -r, y - k, -k, y - r, 0, y - r],
+    ["C", k, y - r, r, y - k, r, y],
+    ["Z"],
+  ];
+});
 const inkCache = new Map<string, [number, number, number, number]>();
 function inkBox(f: LoadedFont, gid: number): [number, number, number, number] {
   const key = `${f.key}:${gid}`;
@@ -545,7 +558,7 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
     const emCentre = -((pk.font.ascender + pk.font.descender) * s0) / 2;
     for (const b of boxes.slice(from)) {
       // dashes stay fitted end to end so runs of them still join
-      if (DASHES.has(b.chars) || WAVE_DASHES.has(b.chars)) continue;
+      if (DASHES.has(b.chars) || WAVE_DASHES.has(b.chars) || (vertical && o === "upright" && b.chars === "…")) continue;
       const [px, py] = vertical ? [0, b.adv / 2] : [b.adv / 2, emCentre];
       for (const g of b.glyphs) g.m = [g.m[0] * k, g.m[1] * k, g.m[2] * k, g.m[3] * k, px + (g.m[4] - px) * k, py + (g.m[5] - py) * k];
     }
@@ -609,7 +622,12 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
       per[k].adv += adv;
       pen[k] -= adv;
     }
-    for (const b of per) if (b.adv === 0) b.adv = size;
+    for (const b of per) {
+      if (b.chars === "…") {
+        b.adv = size0 * gy;
+        b.glyphs = [{ gid: 0, font: f, m: [size0 * gx, 0, 0, b.adv, bshift, 0], path: VERT_ELLIPSIS }];
+      } else if (b.adv === 0) b.adv = size;
+    }
     // Inspect the shaped wave: an isolated glyph-ID probe can disagree with the run.
     for (const b of per) {
       if (!WAVE_DASHES.has(b.chars) || b.glyphs.length !== 1) continue;
