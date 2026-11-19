@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // mangacli command line (spec 12).
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { cac } from "cac";
 import { parse as parseYaml } from "yaml";
@@ -614,13 +615,16 @@ new EventSource("/events").onmessage=()=>location.reload()</script>`;
     }
     if (url.pathname === "/ui-font") {
       // Japanese fallback for the warning list when the system has no CJK font: the cached catalog Noto Sans JP, never downloaded here
-      void configFor(o, entry).then((config) => {
+      void (async () => {
+        const config = await configFor(o, entry);
         const f = findCatalogFont("noto-sans-jp", 400);
         const path = f && findLocalCatalogFont(f, { fontDir: config?.fontDir, fontCacheDir: config?.fontCacheDir });
-        if (!path) return void res.writeHead(404).end();
+        return path ? await readFile(path) : undefined;
+      })().catch(() => undefined).then((data) => {
+        if (!data) return void res.writeHead(404).end();
         res.writeHead(200, { "content-type": "font/ttf", "cache-control": "max-age=86400" });
-        res.end(readFileSync(path));
-      }, () => res.writeHead(404).end());
+        res.end(data);
+      });
       return;
     }
     if (url.pathname === "/") {
