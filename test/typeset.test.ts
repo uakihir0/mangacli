@@ -25,6 +25,14 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
+  it("keeps a Dela dash pair within its shaped 14.22mm advance", async () => {
+    const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id: "dela-gothic-one" }]]), "none", [], {});
+    await fonts.prepare("test", "――");
+    const result = layoutText("――", { ...defaultTextStyle({ font: "test", fontSize: 10 }), maxExtent: 16, wrap: "char", kinsoku: "none" }, fonts);
+    expect(result.lines).toHaveLength(1);
+    expect(result.lines[0].rect.h).toBeCloseTo(14.22);
+    expect(ink(result.glyphs[0].path).h).toBeCloseTo(7.11);
+  });
   it("keeps mixed TCY marks in one cell with ASCII-only font fallback", async () => {
     const fonts = new FontRegistry(new Map<string, FontDef>([
       ["ascii", { kind: "file", path: "assets/fonts/Lato-Regular.ttf" }],
@@ -65,7 +73,7 @@ describe("typesetting", () => {
       expect(dash.w).toBeGreaterThanOrEqual(0.5 - 1e-8);
       expect(dash.w).toBeLessThanOrEqual(1.2 + 1e-8);
       if (id === "dela-gothic-one") expect(dash.w).toBeGreaterThan(0.7);
-      expect(dash.h).toBeCloseTo(10);
+      expect(dash.h).toBeCloseTo(id === "dela-gothic-one" ? fontDash.w : 10);
     }
     expect(dashes[0].y + dashes[0].h).toBeCloseTo(dashes[1].y);
     expect(layoutText("", style, fonts).glyphs).toEqual([]);

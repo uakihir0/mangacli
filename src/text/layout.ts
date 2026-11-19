@@ -546,7 +546,10 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
       const inkThickness = bounds ? (bounds[3] - bounds[1]) / f.upem : 0;
       const thickness = Number.isFinite(inkThickness) && inkThickness > 0 ? inkThickness / 2 : 0.07;
       const half = size * gx * Math.max(0.05, Math.min(0.12, thickness)) / 2;
-      const adv = size * gy;
+      const sideways = !hasVertForm(f, seg[dash], style.lang);
+      const shaped = shape(f, seg[dash], sideways ? "ltr" : "ttb", style.lang);
+      const advance = shaped.reduce((sum, g) => sum + (sideways ? g.xAdvance : -g.yAdvance), 0) * s * gy;
+      const adv = advance > 0 ? advance : size * gy;
       const path: PathData = [["M", bshift - half, 0], ["L", bshift + half, 0], ["L", bshift + half, adv], ["L", bshift - half, adv], ["Z"]];
       boxes.push({ chars: seg[dash], units: [segUnits[dash]], adv, size: size0, orient: o, glyphs: [{ gid: 0, font: f, m: [1, 0, 0, 1, 0, 0], path }], firstChar: seg[dash], lastChar: seg[dash] });
       if (dash + 1 < seg.length) shapeSegment(seg.slice(dash + 1), segUnits.slice(dash + 1), pk, size0, o, vertical, style, boxes);
