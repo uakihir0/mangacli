@@ -694,8 +694,8 @@ function materialEffects(f: FxCtx, kind: string): Node[] {
     const resolved = parsePaint(paint, { u: f.ctx.u, box: b, seed: f.el.seed });
     if (resolved) nodes.push({ kind: "path", path: polyPath(pts, true), fillRule: "nonzero", paint: resolved, tag: tag(f.el, role) });
   };
-  const shape = (pts: Vec[], paint: unknown) => {
-    const s = inkShape({ pts, closed: true, smooth: true }, { hand: f.hand, rng: rng.fork("shape"), line: { ...lineStyle(f, stroke?.width ?? 0.3 * f.k), pen: stroke?.pen ?? f.pen } });
+  const shape = (pts: Vec[], paint: unknown, angular = false) => {
+    const s = inkShape({ pts, closed: true, smooth: !angular }, { hand: f.hand, rng: rng.fork("shape"), join: "clean", line: { ...lineStyle(f, stroke?.width ?? 0.3 * f.k), pen: stroke?.pen ?? f.pen } });
     plane(s.fill, paint);
     nodes.push(...inksToNodes(s.inks, stroke?.color ?? f.color, tag(f.el, "ink")));
   };
@@ -707,17 +707,17 @@ function materialEffects(f: FxCtx, kind: string): Node[] {
   });
   if (kind === "lightning") {
     const angle = parseAngle(p.direction as string);
-    const thickness = R(f, p.thickness, { min: 1.2 * f.k, max: 3 * f.k, dist: "uniform" });
+    const thickness = R(f, p.thickness, { min: 3 * f.k, max: 6 * f.k, dist: "uniform" });
     const bolt = (pts: Vec[], width: number) => {
       const left: Vec[] = [], right: Vec[] = [];
       for (let i = 0; i < pts.length; i++) {
         const next = pts[Math.min(i + 1, pts.length - 1)], prev = pts[Math.max(0, i - 1)];
         const a = Math.atan2(next.y - prev.y, next.x - prev.x) + Math.PI / 2;
-        const w = width * (1 - i / (pts.length - 1)) / 2;
+        const w = width * Math.pow(1 - i / (pts.length - 1), 0.7) / 2;
         left.push({ x: pts[i].x + Math.cos(a) * w, y: pts[i].y + Math.sin(a) * w });
         right.push({ x: pts[i].x - Math.cos(a) * w, y: pts[i].y - Math.sin(a) * w });
       }
-      shape([...left, ...right.reverse()], p.fill);
+      shape([...left, ...right.reverse()], p.fill, true);
     };
     for (let i = 0; i < Number(p.bolts); i++) {
       const o = point(p.origin, { x: b.x + b.w * (i + rng.range(0.2, 0.8)) / Number(p.bolts), y: b.y });
@@ -727,7 +727,7 @@ function materialEffects(f: FxCtx, kind: string): Node[] {
       bolt(pts, width);
       for (let j = 0; j < Number(p.branches); j++) {
         const at = rng.int(2, 6);
-        bolt(jag(pts[at], angle + (j % 2 ? -1 : 1) * rng.range(0.5, 1), length * rng.range(0.2, 0.4), Number(p.jaggedness)), width * 0.5);
+        bolt(jag(pts[at], angle + (j % 2 ? -1 : 1) * rng.range(0.5, 1), length * rng.range(0.2, 0.4), Number(p.jaggedness)), width * 0.3);
       }
     }
   } else if (kind === "crack") {
@@ -753,28 +753,40 @@ function materialEffects(f: FxCtx, kind: string): Node[] {
     const o = point(p.origin, { x: b.x + b.w / 2, y: b.y + b.h });
     const angle = p.direction === "both" ? -Math.PI / 2 : parseAngle(p.direction as string);
     const n = dust ? Number(p.puffs) : Math.round(Number(p.density) * 22);
-    const size = dust ? L(f, p.size, unit) : unit * 0.23;
+    const size = dust ? L(f, p.size, unit) : unit * 0.3;
     for (let i = n - 1; i >= 0; i--) {
       const t = (i + 0.5) / Math.max(1, n);
       const travel = dust ? size * t * 1.9 : b.h * t;
       const side = dust && p.direction === "both" ? (i % 2 ? -1 : 1) * travel : rng.range(-1, 1) * size * (0.25 + t);
       const c = !dust && p.origin === undefined ? { x: b.x + rng.next() * b.w, y: b.y + rng.next() * b.h } : { x: o.x + Math.cos(angle) * travel - Math.sin(angle) * side, y: o.y + Math.sin(angle) * travel * (dust ? 0.4 : 1) + Math.cos(angle) * side };
       const rx = size * (dust ? 0.65 - 0.35 * t : rng.range(0.6, 1.2));
-      const ry = rx * (dust ? 0.95 : 1.25);
+      const ry = rx * (dust ? 0.7 : 1.15);
       const phase = rng.range(0, Math.PI * 2);
-      const pts = Array.from({ length: 72 }, (_, j) => {
-        const a = j / 72 * Math.PI * 2;
-        const r = 1 + (dust ? 0.19 : 0.13) * Math.sin(a * (dust ? 7 : 5) + phase) + 0.04 * Math.sin(a * 11 + phase);
+      const lobes = dust ? 9 : 7;
+      const anchors = Array.from({ length: lobes }, (_, j) => {
+        const a = phase + j / lobes * Math.PI * 2;
+        const r = rng.range(0.9, 1.08);
         return { x: c.x + Math.cos(a) * rx * r, y: c.y + Math.sin(a) * ry * r };
       });
+      const pts: Vec[] = [];
+      for (let j = 0; j < lobes; j++) {
+        const a = anchors[j], z = anchors[(j + 1) % lobes];
+        const dx = (z.x - a.x) / 2, dy = (z.y - a.y) / 2;
+        const bulge = rng.range(0.75, 1.05);
+        for (let s = 0; s < 12; s++) {
+          const t = s / 12 * Math.PI;
+          pts.push({ x: (a.x + z.x) / 2 - dx * Math.cos(t) + dy * Math.sin(t) * bulge, y: (a.y + z.y) / 2 - dy * Math.cos(t) - dx * Math.sin(t) * bulge });
+        }
+      }
       shape(pts, p.fill);
-      plane(pts.slice(1, 35).concat([{ x: c.x, y: c.y + ry * 0.45 }]), p.tone, "tone");
+      const underside = pts.filter(q => q.y >= c.y + ry * 0.35);
+      plane(underside, p.tone, "tone");
       const curl = Array.from({ length: 28 }, (_, j) => {
         const a = j / 27 * Math.PI * (dust ? 1.1 : 2.1) + phase;
         const r = (1 - j / 32) * rx * 0.6;
         return { x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r * (dust ? 0.8 : 1.4) };
       });
-      line(curl, (dust ? 0.15 : 0.12) * f.k);
+      if (i % 3 === 0) line(curl, (dust ? 0.15 : 0.12) * f.k);
     }
     if (dust) for (let i = 0; i < Number(p.debris); i++) {
       const a = rng.range(-Math.PI, 0), d = size * rng.range(1, 2.8), r = rng.range(0.3, 1) * f.k;

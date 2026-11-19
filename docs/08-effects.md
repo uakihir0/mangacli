@@ -239,7 +239,7 @@ passes:
 | `bolts` | 整数 | `3` | 主稲妻の本数 |
 | `branches` | 整数 | `2` | 主稲妻ごとの枝数 |
 | `length` | Length / % | `90%` | 領域の高さに対する長さ |
-| `thickness` | Range | `[1.2bmm, 3bmm]` | 根元の太さ |
+| `thickness` | Range | `[3bmm, 6bmm]` | 根元の太さ |
 | `jaggedness` | 0〜1 | `0.8` | 折れ曲がりの強さ |
 | `fill` | Paint | `paper` | 稲妻の面 |
 | `stroke` | Stroke | `{ width: 0.25bmm }` | 黒い輪郭 |

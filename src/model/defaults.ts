@@ -44,7 +44,7 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
 };
 
 export const BUILTIN_EFFECT_DEFAULTS: Record<string, Obj> = {
-  lightning: { background: "black", direction: "90deg", bolts: 3, branches: 2, length: "90%", thickness: ["1.2bmm", "3bmm"], jaggedness: 0.8, fill: "paper", stroke: { width: "0.25bmm" }, pen: { preset: "g-pen" } },
+  lightning: { background: "black", direction: "90deg", bolts: 3, branches: 2, length: "90%", thickness: ["3bmm", "6bmm"], jaggedness: 0.8, fill: "paper", stroke: { width: "0.25bmm" }, pen: { preset: "g-pen" } },
   crack: { radius: "30%", count: 7, branching: 0.35, rings: 1, thickness: ["0.15bmm", "0.65bmm"], shade: "black", pen: { preset: "g-pen" } },
   dust: { direction: "both", size: "25%", puffs: 7, fill: "paper", stroke: { width: "0.3bmm" }, debris: 10, pen: { preset: "g-pen" } },
   smoke: { direction: "-90deg", density: 0.5, fill: "paper", stroke: { width: "0.2bmm" }, pen: { preset: "g-pen" } },
