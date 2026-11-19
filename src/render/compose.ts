@@ -73,6 +73,7 @@ interface Item {
   listIdx: number;
   free: boolean;
   openClip?: Node["kind"] extends never ? never : import("../geom/path.js").PathData;
+  filterClips?: import("../geom/path.js").PathData[];
   stackUnder?: boolean;
 }
 
@@ -348,6 +349,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       const envelopePoly = [rectPts(envelope).map((p) => [p.x, p.y] as [number, number])];
       const withoutGutters = multiPolyPath(polygonClipping.union(polygonClipping.difference(bleedPoly, envelopePoly), panelUnion));
       it.nodes = [{ kind: "group", clip: withoutGutters, clipRule: "nonzero", children: it.nodes }];
+      (it.filterClips ??= []).push(withoutGutters);
     }
     if (it.el.props.stack !== "art") continue;
     for (const pg of targets) {
@@ -358,6 +360,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     if ((clip.open as string[] | undefined)?.length) {
       const outside = multiPolyPath(polygonClipping.difference(bleedPoly, panelUnion));
       it.nodes = [{ kind: "group", clip: outside, clipRule: "nonzero", children: it.nodes }];
+      (it.filterClips ??= []).push(outside);
     } else it.nodes = [];
   }
 
@@ -394,6 +397,9 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     if (it.source === 0) {
       const pg = drawOrder[it.panelIdx];
       if (pg) nodes = compositeNodes(nodes, pg.panel.props, bag, pg.panel.path);
+    }
+    if (nodes !== it.nodes) {
+      for (const clip of it.filterClips ?? []) nodes = [{ kind: "group", clip, clipRule: "nonzero", children: nodes }];
     }
     if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.el.type === "balloon" ? cleanClippedBalloonInk(it.openClip)(nodes) : nodes });
     else root.children.push(...nodes);
