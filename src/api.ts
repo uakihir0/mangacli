@@ -16,6 +16,7 @@ import { type ResolvedDoc, resolveDocument } from "./model/resolve.js";
 import { type EncodeOptions, EXT, MIME, type OutputFormat, encode } from "./output/encode.js";
 import { PROFILES, type Profile, applyOutput, resolveProfile } from "./output/profiles.js";
 import { PdfWriter } from "./output/pdf.js";
+import { type PdfXOptions, pdfXProfile } from "./output/pdfx.js";
 import { type Finish, applyFinish } from "./output/finish.js";
 import { AssetRegistry } from "./render/assets.js";
 import { type PageLayoutInfo, composePage } from "./render/compose.js";
@@ -43,6 +44,8 @@ export type MangaInput = string | URL | { yaml: string; filename?: string; baseD
 export interface RenderOptions {
   profile?: string;
   format?: OutputFormat | OutputFormat[];
+  /** Opt-in PDF/X export for opaque 1-bit monochrome PDF. */
+  pdfX?: PdfXOptions;
   colorMode?: "color" | "gray" | "mono";
   dpi?: number;
   scale?: number;
@@ -460,6 +463,22 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   const nameTpl = options.name ?? (docOutput.name as string) ?? prof.name ?? "{name}-{page:03}";
   const emitted = new Set<string>();
   const seps0 = normalizeSeparations(options.separate ?? prof.separate);
+  // Transparent output omits the page ground (panel grounds stay; spec 10.15).
+  const bgOverride = options.background ?? (typeof docOutput.background === "string" ? docOutput.background : undefined);
+  const transparentOut = options.transparent ?? (bgOverride === "transparent" ? true : undefined) ?? prof.transparent ?? false;
+  let pdfX: ConstructorParameters<typeof PdfWriter>[1];
+  if (options.pdfX && !options.layoutOnly) {
+    if (!formats.includes("pdf") || (options.colorMode ?? prof.colorMode) !== "mono" || transparentOut || seps0) {
+      bag.error("OUTPUT_MODE_UNSUPPORTED", "PDF/X requires PDF output in opaque 1-bit monochrome mode, without separations or debug overlays");
+      return fail();
+    }
+    try {
+      pdfX = { ...options.pdfX, iccProfile: pdfXProfile(options.pdfX) };
+    } catch (e) {
+      bag.error("OUTPUT_MODE_UNSUPPORTED", (e as Error).message);
+      return fail();
+    }
+  }
   // print profiles hand spreads to the printer as two pages
   const spreadMode = options.spread ?? prof.spread ?? (prof.print ? "split" : "joined");
   const title = String((p.doc.meta as Obj | undefined)?.title ?? p.name);
@@ -540,9 +559,6 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const { list: list0, info } = await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor, characters: resolved.characters });
       info.number = pl.nombre;
       let list = plugins ? (plugins.hook("beforeRender", list0) as DisplayList) : list0;
-      // transparent output: no page ground (panel grounds stay; spec 10.15)
-      const bgOverride = options.background ?? (typeof docOutput.background === "string" ? (docOutput.background as string) : undefined);
-      const transparentOut = options.transparent ?? (bgOverride === "transparent" ? true : undefined) ?? prof.transparent ?? false;
       if (bgOverride && bgOverride !== "transparent") {
         // replace the page ground
         const paint = parsePaint(bgOverride, { u: info.geom.units, box: list.boxes.bleed, seed: resolved.seed, bag, path: ["output", "background"] });
@@ -623,7 +639,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
             const key = run.name ?? "";
             let pw = pdfs.get(key);
             if (!pw) {
-              pw = { writer: new PdfWriter({ title: typeof meta.title === "string" ? meta.title : undefined, author: typeof meta.author === "string" ? meta.author : undefined, date: sde ? new Date(Number(sde) * 1000) : undefined }), colorMode, dpi };
+              pw = { writer: new PdfWriter({ title: typeof meta.title === "string" ? meta.title : pdfX ? p.name : undefined, author: typeof meta.author === "string" ? meta.author : undefined, date: sde ? new Date(Number(sde) * 1000) : undefined }, pdfX), colorMode, dpi };
               pdfs.set(key, pw);
             }
             const bleedPx = crop === "trim" ? 0 : Math.round((geom.bleed * dpi) / 25.4 + 1e-6);
@@ -678,6 +694,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
     timings[page.id] = performance.now() - tp;
     options.onProgress?.({ phase: "render", pageId: page.id, done: ++done, total });
   }
+  // A submission PDF must not silently omit pages if rendering failed.
+  if (pdfX && (bag.hasErrors || result.failures.length || (options.strict && bag.items.some((d) => d.severity === "warning")))) pdfs.clear();
   for (const [sep, pw] of pdfs) {
     if (!pw.writer.pageCount) continue;
     const data = pw.writer.build();
