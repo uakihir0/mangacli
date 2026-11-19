@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { createRenderer } from "../src/api.js";
+import { Rng } from "../src/core/random.js";
 import type { Vec } from "../src/geom/vec.js";
+import { HAND_PRESETS, PEN_PRESETS } from "../src/ink/presets.js";
+import { inkShape } from "../src/ink/shape.js";
 import type { Node, PathNode } from "../src/render/ir.js";
 
 const r = createRenderer({ profile: "preview" });
@@ -92,7 +95,7 @@ describe("balloon tails", () => {
       expect(tip - a).toBeGreaterThan(12);
       expect(pts.length - tip).toBeGreaterThan(12);
       const shortSide = Math.min(Math.max(...original.map((p) => p.x)) - Math.min(...original.map((p) => p.x)), Math.max(...original.map((p) => p.y)) - Math.min(...original.map((p) => p.y)));
-      expect(Math.hypot(pts[a].x - pts[0].x, pts[a].y - pts[0].y)).toBeLessThanOrEqual(shortSide * 0.3 + 1e-8);
+      expect(Math.hypot(pts[a].x - pts[0].x, pts[a].y - pts[0].y)).toBeLessThanOrEqual(shortSide / 6 + 1e-8);
       const retained = original.filter((p) => pts.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < 1e-8));
       expect(retained.length / original.length).toBeGreaterThan(0.9);
     }
@@ -102,22 +105,37 @@ describe("balloon tails", () => {
     expect(createHash("sha256").update(JSON.stringify(rounded)).digest("hex")).toBe("0b108bb626414c3f2a026e85c0d40f15dbdbfdf1eeda4ae913311803efdfea68");
   });
 
-  it("caps even an explicitly oversized shout root", async () => {
-    const { pts } = await outline(`{ balloon: "待てっ！", id: b, as: shout, hand: clean, size: [19mm, 30mm], at: [40mm, 35mm], tail: { direction: 130deg, width: 30mm } }`);
+  it("honors an explicit shout root width instead of the automatic cap", async () => {
+    const { pts } = await outline(`{ balloon: "待てっ！", id: b, as: shout, hand: clean, size: [19mm, 30mm], at: [40mm, 35mm], tail: { direction: 130deg, width: 8mm } }`);
     const { pts: body } = await outline(`{ balloon: "待てっ！", id: b, as: shout, hand: clean, size: [19mm, 30mm], at: [40mm, 35mm], tail: none }`);
     const { a } = tailEdges(pts);
     const shortSide = Math.min(Math.max(...body.map((p) => p.x)) - Math.min(...body.map((p) => p.x)), Math.max(...body.map((p) => p.y)) - Math.min(...body.map((p) => p.y)));
-    expect(Math.hypot(pts[a].x - pts[0].x, pts[a].y - pts[0].y)).toBeLessThanOrEqual(shortSide * 0.3 + 1e-8);
+    expect(Math.hypot(pts[a].x - pts[0].x, pts[a].y - pts[0].y)).toBeGreaterThan(shortSide / 6);
+  });
+  it("uses a sixth of the short side for an ordinary automatic wedge", async () => {
+    const { pts } = await outline(`{ balloon: "おはよう", id: b, hand: clean, size: [30mm, 24mm], at: [40mm, 35mm], tail: { direction: 0deg, length: 10mm, curl: false, bend: 0, sideCurve: 0 } }`);
+    const { a } = tailEdges(pts);
+    const width = Math.hypot(pts[a].x - pts[0].x, pts[a].y - pts[0].y);
+    expect(width).toBeGreaterThan(3.7);
+    expect(width).toBeLessThan(4.2);
+  });
+  it("inks point corners at full line weight through the tail tip", () => {
+    const ink = inkShape({ pts: [{ x: 0, y: 0 }, { x: 10, y: 0 }], closed: false, corners: [{ index: 1, kind: "point" }] }, {
+      line: { width: 0.3, pen: PEN_PRESETS["g-pen"], style: "solid" },
+      hand: { ...HAND_PRESETS.clean, taper: 1 },
+      rng: new Rng(42),
+    });
+    expect(widthAt(ink.inks[0].pts, 9.8, 0)).toBeGreaterThanOrEqual(0.29);
   });
   const shout = `{ balloon: "父ちゃん！", id: b, as: shout, at: [40mm, 35mm], tail: { to: [125mm, 35mm] } }`;
   it("keeps a shout tail aimed far away to a moderate length", async () => {
     const { pts, origin } = await outline(shout);
     expect(tip(pts).x - rightOf(pts, origin.x + 40)).toBeLessThan(4.2);
   });
-  it("gives a long shout tail a wide base instead of a thin line", async () => {
+  it("keeps a thin shout tail visibly triangular", async () => {
     const { pts } = await outline(shout);
     const t = tip(pts);
-    expect(widthAt(pts, t.x - 3, t.y)).toBeGreaterThan(0.8);
+    expect(widthAt(pts, t.x - 3, t.y)).toBeGreaterThan(0.4);
   });
   it("stops a tail aimed at a bare point halfway, out of the speaker's face", async () => {
     const { pts, origin } = await outline(`{ balloon: "おはよう", id: b, size: [24mm, 24mm], at: [40mm, 35mm], tail: { to: [59mm, 35mm] } }`);

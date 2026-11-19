@@ -551,9 +551,9 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     if (offSide && target) length = Math.hypot(target.x - R.x, target.y - R.y);
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
-    // a wedge's base is a quarter to a third of the body, so the tail reads as a triangle at a glance
+    // a wedge's base is about a sixth of the body
     const bw0 = Math.min(2.8 * u.k, Math.max(1.6 * u.k, minSide * 0.13));
-    const bwAuto = kind === "zigzag" ? bw0 * 1.5 : offSide ? bw0 : Math.max(bw0, Math.min(minSide * 0.3, length * 1.2));
+    const bwAuto = kind === "zigzag" ? bw0 * 1.5 : offSide ? bw0 : Math.max(bw0, Math.min(minSide / 6, length * 0.6));
     const bw = (t.width !== undefined ? toMm(t.width as string, u) : bwAuto) * widthScale;
     // on a spiky body the tail is one more, larger spike of the outline (the shout/scream presets
     // also set bend/sideCurve 0 for straight sides)
@@ -643,10 +643,10 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     const sR = s[hit.index] + hit.u * (s[hit.index + 1] - s[hit.index]);
     let A = pointAtChord(cur.pts, s, sR, bw / 2, -1);
     let B = pointAtChord(cur.pts, s, sR, bw / 2, 1);
-    if (spiky && kind === "wedge" && !offSide) {
-      const cap = minSide * 0.3;
+    if (spiky && kind === "wedge" && !offSide && t.width === undefined) {
+      const cap = minSide / 6;
       const valleys = (cur.corners ?? []).filter((c) => c.kind === "valley");
-      if (valleys.length > 1 && (t.width === undefined || Math.hypot(B.p.x - A.p.x, B.p.y - A.p.y) > cap)) {
+      if (valleys.length > 1) {
         const P = s[s.length - 1];
         const before = valleys.reduce((a, b) => (sR - s[a.index] + P) % P < (sR - s[b.index] + P) % P ? a : b);
         const after = valleys.reduce((a, b) => ((s[a.index] - sR + P) % P || P) < ((s[b.index] - sR + P) % P || P) ? a : b);
