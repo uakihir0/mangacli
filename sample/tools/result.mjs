@@ -1,6 +1,6 @@
 export async function waitForImage(project, getResult, { timeout, checkAfter = 90_000, retryAfter = 30_000, progressDelay = 3_000 }) {
   let deadline, check, checking = false, settled = false, reachedFullProgress = false;
-  let onProgress;
+  let onProgress, onJobCompleted;
   const result = new Promise((resolve, reject) => {
     const scheduleCheck = (delay) => {
       clearTimeout(check);
@@ -35,6 +35,11 @@ export async function waitForImage(project, getResult, { timeout, checkAfter = 9
     };
     project.on("progress", onProgress);
     onProgress(project.progress);
+    onJobCompleted = (job) => {
+      if (job.resultUrl) resolve(job.resultUrl);
+    };
+    project.on("jobCompleted", onJobCompleted);
+    if (project.resultUrls[0]) resolve(project.resultUrls[0]);
     project.waitForCompletion().then(([url]) => {
       if (settled) return;
       if (url) resolve(url);
@@ -49,5 +54,6 @@ export async function waitForImage(project, getResult, { timeout, checkAfter = 9
     clearTimeout(deadline);
     clearTimeout(check);
     project.off("progress", onProgress);
+    project.off("jobCompleted", onJobCompleted);
   }
 }

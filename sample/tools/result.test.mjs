@@ -7,8 +7,22 @@ const image = { status: "completed", jobs: [{ status: "completed", url: "https:/
 const timings = { timeout: 250, checkAfter: 10, retryAfter: 10, progressDelay: 0 };
 
 function project(completion = new Promise(() => {}), progress = 0) {
-  return Object.assign(new EventEmitter(), { progress, waitForCompletion: () => completion });
+  return Object.assign(new EventEmitter(), { progress, resultUrls: [], waitForCompletion: () => completion });
 }
+
+test("uses a job URL already received before waiting for project completion", async () => {
+  const job = project();
+  job.resultUrls = [image.jobs[0].url];
+  assert.equal(await waitForImage(job, () => assert.fail("unexpected HTTP lookup"), timings), image.jobs[0].url);
+});
+
+test("uses a job event without waiting for the project completion event", async () => {
+  const job = project();
+  const result = waitForImage(job, () => assert.fail("unexpected HTTP lookup"), timings);
+  job.emit("jobCompleted", { resultUrl: image.jobs[0].url });
+  assert.equal(await result, image.jobs[0].url);
+  assert.equal(job.listenerCount("jobCompleted"), 0);
+});
 
 test("uses the socket without an HTTP lookup when the result arrives", async () => {
   const job = project(Promise.resolve([image.jobs[0].url]));
