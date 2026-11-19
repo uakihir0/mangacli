@@ -389,14 +389,11 @@ function speedLines(f: FxCtx): InkPoly[] {
   const d = { x: Math.cos(ang), y: Math.sin(ang) };
   const n = { x: -d.y, y: d.x };
   const corners = [{ x: b.x, y: b.y }, { x: b.x + b.w, y: b.y }, { x: b.x, y: b.y + b.h }, { x: b.x + b.w, y: b.y + b.h }];
-  const projN = total ? guide.slice(1).flatMap((z, i) => {
-    const a = guide[i], length = arc[i + 1] - arc[i];
-    if (!length) return [];
-    return corners.map((q) => (-(z.y - a.y) * (q.x - a.x) + (z.x - a.x) * (q.y - a.y)) / length);
-  }) : corners.map((q) => q.x * n.x + q.y * n.y);
+  const projN = corners.map((q) => q.x * n.x + q.y * n.y);
+  const guideN = guide.map((q) => q.x * n.x + q.y * n.y);
   const projD = corners.map((q) => q.x * d.x + q.y * d.y);
-  const n0 = Math.min(...projN);
-  const n1 = Math.max(...projN);
+  const n0 = Math.min(...projN) - (total ? Math.max(...guideN) : 0);
+  const n1 = Math.max(...projN) - (total ? Math.min(...guideN) : 0);
   const d0 = Math.min(...projD);
   const d1 = Math.max(...projD);
   const extent = d1 - d0;
