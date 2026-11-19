@@ -812,7 +812,10 @@ function roundList(list: DisplayList): unknown {
   return JSON.parse(JSON.stringify(list, (_, v) => (typeof v === "number" ? Math.round(v * 1000) / 1000 : v)));
 }
 
-/** debug overlay (spec 10.11.1): boxes, panels with reading order, elements, text, balloons, order, grid */
+/** colours of the `guides` debug layer (exported for tests) */
+export const GUIDE_COLORS = { safe: "rgb(0,150,255)", fold: "rgb(230,0,0)", foldBand: "rgba(255,0,0,0.18)" } as const;
+
+/** debug overlay (spec 10.11.1): guides, boxes, panels with reading order, elements, text, balloons, order, grid */
 function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: number }, list: DisplayList, info: PageLayoutInfo, dpi: number, crop: string, layers: boolean | string[], markMargin = 10) {
   const s = dpi / 25.4;
   const off = crop === "bleed" ? list.boxes.bleed.x : crop === "marks" ? list.boxes.bleed.x - markMargin : 0;
@@ -861,6 +864,41 @@ function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: num
     rect(list.boxes.trim, "#ff0000");
     rect(list.boxes.baseFrame, "#00a0ff");
     rect(list.boxes.safe, "#00c000", [2, 2]);
+  }
+  if (want("guides")) {
+    // placement guides: the safe line text must stay inside, and the spread fold band text must avoid
+    const fm = info.geom.foldMargin;
+    const glw = Math.max(2 / s, 0.25);
+    if (fm > 0) {
+      const cx = list.boxes.trim.x + list.boxes.trim.w / 2;
+      const y0 = list.boxes.bleed.y;
+      const h = list.boxes.bleed.h;
+      g.fillStyle = GUIDE_COLORS.foldBand;
+      g.fillRect(cx - fm, y0, 2 * fm, h);
+      g.strokeStyle = GUIDE_COLORS.fold;
+      g.lineWidth = glw;
+      g.setLineDash([2, 1]);
+      for (const x of [cx - fm, cx + fm]) {
+        g.beginPath();
+        g.moveTo(x, y0);
+        g.lineTo(x, y0 + h);
+        g.stroke();
+      }
+      g.setLineDash([]);
+      g.beginPath();
+      g.moveTo(cx, y0);
+      g.lineTo(cx, y0 + h);
+      g.stroke();
+      label(`fold ±${Math.round(fm * 10) / 10}mm`, cx + fm + 1, list.boxes.safe.y + 4, GUIDE_COLORS.fold);
+    }
+    if (info.geom.units.units !== "px") {
+      g.strokeStyle = GUIDE_COLORS.safe;
+      g.lineWidth = glw;
+      g.setLineDash([3, 1.5]);
+      g.strokeRect(list.boxes.safe.x, list.boxes.safe.y, list.boxes.safe.w, list.boxes.safe.h);
+      g.setLineDash([]);
+      label("safe", list.boxes.safe.x + 1, list.boxes.safe.y - 1, GUIDE_COLORS.safe);
+    }
   }
   if (want("panels"))
     for (const pn of info.panels) {

@@ -23,6 +23,8 @@ export interface PageGeom {
   bleedBox: Rect;
   baseFrame: Rect;
   safe: Rect;
+  /** half-width of the spread fold danger band in mm (spreads only; 0 otherwise) */
+  foldMargin: number;
   units: UnitContext;
   side: "left" | "right" | "spread";
   physical: number[];
@@ -170,7 +172,8 @@ export function computePageGeom(page: RPage, physicalIndex: number, book: Obj, b
     if (sz.unit !== "px") bag.warn("PAGE_BASEFRAME_OUTSIDE_SAFE", "base frame extends outside the safe area", { path: [...page.path, "baseFrame"], pageId: page.id });
   }
   const physical = page.type === "spread" ? [physicalIndex, physicalIndex + 1] : [physicalIndex];
-  return { id: page.id, index: page.index, type: page.type, trimW, trimH, bleed, trim, bleedBox, baseFrame, safe, units, side, physical, rtl, color, dpi, k, printScale };
+  const foldMargin = page.type !== "spread" || sz.unit === "px" ? 0 : s.foldMargin !== undefined ? toMm(s.foldMargin as string, units) : 10;
+  return { id: page.id, index: page.index, type: page.type, trimW, trimH, bleed, trim, bleedBox, baseFrame, safe, foldMargin, units, side, physical, rtl, color, dpi, k, printScale };
 }
 
 // ---- polygon clipping with half planes -----------------------------------------
