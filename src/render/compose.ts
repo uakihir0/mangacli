@@ -1313,7 +1313,8 @@ function checkTextSafety(items: Item[], geom: PageGeom, bag: DiagnosticBag, page
     if (!["balloon", "text", "sfx"].includes(it.el.type)) continue;
     const b = it.bbox;
     const s = geom.safe;
-    if (b.x < s.x - 0.5 || b.y < s.y - 0.5 || b.x + b.w > s.x + s.w + 0.5 || b.y + b.h > s.y + s.h + 0.5) {
+    const intentionalBleed = it.el.type === "sfx" && it.el.props.bleed === true;
+    if (!intentionalBleed && (b.x < s.x - 0.5 || b.y < s.y - 0.5 || b.x + b.w > s.x + s.w + 0.5 || b.y + b.h > s.y + s.h + 0.5)) {
       bag.warn("TEXT_OUTSIDE_SAFE_AREA", `${it.el.id} extends outside the safe area`, { path: it.el.path, elementId: it.el.id, pageId: page.id });
     }
     if (geom.type === "spread") {

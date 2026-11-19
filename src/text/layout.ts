@@ -431,7 +431,8 @@ let shapeFeatures: InstanceType<typeof hb.Feature>[] = [];
 /** tate-chu-yoko runs squeezed below ~60 %, collected per layout call */
 let tcyWarn: string[] = [];
 
-const VERT_TURN = new Set(Array.from("〜～ー－―—─━–‐…‥（）「」『』【】〔〕〈〉《》［］｛｝＝＜＞→←"));
+const VERT_TURN = new Set(Array.from("ー－―—─━–‐…‥（）「」『』【】〔〕〈〉《》［］｛｝＝＜＞→←"));
+const WAVE_DASHES = new Set(["〜", "～"]);
 const SMALL_KANA = new Set(Array.from("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ"));
 const VERT_PUNCT = new Set(Array.from("、。，．"));
 
@@ -455,6 +456,15 @@ function inkBox(f: LoadedFont, gid: number): [number, number, number, number] {
   }
   return r;
 }
+
+function verticalWaveMatrix(f: LoadedFont, gid: number, m: Matrix, cx: number, cy: number): Matrix {
+  const [x0, y0, x1, y1] = inkBox(f, gid);
+  if (!isFinite(x0) || x1 - x0 <= y1 - y0) return m;
+  const sx = m[0];
+  const sy = -m[3];
+  return [0, sy, sx, 0, cx - (y0 + y1) / 2 * sx, cy - (x0 + x1) / 2 * sy];
+}
+
 function fitDashes(per: Box[], vertical: boolean) {
   for (let i = 0; i < per.length; i++) {
     if (!DASHES.has(per[i].chars)) continue;
@@ -551,6 +561,12 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
       pen[k] -= adv;
     }
     for (const b of per) if (b.adv === 0) b.adv = size;
+    // Inspect the shaped wave: an isolated glyph-ID probe can disagree with the run.
+    for (const b of per) {
+      if (!WAVE_DASHES.has(b.chars) || b.glyphs.length !== 1) continue;
+      const gl = b.glyphs[0];
+      gl.m = verticalWaveMatrix(gl.font, gl.gid, gl.m, bshift, b.adv / 2);
+    }
     fitDashes(per, true);
     for (const b of per) positionNonokagi(b, style.lang, bshift);
     // fonts without vertical forms for small kana and 、。 get them moved toward the upper right
@@ -828,7 +844,8 @@ function placeRuby(parsed: ParsedText, boxes: Box[], glyphs: GlyphOut[], style: 
             const s = rsize / pk.font.upem;
             let pen = 0;
             for (const gl of g) {
-              const m: Matrix = [s, 0, 0, -s, x + gl.xOffset * s, y - (gl.yOffset + pk.font.vOriginFix) * s + pen];
+              let m: Matrix = [s, 0, 0, -s, x + gl.xOffset * s, y - (gl.yOffset + pk.font.vOriginFix) * s + pen];
+              if (WAVE_DASHES.has(c) && g.length === 1) m = verticalWaveMatrix(pk.font, gl.gid, m, x, y + rsize / 2);
               glyphs.push({ path: pathFromJson(glyphJson(pk.font, gl.gid), m), unit: sg.boxes[0].units[0], cx: x, cy: y });
               pen += -gl.yAdvance * s;
             }
