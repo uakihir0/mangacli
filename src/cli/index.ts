@@ -494,7 +494,7 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
   const entry = resolve(file);
   const port = o.port !== undefined ? Number(o.port) : 4173;
   const host = (o.host as string) ?? "127.0.0.1";
-  type PreviewPage = { id: string; data: Uint8Array; mime: string; ext: string; elements: { id: string; x: number; y: number; width: number; height: number }[] };
+  type PreviewPage = { id: string; data: Uint8Array; mime: string; ext: string; width: number; height: number; elements: { id: string; x: number; y: number; width: number; height: number }[] };
   let pages: PreviewPage[] = [];
   let diags: Diagnostic[] = [];
   let version = 0;
@@ -507,7 +507,7 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
     opts.onSystemFont = (path) => watcher.add(path);
     if (debug) opts.debug = Array.isArray(opts.debug) ? [...new Set([...opts.debug, ...debug])] : (opts.debug ?? debug);
     const r = await render(entry, opts);
-    return { pages: r.pages.map((p) => ({ id: p.id, data: p.data, mime: p.mimeType, ext: p.format, elements: p.elements })), diags: r.diagnostics };
+    return { pages: r.pages.map((p) => ({ id: p.id, data: p.data, mime: p.mimeType, ext: p.format, width: p.width, height: p.height, elements: p.elements })), diags: r.diagnostics };
   };
   const guidedPages = () => {
     if (guided?.version !== version) guided = { version, pages: renderPages(["guides"]).then((r) => r.pages, () => pages) };
@@ -538,7 +538,7 @@ img{max-height:85vh;box-shadow:0 2px 12px #0008;background:#fff}figcaption{text-
     const attrs = page < 0 ? "" : ` tabindex="0" role="button" data-page="${page}" data-key="${esc(JSON.stringify([d.code, d.elementId]))}"${b ? ` data-box="${esc(JSON.stringify(b))}"` : ""}`;
     return `<div class="d ${d.severity}"${attrs}>${esc(d.code)} ${d.location ? `${d.location.line}:${d.location.column} ` : ""}${esc(d.message)}</div>`;
   }).join("")}</section>
-<main>${pages.map((p, i) => `<figure><img data-src="/page/${i}.${p.ext}?v=${version}"><figcaption>${i + 1} · ${esc(p.id)}</figcaption></figure>`).join("")}</main>
+<main>${pages.map((p, i) => `<figure><img data-width="${p.width}" data-height="${p.height}" data-src="/page/${i}.${p.ext}?v=${version}"><figcaption>${i + 1} · ${esc(p.id)}</figcaption></figure>`).join("")}</main>
 <script>const box=document.getElementById("guides"),saved=localStorage.getItem("mangacli-guides");
 box.checked=saved===null?${o.guides ? "true" : "false"}:saved==="1";
 const show=()=>{for(const img of document.querySelectorAll("img[data-src]"))img.src=img.dataset.src+(box.checked?"&guides=1":"")};
@@ -546,7 +546,7 @@ box.onchange=()=>{localStorage.setItem("mangacli-guides",box.checked?"1":"0");sh
 const rows=[...document.querySelectorAll('.d[data-page]')],figures=[...document.querySelectorAll('figure')];
 const frame=document.createElement('div');frame.className='highlight';let selected=null;
 const clear=()=>{if(selected)selected.classList.remove('selected');selected=null;frame.remove();sessionStorage.removeItem('mangacli-selection')};
-const position=()=>{if(!selected||!selected.dataset.box)return;const img=figures[Number(selected.dataset.page)].querySelector('img');if(!img.naturalWidth)return;const b=JSON.parse(selected.dataset.box),sx=img.clientWidth/img.naturalWidth,sy=img.clientHeight/img.naturalHeight;Object.assign(frame.style,{left:(img.offsetLeft+b.x*sx-3)+'px',top:(img.offsetTop+b.y*sy-3)+'px',width:(b.width*sx+6)+'px',height:(b.height*sy+6)+'px'})};
+const position=()=>{if(!selected||!selected.dataset.box)return;const img=figures[Number(selected.dataset.page)].querySelector('img');if(!img.naturalWidth)return;const b=JSON.parse(selected.dataset.box),sx=img.clientWidth/Number(img.dataset.width),sy=img.clientHeight/Number(img.dataset.height);Object.assign(frame.style,{left:(img.offsetLeft+b.x*sx-3)+'px',top:(img.offsetTop+b.y*sy-3)+'px',width:(b.width*sx+6)+'px',height:(b.height*sy+6)+'px'})};
 const select=(row,scroll=true)=>{clear();selected=row;row.classList.add('selected');sessionStorage.setItem('mangacli-selection',row.dataset.key);const fig=figures[Number(row.dataset.page)];if(row.dataset.box){fig.append(frame);position()}if(scroll)fig.scrollIntoView({block:'center',behavior:'smooth'})};
 for(const row of rows){row.onclick=()=>selected===row?clear():select(row);row.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();row.click()}}}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')clear()});window.addEventListener('resize',position);for(const img of document.querySelectorAll('img'))img.addEventListener('load',position);

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runInNewContext } from "node:vm";
 import { expect, it } from "vitest";
 import { createRenderer } from "../src/api.js";
 
@@ -45,13 +46,13 @@ it.each(["png", "svg"] as const)("keeps %s boxes aligned with print-scaled outpu
   expect(marked.pages[0]!.elements[0]).toEqual({ ...p, x: p.x + 115, y: p.y + 115 });
 });
 
-it("serves warning rows with the matching page and pixel box", async () => {
+it.each(["png", "svg"])("serves %s warning rows with correctly scaled frames", async (format) => {
   const root = join(import.meta.dirname, "..");
   const dir = mkdtempSync(join(tmpdir(), "mc-highlight-"));
   const file = join(dir, "warning.yaml");
   writeFileSync(file, yaml());
   const port = 44000 + Math.floor(Math.random() * 2000);
-  const proc = spawn(join(root, "node_modules/.bin/tsx"), [join(root, "src/cli/index.ts"), "preview", file, "--port", String(port), "--no-config"], { cwd: root });
+  const proc = spawn(join(root, "node_modules/.bin/tsx"), [join(root, "src/cli/index.ts"), "preview", file, "--port", String(port), "--format", format, "--dpi", "254", "--no-config"], { cwd: root });
   try {
     await new Promise<void>((ok, fail) => {
       const timer = setTimeout(() => fail(new Error("preview did not start")), 60_000);
@@ -65,8 +66,17 @@ it("serves warning rows with the matching page and pixel box", async () => {
     expect(row).toContain('data-page="0"');
     expect(row).toContain('role="button"');
     const box = JSON.parse(row.match(/data-box="([^"]+)"/)![1]!.replaceAll("&quot;", '"'));
-    const rendered = await renderer.render(file);
+    const rendered = await renderer.render(file, { format: format as "png" | "svg", dpi: 254 });
     expect(box).toEqual(rendered.pages[0]!.elements.find((e) => e.id === "lettering"));
+    const page = rendered.pages[0]!;
+    expect(html).toContain(`data-width="${page.width}" data-height="${page.height}"`);
+    const img = { naturalWidth: format === "svg" ? 302 : page.width, naturalHeight: format === "svg" ? 227 : page.height, clientWidth: 400, clientHeight: 300, offsetLeft: 0, offsetTop: 0, dataset: { width: String(page.width), height: String(page.height) } };
+    const frame = { style: {} as Record<string, string> };
+    const position = html.match(/const position=\(\)=>\{[^\n]+/)![0];
+    runInNewContext(`${position};position()`, { selected: { dataset: { box: JSON.stringify(box), page: "0" } }, figures: [{ querySelector: () => img }], frame });
+    expect(parseFloat(frame.style.left!)).toBeCloseTo(box.x * img.clientWidth / page.width - 3);
+    expect(parseFloat(frame.style.top!)).toBeCloseTo(box.y * img.clientHeight / page.height - 3);
+    expect(parseFloat(frame.style.width!)).toBeCloseTo(box.width * img.clientWidth / page.width + 6);
     expect(html).toContain("mangacli-selection");
   } finally { proc.kill(); }
 }, 90_000);
