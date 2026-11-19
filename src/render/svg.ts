@@ -3,12 +3,15 @@ import sharp from "sharp";
 import type { RGBA } from "../core/color.js";
 import type { PathData } from "../geom/path.js";
 import type { Matrix } from "../geom/vec.js";
+import { cropMarkLines } from "./marks.js";
 import type { AssetRegistry } from "./assets.js";
 import { applyFilters } from "./filters.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
 
 export interface SvgOptions {
   crop: "trim" | "bleed" | "marks";
+  marks?: { margin?: number; length?: number; width?: number };
+  splitSide?: "left" | "right";
   assets: AssetRegistry;
   /** resolution of embedded images */
   imageDpi?: number;
@@ -43,12 +46,26 @@ function esc(s: string): string {
 
 const matrix = (m: Matrix) => `matrix(${m.map(n).join(" ")})`;
 
+export function svgBox(list: DisplayList, o: Pick<SvgOptions, "crop" | "marks" | "splitSide">) {
+  const bleed = -list.boxes.bleed.x;
+  const margin = o.crop === "marks" ? o.marks?.margin ?? 10 : 0;
+  const box = o.crop === "trim"
+    ? { x: bleed, y: bleed, w: list.boxes.trim.w, h: list.boxes.trim.h }
+    : { x: -margin, y: -margin, w: list.size.width + 2 * margin, h: list.size.height + 2 * margin };
+  if (o.splitSide) {
+    const right = box.x + box.w;
+    box.w = box.w / 2 + (o.crop === "trim" ? 0 : bleed);
+    if (o.splitSide === "right") box.x = right - box.w;
+  }
+  return box;
+}
+
 export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<string> {
   const defs: string[] = [];
   let uid = 0;
   const id = (p: string) => `${p}${++uid}`;
   const bleed = -list.boxes.bleed.x;
-  const box = o.crop === "trim" ? { x: bleed, y: bleed, w: list.boxes.trim.w, h: list.boxes.trim.h } : { x: 0, y: 0, w: list.size.width, h: list.size.height };
+  const box = svgBox(list, o);
 
   const fillOf = (p: Paint): string => {
     if (p.type === "solid") {
@@ -154,12 +171,18 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
   const node = async (x: Node): Promise<string> => (x.kind === "group" ? group(x) : x.kind === "path" ? path(x) : image(x));
 
   const body = await node(list.root);
+  const marks: string[] = [];
+  if (o.crop === "marks") {
+    defs.push(`<clipPath id="artwork-bleed"><rect width="${n(list.size.width)}" height="${n(list.size.height)}"/></clipPath>`);
+    cropMarkLines({ x: bleed, y: bleed, w: list.boxes.trim.w, h: list.boxes.trim.h }, bleed, o.marks?.length ?? 9,
+      (x0, y0, x1, y1) => marks.push(`<path d="M${n(x0)} ${n(y0)}L${n(x1)} ${n(y1)}"/>`));
+  }
   return [
     `<?xml version="1.0" encoding="UTF-8"?>`,
     `<svg xmlns="http://www.w3.org/2000/svg" width="${n(box.w)}mm" height="${n(box.h)}mm" viewBox="${n(box.x)} ${n(box.y)} ${n(box.w)} ${n(box.h)}" data-page="${esc(list.page.id)}">`,
     `<rect x="${n(box.x)}" y="${n(box.y)}" width="${n(box.w)}" height="${n(box.h)}" fill="#ffffff"/>`,
     defs.length ? `<defs>${defs.join("")}</defs>` : "",
-    body,
+    o.crop === "marks" ? `<g clip-path="url(#artwork-bleed)">${body}</g><g data-type="crop-marks" fill="none" stroke="#000000" stroke-width="${n(o.marks?.width ?? 0.1)}" stroke-linecap="butt">${marks.join("")}</g>` : body,
     `</svg>`,
     "",
   ].join("\n");

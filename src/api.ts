@@ -25,7 +25,7 @@ import { polyPath } from "./geom/path.js";
 import type { RElement, RPage } from "./model/resolve.js";
 import { RasterBackend } from "./render/raster.js";
 import { createCanvas } from "@napi-rs/canvas";
-import { renderSvg } from "./render/svg.js";
+import { renderSvg, svgBox } from "./render/svg.js";
 import { type MangaPlugin, PluginSet, withPlugins } from "./plugin.js";
 import { BODY_GENERATORS } from "./shapes/balloon.js";
 import { HAND_PRESETS, PEN_PRESETS } from "./ink/presets.js";
@@ -568,6 +568,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const intent = geom.color;
       const colorMode = options.colorMode ?? (prof.colorMode === "intent" ? (intent === "mono" ? "gray" : "color") : prof.colorMode);
       const dpi = dpiFor(geom);
+      if (prof.print && colorMode === "mono" && formats.includes("svg")) bag.warn("SVG_MONO_APPROXIMATION", "SVG tones are a vector/gray approximation; use PNG/PDF for 1-bit print submission", { pageId: page.id });
       if (dpi > lim.maxDpi) throw new Error(`SECURITY_LIMIT_EXCEEDED: ${Math.round(dpi)} dpi exceeds maxDpi (${lim.maxDpi})`);
       const runs: { name?: string; list?: string[] }[] = seps0 ? seps0 : [{}];
       for (const run of runs) {
@@ -584,7 +585,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         if (options.debug) drawDebug(full, list, info, dpi, crop, options.debug, prof.marks?.margin ?? 10);
         // spreads: one joined image, or two pages each with bleed on all sides (spec 10.9)
         const parts: { raster: { data: Uint8ClampedArray; width: number; height: number }; side: string; nombre: number | null }[] = [];
-        if (geom.type === "spread" && spreadMode === "split" && needRaster) {
+        const splitSvg = geom.type === "spread" && spreadMode === "split";
+        if (splitSvg && needRaster) {
           const trimPx = Math.round((geom.trimW * dpi) / 25.4 + 1e-6);
           const edge = Math.round((full.width - trimPx) / 2);
           const half = Math.round(trimPx / 2);
@@ -602,6 +604,11 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           const first = geom.rtl ? right : left;
           const second = geom.rtl ? left : right;
           parts.push({ ...first, nombre: pl.nombre }, { ...second, nombre: pl.nombre === null ? null : pl.nombre + 1 });
+        } else if (splitSvg) {
+          parts.push(
+            { raster: full, side: geom.rtl ? "right" : "left", nombre: pl.nombre },
+            { raster: full, side: geom.rtl ? "left" : "right", nombre: pl.nombre === null ? null : pl.nombre + 1 },
+          );
         } else parts.push({ raster: full, side: geom.side, nombre: pl.nombre });
         for (const part of parts)
         for (const fmt of formats) {
@@ -620,12 +627,11 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
             pw.writer.addPage({ rgba: raster.data, width: raster.width, height: raster.height, dpi, colorMode: (options.debug ? "color" : colorMode) as "color", transparent: transparentOut || !!run.list, trim, bleed: { x: trim.x - bleedPx, y: trim.y - bleedPx, w: trim.w + 2 * bleedPx, h: trim.h + 2 * bleedPx } });
             continue;
           }
-          if (fmt === "svg" && part !== parts[0]) continue;
           const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, compression: prof.compression, chroma: prof.chroma, tiffCompression: prof.tiffCompression, transparent: transparentOut || !!run.list, metadata: prof.metadata === false ? {} : { Software: `mangacli ${PKG_VERSION}`, Title: String(meta.title ?? ""), ...(meta.author ? { Author: String(meta.author) } : {}), ...(meta.copyright ? { Copyright: String(meta.copyright) } : {}), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed), ...(sourceHash ? { "mangacli:source-hash": sourceHash } : {}) } };
-          const data = fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: Math.min(dpi, 300) })) : await encode(raster.data, raster.width, raster.height, enc);
+          const svgOptions = { crop, marks: prof.marks, splitSide: splitSvg ? part.side as "left" | "right" : undefined, assets, colorMode, imageDpi: Math.min(dpi, 300) };
+          const data = fmt === "svg" ? Buffer.from(await renderSvg(list, svgOptions)) : await encode(raster.data, raster.width, raster.height, enc);
           const svgSize = () => {
-            const bw = crop === "trim" ? geom.trimW : geom.bleedBox.w;
-            const bh = crop === "trim" ? geom.trimH : geom.bleedBox.h;
+            const { w: bw, h: bh } = svgBox(list, svgOptions);
             return { w: Math.round((bw * dpi) / 25.4), h: Math.round((bh * dpi) / 25.4) };
           };
           const size = fmt === "svg" ? svgSize() : { w: raster.width, h: raster.height };
