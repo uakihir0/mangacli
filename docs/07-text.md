@@ -128,7 +128,7 @@ fonts:
 |---|---|---|
 | `font` | フォント名 | 使うフォント |
 | `ranges` | 範囲名 \| `"U+XXXX-YYYY"` の配列 | 対象の文字。省略するとすべての文字（最後の項目に使う） |
-| `scale` | 数値 | 字面の大きさの補正（既定 1） |
+| `scale` | 数値 | 字面の大きさの補正（既定 1）。字送りは変えず、字の枠の中心を基準に字面だけを拡大・縮小する |
 | `baselineShift` | Length（`em`） | 位置の補正（縦書きでは右方向、横書きでは上方向が正） |
 
 | 範囲名 | 内容 |
@@ -214,7 +214,7 @@ macOS では `~/Library/Fonts`、`/Library/Fonts`、`/System/Library/Fonts`、Wi
 | カタログ ID | 書体 | 太さ | 主な用途 |
 |---|---|---|---|
 | `zen-antique` | Zen Antique | 400 | アンチック体（アンチゴチのかな） |
-| `zen-kaku-gothic-new` | Zen Kaku Gothic New | 400、700、900 | ゴシック体（アンチゴチの漢字） |
+| `zen-kaku-gothic-new` | Zen Kaku Gothic New | 400、500、700、900 | ゴシック体（アンチゴチの漢字） |
 | `shippori-mincho` | Shippori Mincho | 400、500、700 | 明朝体（ナレーション） |
 | `dela-gothic-one` | Dela Gothic One | 400 | 極太ゴシック体（叫び、描き文字） |
 | `zen-maru-gothic` | Zen Maru Gothic | 500、700、900 | 丸ゴシック体（題、やわらかいセリフ） |
@@ -222,7 +222,7 @@ macOS では `~/Library/Fonts`、`/Library/Fonts`、`/System/Library/Fonts`、Wi
 | `yomogi` | Yomogi | 400 | 手書き風 |
 | `klee-one` | Klee One | 400、600 | 手書き風（硬筆） |
 | `yusei-magic` | Yusei Magic | 400 | マジックペン風の手書き |
-| `noto-sans-jp` | Noto Sans JP | 400、700 | 字形の欠落を補うフォールバック |
+| `noto-sans-jp` | Noto Sans JP | 400、600、700 | 字形の欠落を補うフォールバック |
 
 #### 参照の書き方
 
@@ -246,7 +246,7 @@ fonts:
 
 | ロール | `manga-basic` のフォント |
 |---|---|
-| `dialogue` | 混植: かな・約物は `zen-antique`、その他は `zen-kaku-gothic-new@700`（アンチゴチ）。フォールバックは `noto-sans-jp@700` |
+| `dialogue` | 混植（アンチゴチ）: かな・約物は `zen-antique`（字面 1.04 倍）。その他は、インストール済みなら中ゴシックBBB（`GothicBBBPr6N-Medium` など）、無ければ `noto-sans-jp@600`、それも使えなければ `zen-kaku-gothic-new@500`。漢字をかなと同じか、わずかに黒い太さにそろえる。フォールバックは `noto-sans-jp@400` |
 | `thought`、`whisper` | `dialogue` と同じ |
 | `narration` | `shippori-mincho@500` |
 | `shout`、`sfx` | `dela-gothic-one` |
@@ -527,6 +527,8 @@ ruby:
 
 ## 7.13 地の文字（text）
 
+人物の顔のそばに置く「ボソッ」「ツッコミ」には `- { aside: ボソッ, who: taro }`、または dialogue の `as: aside` を使う（[6 章](06-balloons.md)）。枠のない吹き出しとして扱い、手書きフォント・文字の揺らぎ・白フチ・小さな傾きを付け、顔と他の吹き出しを避ける。`text` 自体にはこの自動配置やしっぽは付かない。
+
 吹き出しを持たない文字である。ナレーション、モノローグ、注釈（※〜）、手書きの書き込み、題、作者の欄外の言葉などに使う。
 
 ```yaml
@@ -562,6 +564,8 @@ ruby:
 
 描き文字も安全領域外では `TEXT_OUTSIDE_SAFE_AREA`、見開きののど付近では `TEXT_NEAR_FOLD` を警告する。意図的なはみ出しを妨げず、警告があっても描画する。
 断ち切りなどで意図的にはみ出す描き文字には `bleed: true` を指定すると、その要素の `TEXT_OUTSIDE_SAFE_AREA` だけを抑制できる。`TEXT_NEAR_FOLD` や描画・クリップには影響しない。
+
+これらの警告は吹き出し・地の文字にも共通で、安全領域外では各辺の断裁線または安全線からの超過量と安全線までの移動量、のど付近ではのどとの位置関係と警告帯を避ける左右それぞれの移動量を示す。距離は文書の単位にかかわらず mm（原則小数第1位）で表示する。移動量は不足しないよう 0.1 mm 単位で切り上げる。ただし反対側が安全線の許容差 0.5 mm を越える場合は、両側が許容範囲に収まる細かい移動量を示す。移動だけでは収まらない場合は必要な縮小量を示す。px 文書は対象外。
 
 （P1）
 

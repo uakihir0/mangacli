@@ -4341,6 +4341,60 @@
                     },
                     "kind": {
                       "type": "string"
+                    },
+                    "clear": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/__schema57"
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/$defs/__schema57"
+                          }
+                        }
+                      ]
+                    },
+                    "clearFigures": {
+                      "type": "boolean"
+                    },
+                    "minLength": {
+                      "$ref": "#/$defs/__schema0"
+                    },
+                    "followPath": {
+                      "anyOf": [
+                        {
+                          "minItems": 2,
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/$defs/__schema36"
+                          }
+                        },
+                        {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "path": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "path"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "array"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -5163,6 +5217,11 @@
             },
             {
               "required": [
+                "aside"
+              ]
+            },
+            {
+              "required": [
                 "sfx"
               ]
             },
@@ -5505,6 +5564,9 @@
                 "rect": {
                   "$ref": "#/$defs/__schema23"
                 },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
+                },
                 "feather": {
                   "$ref": "#/$defs/__schema0"
                 }
@@ -5531,6 +5593,9 @@
               "properties": {
                 "ellipse": {
                   "$ref": "#/$defs/__schema23"
+                },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
                 },
                 "feather": {
                   "$ref": "#/$defs/__schema0"
@@ -5573,6 +5638,9 @@
                     "maxItems": 2
                   }
                 },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
+                },
                 "feather": {
                   "$ref": "#/$defs/__schema0"
                 }
@@ -5599,6 +5667,9 @@
               "properties": {
                 "path": {
                   "type": "string"
+                },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
                 },
                 "feather": {
                   "$ref": "#/$defs/__schema0"
@@ -5658,6 +5729,9 @@
                     }
                   ]
                 },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
+                },
                 "feather": {
                   "$ref": "#/$defs/__schema0"
                 }
@@ -5693,6 +5767,9 @@
                     "alpha"
                   ]
                 },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
+                },
                 "feather": {
                   "$ref": "#/$defs/__schema0"
                 }
@@ -5722,6 +5799,9 @@
                   "items": {
                     "$ref": "#/$defs/__schema57"
                   }
+                },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
                 },
                 "feather": {
                   "$ref": "#/$defs/__schema0"
@@ -5761,6 +5841,9 @@
                   "minItems": 2,
                   "maxItems": 2
                 },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
+                },
                 "feather": {
                   "$ref": "#/$defs/__schema0"
                 }
@@ -5787,6 +5870,9 @@
               "properties": {
                 "invert": {
                   "$ref": "#/$defs/__schema57"
+                },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
                 },
                 "feather": {
                   "$ref": "#/$defs/__schema0"

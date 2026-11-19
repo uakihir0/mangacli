@@ -1,5 +1,6 @@
 // Page geometry & panel layout (spec 4).
 import { activePlugins } from "../plugin.js";
+import { deriveSeed, Rng } from "../core/random.js";
 import type { DiagnosticBag } from "../core/diagnostics.js";
 import { type UnitContext, parseLength, quantityToMm, toMm } from "../core/units.js";
 import polygonClipping from "polygon-clipping";
@@ -22,6 +23,8 @@ export interface PageGeom {
   bleedBox: Rect;
   baseFrame: Rect;
   safe: Rect;
+  /** half-width of the spread fold danger band in mm (spreads only; 0 otherwise) */
+  foldMargin: number;
   units: UnitContext;
   side: "left" | "right" | "spread";
   physical: number[];
@@ -169,7 +172,8 @@ export function computePageGeom(page: RPage, physicalIndex: number, book: Obj, b
     if (sz.unit !== "px") bag.warn("PAGE_BASEFRAME_OUTSIDE_SAFE", "base frame extends outside the safe area", { path: [...page.path, "baseFrame"], pageId: page.id });
   }
   const physical = page.type === "spread" ? [physicalIndex, physicalIndex + 1] : [physicalIndex];
-  return { id: page.id, index: page.index, type: page.type, trimW, trimH, bleed, trim, bleedBox, baseFrame, safe, units, side, physical, rtl, color, dpi, k, printScale };
+  const foldMargin = page.type !== "spread" || sz.unit === "px" ? 0 : s.foldMargin !== undefined ? toMm(s.foldMargin as string, units) : 10;
+  return { id: page.id, index: page.index, type: page.type, trimW, trimH, bleed, trim, bleedBox, baseFrame, safe, foldMargin, units, side, physical, rtl, color, dpi, k, printScale };
 }
 
 // ---- polygon clipping with half planes -----------------------------------------
@@ -221,6 +225,7 @@ function splitPoly(poly: Vec[], a: Vec, b: Vec, g: number): [Vec[], Vec[]] {
 interface Leaf {
   poly: Vec[];
   bind?: string;
+  overlay?: boolean;
 }
 
 function rectPoly(r: Rect): Vec[] {
@@ -285,7 +290,8 @@ export function layoutPanels(page: RPage, geom: PageGeom, bag: DiagnosticBag): P
   const someFree = slotPanels.some((p) => p.props.box || p.props.polygon);
   let mode: "rows" | "split" | "free" | "single" = "single";
   let layoutObj = L;
-  if (typeof L.template === "string") layoutObj = expandTemplate(L.template, (L.params ?? {}) as Obj, page, bag);
+  if (typeof L.template === "string") layoutObj = expandTemplate(L.template, (L.params ?? {}) as Obj, page, bag, geom, area, L.area === undefined, gCol);
+  if (layoutObj.__edgeArea && L.area === undefined) area = geom.trim;
   if (Array.isArray(layoutObj.rows)) mode = "rows";
   else if (layoutObj.split) mode = "split";
   else if (page.layout === "free" || L.free || allFree) mode = "free";
@@ -339,6 +345,9 @@ export function layoutPanels(page: RPage, geom: PageGeom, bag: DiagnosticBag): P
     if (slotPanels.length > 1) bag.error("LAYOUT_TOO_MANY_PANELS", `${slotPanels.length} panels but layout has 1 slot`, { path: page.path, pageId: page.id });
   }
 
+  if (Array.isArray(layoutObj.__insets)) {
+    leaves.push(...(layoutObj.__insets as Rect[]).map((r) => ({ poly: rectPoly(r), overlay: true })));
+  }
   // assign panels to leaves
   const out: PanelGeom[] = [];
   const used = new Set<RPanel>();
@@ -369,12 +378,18 @@ export function layoutPanels(page: RPage, geom: PageGeom, bag: DiagnosticBag): P
       bag.warn("LAYOUT_EMPTY_SLOT", `layout slot ${i + 1} has no panel`, { path: page.path, pageId: page.id });
       p = { id: `${page.id}-slot${i + 1}`, index: -1, props: { border: { width: "0.5bmm", color: "black", pen: { preset: "kabura-pen" }, style: "solid", ruler: true }, background: "paper" }, elements: [], path: page.path, seed: i };
     }
+    if (lf.overlay || (layoutObj.__autoBleed && p.props.bleed === undefined)) {
+      const box = boundsOf(lf.poly);
+      const edges = { top: [box.y, geom.trim.y], bottom: [box.y + box.h, geom.trimH], left: [box.x, geom.trim.x], right: [box.x + box.w, geom.trimW] };
+      const bleed = Object.entries(edges).filter(([, [edge, trim]]) => Math.abs(edge - trim) < 0.01).map(([side]) => side);
+      p = { ...p, props: { ...p.props, ...(lf.overlay ? { overlay: true } : { bleed }) } };
+    }
     out.push(makePanelGeom(p, lf.poly, geom, area, bag, i));
   });
   for (const ov of overlays) out.push(makePanelGeom(ov, freePoly(ov, geom, area, u), geom, area, bag, out.length));
 
   // reading order
-  const ordered = readingOrder(out, mode, rtl);
+  const ordered = layoutObj.__insets ? out : readingOrder(out, mode, rtl);
   ordered.forEach((pg, i) => (pg.order = i + 1));
   const explicit = out.filter((p) => typeof p.panel.props.order === "number");
   if (explicit.length) {
@@ -553,6 +568,13 @@ function makePanelGeom(p: RPanel, poly0: Vec[], geom: PageGeom, area: Rect, bag:
       poly = np;
     }
   }
+  if (bled.length) {
+    const bb = geom.bleedBox;
+    poly = clipHalf(poly, { x: bb.x, y: bb.y }, { x: bb.x + bb.w, y: bb.y }, true);
+    poly = clipHalf(poly, { x: bb.x + bb.w, y: bb.y }, { x: bb.x + bb.w, y: bb.y + bb.h }, true);
+    poly = clipHalf(poly, { x: bb.x + bb.w, y: bb.y + bb.h }, { x: bb.x, y: bb.y + bb.h }, true);
+    poly = clipHalf(poly, { x: bb.x, y: bb.y + bb.h }, { x: bb.x, y: bb.y }, true);
+  }
   const fullBox = boundsOf(poly);
   const box = rectIntersect(fullBox, geom.trim) ?? fullBox;
   return { panel: p, polygon: poly, bledSides: bled, box, fullBox, order: idx + 1, edgeSides };
@@ -611,7 +633,68 @@ export function xyCutOrder<T>(ps: T[], boxOf: (t: T) => Rect, rtl: boolean): T[]
   });
 }
 
-function expandTemplate(name: string, params: Obj, page: RPage, bag: DiagnosticBag): Obj {
+function expandTemplate(name: string, params: Obj, page: RPage, bag: DiagnosticBag, geom: PageGeom, initialArea: Rect, defaultArea: boolean, gCol: number): Obj {
+  const dynamic = ["impact-diagonal", "cascade", "zoom-in", "splash-with-insets", "vertical-strip", "spread-hero"].includes(name);
+  const edge = ["impact-diagonal", "splash-with-insets", "vertical-strip", "spread-hero"].includes(name);
+  const area = edge && params.bleed !== false && defaultArea ? geom.trim : initialArea;
+  const rng = new Rng(deriveSeed(Number(params.seed ?? page.seed), page.id, name));
+  const number = (key: string, fallback: number, min: number, max: number) => {
+    const n = Number(params[key] ?? fallback);
+    return Math.min(max, Math.max(min, Number.isFinite(n) ? n : fallback));
+  };
+  const count = (n: unknown, fallback: number) => Math.min(12, Math.max(1, Math.round(Number(n) || fallback)));
+  const counts = (fallback: number[]) => Array.isArray(params.counts) && params.counts.length ? params.counts.slice(0, 4).map((n) => count(n, 1)) : fallback;
+  const cols = (n: number) => Array.from({ length: n }, () => 1);
+  const angle = (fallback: number, span: number) => {
+    const explicit = Number(params.angle);
+    let degrees = (params.angle !== undefined && Number.isFinite(explicit) ? explicit : fallback) + rng.range(-0.4, 0.4);
+    if (name === "impact-diagonal" && params.angle === undefined) degrees = Math.min(20, Math.max(8, degrees));
+    return `${Math.tan(degrees * Math.PI / 180) * span}mm`;
+  };
+  const wrap = (layout: Obj): Obj => ({ ...layout, __edgeArea: edge && params.bleed !== false, __autoBleed: edge && params.bleed !== false });
+  if (dynamic) {
+    const ratio = number("ratio", name === "zoom-in" ? 0.65 : name === "spread-hero" ? 0.55 : 0.5, 0.15, 0.85);
+    switch (name) {
+      case "impact-diagonal":
+        return wrap(params.direction === "cols"
+          ? { rows: [{ cols: [ratio, 1 - ratio], colSlant: [angle(12, area.h)] }] }
+          : { rows: [{ cols: [1], height: ratio, slant: angle(12, area.w) }, { cols: [1], height: 1 - ratio }] });
+      case "cascade": {
+        const cs = counts([1, 2, 1]);
+        return wrap({ rows: cs.map((c, i) => ({ cols: cols(c), height: Array.isArray(params.heights) ? params.heights[i] ?? 1 : 1, slant: `${(i % 2 ? -1 : 1) * parseFloat(angle(6, area.w))}mm` })) });
+      }
+      case "zoom-in":
+        return wrap({ rows: [{ cols: cols(count(params.count, 3)), height: 1 - ratio, slant: angle(0, area.w) }, { cols: [1], height: ratio }] });
+      case "vertical-strip": {
+        const n = count(params.count, 3);
+        const widths = Array.isArray(params.ratios) && params.ratios.length === n ? params.ratios.map((v) => Math.max(0.1, Number(v) || 1)) : cols(n);
+        return wrap({ rows: [{ cols: widths, colSlant: Array.from({ length: n - 1 }, () => angle(2, area.h)) }] });
+      }
+      case "spread-hero": {
+        const cs = counts([2, 2]);
+        const tier = (n: number): Obj => {
+          if (page.type !== "spread") return { split: "cols", children: cols(n).map(() => "panel") };
+          const left = Math.max(0, Math.min(area.w, geom.trimW / 2 - area.x));
+          const right = area.w - left;
+          if (left === 0 || right === 0) return { split: "cols", children: cols(2 * n).map(() => "panel") };
+          const gutter = Math.min(gCol, left, right);
+          const sizes = [left - gutter / 2, right - gutter / 2];
+          return { split: "cols", gutter: `${gutter}mm`, sizes: geom.rtl ? sizes.reverse() : sizes, children: [0, 1].map(() => ({ split: "cols", children: cols(n).map(() => "panel") })) };
+        };
+        return wrap({ split: "rows", sizes: [(1 - ratio) / 2, ratio, (1 - ratio) / 2], slant: [angle(0, area.w), angle(0, area.w)], children: [tier(cs[0]), "panel", tier(cs[1] ?? cs[0])] });
+      }
+      case "splash-with-insets": {
+        const n = Math.min(3, count(params.count, 2));
+        const order = geom.rtl ? ["top-right", "top-left", "bottom-right", "bottom-left"] : ["top-left", "top-right", "bottom-left", "bottom-right"];
+        const requested = Array.isArray(params.corners) ? params.corners : geom.rtl ? ["top-right", "bottom-left"] : ["top-left", "bottom-right"];
+        const corners = order.filter((c) => requested.includes(c));
+        for (const c of order) if (!corners.includes(c)) corners.push(c);
+        const size = number("size", 0.3, 0.1, 0.45);
+        const inset = 5 * geom.k + rng.range(0, 0.5) * geom.k;
+        return wrap({ rows: [{ cols: [1] }], __insets: corners.slice(0, n).sort((a, b) => order.indexOf(a) - order.indexOf(b)).map((c) => ({ x: c.endsWith("right") ? area.x + area.w * (1 - size) - inset : area.x + inset, y: c.startsWith("bottom") ? area.y + area.h * (1 - size) - inset : area.y + inset, w: area.w * size, h: area.h * size })) });
+      }
+    }
+  }
   switch (name) {
     case "single":
       return {};

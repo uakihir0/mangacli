@@ -255,6 +255,20 @@ layout:
 | `yonkoma` | `title`（真偽値）、`titleHeight`、`columns`（`1` \| `2`） | 4 コマ漫画。`title: true` で上部に題の欄を作る。`columns: 2` で 2 本を読み順に並べる |
 | `hero-top` | `ratio`（大ゴマの高さの比、既定 0.5）、`below`（下段の cols） | 上に大ゴマ、下に小ゴマ |
 | `hero-bottom` | `ratio`、`above` | 下に大ゴマ |
+| `impact-diagonal` | `angle`（12 度）、`ratio`（0.5）、`direction`（`rows` / `cols`） | 斜めの太い間白で 2 分割 |
+| `cascade` | `counts`（`[1,2,1]`）、`angle`（6 度）、`heights` | 傾きが交互に反転する段組 |
+| `zoom-in` | `count`（3）、`ratio`（0.65）、`angle`（0 度） | 上に等幅の小ゴマ、下に大ゴマ |
+| `splash-with-insets` | `count`（1–3、既定 2）、`corners`（`[top-right,bottom-left]`）、`size`（0.3） | 全面の大ゴマに枠付き小ゴマを重ねる |
+| `vertical-strip` | `count`（3）、`ratios`（幅の比）、`angle`（2 度） | 右から左に読む縦長のコマ |
+| `spread-hero` | `ratio`（0.55）、`counts`（`[2,2]`）、`angle`（0 度） | 中央に見開き大ゴマ。上下段の指定数は片側ごとで、ノドをまたがない。単ページでも使用可 |
+
+動的テンプレートは `seed` とページ ID から微小な角度揺らぎ（±0.4 度）を決定する。同じ seed・ID なら再現できる。角度は度数法で、`impact-diagonal` の既定角は 8–20 度に制限する（明示指定は制限しない）。`splash-with-insets` は角度ではなく小ゴマの余白を微調整する。
+`impact-diagonal`、`vertical-strip`、`spread-hero`、`splash-with-insets` は既定で仕上がりまで広げ、外周に接する辺を自動で塗り足す。`params: { bleed: false }` で無効化でき、コマ自身の `bleed` 指定を優先する。
+小ゴマは通常の枠線で大ゴマの上に描画する。読み順は大ゴマが最初、その後は右上・左上・右下・左下の順（LTR では左右反転）。その他のテンプレートも書籍の読み方向に従う。
+
+![動的テンプレート一覧](images/gallery-templates.png)
+
+ギャラリーは `npx tsx scripts/gallery-templates.ts` で再生成できる。
 
 テンプレートは内部で `rows` または `split` に展開する。`mangacli inspect --layout` で展開結果を確認できる。プラグインでテンプレートを追加できる。
 
