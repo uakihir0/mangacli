@@ -16,6 +16,7 @@ import { type ResolvedDoc, resolveDocument } from "./model/resolve.js";
 import { type EncodeOptions, EXT, MIME, type OutputFormat, encode } from "./output/encode.js";
 import { PROFILES, type Profile, applyOutput, resolveProfile } from "./output/profiles.js";
 import { PdfWriter } from "./output/pdf.js";
+import { PsdWriter } from "./output/psd.js";
 import { type PdfXOptions, pdfXProfile } from "./output/pdfx.js";
 import { type Finish, applyFinish } from "./output/finish.js";
 import { AssetRegistry } from "./render/assets.js";
@@ -469,7 +470,14 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   const outDir = options.outDir ? resolvePath(options.outDir) : undefined;
   const nameTpl = options.name ?? (docOutput.name as string) ?? prof.name ?? "{name}-{page:03}";
   const emitted = new Set<string>();
-  const seps0 = normalizeSeparations(options.separate ?? prof.separate);
+  const separate = options.separate ?? prof.separate;
+  const seps0 = normalizeSeparations(separate);
+  const regularFormats = formats.filter((f) => f !== "psd");
+  const regularRuns: { name?: string; list?: string[]; formats: OutputFormat[] }[] =
+    regularFormats.length ? (seps0 ?? [{}]).map((run) => ({ ...run, formats: regularFormats })) : [];
+  const hasPsd = formats.includes("psd");
+  const psdFormats: OutputFormat[] = ["psd"];
+  const outputRuns = hasPsd ? [...regularRuns, { name: undefined, formats: psdFormats }] : regularRuns;
   // Transparent output omits the page ground (panel grounds stay; spec 10.15).
   const bgOverride = options.background ?? (typeof docOutput.background === "string" ? docOutput.background : undefined);
   const transparentOut = options.transparent ?? (bgOverride === "transparent" ? true : undefined) ?? prof.transparent ?? false;
@@ -497,7 +505,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   };
   if (outDir && options.clean && !options.layoutOnly) {
     // the template with its placeholders as wildcards
-    const rx = new RegExp("^" + String(nameTpl).replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\{\w+(?::\d+)?\}/g, ".+") + "(-[a-z]+)?\\.(png|jpg|webp|avif|tif|svg|pdf)$");
+    const rx = new RegExp("^" + String(nameTpl).replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\{\w+(?::\d+)?\}/g, ".+") + "(-[a-z]+)?\\.(" + Object.values(EXT).join("|") + ")$");
     try {
       for (const f of readdirSync(outDir)) if (rx.test(f)) rmSync(join(outDir, f), { force: true });
     } catch {
@@ -514,9 +522,9 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const g = computePageGeom(page, pl.physical, bookOf(p.doc), probe);
       const split = g.type === "spread" && spreadMode === "split";
       const halves = split ? [{ side: g.rtl ? "right" : "left", n: pl.nombre }, { side: g.rtl ? "left" : "right", n: pl.nombre === null ? null : pl.nombre + 1 }] : [{ side: g.side, n: pl.nombre }];
-      for (const run of seps0 ?? [{ name: undefined }])
+      for (const run of outputRuns)
         for (const h of halves)
-          for (const fmt of formats) {
+          for (const fmt of run.formats) {
             if (fmt === "pdf") continue;
             const f = outName(page, pl.idx, h.side, h.n, g.type === "spread" && !split, split, run.name, EXT[fmt]);
             const prev = seen.get(f);
@@ -576,7 +584,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           list = { ...list, background: paint, root: { ...list.root, children: [bgNode, ...kids] } };
         }
       }
-      if (transparentOut && (options.colorMode ?? prof.colorMode) === "mono") bag.error("OUTPUT_MODE_UNSUPPORTED", "1-bit output cannot have a transparent background", { pageId: page.id });
+      if (transparentOut && regularFormats.length && (options.colorMode ?? prof.colorMode) === "mono") bag.error("OUTPUT_MODE_UNSUPPORTED", "1-bit output cannot have a transparent background", { pageId: page.id });
       if (transparentOut && formats.some((f) => f === "jpeg")) bag.error("OUTPUT_MODE_UNSUPPORTED", "jpeg cannot store a transparent background", { pageId: page.id });
       if (transparentOut) list = { ...list, background: null, root: { ...list.root, children: list.root.children.filter((c) => !(c.kind === "path" && c.tag?.elementType === "page" && c.tag.role === "background")) } };
       result.layout.push(info);
@@ -596,12 +604,24 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const rasterDpi = dpi * outputScale;
       const marks = outputScale === 1 ? prof.marks : { margin: (prof.marks?.margin ?? 10) / outputScale, length: (prof.marks?.length ?? 9) / outputScale, width: (prof.marks?.width ?? 0.1) / outputScale };
       if (dpi > lim.maxDpi) throw new Error(`SECURITY_LIMIT_EXCEEDED: ${Math.round(dpi)} dpi exceeds maxDpi (${lim.maxDpi})`);
-      const runs: { name?: string; list?: string[] }[] = seps0 ? seps0 : [{}];
       const splitMarks = geom.type === "spread" && spreadMode === "split" && crop === "marks";
       const rasterCrop = splitMarks ? "bleed" : crop;
+      const psdLayers = hasPsd ? (separate === "all" || !seps0?.length ? allSeparations(list.root) : seps0) : [];
+      const runs = [
+        ...regularRuns.map((run) => ({ ...run, layer: undefined, transparent: transparentOut || !!run.list, drawMarks: true })),
+        ...psdLayers.map((layer, index) => ({
+          name: undefined,
+          list: layer.list,
+          layer: layer.name,
+          formats: index === psdLayers.length - 1 ? psdFormats : [],
+          transparent: transparentOut || !layer.list.includes("background"),
+          drawMarks: index === 0,
+        })),
+      ];
+      const psds = new Map<string, PsdWriter>();
       for (const run of runs) {
-        const backend = new RasterBackend({ maxPixels: lim.maxOutputPixels, dpi: rasterDpi, crop: rasterCrop, marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
-        const needRaster = formats.some((f) => f !== "svg");
+        const backend = new RasterBackend({ maxPixels: lim.maxOutputPixels, dpi: rasterDpi, crop: rasterCrop, marks, drawMarks: run.drawMarks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: run.transparent, separations: run.list, assets });
+        const needRaster = run.layer !== undefined || run.formats.some((f) => f !== "svg");
         let full = needRaster ? await backend.render(list) : { data: new Uint8ClampedArray(0), width: 0, height: 0, dpi };
         if (plugins && needRaster) full = { ...full, ...(plugins.hook("afterRender", { data: full.data, width: full.width, height: full.height }) as object) };
         // finishing passes: off for print profiles unless the profile itself asks for them
@@ -643,8 +663,18 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           const second = geom.rtl ? left : right;
           parts.push({ ...first, nombre: pl.nombre }, { ...second, nombre: pl.nombre === null ? null : pl.nombre + 1 });
         } else parts.push({ raster: full, trim: fullTrim, side: geom.side, nombre: pl.nombre });
+        if (run.layer !== undefined) {
+          for (const { raster, side } of parts) {
+            let psd = psds.get(side);
+            if (!psd) {
+              psd = new PsdWriter(raster.width, raster.height, colorMode, dpi);
+              psds.set(side, psd);
+            }
+            psd.addLayer(run.layer, raster);
+          }
+        }
         for (const part of parts)
-        for (const fmt of formats) {
+        for (const fmt of run.formats) {
           const raster = part.raster;
           if (fmt === "pdf") {
             const key = run.name ?? "";
@@ -660,7 +690,9 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           }
           if (fmt === "svg" && part !== parts[0]) continue;
           const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, compression: prof.compression, chroma: prof.chroma, tiffCompression: prof.tiffCompression, transparent: transparentOut || !!run.list, metadata: prof.metadata === false ? {} : { Software: `mangacli ${PKG_VERSION}`, Title: String(meta.title ?? ""), ...(meta.author ? { Author: String(meta.author) } : {}), ...(meta.copyright ? { Copyright: String(meta.copyright) } : {}), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed), ...(sourceHash ? { "mangacli:source-hash": sourceHash } : {}) } };
-          const data = fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: rasterDpi, maxImageDpi: 300, outputScale, marks })) : await encode(raster.data, raster.width, raster.height, enc);
+          const data = fmt === "psd" ? psds.get(part.side)!.build()
+            : fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: rasterDpi, maxImageDpi: 300, outputScale, marks }))
+            : await encode(raster.data, raster.width, raster.height, enc);
           const svgSize = () => {
             const margin = crop === "marks" ? 2 * (marks?.margin ?? 10) : 0;
             const bw = (crop === "trim" ? geom.trimW : geom.bleedBox.w) + margin;
@@ -759,10 +791,19 @@ function errorFor(items: Diagnostic[]): MangaError {
   return new MangaValidationError(items);
 }
 
+function allSeparations(root?: Node): { name: string; list: string[] }[] {
+  const names = new Set(["background", "art", "fx", "frame", "balloon", "text", "sfx", "furniture"]);
+  const visit = (node: Node) => {
+    if (node.tag) names.add(node.tag.separation);
+    if (node.kind === "group") node.children.forEach(visit);
+  };
+  if (root) visit(root);
+  return Array.from(names, (name) => ({ name, list: [name] }));
+}
+
 function normalizeSeparations(s: RenderOptions["separate"]): { name: string; list: string[] }[] | null {
   if (!s) return null;
-  const all = ["background", "art", "fx", "frame", "balloon", "text", "sfx", "furniture"];
-  if (s === "all") return all.map((n) => ({ name: n, list: [n] }));
+  if (s === "all") return allSeparations();
   if (Array.isArray(s)) return s.map((n) => ({ name: n, list: [n] }));
   return Object.entries(s).map(([name, list]) => ({ name, list }));
 }
