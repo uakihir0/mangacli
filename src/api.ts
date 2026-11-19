@@ -165,7 +165,7 @@ function limitsOf(o: RenderOptions): Required<Limits> {
   return { ...DEFAULT_LIMITS, ...((cfgOf(o)?.limits as Limits | undefined) ?? {}), ...(o.limits ?? {}) };
 }
 
-const BUILTIN_EFFECTS = new Set(["focus-lines", "beta-flash", "uni-flash", "speed-lines", "gloom-lines", "rain", "swirl-lines", "hatching", "impact", "vignette"]);
+const BUILTIN_EFFECTS = new Set(["focus-lines", "beta-flash", "uni-flash", "speed-lines", "gloom-lines", "rain", "swirl-lines", "hatching", "impact", "beam", "vignette"]);
 const BUILTIN_TEMPLATES = new Set(["single", "grid", "tiers", "yonkoma", "hero-top", "hero-bottom"]);
 
 function pluginSetFor(o: RenderOptions, bag?: DiagnosticBag): PluginSet | undefined {

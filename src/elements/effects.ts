@@ -9,11 +9,13 @@ import { inkLine } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
 import { resolvePoint } from "../layout/place.js";
+import { BUILTIN_EFFECT_DEFAULTS } from "../model/defaults.js";
 import type { RElement } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolvePen, resolveStroke } from "../model/values.js";
 import type { Node } from "../render/ir.js";
 import { activePlugins } from "../plugin.js";
 import { runPluginDrawable } from "./plugindraw.js";
+import { renderBeam } from "./beam.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { inksToNodes } from "./inkir.js";
 import { renderLight } from "./light.js";
@@ -578,11 +580,14 @@ function hatching(f: FxCtx): InkPoly[] {
 // ---- impact ------------------------------------------------------------------
 
 function impact(f: FxCtx): Node[] {
+  const c = resolvePoint(f.p.center ?? "center", placeCtx(f.ctx, f.el)) ?? { x: 0, y: 0 };
+  return wrap(f, impactNodes(f, c));
+}
+
+function impactNodes(f: FxCtx, c: Vec, beamRadius?: number): Node[] {
   const p = f.p;
-  const pc = placeCtx(f.ctx, f.el);
-  const c = resolvePoint(p.center ?? "center", pc) ?? { x: 0, y: 0 };
   const b = f.region.bbox;
-  const radius = L(f, p.radius ?? "18%", Math.min(b.w, b.h));
+  const radius = beamRadius ?? L(f, p.radius ?? "18%", Math.min(b.w, b.h));
   const spikes = Number(p.spikes ?? 14);
   const irr = (p.irregularity as number) ?? 0.5;
   const star = (r: number, seedShift: number): Vec[] => {
@@ -612,7 +617,8 @@ function impact(f: FxCtx): Node[] {
   }
   const rays = (isObj(p.rays) ? p.rays : { count: 24 }) as Obj;
   const rc = Number(rays.count ?? 24);
-  const rl = R(f, rays.length, { min: 2 * f.k, max: 8 * f.k, dist: "uniform" });
+  const rl: Range = beamRadius === undefined ? R(f, rays.length, { min: 2 * f.k, max: 8 * f.k, dist: "uniform" })
+    : { min: radius * 0.3, max: radius * 0.9, dist: "uniform" };
   const rt = R(f, rays.thickness, { min: 0.15 * f.k, max: 0.4 * f.k, dist: "low" });
   for (let i = 0; i < rc; i++) {
     const a = (i / rc) * Math.PI * 2 + f.rng.range(-0.1, 0.1);
@@ -622,7 +628,7 @@ function impact(f: FxCtx): Node[] {
     inks.push(...inkLine([{ x: c.x + d.x * r0, y: c.y + d.y * r0 }, { x: c.x + d.x * (r0 + l), y: c.y + d.y * (r0 + l) }], lineStyle(f, sampleR(f, rt)), f.hand, f.rng.fork("ray"), { ruler: true, taperIn: true, taperOut: true, inkPool: false }));
   }
   nodes.push(...inksToNodes(inks, f.color, tag(f.el, "ink")));
-  return wrap(f, nodes);
+  return nodes;
 }
 
 // ---- vignette ----------------------------------------------------------------
@@ -734,6 +740,14 @@ function renderEffectInner(el: RElement, ctx: ElemCtx, hold: { f?: FxCtx }): Nod
       return ink(hatching(f));
     case "impact":
       return impact(f);
+    case "beam": {
+      const nodes = renderBeam(el, ctx, region, (center, radius, seed) =>
+        impactNodes({
+          ...f, el: { ...el, seed }, rng: new Rng(seed),
+          p: { ...BUILTIN_EFFECT_DEFAULTS.impact, spikes: 9, double: false, rays: { count: 10 } },
+        }, center, radius));
+      return nodes.length ? wrap(f, nodes, backgroundNode(f)) : [];
+    }
     case "vignette":
       return vignette(f);
     case "glow":

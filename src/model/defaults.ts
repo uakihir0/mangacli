@@ -51,6 +51,7 @@ export const BUILTIN_EFFECT_DEFAULTS: Record<string, Obj> = {
   "speed-lines": { angle: 0, spacing: ["0.5bmm", "2.2bmm"], length: ["30%", "90%"], thickness: { min: "0.1bmm", max: "0.4bmm", dist: "low" }, taper: "both", align: "random", cluster: 0.4, ruler: true, pen: { preset: "maru-pen" } },
   "swirl-lines": { center: "center", radius: ["15%", "60%"], arc: ["25deg", "90deg"], count: "auto", direction: "cw", thickness: ["0.1bmm", "0.4bmm"], spiral: 0, pen: { preset: "maru-pen" } },
   impact: { radius: "18%", spikes: 14, irregularity: 0.5, fill: "paper", stroke: { width: "0.3bmm", pen: { preset: "g-pen" } }, double: true, rays: { count: 24, length: ["2bmm", "8bmm"], thickness: ["0.15bmm", "0.4bmm"] } },
+  beam: { width: ["8%", "24%"], coreWidth: 0.58, jitter: 0.18, edge: "lines", tone: "tone(40%)", charge: true, impact: true, count: 1, spread: "24deg" },
   "gloom-lines": { region: { band: { side: "top", size: "55%" } }, spacing: ["0.7bmm", "1.5bmm"], length: ["45%", "100%"], thickness: ["0.15bmm", "0.35bmm"], taper: "end", tone: "none", ruler: true, pen: { preset: "maru-pen" } },
   hatching: { pattern: "hatch", angle: "45deg", spacing: "0.6bmm", thickness: ["0.08bmm", "0.16bmm"], blockSize: ["2bmm", "3.5bmm"], linesPerBlock: 4, edge: "soft", ruler: false, pen: { preset: "maru-pen" } },
   rain: { angle: "100deg", rate: 2.5, length: ["4bmm", "14bmm"], thickness: ["0.1bmm", "0.22bmm"], taper: "both", ruler: true, pen: { preset: "maru-pen" } },

@@ -41,6 +41,7 @@
 | `beta-flash` | ベタフラッシュ | 衝撃、ショック、緊迫 | P0 |
 | `uni-flash` | ウニフラッシュ | 感動、ときめき、心の衝撃 | P0 |
 | `speed-lines` | 流線 | 速さ、動き | P0 |
+| `beam` | エネルギー波・ビーム | 光球から伸びる帯、連射、着弾 | P0 |
 | `swirl-lines` | 回転流線 | 回転、渦、めまい | P1 |
 | `impact` | 衝撃 | 打撃、衝突、爆発 | P1 |
 | `gloom-lines` | 縦線 | 落ち込み、絶望（ガーン） | P1 |
@@ -555,3 +556,36 @@ paint: { pattern: { asset: flower-tone, scale: 0.5, rotate: 15deg, offset: [0, 0
   dialogue:
     - { who: taro, as: shout, text: そんな…… }
 ```
+
+## 8.18 エネルギー波・ビーム（beam）
+
+`beam` は始点から終点へ幅が変わる帯を描く。光球（`charge`）は始点に、
+`impact` は各弾の終点に付く。外縁が平行線でも網点でも、芯は白ベタのままなので
+`print-mono` でも外縁と芯を見分けられる。同じ入力と `seed` で同じ形を再現できる。
+
+```yaml
+- effect: beam
+  from: [15%, 72%]
+  to: [83%, 35%]
+  width: [12%, 29%]
+  seed: 42
+```
+
+| キー | 型 | 既定値・意味 |
+|---|---|---|
+| `from` / `to` | Point | 直線の始点と終点。座標・位置キーワード・`hero.hand` などの参照を指定可能 |
+| `path` | Point の配列 | `from` / `to` の代わりに指定する折れ線（2〜128 点） |
+| `width` | 正の Length または 2 要素の配列 | `[8%, 24%]`。始点・終点での帯の全幅。途中は経路に沿って補間する。% は効果領域の短辺基準 |
+| `coreWidth` | 0 より大きく 1 未満 | `0.58`。帯の幅に対する白い芯の幅 |
+| `jitter` | 0〜1 | `0.18`。外縁の揺らぎ |
+| `edge` | `lines` / `tone` | `lines`。外縁を平行線またはスクリーントーンで描く |
+| `tone` | Tone | `tone(40%)`。`edge: tone` のときのトーン |
+| `color` | 色 | `black`。外縁の輪郭、光球の縁、着弾の線の色。トーンの色は `tone` で指定 |
+| `charge` / `impact` | 真偽値 | ともに `true`。光球・着弾をそれぞれ無効にできる |
+| `count` | 整数 | `1`。連射の本数（1〜32） |
+| `spread` | Angle | `24deg`。連射の両端の間の角度（0 以上 1 回転未満）。始点を中心に指定経路を回転させる。1 本なら無視する |
+
+[作例 YAML（単発と 3 連射）](examples/beam.yaml)
+
+![単発ビーム](images/beam-single.png)
+![3 連射（print-mono）](images/beam-volley-mono.png)
