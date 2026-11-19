@@ -569,7 +569,11 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const colorMode = options.colorMode ?? (prof.colorMode === "intent" ? (intent === "mono" ? "gray" : "color") : prof.colorMode);
       const dpi = dpiFor(geom);
       if (prof.print && colorMode === "mono" && formats.includes("svg")) bag.warn("SVG_MONO_APPROXIMATION", "SVG tones are a vector/gray approximation; use PNG/PDF for 1-bit print submission", { pageId: page.id });
-      if (bag.hasErrors) return fail();
+      if (bag.items.some((d) => d.code === "SVG_MONO_APPROXIMATION" && d.pageId === page.id && d.severity === "error")) {
+        if (throwOnError) throw errorFor(bag.items);
+        if (options.failFast) break;
+        continue;
+      }
       if (dpi > lim.maxDpi) throw new Error(`SECURITY_LIMIT_EXCEEDED: ${Math.round(dpi)} dpi exceeds maxDpi (${lim.maxDpi})`);
       const runs: { name?: string; list?: string[] }[] = seps0 ? seps0 : [{}];
       for (const run of runs) {

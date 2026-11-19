@@ -83,4 +83,31 @@ describe("SVG print output", () => {
       rmSync(outDir, { recursive: true, force: true });
     }
   });
+
+  it("still writes a later valid page after a pixel-limit failure", async () => {
+    const outDir = mkdtempSync(join(tmpdir(), "mangacli-svg-recovery-"));
+    try {
+      const r = await render({ yaml: `mangacli: 1
+page: { size: [100mm, 100mm], bleed: 0 }
+pages:
+  - { id: too-large, panels: [] }
+  - { id: valid, size: [10mm, 10mm], panels: [] }
+` }, {
+        profile: "print-mono",
+        format: ["png", "svg"],
+        crop: "trim",
+        dpi: 25.4,
+        limits: { maxOutputPixels: 500 },
+        throwOnError: false,
+        failFast: false,
+        outDir,
+      });
+      expect(r.failures.map((f) => f.pageId)).toEqual(["too-large"]);
+      expect(r.diagnostics).toContainEqual(expect.objectContaining({ code: "OUTPUT_TOO_LARGE", severity: "error" }));
+      expect(r.pages.map((p) => [p.id, p.format])).toEqual([["valid", "png"], ["valid", "svg"]]);
+      expect(readdirSync(outDir)).toHaveLength(2);
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  });
 });
