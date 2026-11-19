@@ -100,6 +100,14 @@ pages:
         bleed: [bottom, left, right]
         layers:
           - { image: p2-4, id: mio4, focus: [0.47, 0.38] }
+          - effect: speed-lines
+            angle: 175deg
+            spacing: [0.8mm, 2.4mm]
+            thickness: [0.12mm, 0.3mm]
+            clear:
+              - { ellipse: [51%, 27%, 18%, 25%], margin: 1mm }
+              - polygon: [[28%, 45%], [58%, 32%], [74%, 44%], [76%, 70%], [69%, 90%], [76%, 100%], [42%, 100%], [38%, 79%], [23%, 70%], [22%, 56%]]
+                margin: 1mm
           - { sfx: ダッ, at: [82%, 43%], fontSize: 22mm, rotate: -9deg, grow: -0.12 }
 
   # ── 3 ページ目 ───────────────────────────────
@@ -157,6 +165,16 @@ pages:
       - id: p4-b
         layers:
           - { image: p4-2, id: mio6, focus: [0.5, 0.3] }
+          - effect: focus-lines
+            center: mio6.face
+            inner: [26%, 30%]
+            count: 150
+            thickness: [0.1mm, 0.35mm]
+            clear:
+              - { ellipse: [51%, 32%, 23%, 29%], margin: 1mm }
+              - polygon: [[27%, 40%], [64%, 39%], [93%, 54%], [89%, 78%], [74%, 100%], [5%, 100%], [15%, 66%], [0%, 52%]]
+                margin: 1mm
+          - { sfx: ドキッ, at: [82%, 70%], fontSize: 10mm }
         dialogue:
           - { mio: "な、なによ。", as: tremble, at: [19%, 32%] }
       - id: p4-c
