@@ -93,7 +93,7 @@ function overlay(a: Obj, b: Obj | undefined): Obj {
   return out;
 }
 
-function resolveStyles(rawStyles: Record<string, Obj>, bag: DiagnosticBag): Record<string, Obj> {
+function resolveStyles(rawStyles: Record<string, Obj>, bag: DiagnosticBag, type?: string, names = Object.keys(rawStyles)): Record<string, Obj> {
   const styles: Record<string, Obj> = {};
   const resolving = new Set<string>();
   const resolveStyle = (name: string, path: Path): Obj | undefined => {
@@ -112,14 +112,14 @@ function resolveStyles(rawStyles: Record<string, Obj>, bag: DiagnosticBag): Reco
       if (!s) bag.error("REF_NOT_FOUND", `unknown style "${e}"`, { path, hint: suggestHint(String(e), Object.keys(rawStyles)) });
       else acc = overlay(acc, s);
     }
-    const own = { ...raw };
+    const own = type === undefined ? { ...raw } : normElementProps(raw, ["styles", name], bag, type);
     delete own.extends;
     acc = overlay(acc, own);
     resolving.delete(name);
     styles[name] = acc;
     return acc;
   };
-  for (const k of Object.keys(rawStyles)) resolveStyle(k, ["styles", k]);
+  for (const k of names) resolveStyle(k, ["styles", k]);
   return styles;
 }
 
@@ -148,6 +148,12 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
   }
   const builtinStyles = resolveStyles(BUILTIN_STYLES, bag);
   const styles = resolveStyles(rawStyles, bag);
+  const contextualStyles = new Map<string, Record<string, Obj>>();
+  const styleFor = (type: string, name: string): Obj | undefined => {
+    const key = JSON.stringify([type, name]);
+    if (!contextualStyles.has(key)) contextualStyles.set(key, resolveStyles(rawStyles, bag, type, [name]));
+    return contextualStyles.get(key)![name];
+  };
 
   // collect explicit ids
   const ids = new Set<string>();
@@ -255,8 +261,8 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
         if (!styles[name]) bag.error("REF_NOT_FOUND", `unknown speech type "${name}"`, { path: [...path, "as"], hint: suggestHint(name, Object.keys(BUILTIN_STYLES)) });
         const st = userStyles[name];
         if (st) {
-          for (const parent of Array.isArray(st.extends) ? st.extends : st.extends ? [st.extends] : []) mergeProps(styles[String(parent)]);
-          const own = { ...st };
+          for (const parent of Array.isArray(st.extends) ? st.extends : st.extends ? [st.extends] : []) mergeProps(styleFor(type, String(parent)));
+          const own = normElementProps(st, path, bag, type);
           delete own.extends;
           mergeProps(own);
         }
@@ -276,14 +282,13 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
           bag.error("STYLE_TYPE_MISMATCH", `style "${sn}" is for ${forT}, not ${type}`, { path: [...path, "style"] });
           continue;
         }
-        const s2 = { ...st };
+        const s2 = { ...styleFor(type, String(sn)) };
         delete s2.for;
         mergeProps(s2);
       }
       const own = { ...raw };
       delete own.style;
-      mergeProps(own);
-      acc = normElementProps(acc, path, bag, type);
+      mergeProps(normElementProps(own, path, bag, type));
       acc.id = id;
       const elSeedBase = typeof raw.seed === "number" ? raw.seed : baseSeed;
       const el: RElement = { id, type, props: acc, path, seed: deriveSeed(elSeedBase, id, "element"), fromDialogue, builtinProps: [...builtinProps] };

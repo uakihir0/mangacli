@@ -44,6 +44,17 @@ describe("context-sensitive property normalization", () => {
     const result = await r.validate(document([{ sfx: "A", edge: "clean" }]));
     expect(result.diagnostics.some((d) => d.message.includes('invalid stroke token "clean"'))).toBe(true);
   });
+
+  it("normalizes contextual styles before inheritance and property merging", () => {
+    const doc = {
+      ...document([{ sfx: "A", style: "thin" }, { balloon: "A", style: "round" }]),
+      defaults: { sfx: { edge: { width: "1mm", color: "red" } } },
+      styles: { thin: { edge: "0.4mm" }, irregular: { shape: { kind: "ellipse", irregularity: 0.4 } }, round: { extends: "irregular", shape: "round-rect" } },
+    };
+    const elements = resolve(doc).pages[0].panels[0].elements;
+    expect(elements[0].props.edge).toEqual({ width: "0.4mm", color: "red" });
+    expect(elements[1].props.shape).toMatchObject({ kind: "round-rect", irregularity: 0.4 });
+  });
 });
 
 describe("null resets", () => {
