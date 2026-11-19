@@ -11,6 +11,7 @@ English | [日本語](README.ja.md)
 | [color-page.yaml](color-page.yaml) | A one-page color B5 manga: gradient grounds, multiplied backgrounds, rain, SFX on a wave path, colored focus lines and uni flash, blush marks | P0 and P1 |
 | [gallery-balloons.yaml](gallery-balloons.yaml) | Every built-in balloon style (`as`) on one page | P0 and P1 |
 | [gallery-effects.yaml](gallery-effects.yaml) | Effects, tones, marks, and SFX lettering on one page | P0 and P1 |
+| [light-effects.yaml](light-effects.yaml) | Silhouette glow on black, backlit rays, and a stage spotlight; renders in color and 1-bit print | P1 |
 | [en-comic.yaml](en-comic.yaml) | An English page (`lang: en`): left-to-right reading, horizontal balloons in all caps with the `comic-basic` font set, balanced lines | P0 and P1 |
 
 - The examples use fonts from the built-in catalog. They are downloaded automatically on the first render. To fetch them in advance, run `npx mangacli fonts install --for docs/examples/b5-mono.yaml`.
