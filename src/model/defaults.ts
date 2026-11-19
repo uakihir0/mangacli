@@ -3,6 +3,8 @@
 
 type Obj = Record<string, unknown>;
 
+export const DEFAULT_BALLOON_FONT_SIZE = "16bQ";
+
 export const BUILTIN_DEFAULTS: Record<string, Obj> = {
   panel: {
     border: { width: "0.5bmm", color: "black", pen: { preset: "kabura-pen" }, style: "solid", ruler: true, join: "clean" },
@@ -20,7 +22,7 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
     padding: ["0.6em", "0.8em"],
     minFontScale: 0.75,
     font: "dialogue",
-    fontSize: "13bQ",
+    fontSize: DEFAULT_BALLOON_FONT_SIZE,
     clip: "auto",
     autoPlace: "auto",
   },
@@ -45,7 +47,7 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
 
 export const BUILTIN_EFFECT_DEFAULTS: Record<string, Obj> = {
   "*": { color: "black", opacity: 1, density: 1, background: "none", clip: "panel" },
-  "focus-lines": { center: "auto", inner: ["32%", "26%"], innerJitter: 0.35, spikes: { ratio: 0.06, depth: 0.45 }, count: "auto", thickness: { min: "0.12bmm", max: "0.5bmm", dist: "low" }, taper: "in", angleJitter: 0.8, cluster: 0.35, curve: 0, ruler: true, pen: { preset: "maru-pen" } },
+  "focus-lines": { center: "auto", inner: ["32%", "26%"], innerJitter: 0.5, spikes: { ratio: 0.06, depth: 0.45 }, count: "auto", thickness: { min: "0.12bmm", max: "0.5bmm", dist: "low" }, taper: "in", angleJitter: 0.8, cluster: 0.65, curve: 0, ruler: true, pen: { preset: "maru-pen" } },
   "beta-flash": { center: "auto", inner: ["24%", "20%"], outer: ["44%", "38%"], outerJitter: 0.15, innerJitter: 0.5, spikes: { ratio: 0.1, depth: 0.6 }, count: "auto", thickness: { min: "0.25bmm", max: "1.0bmm", dist: "low" }, core: "paper", ruler: true, pen: { preset: "g-pen" } },
   "uni-flash": { center: "auto", inner: ["18%", "15%"], outer: ["36%", "30%"], innerJitter: 0.25, outerJitter: 0.35, count: "auto", thickness: { min: "0.08bmm", max: "0.3bmm", dist: "low" }, taper: "both", peak: 0.6, core: "paper", rings: 1, ruler: true, pen: { preset: "maru-pen" } },
   "speed-lines": { angle: 0, spacing: ["0.5bmm", "2.2bmm"], length: ["30%", "90%"], thickness: { min: "0.1bmm", max: "0.4bmm", dist: "low" }, taper: "both", align: "random", cluster: 0.4, ruler: true, pen: { preset: "maru-pen" } },

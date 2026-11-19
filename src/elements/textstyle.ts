@@ -1,6 +1,7 @@
 // props -> TextStyle (spec 7.2)
 import { type UnitContext, parseAngle, parseLength, toMm } from "../core/units.js";
 import { isObj } from "../load/normalize.js";
+import { DEFAULT_BALLOON_FONT_SIZE } from "../model/defaults.js";
 import { type LetteringSpec, type TextStyle, defaultTextStyle } from "../text/layout.js";
 
 type Obj = Record<string, unknown>;
@@ -20,7 +21,7 @@ export function textValue(v: unknown, lang: string, defaultLang: string, onMissi
 export function resolveTextStyle(p: Obj, u: UnitContext, lang: string, isBalloon: boolean, seed: number): TextStyle {
   const vertDefault = lang.startsWith("ja") ? "vertical" : "horizontal";
   const writing = (p.writing as "vertical" | "horizontal") ?? vertDefault;
-  const fontSize0 = toMm((p.fontSize as string) ?? "13bQ", u);
+  const fontSize0 = toMm((p.fontSize as string) ?? (isBalloon ? DEFAULT_BALLOON_FONT_SIZE : "13bQ"), u);
   const fontSize = fontSize0 * (typeof p.fontScale === "number" ? p.fontScale : 1);
   const emCtx: UnitContext = { ...u, em: fontSize };
   let lineHeight = writing === "vertical" ? 1.45 : 1.4;
@@ -32,7 +33,9 @@ export function resolveTextStyle(p: Obj, u: UnitContext, lang: string, isBalloon
     else lineHeightAbs = toMm(p.lineHeight, emCtx);
   }
   const ls = p.letterSpacing !== undefined ? toMm(p.letterSpacing as string, emCtx) / fontSize : 0;
-  const align = (p.align as TextStyle["align"]) ?? (isBalloon && writing === "horizontal" ? "center" : "start");
+  const shape = isObj(p.shape) ? p.shape.kind ?? "ellipse" : "ellipse";
+  const centered = isBalloon && (writing === "horizontal" || shape === "ellipse" || shape === "round-rect" || shape === "cloud");
+  const align = (p.align as TextStyle["align"]) ?? (centered ? "center" : "start");
   let maxChars = typeof p.maxChars === "number" ? p.maxChars : undefined;
   if (maxChars === undefined && isBalloon) {
     maxChars = writing === "vertical" ? 8 : 14;

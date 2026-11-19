@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createRenderer } from "../src/api.js";
+import { flattenPath, polygonArea } from "../src/geom/path.js";
 import { parseFilter, applyFilters } from "../src/render/filters.js";
+import type { Node } from "../src/render/ir.js";
 import { phraseBoundaries } from "../src/text/linebreak.js";
 
 const r = createRenderer({ profile: "preview" });
@@ -33,5 +35,23 @@ describe("features", () => {
   it("keeps auxiliaries with their verbs", () => {
     const b = phraseBoundaries("教室には誰もいない");
     expect(b.has(7)).toBe(false);
+  });
+  it("draws longer strokes for the heavier focus rays", async () => {
+    const list = await r.displayList(y(page(
+      "          - { id: rays, effect: focus-lines, center: [40mm, 30mm], inner: [12mm, 12mm], innerJitter: 1, count: 96, thickness: [0.1mm, 0.6mm], spikes: { ratio: 0 }, hand: clean, taper: none }\n",
+    )), 1);
+    const collect = (n: Node): { width: number; reach: number }[] => {
+      if (n.kind === "group") return n.children.flatMap(collect);
+      if (n.kind !== "path" || n.tag?.elementId !== "rays") return [];
+      return flattenPath(n.path).map(({ pts }) => {
+        const radii = pts.map(({ x, y }) => Math.hypot(x - 40, y - 30));
+        const reach = Math.min(...radii);
+        return { reach, width: Math.abs(polygonArea(pts)) / (Math.max(...radii) - reach) };
+      });
+    };
+    const rays = collect(list.root).sort((a, b) => a.width - b.width);
+    const meanReach = (subset: typeof rays) => subset.reduce((sum, ray) => sum + ray.reach, 0) / subset.length;
+    expect(rays.length).toBeGreaterThanOrEqual(96);
+    expect(meanReach(rays.slice(-24))).toBeLessThan(meanReach(rays.slice(0, 24)) - 2);
   });
 });

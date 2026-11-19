@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolveTextStyle } from "../src/elements/textstyle.js";
 import { FontRegistry } from "../src/fonts/registry.js";
 import { defaultTextStyle, layoutText } from "../src/text/layout.js";
 
@@ -9,6 +10,23 @@ const lines = async (t: string, o: Record<string, unknown> = {}) => {
 };
 
 describe("typesetting", () => {
+  it("centers uneven vertical speech columns without changing their reading order", async () => {
+    const text = "今日は\nいい天気だね";
+    await reg.prepare("dialogue", text);
+    const u = { units: "mm", dpi: 72, k: 1 } as const;
+    const layout = (props: Record<string, unknown>) => layoutText(text, resolveTextStyle(props, u, "ja", true, 1), reg);
+    const balloon = layout({});
+    const [first, second] = balloon.lines;
+    expect(balloon.fontSize).toBe(4);
+    expect(balloon.lines.map((line) => line.text)).toEqual(["今日は", "いい天気だね"]);
+    expect(first.rect.x).toBeGreaterThan(second.rect.x);
+    expect(first.rect.y).toBeGreaterThan(0);
+    expect(first.rect.y + first.rect.h / 2).toBeCloseTo(second.rect.y + second.rect.h / 2);
+    expect(layout({ align: "start" }).lines[0].rect.y).toBe(0);
+    expect(layout({ shape: { kind: "rect" } }).lines[0].rect.y).toBe(0);
+    expect(layout({ shape: { kind: "burst" } }).lines[0].rect.y).toBe(0);
+    expect(layout({ fontSize: "13bQ" }).fontSize).toBe(3.25);
+  });
   it("breaks a long phrase at a word start", async () => {
     expect(await lines("宿題、まだ終わってなくてさ……")).toEqual(["宿題、まだ", "終わって", "なくてさ……"]);
   });
