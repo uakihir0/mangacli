@@ -1,11 +1,12 @@
 // Page composition: layout all elements and build the display list (spec 4.12).
+import polygonClipping from "polygon-clipping";
 import { BLACK, WHITE, parseColor } from "../core/color.js";
 import { DiagnosticBag } from "../core/diagnostics.js";
 import { Rng } from "../core/random.js";
 import { breakFaults } from "../text/layout.js";
 import { parseAngle, toMm } from "../core/units.js";
 import { type ElemCtx, type Silhouette, placeCtx, tag } from "../elements/context.js";
-import { type BalloonPlan, planBalloon, renderBalloon, renderConnected } from "../elements/balloon.js";
+import { type BalloonPlan, hasOffscreenTail, planBalloon, renderBalloon, renderConnected } from "../elements/balloon.js";
 import { renderEffect } from "../elements/effects.js";
 import { layoutImage } from "../elements/image.js";
 import { inksToNodes } from "../elements/inkir.js";
@@ -15,12 +16,12 @@ import { renderSfx, renderText } from "../elements/textel.js";
 import { textValue } from "../elements/textstyle.js";
 import type { FontRegistry } from "../fonts/registry.js";
 import { miterFrameEdges } from "../geom/miter.js";
-import { flattenPath, parseSvgPath, polyPath, smoothPath, transformPath } from "../geom/path.js";
+import { flattenPath, offsetPolygon, parseSvgPath, polyPath, smoothPath, transformPath } from "../geom/path.js";
 import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, matMul, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
 import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
-import { type PageGeom, type PanelGeom, bookOf, computePageGeom, layoutPanels } from "../layout/page.js";
+import { type PageGeom, type PanelGeom, bookOf, computePageGeom, layoutPagePanels } from "../layout/page.js";
 import { RefRegistry, center, place, resolvePoint, sizeValue } from "../layout/place.js";
 import type { RElement, RPage, ResolvedDoc } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolvePen, resolveStroke } from "../model/values.js";
@@ -106,7 +107,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   const book = bookOf(doc.doc);
   const geom = computePageGeom(page, physicalIndex, book, bag);
   const u = geom.units;
-  const panels = page.type === "blank" ? [] : layoutPanels(page, geom, bag);
+  const { area, panels } = page.type === "blank" ? { area: geom.baseFrame, panels: [] } : layoutPagePanels(page, geom, bag);
   await prepareFonts(page, o);
   const refs = new RefRegistry((ch) => ((doc.characters[ch]?.anchorPriority as string[]) ?? ["mouth", "face"]));
   const items: Item[] = [];
@@ -290,7 +291,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       if (!it) continue;
       // clip: auto — a balloon may lie over a frame line between panels, but one that runs past
       // the outer edge of the panel area is cut by the frame there, as lettering usually is
-      if (it.free && el.type === "balloon" && el.props.clip === "auto" && !isOffscreen(el) && crossesOuterEdge(pg, it.bbox, u.k)) it.free = false;
+      if (it.free && el.type === "balloon" && el.props.clip === "auto" && crossesOuterEdge(pg, it.bbox, u.k)) it.free = false;
       if (it.free) {
         if (isObj(el.props.clip)) it.openClip = openClipPath(pg, el.props.clip as Obj, geom, u);
         items.push(it);
@@ -318,11 +319,29 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
 
   // build tree
   const root: GroupNode = { kind: "group", children: [] };
-  const bgPaint = parsePaint(page.settings.background ?? "paper", { u, box: geom.bleedBox, seed: page.seed, bag, path: [...page.path, "background"] });
+  const background = page.settings.background ?? "paper";
+  const bgImage = isObj(background) && typeof background.image === "string" ? background : undefined;
+  const bgPath = [...page.path, "background"];
+  const bgPaint = parsePaint(bgImage ? "paper" : background, { u, box: geom.bleedBox, seed: page.seed, bag, path: bgPath });
+  const bgTag = { elementId: page.id, elementType: "page", role: "background" as const, separation: "background" };
+  const pageBackground: Node[] = bgPaint ? [{ kind: "path", path: polyPath(rectPts(geom.bleedBox), true), fillRule: "nonzero", paint: bgPaint, tag: bgTag }] : [];
+  if (bgImage) {
+    const box = bgImage.bleed === "all" ? geom.bleedBox : geom.trim;
+    const el: RElement = {
+      id: page.id, type: "page", path: bgPath, seed: page.seed,
+      props: { src: bgImage.image, fit: bgImage.fit, separation: "background" },
+    };
+    const { nodes } = await layoutImage(el, baseCtx(), box, "background");
+    pageBackground.push({ kind: "group", clip: polyPath(rectPts(box), true), children: nodes, tag: bgTag });
+    if (page.settings.gutterFill !== "none") {
+      const path = gutterPath(area, panels, geom);
+      if (path.length) pageBackground.push({ kind: "path", path, fillRule: "evenodd", paint: { type: "solid", color: WHITE }, tag: bgTag });
+    }
+  }
   for (const it of items.filter((i) => i.stackUnder)) root.children.push(...it.nodes);
   for (const { pg, clipped } of panelNodes) {
     if (pg.panel.props.visible === false) continue;
-    root.children.push(...panelTree(pg, clipped, geom, bgPaint, bag));
+    root.children.push(...panelTree(pg, clipped, geom, bgPaint, !!bgImage, bag));
   }
   const free = items.filter((i) => !i.stackUnder);
   free.sort((a, b) => a.z - b.z || a.layer - b.layer || a.source - b.source || a.panelIdx - b.panelIdx || (a.layer === 1 && b.layer === 1 ? b.listIdx - a.listIdx : a.listIdx - b.listIdx));
@@ -338,7 +357,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     size: { width: geom.bleedBox.w, height: geom.bleedBox.h },
     boxes: { bleed: geom.bleedBox, trim: geom.trim, baseFrame: geom.baseFrame, safe: geom.safe },
     background: bgPaint,
-    root: { kind: "group", transform: [1, 0, 0, 1, geom.bleed, geom.bleed], children: [...(bgPaint ? [{ kind: "path" as const, path: polyPath(rectPts(geom.bleedBox), true), fillRule: "nonzero" as const, paint: bgPaint, tag: { elementId: page.id, elementType: "page", role: "background" as const, separation: "background" } }] : []), root] },
+    root: { kind: "group", transform: [1, 0, 0, 1, geom.bleed, geom.bleed], children: [...pageBackground, root] },
   };
   // safe area / fold checks
   checkTextSafety(items.concat(panelNodes.flatMap((p) => p.clipped)), geom, bag, page);
@@ -350,9 +369,22 @@ function rectPts(r: Rect): Vec[] {
   return [{ x: r.x, y: r.y }, { x: r.x + r.w, y: r.y }, { x: r.x + r.w, y: r.y + r.h }, { x: r.x, y: r.y + r.h }];
 }
 
+function gutterPath(area: Rect, panels: PanelGeom[], geom: PageGeom) {
+  const ring = (poly: Vec[]): polygonClipping.Ring => poly.map(({ x, y }) => [x, y]);
+  const outlines = panels.filter(({ panel }) => panel.props.visible !== false).flatMap((pg) => {
+    const poly = panelShapePoly(pg, geom);
+    if (poly.length < 3) return [];
+    const contour = poly === pg.polygon ? poly : flattenPath(panelClip(pg, poly), 0.05)[0].pts;
+    return [[ring(contour)]];
+  });
+  if (outlines.length === 0) return [];
+  const gaps = polygonClipping.difference([ring(rectPts(area))], ...outlines);
+  return gaps.flatMap((poly) => poly.flatMap((r) => polyPath(r.slice(0, -1).map(([x, y]) => ({ x, y })), true)));
+}
+
 function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listIdx: number, source: number, ctx: ElemCtx): Item {
   const clip = el.props.clip;
-  const free = source === 1 || clip === "none" || clip === "trim" || isObj(clip) || (el.type === "balloon" && clip !== "panel" && !isOffscreen(el));
+  const free = source === 1 || clip === "none" || clip === "trim" || isObj(clip) || (el.type === "balloon" && clip !== "panel" && !hasOffscreenTail(el.props));
   const layer = el.type === "balloon" ? 1 : el.type === "text" || el.type === "sfx" ? 2 : 0;
   const ownsBlend = el.type === "image" || (el.type === "mark" && el.props.kind === "asset");
   const op = typeof el.props.opacity === "number" && !ownsBlend && el.type !== "effect" && el.type !== "scatter" ? el.props.opacity : undefined;
@@ -384,11 +416,6 @@ function crossesOuterEdge(pg: PanelGeom, b: Rect, k: number): boolean {
   const tol = 0.5 * k;
   const past: Record<string, boolean> = { top: b.y < pb.y - tol, bottom: b.y + b.h > pb.y + pb.h + tol, left: b.x < pb.x - tol, right: b.x + b.w > pb.x + pb.w + tol };
   return pg.edgeSides.some((s) => s !== null && past[s]);
-}
-
-function isOffscreen(el: RElement): boolean {
-  const t = el.props.tail;
-  return isObj(t) && !!(t as Obj).offscreen;
 }
 
 function coordsFor(el: RElement, ctx: ElemCtx, geom: PageGeom): Rect {
@@ -424,21 +451,31 @@ function panelShapePoly(pg: PanelGeom, geom: PageGeom): Vec[] {
   return pg.polygon;
 }
 
-function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: ReturnType<typeof parsePaint>, bag: DiagnosticBag): Node[] {
+function panelClip(pg: PanelGeom, poly: Vec[]) {
+  return poly === pg.polygon ? polyPath(poly, true) : smoothPath(poly, true);
+}
+
+function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: ReturnType<typeof parsePaint>, hasPageArt: boolean, bag: DiagnosticBag): Node[] {
   const u = geom.units;
   const p = pg.panel.props;
   const out: Node[] = [];
   const poly = panelShapePoly(pg, geom);
   const isShaped = poly !== pg.polygon;
+  const clip = panelClip(pg, poly);
   if (p.knockout !== undefined) {
     const kw = toMm(p.knockout as string, u);
-    const ext = offsetConvex(poly, kw);
-    out.push({ kind: "path", path: polyPath(ext, true), fillRule: "nonzero", paint: pageBg ?? { type: "solid", color: WHITE } });
+    if (hasPageArt && kw > 0) {
+      const ext = offsetPolygon(poly, kw);
+      const outer = isShaped ? smoothPath(ext, true) : polyPath(ext, true);
+      out.push({ kind: "path", path: [...outer, ...clip], fillRule: "evenodd", paint: { type: "solid", color: WHITE }, tag: { elementId: pg.panel.id, elementType: "panel", role: "background", separation: "background" } });
+    } else if (!hasPageArt) {
+      const ext = offsetConvex(poly, kw);
+      out.push({ kind: "path", path: polyPath(ext, true), fillRule: "nonzero", paint: pageBg ?? { type: "solid", color: WHITE } });
+    }
   }
   const bg = parsePaint(p.background ?? "paper", { u, box: pg.fullBox, seed: pg.panel.seed, bag, path: [...pg.panel.path, "background"] });
   const inner: Node[] = [];
   if (bg) inner.push({ kind: "path", path: polyPath(poly, true), fillRule: "nonzero", paint: bg, tag: { elementId: pg.panel.id, elementType: "panel", role: "background", separation: "background" } });
-  const clip = isShaped ? smoothPath(poly, true) : polyPath(poly, true);
   const cleanBalloonInk = cleanClippedBalloonInk(clip);
   for (const it of clipped) inner.push(...(it.el.type === "balloon" ? cleanBalloonInk(it.nodes) : it.nodes));
   out.push({ kind: "group", clip, children: inner, tag: { elementId: pg.panel.id, elementType: "panel", role: "art", separation: "art" } });
@@ -980,13 +1017,14 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const tl = { ...r.bbox };
     // a balloon must not run off the trimmed page (it may cross gutters and panel borders)
     const lim = rectInset(geom.trim, 1 * u.k);
-    if (!isOffscreen(pl.el) && (tl.x < lim.x - 0.01 || tl.y < lim.y - 0.01 || tl.x + tl.w > lim.x + lim.w + 0.01 || tl.y + tl.h > lim.y + lim.h + 0.01)) {
+    const offscreen = hasOffscreenTail(pl.props);
+    if (!offscreen && (tl.x < lim.x - 0.01 || tl.y < lim.y - 0.01 || tl.x + tl.w > lim.x + lim.w + 0.01 || tl.y + tl.h > lim.y + lim.h + 0.01)) {
       tl.x = Math.min(Math.max(tl.x, lim.x), Math.max(lim.x, lim.x + lim.w - tl.w));
       tl.y = Math.min(Math.max(tl.y, lim.y), Math.max(lim.y, lim.y + lim.h - tl.h));
       ctx.bag.info("BALLOON_SHIFTED", `balloon ${pl.el.id} was moved inside the page`, { path: pl.el.path, elementId: pl.el.id });
     }
     // a balloon cut by the outer frame (clip: auto) keeps its text clear of the frame line
-    if (ctx.panel && pl.props.clip === "auto" && !isOffscreen(pl.el)) {
+    if (ctx.panel && pl.props.clip === "auto" && !offscreen) {
       const pb = ctx.panel.box;
       const m = Math.max(2.5 * u.k, pl.text.fontSize * 0.8);
       const tx = tl.x - pl.outer.x + pl.innerCenter.x + pl.textOffset.x - pl.text.width / 2;
