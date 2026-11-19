@@ -647,15 +647,17 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           // Preserve artwork past the fold for each page's bleed.
           const inner = crop === "trim" ? 0 : Math.round((geom.bleed * rasterDpi) / 25.4 + 1e-6);
           const leftW = edge + half + inner;
-          const slice = (x0: number, w: number) => {
+          const guideEdge = inner > 0 && geom.units.units !== "px" && (options.debug === true || (Array.isArray(options.debug) && options.debug.includes("guides")));
+          const slice = (x0: number, w: number, innerEdge: "left" | "right") => {
             const out = new Uint8ClampedArray(w * full.height * 4);
             for (let y = 0; y < full.height; y++) out.set(full.data.subarray((y * full.width + x0) * 4, (y * full.width + x0 + w) * 4), y * w * 4);
             const raster = { data: out, width: w, height: full.height };
+            if (guideEdge) drawInnerBleedEdge(raster, innerEdge, rasterDpi / 25.4);
             return splitMarks ? backend.addMarks(raster, geom.bleed) : raster;
           };
-          const left = { raster: slice(0, leftW), trim: { ...fullTrim, w: half }, side: "left" };
+          const left = { raster: slice(0, leftW, "right"), trim: { ...fullTrim, w: half }, side: "left" };
           const rightW = inner + (trimPx - half) + edge;
-          const right = { raster: slice(full.width - rightW, rightW), trim: { ...fullTrim, x: fullTrim.x + half - (full.width - rightW), w: trimPx - half }, side: "right" };
+          const right = { raster: slice(full.width - rightW, rightW, "left"), trim: { ...fullTrim, x: fullTrim.x + half - (full.width - rightW), w: trimPx - half }, side: "right" };
           if (splitMarks) {
             for (const part of [left, right]) {
               const margin = (part.raster.height - full.height) / 2;
@@ -822,6 +824,23 @@ function roundList(list: DisplayList): unknown {
   return JSON.parse(JSON.stringify(list, (_, v) => (typeof v === "number" ? Math.round(v * 1000) / 1000 : v)));
 }
 
+/** the dotted bleed line of the `guides` layer on the inner image edge of a split spread page, which only exists after the split */
+function drawInnerBleedEdge(raster: { data: Uint8ClampedArray; width: number; height: number }, edge: "left" | "right", pxPerMm: number) {
+  const [r, g, b] = GUIDE_COLORS.bleed.match(/\d+/g)!.map(Number) as [number, number, number];
+  const lw = Math.max(2, Math.round(0.25 * pxPerMm));
+  const dot = Math.max(1, 0.8 * pxPerMm);
+  for (let y = 0; y < raster.height; y++) {
+    if (Math.floor(y / dot) % 2) continue;
+    for (let k = 0; k < lw; k++) {
+      const i = (y * raster.width + (edge === "left" ? k : raster.width - 1 - k)) * 4;
+      raster.data[i] = r;
+      raster.data[i + 1] = g;
+      raster.data[i + 2] = b;
+      raster.data[i + 3] = 255;
+    }
+  }
+}
+
 /** colours of the `guides` debug layer (exported for tests) */
 export const GUIDE_COLORS = { safe: "rgb(0,150,255)", trim: "rgb(220,0,220)", bleed: "rgb(255,140,0)", fold: "rgb(230,0,0)", foldBand: "rgba(255,0,0,0.18)" } as const;
 
@@ -934,17 +953,10 @@ function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: num
       g.strokeRect(t.x, t.y, t.w, t.h);
       label(bleedShown ? "trim" : "trim (image edge)", list.boxes.trim.x + 1, list.boxes.trim.y + list.boxes.trim.h - 1, GUIDE_COLORS.trim);
       if (split) {
-        // split pages are cut at the fold: its trim line, and the bleed edges that become each page's inner image edge
+        // split pages are cut at the fold (their inner bleed edge is drawn after the split, see guideEdge)
         const cx = list.boxes.trim.x + list.boxes.trim.w / 2;
         const vline = (x: number) => { g.beginPath(); g.moveTo(x, t.y); g.lineTo(x, t.y + t.h); g.stroke(); };
         vline(cx);
-        if (bleedShown) {
-          g.strokeStyle = GUIDE_COLORS.bleed;
-          g.setLineDash([0.8, 0.8]);
-          vline(cx - info.geom.bleed + glw / 2);
-          vline(cx + info.geom.bleed - glw / 2);
-          g.setLineDash([]);
-        }
       }
     }
   }
