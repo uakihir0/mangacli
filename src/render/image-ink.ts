@@ -1,11 +1,15 @@
+import { linearToSrgb, srgbToLinear } from "../core/color.js";
+
 /** Separate narrow dark (1) and light (2) ridges from continuous tones. */
-export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number, dpi: number): Uint8Array {
+export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number, dpi: number, toneCurve: "linear" | "perceptual" = "linear"): Uint8Array {
   const gray = new Float32Array(width * height);
   const mask = new Uint8Array(width * height);
   for (let i = 0; i < gray.length; i++) {
     const a = rgba[i * 4 + 3] / 255;
-    gray[i] = 1 - a + a * (0.2126 * rgba[i * 4] + 0.7152 * rgba[i * 4 + 1] + 0.0722 * rgba[i * 4 + 2]) / 255;
+    const lin = 0.2126 * srgbToLinear(rgba[i * 4] / 255) + 0.7152 * srgbToLinear(rgba[i * 4 + 1] / 255) + 0.0722 * srgbToLinear(rgba[i * 4 + 2] / 255);
+    gray[i] = 1 - a + a * (toneCurve === "perceptual" ? linearToSrgb(lin) : lin);
   }
+  const midpoint = toneCurve === "perceptual" ? 0.5 : srgbToLinear(0.5);
   const radius = Math.max(2, Math.round(dpi * 0.24 / 25.4));
   const minLength = dpi * 1.5 / 25.4;
   const maxGap = Math.max(1, Math.round(dpi * 0.16 / 25.4));
@@ -20,10 +24,10 @@ export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number
         const y0 = y - dy * radius, y1 = y + dy * radius;
         if (x0 < 0 || x1 >= width || y0 < 0 || y0 >= height || y1 < 0 || y1 >= height) continue;
         const a = gray[y0 * width + x0], b = gray[y1 * width + x1];
-        if (v <= 0.5 && Math.min(a, b) - v >= 0.12) {
+        if (v <= midpoint && Math.min(a, b) - v >= 0.12) {
           candidates[i] = 1;
         }
-        if (v > 0.5 && v - Math.max(a, b) >= 0.12) {
+        if (v > midpoint && v - Math.max(a, b) >= 0.12) {
           candidates[i] = 2;
         }
       }
@@ -43,7 +47,7 @@ export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number
             if (start >= 0 && length * step >= minLength && count / length >= 0.85) {
               for (let p = start; p <= last; p++) {
                 const i = ray[p];
-                if ((gray[i] <= 0.5) === (polarity === 1)) mask[i] = polarity;
+                if ((gray[i] <= midpoint) === (polarity === 1)) mask[i] = polarity;
               }
             }
             start = last = -1;

@@ -4,6 +4,18 @@ import { render } from "../src/api.js";
 import { imageInkMask } from "../src/render/image-ink.js";
 
 describe("print image ink preservation", () => {
+  it.each(["linear", "perceptual"] as const)("does not classify an isoluminant red line as ink (%s)", (toneCurve) => {
+    const width = 96;
+    const rgba = new Uint8Array(width * width * 4);
+    for (let y = 0; y < width; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = (y * width + x) * 4;
+        rgba.set(y === 40 ? [255, 0, 0, 255] : [127, 127, 127, 255], i);
+      }
+    }
+    expect(imageInkMask(rgba, width, width, 324, toneCurve).some(Boolean)).toBe(false);
+  });
+
   it("rejects noisy and blobby midtone texture", () => {
     const width = 192;
     for (const blobs of [false, true]) {

@@ -687,7 +687,7 @@ export class RasterBackend {
     octx.drawImage(tmp, 0, 0);
     const od = octx.getImageData(0, 0, r.w, r.h);
     const dd = od.data;
-    const inkMask = mono && !n.lineart && dev.opts.monoImages !== "dither" ? imageInkMask(dd, r.w, r.h, dev.opts.dpi) : null;
+    const inkMask = mono && !n.lineart && dev.opts.monoImages !== "dither" ? imageInkMask(dd, r.w, r.h, dev.opts.dpi, dev.opts.toneCurve) : null;
     let curDensity = 0;
     // density map for edge-aware screening
     const dens = new Float32Array(r.w * r.h);
