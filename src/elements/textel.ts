@@ -274,16 +274,23 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   }
   if (!pathSpec && style.letterSpacing < 0) {
     let end: number | undefined;
+    let previousUnit = -1;
+    let previousOffset = 0;
     for (const unit of units) {
       const indices = tl.glyphs.flatMap((g, i) => g.unit === unit ? [i] : []);
       const points = indices.flatMap(i => flattenPath(paths[i], 0.05).flatMap(c => c.pts));
       if (!points.length) continue;
       const bb = boundsOf(points);
       const start = vertical ? bb.y : bb.x;
-      const spacing = isSmallKana(unitChars[idxOf.get(unit)!]) ? 0.04 : Math.max(0.03, style.letterSpacing);
-      const delta = end === undefined ? 0 : end + spacing * em - start;
+      const index = idxOf.get(unit)!;
+      const spacing = isSmallKana(unitChars[index]) ? 0.04 : Math.max(0.03, style.letterSpacing);
+      const space = parsed.units.slice(previousUnit + 1, unit).reduce((sum, u) => sum + (u.kind === "space" ? u.em * (u.style.size ?? 1) * em : 0), 0);
+      const offset = vertical ? perCharT[index].jy : perCharT[index].jx;
+      const delta = end === undefined ? 0 : end + spacing * em + space + offset - previousOffset - start;
       for (const i of indices) paths[i] = transformPath(paths[i], matTranslate(vertical ? 0 : delta, vertical ? delta : 0));
       end = start + delta + (vertical ? bb.h : bb.w);
+      previousUnit = unit;
+      previousOffset = offset;
     }
   }
   let footprintScale = 1;

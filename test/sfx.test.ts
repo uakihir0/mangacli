@@ -107,6 +107,23 @@ describe("SFX lettering", () => {
     const result = await renderer.render(input("", ""), { format: "svg" });
     expect(result.diagnostics.filter(d => d.severity === "error")).toEqual([]);
   });
+  it.each(["vertical", "horizontal"])("preserves explicit spaces and along-axis character offsets in %s SFX", async writing => {
+    const boxes = async (text: string, chars = "[]") => {
+      const list = await renderer.displayList(input(`writing: ${writing}, rotate: 0deg, grow: 0, brush: false, perChar: { rotate: 0deg, jitter: 0mm }, chars: ${chars}`, text), 1);
+      const result: ReturnType<typeof boundsOf>[] = [];
+      const walk = (node: Node) => {
+        if (node.kind === "group") node.children.forEach(walk);
+        if (node.kind === "path" && node.tag?.elementId === "sfx" && node.stroke) result.push(boundsOf(flattenPath(node.path, 0.01).flatMap(c => c.pts)));
+      };
+      walk(list.root);
+      return result;
+    };
+    const gap = (b: Awaited<ReturnType<typeof boxes>>) => writing === "vertical" ? b[1].y - b[0].y - b[0].h : b[1].x - b[0].x - b[0].w;
+    const baseline = gap(await boxes("ドド"));
+    expect(gap(await boxes("ド<space=2/>ド")) - baseline).toBeCloseTo(20);
+    const offset = writing === "vertical" ? "[0mm, 5mm]" : "[5mm, 0mm]";
+    expect(gap(await boxes("ドド", `[{ index: 1, offset: ${offset} }]`)) - baseline).toBeCloseTo(5);
+  });
   it("rejects invalid small-kana scales", async () => {
     const result = await renderer.validate(input("smallKanaScale: -1"));
     expect(result.ok).toBe(false);
