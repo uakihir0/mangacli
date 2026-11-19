@@ -584,7 +584,10 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         if (finish && needRaster && !run.list) full = { ...full, ...(await applyFinish(full, finish, { dpi, colorMode: colorMode as "color", seed: resolved.seed, bag })) };
         if (options.debug) drawDebug(full, list, info, dpi, crop, options.debug, prof.marks?.margin ?? 10);
         // spreads: one joined image, or two pages each with bleed on all sides (spec 10.9)
-        const parts: { raster: { data: Uint8ClampedArray; width: number; height: number }; side: string; nombre: number | null }[] = [];
+        const trimWidth = Math.round((geom.trimW * dpi) / 25.4 + 1e-6);
+        const trimHeight = Math.round((geom.trimH * dpi) / 25.4 + 1e-6);
+        const fullTrim = { x: Math.round((full.width - trimWidth) / 2), y: Math.round((full.height - trimHeight) / 2), w: trimWidth, h: trimHeight };
+        const parts: { raster: { data: Uint8ClampedArray; width: number; height: number }; trim: typeof fullTrim; side: string; nombre: number | null }[] = [];
         const splitSvg = geom.type === "spread" && spreadMode === "split";
         if (splitSvg && needRaster) {
           const trimPx = Math.round((geom.trimW * dpi) / 25.4 + 1e-6);
@@ -598,18 +601,18 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
             for (let y = 0; y < full.height; y++) out.set(full.data.subarray((y * full.width + x0) * 4, (y * full.width + x0 + w) * 4), y * w * 4);
             return { data: out, width: w, height: full.height };
           };
-          const left = { raster: slice(0, leftW), side: "left" };
+          const left = { raster: slice(0, leftW), trim: { ...fullTrim, w: half }, side: "left" };
           const rightW = inner + (trimPx - half) + edge;
-          const right = { raster: slice(full.width - rightW, rightW), side: "right" };
+          const right = { raster: slice(full.width - rightW, rightW), trim: { ...fullTrim, x: fullTrim.x + half - (full.width - rightW), w: trimPx - half }, side: "right" };
           const first = geom.rtl ? right : left;
           const second = geom.rtl ? left : right;
           parts.push({ ...first, nombre: pl.nombre }, { ...second, nombre: pl.nombre === null ? null : pl.nombre + 1 });
         } else if (splitSvg) {
           parts.push(
-            { raster: full, side: geom.rtl ? "right" : "left", nombre: pl.nombre },
-            { raster: full, side: geom.rtl ? "left" : "right", nombre: pl.nombre === null ? null : pl.nombre + 1 },
+            { raster: full, trim: fullTrim, side: geom.rtl ? "right" : "left", nombre: pl.nombre },
+            { raster: full, trim: fullTrim, side: geom.rtl ? "left" : "right", nombre: pl.nombre === null ? null : pl.nombre + 1 },
           );
-        } else parts.push({ raster: full, side: geom.side, nombre: pl.nombre });
+        } else parts.push({ raster: full, trim: fullTrim, side: geom.side, nombre: pl.nombre });
         for (const part of parts)
         for (const fmt of formats) {
           const raster = part.raster;
@@ -620,10 +623,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
               pw = { writer: new PdfWriter({ title: typeof meta.title === "string" ? meta.title : undefined, author: typeof meta.author === "string" ? meta.author : undefined, date: sde ? new Date(Number(sde) * 1000) : undefined }), colorMode, dpi };
               pdfs.set(key, pw);
             }
-            const trimH = Math.round((geom.trimH * dpi) / 25.4 + 1e-6);
-            const edge = Math.round((raster.height - trimH) / 2);
             const bleedPx = crop === "trim" ? 0 : Math.round((geom.bleed * dpi) / 25.4 + 1e-6);
-            const trim = { x: edge, y: edge, w: raster.width - 2 * edge, h: raster.height - 2 * edge };
+            const trim = part.trim;
             pw.writer.addPage({ rgba: raster.data, width: raster.width, height: raster.height, dpi, colorMode: (options.debug ? "color" : colorMode) as "color", transparent: transparentOut || !!run.list, trim, bleed: { x: trim.x - bleedPx, y: trim.y - bleedPx, w: trim.w + 2 * bleedPx, h: trim.h + 2 * bleedPx } });
             continue;
           }

@@ -80,6 +80,36 @@ describe("rendering", () => {
     expect(svg).toContain("<svg");
     expect(svg).toContain('width="60mm"');
   });
+  it.each(["marks", "bleed", "trim"] as const)("preserves per-side PDF boxes with %s crop", async (crop) => {
+    const source = "mangacli: 1\npage: { size: B5, bleed: 3mm }\npages:\n  - id: single\n    panels: [{}]\n  - id: spread\n    type: spread\n    panels: [{}]\n";
+    for (const spread of ["split", "joined"] as const) {
+      const r = await render(yaml(source), { profile: "print-mono", dpi: 254, format: "pdf", crop, spread });
+      const pdf = Buffer.from(r.pages[0].data).toString("latin1");
+      const pages = [...pdf.matchAll(/\/MediaBox \[([^\]]+)\] \/TrimBox \[([^\]]+)\] \/BleedBox \[([^\]]+)\]/g)];
+      const images = [...pdf.matchAll(/\/Subtype \/Image \/Width (\d+) \/Height (\d+)/g)];
+      expect(pages).toHaveLength(spread === "split" ? 3 : 2);
+      expect(images).toHaveLength(pages.length);
+      const bleed = crop === "trim" ? 0 : 3;
+      const outer = bleed + (crop === "marks" ? 10 : 0);
+      pages.forEach((page, i) => {
+        const media = page[1].split(" ").map(Number);
+        const trim = page[2].split(" ").map(Number);
+        const box = page[3].split(" ").map(Number);
+        const width = spread === "joined" && i === 1 ? 364 : 182;
+        const left = spread === "split" && i === 1 ? bleed : outer;
+        const right = spread === "split" && i === 2 ? bleed : outer;
+        const pt = (mm: number) => mm * 72 / 25.4;
+        const expected = [left, outer, left + width, outer + 257];
+        expected.forEach((v, j) => expect(trim[j]).toBeCloseTo(pt(v), 2));
+        [left - bleed, outer - bleed, left + width + bleed, outer + 257 + bleed]
+          .forEach((v, j) => expect(box[j]).toBeCloseTo(pt(v), 2));
+        [0, 0, left + width + right, 257 + 2 * outer]
+          .forEach((v, j) => expect(media[j]).toBeCloseTo(pt(v), 2));
+        expect(media[2]).toBeCloseTo(Number(images[i][1]) * 72 / 254, 2);
+        expect(media[3]).toBeCloseTo(Number(images[i][2]) * 72 / 254, 2);
+      });
+    }
+  });
   it("throws on errors by default", async () => {
     await expect(render(yaml("mangacli: 1\npages:\n  - panels:\n      - layers:\n          - balloon: x\n            at: nowhere\n"))).rejects.toThrow();
   });
