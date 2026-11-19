@@ -1317,7 +1317,7 @@ function checkTextSafety(items: Item[], geom: PageGeom, bag: DiagnosticBag, page
       bag.warn("TEXT_OUTSIDE_SAFE_AREA", `${it.el.id} extends outside the safe area`, { path: it.el.path, elementId: it.el.id, pageId: page.id });
     }
     if (geom.type === "spread") {
-      const fm = page.settings.foldMargin !== undefined ? toMm(page.settings.foldMargin as string, geom.units) : 10;
+      const fm = geom.foldMargin;
       const cx = geom.trimW / 2;
       if (b.x < cx + fm && b.x + b.w > cx - fm) bag.warn("TEXT_NEAR_FOLD", `${it.el.id} is near the spread fold`, { path: it.el.path, elementId: it.el.id });
     }

@@ -74,7 +74,7 @@ pages:
 mangacli render <file> [-p print-mono|print-gray|print-color|web|sns|preview|draft] [-o out] [--pages 1-3]
 mangacli validate <file> [--strict] [--reporter text|json|github]
 mangacli watch <file>                  # 保存のたびに描き直す
-mangacli preview <file> [--open]       # ブラウザでライブプレビュー（127.0.0.1:4173）
+mangacli preview <file> [--open] [--guides] # ブラウザでライブプレビュー（127.0.0.1:4173）
 mangacli init [dir] [--template basic|b5-mono|sns-color|yonkoma]
 mangacli fonts install [--set manga-basic] [--for manga.yaml] [--dir ./fonts]
 mangacli fonts list [--catalog]

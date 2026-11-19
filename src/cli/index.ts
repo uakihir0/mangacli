@@ -478,16 +478,26 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
   const entry = resolve(file);
   const port = o.port !== undefined ? Number(o.port) : 4173;
   const host = (o.host as string) ?? "127.0.0.1";
-  let pages: { id: string; data: Uint8Array; mime: string; ext: string }[] = [];
+  type PreviewPage = { id: string; data: Uint8Array; mime: string; ext: string };
+  let pages: PreviewPage[] = [];
   let diags: Diagnostic[] = [];
   let version = 0;
+  // pages with the safe line and fold band drawn on top, rendered on first request per version
+  let guided: { version: number; pages: Promise<PreviewPage[]> } | undefined;
   const clients = new Set<import("node:http").ServerResponse>();
+  const renderPages = async (debug?: string[]) => {
+    const opts = await renderOptions({ ...o, profile: o.profile ?? "preview" }, file);
+    if (debug) opts.debug = Array.isArray(opts.debug) ? [...new Set([...opts.debug, ...debug])] : (opts.debug ?? debug);
+    const r = await render(entry, opts);
+    return { pages: r.pages.map((p) => ({ id: p.id, data: p.data, mime: p.mimeType, ext: p.format })), diags: r.diagnostics };
+  };
+  const guidedPages = () => {
+    if (guided?.version !== version) guided = { version, pages: renderPages(["guides"]).then((r) => r.pages, () => pages) };
+    return guided.pages;
+  };
   const build = async () => {
     try {
-      const opts = await renderOptions({ ...o, profile: o.profile ?? "preview" }, file);
-      const r = await render(entry, opts);
-      pages = r.pages.map((p) => ({ id: p.id, data: p.data, mime: p.mimeType, ext: p.format }));
-      diags = r.diagnostics;
+      ({ pages, diags } = await renderPages());
     } catch (e) {
       diags = [{ code: "RENDER_FAILED", severity: "error", message: (e as Error).message }];
     }
@@ -497,14 +507,19 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
     log("info", `${paint("2", new Date().toLocaleTimeString())} ${pages.length} page(s)${errors ? `, ${errors} error(s)` : ""}${warnings ? `, ${warnings} warning(s)` : ""}`);
   };
   const html = () => `<!doctype html><meta charset="utf-8"><title>mangacli preview</title>
-<style>body{margin:0;background:#3a3a3a;font:13px system-ui;color:#ddd}header{padding:8px 12px;background:#222;position:sticky;top:0}
+<style>body{margin:0;background:#3a3a3a;font:13px system-ui;color:#ddd}header{padding:8px 12px;background:#222;position:sticky;top:0;display:flex;gap:16px;align-items:center}header label{margin-left:auto;cursor:pointer}
 main{display:flex;flex-wrap:wrap;flex-direction:row-reverse;gap:16px;padding:16px;justify-content:center}figure{margin:0}
 img{max-height:85vh;box-shadow:0 2px 12px #0008;background:#fff}figcaption{text-align:center;padding:4px}
 .d{padding:2px 12px}.error{color:#ff8080}.warning{color:#ffd480}</style>
-<header>${esc(relative(process.cwd(), entry))} — ${pages.length} page(s)</header>
+<header>${esc(relative(process.cwd(), entry))} — ${pages.length} page(s)
+<label title="${esc(t("安全領域の線と見開き中央の危険帯を重ねて表示", "Overlay the safe line and the spread fold danger band"))}"><input type="checkbox" id="guides"> ${esc(t("ガイド（安全線・ノド）", "Guides (safe line, fold)"))}</label></header>
 <section>${diags.filter((d) => d.severity !== "info").map((d) => `<div class="d ${d.severity}">${esc(d.code)} ${d.location ? `${d.location.line}:${d.location.column} ` : ""}${esc(d.message)}</div>`).join("")}</section>
-<main>${pages.map((p, i) => `<figure><img src="/page/${i}.${p.ext}?v=${version}"><figcaption>${i + 1} · ${esc(p.id)}</figcaption></figure>`).join("")}</main>
-<script>new EventSource("/events").onmessage=()=>location.reload()</script>`;
+<main>${pages.map((p, i) => `<figure><img data-src="/page/${i}.${p.ext}?v=${version}"><figcaption>${i + 1} · ${esc(p.id)}</figcaption></figure>`).join("")}</main>
+<script>const box=document.getElementById("guides"),saved=localStorage.getItem("mangacli-guides");
+box.checked=saved===null?${o.guides ? "true" : "false"}:saved==="1";
+const show=()=>{for(const img of document.querySelectorAll("img[data-src]"))img.src=img.dataset.src+(box.checked?"&guides=1":"")};
+box.onchange=()=>{localStorage.setItem("mangacli-guides",box.checked?"1":"0");show()};show();
+new EventSource("/events").onmessage=()=>location.reload()</script>`;
   const esc = (x: string) => x.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://x");
@@ -517,9 +532,13 @@ img{max-height:85vh;box-shadow:0 2px 12px #0008;background:#fff}figcaption{text-
     }
     const m = url.pathname.match(/^\/page\/(\d+)\.\w+$/);
     if (m && pages[Number(m[1])]) {
-      const p = pages[Number(m[1])];
-      res.writeHead(200, { "content-type": p.mime, "cache-control": "no-store" });
-      res.end(p.data);
+      const send = (p: PreviewPage | undefined) => {
+        if (!p) return void res.writeHead(404).end();
+        res.writeHead(200, { "content-type": p.mime, "cache-control": "no-store" });
+        res.end(p.data);
+      };
+      if (url.searchParams.get("guides") === "1") void guidedPages().then((g) => send(g[Number(m[1])]));
+      else send(pages[Number(m[1])]);
       return;
     }
     if (url.pathname === "/") {
@@ -891,6 +910,7 @@ renderOpts(cli.command("preview <file>", "Live preview in the browser"))
   .option("--port <n>", "Port (default 4173)")
   .option("--host <host>", "Host (default 127.0.0.1)")
   .option("--open", "Open the browser")
+  .option("--guides", "Start with the safe line and fold band overlay on")
   .action(wrap((file: string, o: Obj) => cmdPreview(file, o)));
 common(cli.command("schema", "Print the JSON Schema"))
   .option("--out <file>", "Write to a file")
