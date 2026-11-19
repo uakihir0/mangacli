@@ -4,10 +4,21 @@ const SMALL_KANA = new Set(Array.from("ぁぃぅぇぉっゃゅょゎゕゖァ�
 
 export const isSmallKana = (char: string): boolean => SMALL_KANA.has(char);
 
-export function sfxScale(index: number, count: number, char: string, grow?: number, smallKanaScale = 0.7): number {
-  const t = count > 1 ? index / (count - 1) : 1;
-  const ramp = grow === undefined ? 0.95 * (1 - t) + 1.3 * t : 1 + grow * index;
+export function fullSizeKana(char: string): string {
+  const small = Array.from("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ");
+  const full = Array.from("あいうえおつやゆよわかけアイウエオツヤユヨワカケクシストヌハヒフヘホムラリルレロ");
+  return full[small.indexOf(char)] ?? char;
+}
+
+export function sfxScale(index: number, count: number, char: string, grow?: number, smallKanaScale = 0.7, style: "impact" | "speed" = "impact"): number {
+  const t = count > 1 ? index / (count - 1) : style === "impact" ? 0 : 1;
+  const ramp = grow === undefined ? style === "impact" ? 1.3 * (1 - t) + 1.05 * t : 0.95 * (1 - t) + 1.3 * t : 1 + grow * index;
   return ramp * (SMALL_KANA.has(char) ? smallKanaScale : 1);
+}
+
+export function sfxWeightRadius(style: "impact" | "speed", smallScale = 1): number {
+  const body = style === "impact" ? 0.025 : 0.005;
+  return body + (0.08 + body) * (1 / smallScale - 1);
 }
 
 export function sfxShifts(scales: number[], em: number): number[] {

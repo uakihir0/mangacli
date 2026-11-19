@@ -16,8 +16,8 @@ import { type TextLayout, layoutText } from "../text/layout.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
 import { parseMarkup } from "../text/markup.js";
-import { isSmallKana, sfxScale, sfxShifts } from "../text/sfx.js";
-import { brushGlyph, type BrushSpec } from "../text/brush.js";
+import { fullSizeKana, isSmallKana, sfxScale, sfxShifts, sfxWeightRadius } from "../text/sfx.js";
+import { brushGlyph, emboldenGlyph, type BrushSpec } from "../text/brush.js";
 
 type Obj = Record<string, unknown>;
 
@@ -127,9 +127,11 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const rng = new Rng(el.seed);
   const vertical = style.writing === "vertical";
   const grow = typeof p.grow === "number" ? p.grow : undefined;
+  const brush = p.brush as BrushSpec | false | undefined;
+  const pressureStyle = brush && brush.style === "speed" ? "speed" : "impact";
   const pcs = (p.perChar ?? {}) as Obj;
   const rotR = toRange(pcs.rotate as never, (x) => parseAngle(x as string), { min: -0.1, max: 0.1, dist: "uniform" });
-  const scR = toRange(pcs.scale as never, (x) => Number(x), { min: 0.96, max: 1.06, dist: "uniform" });
+  const scR = toRange(pcs.scale as never, (x) => Number(x), { min: 1, max: 1, dist: "uniform" });
   const jitter = pcs.jitter !== undefined ? toMm(pcs.jitter as string, u) : 0;
   const chars = Array.isArray(p.chars) ? (p.chars as Obj[]) : [];
   // group glyphs by unit (char index order)
@@ -144,7 +146,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   let fullIndex = -1;
   const scales = units.map((_, i) => {
     if (!isSmallKana(unitChars[i])) fullIndex++;
-    return sfxScale(grow === undefined ? Math.max(0, fullIndex) : i, grow === undefined ? fullCount : units.length, unitChars[i], grow, p.smallKanaScale as number | undefined) * rng.range(scR.min, scR.max);
+    return sfxScale(grow === undefined ? Math.max(0, fullIndex) : i, grow === undefined ? fullCount : units.length, unitChars[i], grow, p.smallKanaScale as number | undefined, pressureStyle) * rng.range(scR.min, scR.max);
   });
   const shift = sfxShifts(scales, em);
   const acc = scales.reduce((sum, scale) => sum + (scale - 1) * em, 0);
@@ -164,7 +166,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     const ov = chars.find((c) => c.index === i);
     const r = ov?.rotate !== undefined ? parseAngle(ov.rotate as string) : rng.range(rotR.min, rotR.max);
     const s = scales[i] * (typeof ov?.scale === "number" ? (ov.scale as number) : 1);
-    const perpendicular = pcs.jitter === undefined ? rng.range(-0.08, 0.08) * em : 0;
+    const perpendicular = pcs.jitter === undefined ? rng.range(-0.015, 0.015) * em : 0;
     const jx = rng.range(-jitter, jitter) + (vertical ? perpendicular : 0) + (Array.isArray(ov?.offset) ? toMm(ov!.offset[0] as string, u) : 0);
     const jy = rng.range(-jitter, jitter) + (vertical ? 0 : perpendicular) + (Array.isArray(ov?.offset) ? toMm(ov!.offset[1] as string, u) : 0);
     void uu;
@@ -225,7 +227,15 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     const cy = g.cy;
     const cv = curveAt(along(g, i));
     const m = matMul(matTranslate(cx + t.jx + (vertical ? 0 : sh) + cv.dx, cy + t.jy + (vertical ? sh : 0) + cv.dy), matMul(matRotate(t.r + cv.ang), matMul(matScale(t.s), matTranslate(-cx, -cy))));
-    let path = transformPath(brushGlyph(g.path, em, el.seed ^ Math.imul(i + 1, 0x45d9f3b), p.brush as BrushSpec | false | undefined), m);
+    const small = isSmallKana(unitChars[i]);
+    let source = g.path;
+    if (small) {
+      const full = layoutText(fullSizeKana(unitChars[i]), { ...style, lettering: null, smallKanaFix: false }, ctx.fonts).glyphs;
+      if (full.length) source = transformPath(full.flatMap(g => g.path), matTranslate(cx - full[0].cx, cy - full[0].cy));
+    }
+    const smallScale = typeof p.smallKanaScale === "number" ? p.smallKanaScale : 0.7;
+    source = emboldenGlyph(source, em, sfxWeightRadius(pressureStyle, small ? smallScale : 1) * em);
+    let path = transformPath(brushGlyph(source, em, el.seed ^ Math.imul(i + 1, 0x45d9f3b), brush), m);
     // distort: flatten -> displace
     if (warp > 0 || roughen > 0 || skew || persp || bulge) {
       const polys = flattenPath(path, 0.05 * u.k);

@@ -1,8 +1,8 @@
 import { noise2 } from "../core/random.js";
-import { flattenPath, polyPath, type PathData } from "../geom/path.js";
+import { flattenPath, offsetPolygon, polyPath, type PathData } from "../geom/path.js";
 import type { Vec } from "../geom/vec.js";
 
-export interface BrushSpec { taper?: number; entry?: number; wobble?: number }
+export interface BrushSpec { style?: "impact" | "speed"; taper?: number; entry?: number; wobble?: number }
 export interface BrushTerminal { edge: number; width: number; direction: Vec; kind: "entry" | "exit" }
 const sub = (a: Vec, b: Vec): Vec => ({ x: a.x - b.x, y: a.y - b.y });
 const length = (a: Vec): number => Math.hypot(a.x, a.y);
@@ -82,17 +82,17 @@ function brushDab(pts: Vec[], em: number, taper: number): Vec[] | undefined {
   if (!taper || pts.some((p, i) => sign * cross(sub(p, pts[(i + pts.length - 1) % pts.length]), sub(pts[(i + 1) % pts.length], p)) < -1e-7)) return pts;
   const strength = Math.min(1, taper);
   const result = offsets.map((p, i) => {
-    const t = (alongs[i] - lo) / (hi - lo);
+    const t = Math.max(0, ((alongs[i] - lo) / (hi - lo) - 0.82) / 0.18);
     const w = dot(p, across) * (1 - 0.3 * strength * t * t);
     return { x: center.x + axis.x * alongs[i] + across.x * w, y: center.y + axis.y * alongs[i] + across.y * w };
   });
-  result.push({ x: center.x + axis.x * (hi + width * 0.15 * strength), y: center.y + axis.y * (hi + width * 0.15 * strength) });
+  result.push({ x: center.x + axis.x * (hi + width * 0.05 * strength), y: center.y + axis.y * (hi + width * 0.05 * strength) });
   return hull(result);
 }
 
 export function brushGlyph(path: PathData, em: number, seed: number, spec: BrushSpec | false = {}): PathData {
   if (spec === false || em <= 0 || !path.length) return path;
-  const { taper = 1, entry = 1, wobble = 0.04 } = spec;
+  const { style = "impact", taper = 1, entry = style === "impact" ? 1 : 0.35, wobble = style === "impact" ? 0.01 : 0.04 } = spec;
   if (!taper && !entry && !wobble) return path;
   const output: PathData = [];
   const contours = flattenPath(path, em * 0.002);
@@ -134,22 +134,23 @@ export function brushGlyph(path: PathData, em: number, seed: number, spec: Brush
       if (terminal.kind === "exit" && taper) {
         const amount = Math.min(1, taper);
         for (const [k, step] of [[i, -1], [j, 1]]) {
-          const lead = sideLength(pts, k, step) * 0.25;
+          const lead = sideLength(pts, k, step) * (style === "impact" ? 0.18 : 0.25);
           let distance = 0;
           for (let q = 0; q < n && distance < lead; q++) {
             const index = (k + step * q + n) % n, relative = sub(pts[index], mid);
             const weight = (1 - distance / lead) ** 2 * amount;
             const transverse = { x: relative.x - d.x * dot(relative, d), y: relative.y - d.y * dot(relative, d) };
-            changes[index].x += (-transverse.x + d.x * w * 0.5 * taper * pressure) * weight;
-            changes[index].y += (-transverse.y + d.y * w * 0.5 * taper * pressure) * weight;
+            const extension = Math.min(0.3, (style === "impact" ? 0.25 : 0.3) * taper * pressure);
+            changes[index].x += (-transverse.x + d.x * w * extension) * weight;
+            changes[index].y += (-transverse.y + d.y * w * extension) * weight;
             waveScale[index] *= 1 - weight;
             distance += length(sub(pts[(index + step + n) % n], pts[index]));
           }
         }
       } else if (terminal.kind === "entry" && entry) {
         const tangent = sub(b, a);
-        spread(i, -1, { x: -tangent.x * 0.07 * entry + d.x * w * 0.12 * entry, y: -tangent.y * 0.07 * entry + d.y * w * 0.12 * entry }, Math.min(sideLength(pts, i, -1) * 0.25, w * 2));
-        spread(j, 1, { x: tangent.x * 0.07 * entry - d.x * w * 0.08 * entry, y: tangent.y * 0.07 * entry - d.y * w * 0.08 * entry }, Math.min(sideLength(pts, j, 1) * 0.25, w * 2));
+        spread(i, -1, { x: -tangent.x * 0.07 * entry + d.x * w * 0.12 * entry, y: -tangent.y * 0.07 * entry + d.y * w * 0.12 * entry }, Math.min(sideLength(pts, i, -1) * 0.18, w));
+        spread(j, 1, { x: tangent.x * 0.07 * entry - d.x * w * 0.08 * entry, y: tangent.y * 0.07 * entry - d.y * w * 0.08 * entry }, Math.min(sideLength(pts, j, 1) * 0.18, w));
       }
     }
     const out: Vec[] = [];
@@ -167,4 +168,45 @@ export function brushGlyph(path: PathData, em: number, seed: number, spec: Brush
     output.push(...polyPath(corners(out), true));
   }
   return output;
+}
+
+export function emboldenGlyph(path: PathData, em: number, radius: number): PathData {
+  if (radius <= 0 || em <= 0) return path;
+  const contours = flattenPath(path, em * 0.002);
+  const outer = contours.reduce((largest, c) => Math.abs(area(c.pts)) > Math.abs(largest) ? area(c.pts) : largest, 0);
+  const shapes = contours.map(c => ({ ...c, pts: corners(c.pts) }));
+  const nearest = (a: Vec[], b: Vec[]) => {
+    let distance = Infinity, delta = { x: 0, y: 0 };
+    for (const [from, to, sign] of [[a, b, 1], [b, a, -1]] as const) for (const p of from) for (let i = 0; i < to.length; i++) {
+      const q = to[i], edge = sub(to[(i + 1) % to.length], q);
+      const t = Math.max(0, Math.min(1, dot(sub(p, q), edge) / Math.max(1e-12, dot(edge, edge))));
+      const d = sub(p, { x: q.x + edge.x * t, y: q.y + edge.y * t });
+      if (length(d) < distance) { distance = length(d); delta = { x: d.x * sign, y: d.y * sign }; }
+    }
+    return { distance, delta };
+  };
+  const offsets = shapes.map(() => ({ x: 0, y: 0 }));
+  const pairs: { i: number; j: number; distance: number; delta: Vec }[] = [];
+  for (let i = 0; i < shapes.length; i++) for (let j = i + 1; j < shapes.length; j++) {
+    const a = shapes[i], b = shapes[j];
+    if (!a.closed || !b.closed || winding(a.pts) !== Math.sign(outer) || winding(b.pts) !== Math.sign(outer)) continue;
+    const { distance, delta } = nearest(a.pts, b.pts);
+    if (distance > 1e-8) pairs.push({ i, j, distance, delta });
+  }
+  for (let pass = 0; pass < 4; pass++) for (const { i, j, distance, delta } of pairs) {
+    const a = shapes[i], b = shapes[j];
+    const axis = { x: delta.x / distance, y: delta.y / distance };
+    const gap = distance + dot(sub(offsets[i], offsets[j]), axis);
+    const clearance = radius * 2 + em * 0.04;
+    if (gap >= clearance) continue;
+    const moveA = Math.abs(area(a.pts)) < Math.abs(area(b.pts));
+    const target = offsets[moveA ? i : j], amount = (clearance - gap) * (moveA ? 1 : -1);
+    target.x += axis.x * amount;
+    target.y += axis.y * amount;
+  }
+  return shapes.flatMap((c, i) => {
+    const pts = c.pts.map(p => ({ x: p.x + offsets[i].x, y: p.y + offsets[i].y }));
+    if (!c.closed || pts.length < 3) return polyPath(pts, c.closed);
+    return polyPath(offsetPolygon(pts, winding(pts) === Math.sign(outer) ? radius : -radius), true);
+  });
 }

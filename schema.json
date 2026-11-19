@@ -4021,6 +4021,13 @@
                             {
                               "type": "object",
                               "properties": {
+                                "style": {
+                                  "type": "string",
+                                  "enum": [
+                                    "impact",
+                                    "speed"
+                                  ]
+                                },
                                 "taper": {
                                   "type": "number",
                                   "minimum": 0,

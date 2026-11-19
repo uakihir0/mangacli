@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createRenderer } from "../src/api.js";
 import { BUILTIN_DEFAULTS } from "../src/model/defaults.js";
-import { sfxScale, sfxShifts } from "../src/text/sfx.js";
-import { flattenPath } from "../src/geom/path.js";
+import { fullSizeKana, sfxScale, sfxShifts, sfxWeightRadius } from "../src/text/sfx.js";
+import { emboldenGlyph } from "../src/text/brush.js";
+import { flattenPath, polyPath, transformPath } from "../src/geom/path.js";
 import { boundsOf } from "../src/geom/vec.js";
 import type { Node, PathNode } from "../src/render/ir.js";
 
@@ -16,11 +17,21 @@ pages:
 `, filename: "/v/sfx.yaml" });
 
 describe("SFX lettering", () => {
-  it("ramps from 95% to 130%, with a strong singleton", () => {
-    expect([0, 1, 2].map(i => sfxScale(i, 3, "ド"))).toEqual([0.95, 1.125, 1.3]);
+  it("accents the head for impact and grows toward the stop for speed without random scale", () => {
+    expect([0, 1, 2].map(i => sfxScale(i, 3, "ド"))).toEqual([1.3, 1.175, 1.05]);
+    expect([0, 1, 2].map(i => sfxScale(i, 3, "ド", undefined, 0.7, "speed"))).toEqual([0.95, 1.125, 1.3]);
     expect(sfxScale(0, 1, "ド")).toBe(1.3);
     expect(sfxScale(2, 3, "ド", 0)).toBe(1);
     expect(sfxScale(2, 3, "ド", 0.2)).toBe(1.4);
+  });
+  it.each(["impact", "speed"] as const)("compensates small-kana stroke weight in %s", style => {
+    expect(fullSizeKana("ッ")).toBe("ツ");
+    expect(fullSizeKana("ゃ")).toBe("や");
+    expect(fullSizeKana("ン")).toBe("ン");
+    const stroke = polyPath([{ x: 0, y: 0 }, { x: 1.6, y: 0 }, { x: 1.6, y: 10 }, { x: 0, y: 10 }], true);
+    const width = (scale: number) => boundsOf(flattenPath(transformPath(emboldenGlyph(stroke, 10, sfxWeightRadius(style, scale) * 10), [scale, 0, 0, scale, 0, 0])).flatMap(c => c.pts)).w;
+    expect(width(0.7)).toBeCloseTo(width(1));
+    expect(BUILTIN_DEFAULTS.sfx.perChar).toEqual({ rotate: ["-3deg", "3deg"] });
   });
   it.each(Array.from("ッっャュョゃゅょァィゥェォヵヶ"))("shrinks small kana %s", char => {
     expect(sfxScale(0, 1, char)).toBeCloseTo(0.91);
@@ -63,11 +74,11 @@ describe("SFX lettering", () => {
     expect(fills).toHaveLength(3);
     expect(Math.max(...outlines)).toBeLessThan(Math.min(...fills));
     const widths = outlines.map(i => Number(paths[i].match(/stroke-width="([^"]+)"/)![1]));
-    expect(widths[1] / widths[0]).toBeCloseTo(1.3 / 0.95, 2);
+    expect(widths[1] / widths[0]).toBeCloseTo(1.05 / 1.3, 2);
     expect(widths[2] / widths[1]).toBeCloseTo(0.7, 2);
   });
   it.each(["vertical", "horizontal"].flatMap(writing => ["バンッ", "ダッ", "ブンッ", "ガシッ"].map(text => ({ writing, text }))))("limits small kana ink bbox overlap in $writing $text", async ({ writing, text }) => {
-    const list = await renderer.displayList(input(`writing: ${writing}`, text), 1);
+    const list = await renderer.displayList(input(`writing: ${writing}, rotate: 0deg`, text), 1);
     const paths: PathNode[] = [];
     const walk = (node: Node) => {
       if (node.kind === "group") node.children.forEach(walk);
@@ -105,5 +116,8 @@ describe("SFX lettering", () => {
     const b = await renderer.render(input("brush: { taper: 0, entry: 0, wobble: 0 }"), { format: "svg" });
     expect(a.pages[0].data).toEqual(b.pages[0].data);
     expect((await renderer.validate(input("brush: { taper: -1 }"))).ok).toBe(false);
+    expect((await renderer.validate(input("brush: { style: impact }"))).ok).toBe(true);
+    expect((await renderer.validate(input("brush: { style: speed }"))).ok).toBe(true);
+    expect((await renderer.validate(input("brush: { style: unknown }"))).ok).toBe(false);
   });
 });
