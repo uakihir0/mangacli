@@ -120,7 +120,8 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
   const maxSz = Array.isArray(p.maxSize) ? p.maxSize : ["70%", "70%"];
   const maxW = sizeValue(maxSz[0], ctx.coordsBox.w, pc);
   const maxH = sizeValue(maxSz[1], ctx.coordsBox.h, pc);
-  const minSz = Array.isArray(p.minSize) ? p.minSize : ["8bmm", "8bmm"];
+  const ellipse = params.kind === "ellipse" || params.kind === "flash";
+  const minSz = Array.isArray(p.minSize) ? p.minSize : ellipse ? ["auto", "auto"] : ["8bmm", "8bmm"];
   const minW = sizeValue(minSz[0], ctx.coordsBox.w, pc);
   const minH = sizeValue(minSz[1], ctx.coordsBox.h, pc);
   const overflow = (p.overflow as string) ?? (fixedSize ? "shrink" : "grow");
@@ -133,8 +134,8 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
     const style = resolveTextStyle({ ...p, fontScale: ((p.fontScale as number) ?? 1) * scale }, u, ctx.lang, true, el.seed);
     const emCtx = { ...u, em: style.fontSize };
     const pad = Array.isArray(p.padding) ? p.padding : ["0.45em", "0.9em"];
-    const padV = toMm(pad[0] as string, emCtx);
-    const padH = toMm(pad[1] as string, emCtx);
+    let padV = toMm(pad[0] as string, emCtx);
+    let padH = toMm(pad[1] as string, emCtx);
     let boxLimit: number | undefined;
     let fixedBase: { w: number; h: number } | undefined;
     if (fixedSize) {
@@ -162,6 +163,12 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
         tl = { ...tl, width: b.w, height: b.h, glyphs: tl.glyphs.map(g => ({ ...g, path: transformPath(g.path, matTranslate(-b.x, -b.y)) })) };
       }
     }
+    const compact = kind === "ellipse" && !fixedBase && tl.lines.length <= 1 && Math.max(tl.width, tl.height) <= style.fontSize * 3.5;
+    if (compact && (el.builtinProps?.includes("padding") ?? p.padding === undefined)) {
+      const inset = (extent: number) => Math.max(0, (extent / 2 + style.fontSize * 0.65) / Math.SQRT2 - extent / 2 - margin);
+      padV = Math.min(padV, inset(tl.height));
+      padH = Math.min(padH, inset(tl.width));
+    }
     // a size limit that forces breaks inside phrases: set the text smaller before breaking it badly
     if (boxLimit !== undefined && !fixedBase && scale > minFontScale + 1e-6 && attempt < 11 && breakFaults(tl, ctx.lang) > breakFaults(layoutText(text, style, ctx.fonts), ctx.lang)) {
       scale = Math.max(minFontScale, scale - 0.05);
@@ -175,6 +182,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       const fill = lens.reduce((a, b) => a + b, 0) / (L * maxL);
       const elong = Math.max(tl.width, tl.height) / Math.max(1e-6, Math.min(tl.width, tl.height));
       params.squareness = Math.max(0, Math.min(0.3, 0.03 * (L - 1) + (fill - 0.7) * 0.1 + (elong > 2.5 ? 0.25 : 0)));
+      if (compact) params.squareness = 0;
     }
     // points relative to text block center
     const cx = tl.width / 2;
@@ -202,9 +210,11 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       fits = withMargin.every((q) => pointInPolygon({ x: q.x + ic.x, y: q.y + ic.y }, body.inner));
     } else {
       let ar = (p.aspectRange as [number, number]) ?? [0.55, 1.8];
+      const defaultAspectRange = el.builtinProps?.includes("aspectRange") ?? p.aspectRange === undefined;
+      if (compact && defaultAspectRange) ar = [0.15, 6.7];
       // a box follows its text block; horizontal lines make wider balloons than vertical columns
       if (kind === "rect" || kind === "none") ar = [0.05, 20];
-      else if (style.writing === "horizontal") ar = [ar[0], Math.max(ar[1], 2.6)];
+      else if (style.writing === "horizontal" && defaultAspectRange) ar = [ar[0], Math.max(ar[1], 2.6)];
       const fixedAspect = typeof p.aspect === "number" ? p.aspect : undefined;
       base = fitBody(kind, params, shapeSeed, withMargin, fixedAspect, ar);
       body = genBody(kind, base.w, base.h, params, shapeSeed);
@@ -227,9 +237,10 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       }
       // minimum size last, so tightening cannot undo it
       let ob = boundsOf(body.contour.pts);
-      const gw = minW !== "auto" && ob.w < minW ? minW / ob.w : 1;
-      const gh = minH !== "auto" && ob.h < minH ? minH / ob.h : 1;
-      if (gw > 1 || gh > 1) {
+      for (let it = 0; it < 3; it++) {
+        const gw = minW !== "auto" && ob.w < minW ? minW / ob.w : 1;
+        const gh = minH !== "auto" && ob.h < minH ? minH / ob.h : 1;
+        if (gw <= 1 && gh <= 1) break;
         base = { w: base.w * gw, h: base.h * gh };
         body = genBody(kind, base.w, base.h, params, shapeSeed);
         ob = boundsOf(body.contour.pts);
@@ -365,6 +376,18 @@ interface TailCtx {
   rng: Rng;
 }
 
+function balloonTails(props: Obj): Obj[] {
+  return Array.isArray(props.tails) ? (props.tails as Obj[]) : isObj(props.tail) ? [props.tail as Obj] : [];
+}
+
+function offscreenTailSide(tail: Obj, props: Obj): string | undefined {
+  return tail.kind === "none" ? undefined : (tail.offscreen as string | undefined) ?? (props.as === "offscreen" ? "nearest" : undefined);
+}
+
+export function hasOffscreenTail(props: Obj): boolean {
+  return balloonTails(props).some((tail) => offscreenTailSide(tail, props) !== undefined);
+}
+
 function arcLengths(pts: Vec[]): number[] {
   const s = [0];
   for (let i = 1; i <= pts.length; i++) s.push(s[i - 1] + Math.hypot(pts[i % pts.length].x - pts[i - 1].x, pts[i % pts.length].y - pts[i - 1].y));
@@ -461,12 +484,13 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     let target: Vec | null = null;
     const who = plan.props.who as string | undefined;
     // `as: offscreen` without a side: the speaker is beyond the nearest panel edge
-    const offSide = (t.offscreen as string | undefined) ?? (plan.props.as === "offscreen" ? nearestSide(center, ctx.panel ? ctx.panel.box : ctx.coordsBox) : undefined);
+    const side = offscreenTailSide(t, plan.props);
+    const offSide = side === "nearest" ? nearestSide(center, ctx.panel?.box ?? ctx.coordsBox) : side;
+    const offscreenOvershoot = 4 * u.k;
     if (offSide) {
       const pb = ctx.panel ? ctx.panel.box : ctx.coordsBox;
-      const side = offSide;
-      const ext = 4 * u.k;
-      target = side === "right" ? { x: pb.x + pb.w + ext, y: center.y + (pb.y + pb.h / 2 - center.y) * 0.3 } : side === "left" ? { x: pb.x - ext, y: center.y } : side === "top" ? { x: center.x, y: pb.y - ext } : { x: center.x, y: pb.y + pb.h + ext };
+      const ext = offscreenOvershoot;
+      target = offSide === "right" ? { x: pb.x + pb.w + ext, y: center.y + (pb.y + pb.h / 2 - center.y) * 0.3 } : offSide === "left" ? { x: pb.x - ext, y: center.y } : offSide === "top" ? { x: center.x, y: pb.y - ext } : { x: center.x, y: pb.y + pb.h + ext };
     } else if (t.to !== undefined) target = resolvePoint(t.to, pc);
     else if (who) {
       target = ctx.refs.point(who, ctx.panel?.panel.id);
@@ -519,6 +543,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : Math.min(9 * u.k, Math.max(4.5 * u.k, minSide * 0.4));
     let length: number;
     if (t.length !== undefined) length = toMm(t.length as string, u);
+    else if (offSide && target) length = Math.min(maxLen, Math.hypot(target.x - R.x, target.y - R.y));
     else if (target) {
       const dist = Math.hypot(target.x - R.x, target.y - R.y);
       let avail = dist - gap;
@@ -552,10 +577,8 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       // a tail always reads as a pointer, even when the speaker's face is right beside the body
       length = Math.min(maxLen, Math.max(4.5 * u.k, avail));
     } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
-    // off-panel tails run past the frame and are cut by it
     // on a spiky body the tail must outreach the spikes to read as the pointer
     if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.15, 6 * u.k);
-    if (offSide && target) length = Math.hypot(target.x - R.x, target.y - R.y);
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
     // a wedge's base is a quarter to a third of the body, so the tail reads as a triangle at a glance
@@ -595,6 +618,9 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     }
     const ctrl = { x: (R.x + tip.x) / 2 + perp.x * bend * length * 0.5, y: (R.y + tip.y) / 2 + perp.y * bend * length * 0.5 };
     const tipBent = { x: tip.x + perp.x * bend * length * 0.25, y: tip.y + perp.y * bend * length * 0.25 };
+    const frameAxis = offSide === "left" || offSide === "right" ? "x" : "y";
+    const frameSign = offSide === "left" || offSide === "top" ? -1 : 1;
+    const frameCut = offSide && target && t.length === undefined && (tipBent[frameAxis] - target[frameAxis]) * frameSign > -offscreenOvershoot;
 
     if (kind === "bubbles") {
       const count = typeof t.count === "number" ? t.count : 3;
@@ -682,8 +708,8 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         cl = { x: zigV[k].x + (zigV[k + 1].x - zigV[k].x) * u, y: zigV[k].y + (zigV[k + 1].y - zigV[k].y) * u };
         if (i > 0 && i < NN && Math.abs(u) < 1e-9) zigCorners.push(i);
       }
-      // off-panel tails stay open where the frame cuts them
-      const f = zig ? Math.max(0, 1 - tt) ** 1.15 : offSide ? 1 - 0.65 * Math.pow(tt, 0.8) : Math.pow(1 - tt, 1 + sideCurve * 1.6);
+      // automatic off-panel tails stay open where the frame cuts them
+      const f = zig ? Math.max(0, 1 - tt) ** 1.15 : frameCut ? 1 - 0.65 * Math.pow(tt, 0.8) : Math.pow(1 - tt, 1 + sideCurve * 1.6);
       if (slanted) {
         // the tail leaves the outline at a slant: bow the centre line outward first, and keep
         // the width square to the local direction so it never collapses into a line
@@ -767,7 +793,7 @@ function buildBody(plan: BalloonPlan, ctx: ElemCtx, skipTails = false): BodyBuil
   const translate = (pts: Vec[]) => pts.map((q) => ({ x: q.x * cr - q.y * sr + center.x, y: q.x * sr + q.y * cr + center.y }));
   const body = plan.body;
   let contour: ShapeContour = { ...body.contour, pts: translate(body.contour.pts) };
-  const tails: Obj[] = skipTails ? [] : Array.isArray(p.tails) ? (p.tails as Obj[]) : isObj(p.tail) ? [p.tail as Obj] : [];
+  const tails = skipTails ? [] : balloonTails(p);
   let tailContour = contour;
   if (p.as === "aside" && plan.text.glyphs.length) {
     const pts = plan.text.glyphs.flatMap(g => flattenPath(g.path).flatMap(q => q.pts));
@@ -800,7 +826,10 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
     const halo = plan.props.halo === "none" || plan.props.halo === false ? 0 : plan.props.halo !== undefined ? toMm(plan.props.halo as string, ctx.u) : 0.3 * ctx.u.k;
     if (fn && halo > 0 && !isFlash && fn.kind === "path" && fn.paint?.type === "solid" && fn.paint.color.a > 0.99) nodes.push({ kind: "path", path: polyPath(res.fill, true), fillRule: "nonzero", paint: null, stroke: { width: bb.stroke.width + halo * 2, paint: fn.paint, join: "round" }, tag: tag(el, "fill") });
     if (fn) nodes.push(fn);
-    if (isFlash) nodes.push(...flashLines(res.fill, plan.center!, ctx, bb.rng, el));
+    if (isFlash) {
+      const compact = plan.text.lines.length <= 1 && Math.max(plan.text.width, plan.text.height) <= plan.text.fontSize * 3.5 && !Array.isArray(plan.props.size);
+      nodes.push(...flashLines(res.fill, plan.center!, ctx, bb.rng, el, compact ? plan.text.fontSize * 0.12 : Infinity));
+    }
     nodes.push(...inksToNodes(res.inks, bb.stroke.color, t));
   }
   for (const ex of bb.extra) {
@@ -977,7 +1006,7 @@ function resampleClosed(pts: Vec[], step: number): Vec[] {
   return out;
 }
 
-function flashLines(poly: Vec[], center: Vec, ctx: ElemCtx, rng: Rng, el: RElement): Node[] {
+function flashLines(poly: Vec[], center: Vec, ctx: ElemCtx, rng: Rng, el: RElement, maxInset = Infinity): Node[] {
   const u = ctx.u;
   const hand = resolveHand(el.props.hand, u, ctx.draft);
   const pen = { ...resolveStroke({ pen: { preset: "maru-pen" } }, hand, u).pen };
@@ -991,7 +1020,7 @@ function flashLines(poly: Vec[], center: Vec, ctx: ElemCtx, rng: Rng, el: REleme
     const l = Math.hypot(d.x, d.y) || 1;
     const dir = { x: d.x / l, y: d.y / l };
     const len = rng.range(2, 6) * u.k;
-    const inset = rng.range(0.2, 1.2) * u.k;
+    const inset = Math.min(rng.range(0.2, 1.2) * u.k, maxInset);
     const a = { x: at.p.x - dir.x * inset, y: at.p.y - dir.y * inset };
     const b = { x: at.p.x + dir.x * (len - inset), y: at.p.y + dir.y * (len - inset) };
     const w = rng.sample(0.1, 0.3, "low") * u.k;

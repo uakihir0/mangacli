@@ -1,11 +1,12 @@
 // Page composition: layout all elements and build the display list (spec 4.12).
+import polygonClipping from "polygon-clipping";
 import { BLACK, WHITE, parseColor } from "../core/color.js";
 import { DiagnosticBag } from "../core/diagnostics.js";
 import { Rng } from "../core/random.js";
 import { breakFaults } from "../text/layout.js";
 import { parseAngle, toMm } from "../core/units.js";
 import { type ElemCtx, type Silhouette, placeCtx, tag } from "../elements/context.js";
-import { type BalloonPlan, planBalloon, renderBalloon, renderConnected } from "../elements/balloon.js";
+import { type BalloonPlan, hasOffscreenTail, planBalloon, renderBalloon, renderConnected } from "../elements/balloon.js";
 import { renderEffect } from "../elements/effects.js";
 import { layoutImage } from "../elements/image.js";
 import { inksToNodes } from "../elements/inkir.js";
@@ -15,12 +16,12 @@ import { renderSfx, renderText } from "../elements/textel.js";
 import { textValue } from "../elements/textstyle.js";
 import type { FontRegistry } from "../fonts/registry.js";
 import { miterFrameEdges } from "../geom/miter.js";
-import { flattenPath, parseSvgPath, polyPath, smoothPath, transformPath } from "../geom/path.js";
+import { flattenPath, offsetPolygon, parseSvgPath, polyPath, smoothPath, transformPath } from "../geom/path.js";
 import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, matMul, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
 import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
-import { type PageGeom, type PanelGeom, bookOf, computePageGeom, layoutPanels } from "../layout/page.js";
+import { type PageGeom, type PanelGeom, bookOf, computePageGeom, layoutPagePanels } from "../layout/page.js";
 import { RefRegistry, center, place, resolvePoint, sizeValue } from "../layout/place.js";
 import type { RElement, RPage, ResolvedDoc } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolvePen, resolveStroke } from "../model/values.js";
@@ -106,7 +107,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   const book = bookOf(doc.doc);
   const geom = computePageGeom(page, physicalIndex, book, bag);
   const u = geom.units;
-  const panels = page.type === "blank" ? [] : layoutPanels(page, geom, bag);
+  const { area, panels } = page.type === "blank" ? { area: geom.baseFrame, panels: [] } : layoutPagePanels(page, geom, bag);
   await prepareFonts(page, o);
   const refs = new RefRegistry((ch) => ((doc.characters[ch]?.anchorPriority as string[]) ?? ["mouth", "face"]));
   const items: Item[] = [];
@@ -151,6 +152,14 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   };
   for (const pg of drawOrder) await layoutGroup(pg.panel.elements, baseCtx(pg), drawOrder.indexOf(pg), 0);
   await layoutGroup(page.layers, baseCtx(), 0, 1);
+  for (const el of [...page.layers, ...panels.flatMap((pg) => pg.panel.elements)]) {
+    if (el.type !== "image") continue;
+    const target = refs.get(el.id);
+    if (!target) continue;
+    const clip = el.props.clip;
+    const ids = isObj(clip) && Array.isArray(clip.to) ? clip.to : undefined;
+    for (const pg of panels) if (ids ? ids.includes(pg.panel.id) : target.panelId === undefined && rectIntersect(target.bbox, pg.box)) refs.includeInPanel(el.id, pg.panel.id);
+  }
 
   // phase B: balloons plans, text, sfx, effects, fills, marks, draw
   const renderOthers = async (els: RElement[], ctx: ElemCtx, panelIdx: number, source: number) => {
@@ -290,9 +299,9 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       if (!it) continue;
       // clip: auto — a balloon may lie over a frame line between panels, but one that runs past
       // the outer edge of the panel area is cut by the frame there, as lettering usually is
-      if (it.free && el.type === "balloon" && el.props.clip === "auto" && !isOffscreen(el) && crossesOuterEdge(pg, it.bbox, u.k)) it.free = false;
+      if (it.free && el.type === "balloon" && el.props.clip === "auto" && crossesOuterEdge(pg, it.bbox, u.k)) it.free = false;
       if (it.free) {
-        if (isObj(el.props.clip)) it.openClip = openClipPath(pg, el.props.clip as Obj, geom, u);
+        if (isObj(el.props.clip) && !Array.isArray(el.props.clip.to)) it.openClip = openClipPath(pg, el.props.clip as Obj, geom, u);
         items.push(it);
       } else {
         clipped.push(it);
@@ -316,18 +325,71 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     info.elements.push({ id: el.id, type: el.type, bbox: it.bbox });
   }
 
+  for (const it of items) {
+    const clip = it.el.props.clip;
+    if (!isObj(clip) || !Array.isArray(clip.to)) continue;
+    const targets: PanelGeom[] = [];
+    for (const id of new Set(clip.to)) {
+      const pg = panels.find((p) => p.panel.id === id);
+      if (pg) targets.push(pg);
+      else bag.error("REF_NOT_FOUND", `unknown panel ${id}`, { path: [...it.el.path, "clip", "to"], elementId: it.el.id, pageId: page.id });
+    }
+    it.openClip = targets.flatMap((pg) => openClipPath(pg, clip, geom, u));
+    const panelPolys = targets.map((pg) => {
+      const poly = panelShapePoly(pg, geom);
+      const pts = poly !== pg.polygon ? flattenPath(smoothPath(poly, true), 0.02)[0].pts : poly;
+      return [pts.map((p) => [p.x, p.y] as [number, number])];
+    });
+    const panelUnion = panelPolys.length ? polygonClipping.union(panelPolys[0], ...panelPolys.slice(1)) : [];
+    const bleedPoly = [rectPts(geom.bleedBox).map((p) => [p.x, p.y] as [number, number])];
+    if ((clip.open as string[] | undefined)?.length && targets.length) {
+      const envelope = boundsOf(targets.flatMap((pg) => pg.polygon));
+      const envelopePoly = [rectPts(envelope).map((p) => [p.x, p.y] as [number, number])];
+      const withoutGutters = multiPolyPath(polygonClipping.union(polygonClipping.difference(bleedPoly, envelopePoly), panelUnion));
+      it.nodes = [{ kind: "group", clip: withoutGutters, clipRule: "nonzero", children: it.nodes }];
+    }
+    if (it.el.props.stack !== "art") continue;
+    for (const pg of targets) {
+      const group = panelNodes.find((p) => p.pg === pg)!;
+      group.clipped.push({ ...it, nodes: [{ kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.nodes }] });
+      group.clipped.sort((a, b) => a.z - b.z || a.listIdx - b.listIdx);
+    }
+    if ((clip.open as string[] | undefined)?.length) {
+      const outside = multiPolyPath(polygonClipping.difference(bleedPoly, panelUnion));
+      it.nodes = [{ kind: "group", clip: outside, clipRule: "nonzero", children: it.nodes }];
+    } else it.nodes = [];
+  }
+
   // build tree
   const root: GroupNode = { kind: "group", children: [] };
-  const bgPaint = parsePaint(page.settings.background ?? "paper", { u, box: geom.bleedBox, seed: page.seed, bag, path: [...page.path, "background"] });
-  for (const it of items.filter((i) => i.stackUnder)) root.children.push(...it.nodes);
+  const background = page.settings.background ?? "paper";
+  const bgImage = isObj(background) && typeof background.image === "string" ? background : undefined;
+  const bgPath = [...page.path, "background"];
+  const bgPaint = parsePaint(bgImage ? "paper" : background, { u, box: geom.bleedBox, seed: page.seed, bag, path: bgPath });
+  const bgTag = { elementId: page.id, elementType: "page", role: "background" as const, separation: "background" };
+  const pageBackground: Node[] = bgPaint ? [{ kind: "path", path: polyPath(rectPts(geom.bleedBox), true), fillRule: "nonzero", paint: bgPaint, tag: bgTag }] : [];
+  if (bgImage) {
+    const box = bgImage.bleed === "all" ? geom.bleedBox : geom.trim;
+    const el: RElement = {
+      id: page.id, type: "page", path: bgPath, seed: page.seed,
+      props: { src: bgImage.image, fit: bgImage.fit, separation: "background" },
+    };
+    const { nodes } = await layoutImage(el, baseCtx(), box, "background");
+    pageBackground.push({ kind: "group", clip: polyPath(rectPts(box), true), children: nodes, tag: bgTag });
+    if (page.settings.gutterFill !== "none") {
+      const path = gutterPath(area, panels, geom);
+      if (path.length) pageBackground.push({ kind: "path", path, fillRule: "evenodd", paint: { type: "solid", color: WHITE }, tag: bgTag });
+    }
+  }
+  for (const it of items.filter((i) => i.stackUnder)) root.children.push(it.openClip ? { kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.nodes } : { kind: "group", children: it.nodes });
   for (const { pg, clipped } of panelNodes) {
     if (pg.panel.props.visible === false) continue;
-    root.children.push(...panelTree(pg, clipped, geom, bgPaint, bag));
+    root.children.push(...panelTree(pg, clipped, geom, bgPaint, !!bgImage, bag));
   }
   const free = items.filter((i) => !i.stackUnder);
   free.sort((a, b) => a.z - b.z || a.layer - b.layer || a.source - b.source || a.panelIdx - b.panelIdx || (a.layer === 1 && b.layer === 1 ? b.listIdx - a.listIdx : a.listIdx - b.listIdx));
   for (const it of free) {
-    if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, children: it.el.type === "balloon" ? cleanClippedBalloonInk(it.openClip)(it.nodes) : it.nodes });
+    if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.el.type === "balloon" ? cleanClippedBalloonInk(it.openClip)(it.nodes) : it.nodes });
     else root.children.push(...it.nodes);
   }
   // page numbers
@@ -338,7 +400,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     size: { width: geom.bleedBox.w, height: geom.bleedBox.h },
     boxes: { bleed: geom.bleedBox, trim: geom.trim, baseFrame: geom.baseFrame, safe: geom.safe },
     background: bgPaint,
-    root: { kind: "group", transform: [1, 0, 0, 1, geom.bleed, geom.bleed], children: [...(bgPaint ? [{ kind: "path" as const, path: polyPath(rectPts(geom.bleedBox), true), fillRule: "nonzero" as const, paint: bgPaint, tag: { elementId: page.id, elementType: "page", role: "background" as const, separation: "background" } }] : []), root] },
+    root: { kind: "group", transform: [1, 0, 0, 1, geom.bleed, geom.bleed], children: [...pageBackground, root] },
   };
   // safe area / fold checks
   checkTextSafety(items.concat(panelNodes.flatMap((p) => p.clipped)), geom, bag, page);
@@ -350,9 +412,26 @@ function rectPts(r: Rect): Vec[] {
   return [{ x: r.x, y: r.y }, { x: r.x + r.w, y: r.y }, { x: r.x + r.w, y: r.y + r.h }, { x: r.x, y: r.y + r.h }];
 }
 
+function multiPolyPath(polys: polygonClipping.MultiPolygon) {
+  return polys.flatMap((poly) => poly.flatMap((ring) => polyPath(ring.map(([x, y]) => ({ x, y })), true)));
+}
+
+function gutterPath(area: Rect, panels: PanelGeom[], geom: PageGeom) {
+  const ring = (poly: Vec[]): polygonClipping.Ring => poly.map(({ x, y }) => [x, y]);
+  const outlines = panels.filter(({ panel }) => panel.props.visible !== false).flatMap((pg) => {
+    const poly = panelShapePoly(pg, geom);
+    if (poly.length < 3) return [];
+    const contour = poly === pg.polygon ? poly : flattenPath(panelClip(pg, poly), 0.05)[0].pts;
+    return [[ring(contour)]];
+  });
+  if (outlines.length === 0) return [];
+  const gaps = polygonClipping.difference([ring(rectPts(area))], ...outlines);
+  return gaps.flatMap((poly) => poly.flatMap((r) => polyPath(r.slice(0, -1).map(([x, y]) => ({ x, y })), true)));
+}
+
 function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listIdx: number, source: number, ctx: ElemCtx): Item {
   const clip = el.props.clip;
-  const free = source === 1 || clip === "none" || clip === "trim" || isObj(clip) || (el.type === "balloon" && clip !== "panel" && !isOffscreen(el));
+  const free = source === 1 || clip === "none" || clip === "trim" || isObj(clip) || (el.type === "balloon" && clip !== "panel" && !hasOffscreenTail(el.props));
   const layer = el.type === "balloon" ? 1 : el.type === "text" || el.type === "sfx" ? 2 : 0;
   const op = typeof el.props.opacity === "number" && el.type !== "image" && el.type !== "effect" ? el.props.opacity : undefined;
   const blend = el.type !== "image" && typeof el.props.blend === "string" && el.props.blend !== "normal" ? (el.props.blend as GroupNode["blend"]) : undefined;
@@ -383,11 +462,6 @@ function crossesOuterEdge(pg: PanelGeom, b: Rect, k: number): boolean {
   const tol = 0.5 * k;
   const past: Record<string, boolean> = { top: b.y < pb.y - tol, bottom: b.y + b.h > pb.y + pb.h + tol, left: b.x < pb.x - tol, right: b.x + b.w > pb.x + pb.w + tol };
   return pg.edgeSides.some((s) => s !== null && past[s]);
-}
-
-function isOffscreen(el: RElement): boolean {
-  const t = el.props.tail;
-  return isObj(t) && !!(t as Obj).offscreen;
 }
 
 function coordsFor(el: RElement, ctx: ElemCtx, geom: PageGeom): Rect {
@@ -423,21 +497,31 @@ function panelShapePoly(pg: PanelGeom, geom: PageGeom): Vec[] {
   return pg.polygon;
 }
 
-function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: ReturnType<typeof parsePaint>, bag: DiagnosticBag): Node[] {
+function panelClip(pg: PanelGeom, poly: Vec[]) {
+  return poly === pg.polygon ? polyPath(poly, true) : smoothPath(poly, true);
+}
+
+function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: ReturnType<typeof parsePaint>, hasPageArt: boolean, bag: DiagnosticBag): Node[] {
   const u = geom.units;
   const p = pg.panel.props;
   const out: Node[] = [];
   const poly = panelShapePoly(pg, geom);
   const isShaped = poly !== pg.polygon;
+  const clip = panelClip(pg, poly);
   if (p.knockout !== undefined) {
     const kw = toMm(p.knockout as string, u);
-    const ext = offsetConvex(poly, kw);
-    out.push({ kind: "path", path: polyPath(ext, true), fillRule: "nonzero", paint: pageBg ?? { type: "solid", color: WHITE } });
+    if (hasPageArt && kw > 0) {
+      const ext = offsetPolygon(poly, kw);
+      const outer = isShaped ? smoothPath(ext, true) : polyPath(ext, true);
+      out.push({ kind: "path", path: [...outer, ...clip], fillRule: "evenodd", paint: { type: "solid", color: WHITE }, tag: { elementId: pg.panel.id, elementType: "panel", role: "background", separation: "background" } });
+    } else if (!hasPageArt) {
+      const ext = offsetConvex(poly, kw);
+      out.push({ kind: "path", path: polyPath(ext, true), fillRule: "nonzero", paint: pageBg ?? { type: "solid", color: WHITE } });
+    }
   }
   const bg = parsePaint(p.background ?? "paper", { u, box: pg.fullBox, seed: pg.panel.seed, bag, path: [...pg.panel.path, "background"] });
   const inner: Node[] = [];
   if (bg) inner.push({ kind: "path", path: polyPath(poly, true), fillRule: "nonzero", paint: bg, tag: { elementId: pg.panel.id, elementType: "panel", role: "background", separation: "background" } });
-  const clip = isShaped ? smoothPath(poly, true) : polyPath(poly, true);
   const cleanBalloonInk = cleanClippedBalloonInk(clip);
   for (const it of clipped) inner.push(...(it.el.type === "balloon" ? cleanBalloonInk(it.nodes) : it.nodes));
   out.push({ kind: "group", clip, children: inner, tag: { elementId: pg.panel.id, elementType: "panel", role: "art", separation: "art" } });
@@ -593,7 +677,7 @@ function isBledEdge(a: Vec, c: Vec, geom: PageGeom, pg: PanelGeom): boolean {
 function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["units"]) {
   const open = new Set((clip.open as string[]) ?? []);
   const bw = toMm(((pg.panel.props.border as Obj)?.width as string) ?? `${0.5 * geom.k}mm`, u);
-  const poly = pg.polygon;
+  const poly = panelShapePoly(pg, geom);
   const n = poly.length;
   const lines: { p: Vec; d: Vec }[] = [];
   for (let i = 0; i < n; i++) {
@@ -603,7 +687,7 @@ function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["uni
     const l = Math.hypot(d.x, d.y) || 1;
     const nrm = { x: d.y / l, y: -d.x / l }; // outward for CW polygon (y-down)
     const side = nrm.y < -0.7 ? "top" : nrm.y > 0.7 ? "bottom" : nrm.x < -0.7 ? "left" : nrm.x > 0.7 ? "right" : "";
-    const off = open.has(side) ? 500 : -bw / 2;
+    const off = poly === pg.polygon && open.has(side) ? 500 : -bw / 2;
     lines.push({ p: { x: a.x + nrm.x * off, y: a.y + nrm.y * off }, d: { x: d.x / l, y: d.y / l } });
   }
   const pts: Vec[] = [];
@@ -618,7 +702,20 @@ function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["uni
     const t = ((L2.p.x - L1.p.x) * L2.d.y - (L2.p.y - L1.p.y) * L2.d.x) / den;
     pts.push({ x: L1.p.x + L1.d.x * t, y: L1.p.y + L1.d.y * t });
   }
-  return polyPath(pts, true);
+  if (poly === pg.polygon) return polyPath(pts, true);
+  const path = smoothPath(pts, true);
+  if (!open.size) return path;
+  let expanded = polygonClipping.union([flattenPath(path, 0.02)[0].pts.map((p) => [p.x, p.y] as [number, number])]);
+  const directions: Record<string, [number, number]> = { top: [0, -500], right: [500, 0], bottom: [0, 500], left: [-500, 0] };
+  for (const side of open) {
+    const [dx, dy] = directions[side];
+    const strips = expanded.flatMap((polygon) => polygon.flatMap((ring) => ring.slice(0, -1).map((a, i) => {
+      const b = ring[i + 1];
+      return [[a, b, [b[0] + dx, b[1] + dy], [a[0] + dx, a[1] + dy]]] as polygonClipping.Polygon;
+    })));
+    expanded = polygonClipping.union(expanded, ...strips);
+  }
+  return multiPolyPath(expanded);
 }
 
 // ---- misc elements ---------------------------------------------------------------
@@ -951,10 +1048,13 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   const pid = ctx.panel?.panel.id;
   const hard: Rect[] = [];
   for (const t of refs.all()) {
-    if (t.type !== "image" || (pid && t.panelId !== pid)) continue;
+    if (t.type !== "image" || (pid && t.panelId !== undefined && t.panelId !== pid)) continue;
     // faces are roughly elliptical: the corners of the face box are free space
-    for (const [k, rg] of Object.entries(t.regions)) if (k === "face" || k === "avoid") obstacles.push({ r: rg.bbox, w: 60, ellipse: k === "face" });
-    if (t.anchors.mouth) hard.push({ x: t.anchors.mouth.x - 2 * u.k, y: t.anchors.mouth.y - 2 * u.k, w: 4 * u.k, h: 4 * u.k });
+    for (const [k, rg] of Object.entries(t.regions)) if ((k === "face" || k === "avoid") && rectIntersect(rg.bbox, panelBox)) obstacles.push({ r: rg.bbox, w: 60, ellipse: k === "face" });
+    if (t.anchors.mouth) {
+      const mouth = { x: t.anchors.mouth.x - 2 * u.k, y: t.anchors.mouth.y - 2 * u.k, w: 4 * u.k, h: 4 * u.k };
+      if (rectIntersect(mouth, panelBox)) hard.push(mouth);
+    }
   }
   const placedRects: Rect[] = [];
   const setCenter = (pl: BalloonPlan, c: Vec) => {
@@ -970,13 +1070,14 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const tl = { ...r.bbox };
     // a balloon must not run off the trimmed page (it may cross gutters and panel borders)
     const lim = rectInset(geom.trim, 1 * u.k);
-    if (!isOffscreen(pl.el) && (tl.x < lim.x - 0.01 || tl.y < lim.y - 0.01 || tl.x + tl.w > lim.x + lim.w + 0.01 || tl.y + tl.h > lim.y + lim.h + 0.01)) {
+    const offscreen = hasOffscreenTail(pl.props);
+    if (!offscreen && (tl.x < lim.x - 0.01 || tl.y < lim.y - 0.01 || tl.x + tl.w > lim.x + lim.w + 0.01 || tl.y + tl.h > lim.y + lim.h + 0.01)) {
       tl.x = Math.min(Math.max(tl.x, lim.x), Math.max(lim.x, lim.x + lim.w - tl.w));
       tl.y = Math.min(Math.max(tl.y, lim.y), Math.max(lim.y, lim.y + lim.h - tl.h));
       ctx.bag.info("BALLOON_SHIFTED", `balloon ${pl.el.id} was moved inside the page`, { path: pl.el.path, elementId: pl.el.id });
     }
     // a balloon cut by the outer frame (clip: auto) keeps its text clear of the frame line
-    if (ctx.panel && pl.props.clip === "auto" && !isOffscreen(pl.el)) {
+    if (ctx.panel && pl.props.clip === "auto" && !offscreen) {
       const pb = ctx.panel.box;
       const m = Math.max(2.5 * u.k, pl.text.fontSize * 0.8);
       const tx = tl.x - pl.outer.x + pl.innerCenter.x + pl.textOffset.x - pl.text.width / 2;

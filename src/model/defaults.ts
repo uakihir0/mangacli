@@ -13,7 +13,6 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
     stroke: { width: "0.25bmm", color: "black", pen: { preset: "g-pen" }, style: "solid", dash: ["1.6bmm", "1.0bmm"], dot: { size: "0.45bmm", gap: "0.9bmm" }, double: { gap: "0.6bmm", inner: "0.2bmm" } },
     fill: "paper",
     tail: { kind: "wedge", gap: "2bmm", bend: 0.15, sideCurve: 0.25, root: "auto", count: 3, shrink: 0.62, segments: 3 },
-    minSize: ["8bmm", "8bmm"],
     maxSize: ["75%", "80%"],
     aspect: "auto",
     aspectRange: [0.55, 1.8],
@@ -44,6 +43,10 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
 };
 
 export const BUILTIN_EFFECT_DEFAULTS: Record<string, Obj> = {
+  lightning: { background: "black", direction: "90deg", bolts: 3, branches: 2, length: "90%", thickness: ["3bmm", "6bmm"], jaggedness: 0.8, fill: "paper", stroke: { width: "0.25bmm" }, pen: { preset: "g-pen" } },
+  crack: { radius: "30%", count: 7, branching: 0.35, rings: 1, thickness: ["0.15bmm", "0.65bmm"], shade: "black", pen: { preset: "g-pen" } },
+  dust: { direction: "both", size: "25%", puffs: 7, fill: "paper", stroke: { width: "0.3bmm" }, debris: 10, pen: { preset: "g-pen" } },
+  smoke: { direction: "-90deg", density: 0.5, fill: "paper", stroke: { width: "0.2bmm" }, pen: { preset: "g-pen" } },
   "*": { color: "black", opacity: 1, density: 1, background: "none", clip: "panel" },
   "focus-lines": { center: "auto", inner: ["32%", "26%"], innerJitter: 0.35, spikes: { ratio: 0.06, depth: 0.45 }, count: "auto", thickness: { min: "0.12bmm", max: "0.5bmm", dist: "low" }, taper: "in", angleJitter: 0.8, cluster: 0.35, curve: 0, ruler: true, pen: { preset: "maru-pen" } },
   "beta-flash": { center: "auto", inner: ["24%", "20%"], outer: ["44%", "38%"], outerJitter: 0.15, innerJitter: 0.5, spikes: { ratio: 0.1, depth: 0.6 }, count: "auto", thickness: { min: "0.25bmm", max: "1.0bmm", dist: "low" }, core: "paper", ruler: true, pen: { preset: "g-pen" } },

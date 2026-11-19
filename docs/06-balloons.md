@@ -243,7 +243,7 @@ tail: none
 | `bend` | -1〜1 | `0.15` | しっぽ全体の曲がり。正で時計回りに曲がる |
 | `sideCurve` | 0〜1 | `0.25` | 両側の辺の内側への反り。大きいほど先端が鋭く見える |
 | `root` | `auto` \| Angle | `auto` | 本体のどこから出すか。`auto` は本体の中心から向き先への方向。角度は本体の中心から見た方向 |
-| `offscreen` | `top` \| `right` \| `bottom` \| `left` | - | 画面外の話者。コマの指定した辺の外へ向け、枠で切る（P1） |
+| `offscreen` | `top` \| `right` \| `bottom` \| `left` | - | 画面外の話者。`as: offscreen` で辺を省略すると最も近い辺を使う。`length` を指定するとその長さで止まり、省略すると `maxLength` まで伸ばす。枠に届かなければ短い三角形になり、届いた場合は `clip: auto` でコマ間の枠でも切る（P1） |
 | `count` | 整数 | `3` | `bubbles` の泡の数 |
 | `bubbleSize` | Length | 本体の短辺の 20 %（1.5〜5 mm に制限）。顔までの距離に収まらない場合は 55 % まで縮める | `bubbles` の最初の泡の直径 |
 | `shrink` | 0〜1 | `0.62` | `bubbles` の泡ごとの縮小率 |
@@ -489,6 +489,8 @@ dialogue:
 | `offscreen` | 画面外の声 | `ellipse` | 0.25 mm | `wedge`（`offscreen`） | `dialogue` | | P1 |
 
 キャラクターの `voice`（[3.15](03-document-format.md#315-characters)）で、キャラクターごとに発話の種類の見た目を上書きできる。
+
+`manga-basic` の叫び・絶叫は、インストール済みのゴシックMB101 U、新ゴ U、カタログの Zen Kaku Gothic New Black（900）の順に使う（[7.3.10](07-text.md#7310-フォントのカタログと取得)）。
 
 ## 6.14 検証
 

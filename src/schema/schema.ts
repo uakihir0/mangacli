@@ -135,7 +135,7 @@ export const Region = RegionBase;
 
 const Mask = z.union([z.object({ region: Region, invert: z.boolean().optional(), feather: Length.optional() }).strict(), Region]);
 
-const Clip = z.union([z.enum(["panel", "none", "trim", "auto"]), z.object({ to: z.literal("panel"), open: z.array(z.enum(["top", "right", "bottom", "left"])) }).strict()]);
+const Clip = z.union([z.enum(["panel", "none", "trim", "auto"]), z.object({ to: z.union([z.literal("panel"), z.array(z.string()).min(1)]), open: z.array(z.enum(["top", "right", "bottom", "left"])).optional() }).strict()]);
 
 const common = {
   id: z.string().optional(),
@@ -160,7 +160,7 @@ const common = {
   seed: z.number().int().min(0).max(4294967295).optional(),
   separation: z.string().optional(),
   note: z.string().optional(),
-  stack: z.enum(["over", "under"]).optional(),
+  stack: z.enum(["over", "under", "art"]).optional(),
 };
 
 const TextValue = z.union([z.string(), z.record(z.string(), z.string())]);
@@ -339,8 +339,26 @@ const sfxProps = {
 };
 
 const effectProps = z
-  .object({ ...common, type: z.literal("effect"), kind: z.string(), clear: z.union([Region, z.array(Region)]).optional(), clearFigures: z.boolean().optional(), minLength: Length.optional(), followPath: z.union([z.array(Point).min(2), z.object({ path: z.string() }).strict()]).optional() })
-  .catchall(z.unknown());
+  .object({ ...common, type: z.literal("effect"), kind: z.string(),
+    clear: z.union([Region, z.array(Region)]).optional(), clearFigures: z.boolean().optional(), minLength: Length.optional(), followPath: z.union([z.array(Point).min(2), z.object({ path: z.string() }).strict()]).optional(),
+    size: z.union([Length, Size]).optional(),
+    origin: Point.optional(), direction: z.union([Angle, z.enum(["both", "cw", "ccw"])]).optional(),
+    bolts: z.number().int().nonnegative().optional(), branches: z.number().int().nonnegative().optional(),
+    jaggedness: z.number().min(0).max(1).optional(), branching: z.number().min(0).max(1).optional(),
+    puffs: z.number().int().nonnegative().optional(), debris: z.number().int().nonnegative().optional(),
+    shade: z.unknown().optional(), target: z.unknown().optional(),
+  })
+  .catchall(z.unknown()).superRefine((v, ctx) => {
+    if (v.kind === "crack") {
+      for (const [key, schema] of Object.entries({ shade: Paint, target: Region })) if (v[key] !== undefined && !schema.safeParse(v[key]).success) ctx.addIssue({ code: "custom", path: [key], message: `invalid ${key}` });
+    }
+    const direction = v.kind === "swirl-lines" ? z.enum(["cw", "ccw"]) : v.kind === "dust" ? z.union([Angle, z.literal("both")]) : ["lightning", "smoke"].includes(v.kind) ? Angle : undefined;
+    if (direction && v.direction !== undefined && !direction.safeParse(v.direction).success) ctx.addIssue({ code: "custom", path: ["direction"], message: `invalid direction for ${v.kind}` });
+    if (["lightning", "crack", "dust", "smoke"].includes(v.kind)) {
+      const fields: Record<string, z.ZodType> = { center: Point, radius: Length, length: Length, thickness: RangeOf(Length), fill: Paint, stroke: Stroke, tone: Paint, background: Paint, count: z.number().int().nonnegative(), rings: z.number().int().nonnegative(), density: z.number().min(0).max(1) };
+      for (const [key, schema] of Object.entries(fields)) if (v[key] !== undefined && !schema.safeParse(v[key]).success) ctx.addIssue({ code: "custom", path: [key], message: `invalid ${key}` });
+    }
+  });
 
 const fillProps = {
   ...common,
@@ -480,6 +498,15 @@ const BaseFrame = z.union([
   z.object({ size: z.tuple([Length, Length]).optional(), offset: z.tuple([Length, Length]).optional(), margins: z.object({ top: Length, bottom: Length, inner: Length, outer: Length }).strict().optional() }).strict(),
 ]);
 
+const PageBackground = z.union([
+  Paint,
+  z.object({
+    image: z.string(),
+    fit: imageProps.fit,
+    bleed: z.literal("all").optional(),
+  }).strict(),
+]);
+
 const pageSettings = {
   size: z.union([z.string(), z.tuple([Length, Length])]).optional(),
   orientation: z.enum(["portrait", "landscape"]).optional(),
@@ -489,7 +516,8 @@ const pageSettings = {
   baseFrame: BaseFrame.optional(),
   safeArea: z.object({ inset: Length }).strict().optional(),
   gutter: z.union([Length, z.object({ col: Length.optional(), row: Length.optional() }).strict()]).optional(),
-  background: Paint.optional(),
+  background: PageBackground.optional(),
+  gutterFill: z.enum(["none", "paper"]).optional(),
   color: z.enum(["mono", "color"]).optional(),
   foldMargin: Length.optional(),
   printScale: z.number().positive().max(1).optional(),

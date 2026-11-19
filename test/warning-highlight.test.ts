@@ -129,7 +129,7 @@ it.each([
   const file = join(dir, "warning.yaml");
   writeFileSync(file, source);
   const port = 44000 + Math.floor(Math.random() * 2000);
-  const proc = spawn(join(root, "node_modules/.bin/tsx"), [join(root, "src/cli/index.ts"), "preview", file, "--port", String(port), "--format", format, "--spread", "split", "--dpi", "254", "--no-config"], { cwd: root });
+  const proc = spawn(process.execPath, ["--import", "tsx", join(root, "src/cli/index.ts"), "preview", file, "--port", String(port), "--format", format, "--spread", "split", "--dpi", "254", "--no-config"], { cwd: root });
   try {
     await new Promise<void>((ok, fail) => {
       const timer = setTimeout(() => fail(new Error("preview did not start")), 60_000);
