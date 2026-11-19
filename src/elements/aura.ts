@@ -49,6 +49,8 @@ export function renderAura(el: RElement, ctx: ElemCtx, region: ResolvedRegion): 
   const length = toMm(p.length as string, { ...ctx.u, base: Math.max(b.w, b.h) });
   if (!Number.isFinite(length) || length <= 0) return bad("length", "SCHEMA_TYPE", "length must be positive");
   if (!loops.length) return [];
+  const density = (p.density as number) ?? 1;
+  if (density <= 0) return [];
   const rng = new Rng(el.seed);
   const ring = (q: Vec[]): Ring => [...q, q[0]].map(v => [v.x, v.y]);
   const [first, ...rest] = loops.map(q => [ring(q)]);
@@ -69,7 +71,7 @@ export function renderAura(el: RElement, ctx: ElemCtx, region: ResolvedRegion): 
   };
   const usable = loops.filter(q => Math.abs(signedArea(q)) >= b.w * b.h / 10000);
   if (p.kind === "aura") {
-    const tongues = Number(p.tongues), layers = Number(p.layers), bias = Number(p.upwardBias);
+    const tongues = Number(p.tongues) * density, layers = Number(p.layers), bias = Number(p.upwardBias);
     for (let layer = 0; layer < layers; layer++) for (const [component, loop] of usable.entries()) {
       const r = new Rng(el.seed).fork(`component-${component}`);
       const factor = 1 - layer * 0.26;
@@ -87,9 +89,10 @@ export function renderAura(el: RElement, ctx: ElemCtx, region: ResolvedRegion): 
   } else {
     const pool = usable.flatMap(loop => samples(loop, 256));
     if (!pool.length) return [];
-    for (let i = 0; i < Number(p.count); i++) {
+    const count = Math.round(Number(p.count) * density);
+    for (let i = 0; i < count; i++) {
       const r = rng.fork(`arc-${i}`);
-      const { p: q, n } = pool[Math.floor((i + r.next()) / Number(p.count) * pool.length)];
+      const { p: q, n } = pool[Math.floor((i + r.next()) / count * pool.length)];
       const start = { x: q.x + n.x * length * 0.12, y: q.y + n.y * length * 0.12 };
       const angle = Math.atan2(n.y, n.x) + r.range(-1.15, 1.15);
       const pts = lightningPoints(r, start, angle, length * r.range(0.65, 1.2), 1);

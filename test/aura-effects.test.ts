@@ -47,6 +47,19 @@ describe("alpha tracing", () => {
 });
 
 describe.each(["aura", "arcs"])("%s", kind => {
+  it("scales counts with density and emits nothing at zero", async () => {
+    const renderer = createRenderer({ assets: { cutout: await cutout() } });
+    const geometry = async (props: string) => {
+      const list = await renderer.displayList(scene(`effect: ${kind}, target: figure, seed: 42, ${props}`), 1);
+      const effects = (node: Node): Node[] => node.kind === "group" ? node.children.flatMap(effects) : node.tag?.elementType === "effect" ? [node] : [];
+      return JSON.stringify(effects(list.root));
+    };
+    expect(await geometry("density: 0")).toBe("[]");
+    const count = kind === "aura" ? "tongues" : "count";
+    expect(await geometry(`density: 0.5, ${count}: 24`) === await geometry(`density: 1, ${count}: 12`)).toBe(true);
+    expect(await geometry(`density: 2, ${count}: 12`) === await geometry(`density: 1, ${count}: 24`)).toBe(true);
+    expect(await geometry(`density: 1, ${count}: 12`) === await geometry(`${count}: 12`)).toBe(true);
+  });
   it("honors common color and explicit stroke color precedence", async () => {
     const renderer = createRenderer({ assets: { cutout: await cutout() } });
     const inks = (node: Node): Node[] => node.kind === "group" ? node.children.flatMap(inks) : node.tag?.elementType === "effect" && node.tag.role === "ink" ? [node] : [];
