@@ -89,6 +89,23 @@ async function inkBox(data: Buffer, region: { left: number; top: number; width: 
 }
 
 describe("print export", () => {
+  it.each(["trim", "bleed", "marks"] as const)("preserves scaled PDF trim boxes with %s crop", async (crop) => {
+    const doc = { yaml: "mangacli: 1\npage: { size: [100mm, 150mm], bleed: 4mm, printScale: 0.5 }\npages:\n  - type: spread\n    panels: [{}]\n" };
+    for (const spread of ["split", "joined"] as const) {
+      const result = await render(doc, { output: "print", profile: "print-gray", format: "pdf", dpi: 254, crop, spread });
+      const pdf = Buffer.from(result.pages[0].data).toString("latin1");
+      const boxes = [...pdf.matchAll(/\/TrimBox \[([^\]]+)\] \/BleedBox \[([^\]]+)\]/g)];
+      expect(boxes).toHaveLength(spread === "split" ? 2 : 1);
+      for (const box of boxes) {
+        const trim = box[1].split(" ").map(Number);
+        const bleed = box[2].split(" ").map(Number);
+        const mm = 25.4 / 72;
+        expect((trim[2] - trim[0]) * mm).toBeCloseTo(spread === "split" ? 50 : 100, 1);
+        expect((trim[3] - trim[1]) * mm).toBeCloseTo(75, 1);
+        expect((trim[0] - bleed[0]) * mm).toBeCloseTo(crop === "trim" ? 0 : 2, 1);
+      }
+    }
+  });
   it("matches downscaled manuscript frame and text ink within 0.1mm", async () => {
     const yaml = `mangacli: 1
 page: { size: manga-b4 }
