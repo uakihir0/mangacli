@@ -13,7 +13,6 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
     stroke: { width: "0.25bmm", color: "black", pen: { preset: "g-pen" }, style: "solid", dash: ["1.6bmm", "1.0bmm"], dot: { size: "0.45bmm", gap: "0.9bmm" }, double: { gap: "0.6bmm", inner: "0.2bmm" } },
     fill: "paper",
     tail: { kind: "wedge", gap: "2bmm", bend: 0.15, sideCurve: 0.25, root: "auto", count: 3, shrink: 0.62, segments: 3 },
-    minSize: ["8bmm", "8bmm"],
     maxSize: ["75%", "80%"],
     aspect: "auto",
     aspectRange: [0.55, 1.8],
@@ -44,6 +43,8 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
 };
 
 export const BUILTIN_EFFECT_DEFAULTS: Record<string, Obj> = {
+  aura: { tongues: 32, length: "8bmm", upwardBias: 0.7, layers: 3, fill: "paper", stroke: { width: "0.25bmm" } },
+  arcs: { count: 18, length: "5bmm", fill: "paper", stroke: { width: "0.2bmm" } },
   lightning: { background: "black", direction: "90deg", bolts: 3, branches: 2, length: "90%", thickness: ["3bmm", "6bmm"], jaggedness: 0.8, fill: "paper", stroke: { width: "0.25bmm" }, pen: { preset: "g-pen" } },
   crack: { radius: "30%", count: 7, branching: 0.35, rings: 1, thickness: ["0.15bmm", "0.65bmm"], shade: "black", pen: { preset: "g-pen" } },
   dust: { direction: "both", size: "25%", puffs: 7, fill: "paper", stroke: { width: "0.3bmm" }, debris: 10, pen: { preset: "g-pen" } },

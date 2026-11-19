@@ -19,6 +19,8 @@ import { renderBeam } from "./beam.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { inksToNodes } from "./inkir.js";
 import { renderLight } from "./light.js";
+import { renderAura } from "./aura.js";
+import { lightningPoints, lightningOutline } from "./lightning.js";
 import { type ResolvedRegion, resolveRegion } from "./region.js";
 import { type EffectAlphaCache, effectSilhouette, splitClearLine } from "./effect-clear.js";
 
@@ -715,24 +717,12 @@ function materialEffects(f: FxCtx, kind: string): Node[] {
     nodes.push(...inksToNodes(s.inks, stroke?.color ?? f.color, tag(f.el, "ink")));
   };
   const point = (v: unknown, fallback: Vec) => v === undefined ? fallback : resolvePoint(v, placeCtx(f.ctx, f.el)) ?? fallback;
-  const jag = (o: Vec, angle: number, length: number, jaggedness: number): Vec[] => Array.from({ length: 10 }, (_, i) => {
-    const t = i / 9;
-    const off = i === 0 ? 0 : rng.range(-1, 1) * length * 0.12 * jaggedness;
-    return { x: o.x + Math.cos(angle) * length * t - Math.sin(angle) * off, y: o.y + Math.sin(angle) * length * t + Math.cos(angle) * off };
-  });
+  const jag = (o: Vec, angle: number, length: number, jaggedness: number) => lightningPoints(rng, o, angle, length, jaggedness);
   if (kind === "lightning") {
     const angle = parseAngle(p.direction as string);
     const thickness = R(f, p.thickness, { min: 3 * f.k, max: 6 * f.k, dist: "uniform" });
     const bolt = (pts: Vec[], width: number) => {
-      const left: Vec[] = [], right: Vec[] = [];
-      for (let i = 0; i < pts.length; i++) {
-        const next = pts[Math.min(i + 1, pts.length - 1)], prev = pts[Math.max(0, i - 1)];
-        const a = Math.atan2(next.y - prev.y, next.x - prev.x) + Math.PI / 2;
-        const w = width * Math.pow(1 - i / (pts.length - 1), 0.7) / 2;
-        left.push({ x: pts[i].x + Math.cos(a) * w, y: pts[i].y + Math.sin(a) * w });
-        right.push({ x: pts[i].x - Math.cos(a) * w, y: pts[i].y - Math.sin(a) * w });
-      }
-      shape([...left, ...right.reverse()], p.fill, true);
+      shape(lightningOutline(pts, width), p.fill, true);
     };
     for (let i = 0; i < Number(p.bolts); i++) {
       const o = point(p.origin, { x: b.x + b.w * (i + rng.range(0.2, 0.8)) / Number(p.bolts), y: b.y });
@@ -856,7 +846,7 @@ function applyClear(f: FxCtx, nodes: Node[]): Node[] {
   // Line effects are cleared before inking; only filled surfaces need a mask.
   let out = nodes;
   for (const { region: reg, margin } of f.clears) {
-    const maskFills = (children: Node[], mask: (node: Node) => Node): Node[] => children.map((node) => node.kind === "group" ? { ...node, children: maskFills(node.children, mask) } : node.tag?.role === "ink" ? node : mask(node));
+    const maskFills = (children: Node[], mask: (node: Node) => Node): Node[] => children.map((node) => node.kind === "group" ? { ...node, children: maskFills(node.children, mask) } : node.tag?.role === "ink" && !["aura", "arcs"].includes(String(f.p.kind)) ? node : mask(node));
     if (reg.alphaOf) {
       const t = f.ctx.refs.get(reg.alphaOf);
       if (t?.imagePx) out = maskFills(out, (node) => ({ kind: "group", alphaMaskOf: { ...t.imagePx!, invert: true, dilate: margin }, children: [node] }));
@@ -888,6 +878,9 @@ async function renderEffectInner(el: RElement, ctx: ElemCtx, hold: { f?: FxCtx }
   hold.f = f;
   const ink = (inks: InkPoly[]) => wrap(f, inksToNodes(inks, color, tag(el, "ink")), backgroundNode(f));
   switch (kind) {
+    case "aura":
+    case "arcs":
+      return wrap(f, renderAura(el, ctx, region));
     case "focus-lines": {
       const passes = Array.isArray(p.passes) ? (p.passes as Obj[]) : null;
       const inks = passes ? passes.flatMap((ov) => focusLines(f, ov)) : focusLines(f);
