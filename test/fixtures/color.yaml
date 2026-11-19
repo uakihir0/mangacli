@@ -1,0 +1,16 @@
+# Feature catalog: docs/14-testing.md §14.3.1
+mangacli: 1
+meta: { lang: ja }
+page: { size: [100mm, 60mm], bleed: 0, color: color }
+output: { metadata: false }
+pages:
+  - layout: { template: grid, params: { cols: 4, rows: 1 } }
+    panels:
+      - layers:
+          - { type: draw, kind: ellipse, size: [15mm, 12mm], fill: "#e45a7a" }
+      - layers:
+          - { type: fill, paint: "linear-gradient(to bottom, #3366ff, #ffee88)" }
+      - layers:
+          - { type: fill, paint: "#888888" }
+      - layers:
+          - { type: fill, paint: black }

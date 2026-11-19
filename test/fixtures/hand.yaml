@@ -1,0 +1,56 @@
+# Feature catalog: docs/14-testing.md §14.3.1
+mangacli: 1
+meta: { lang: ja }
+page: { size: [100mm, 144mm], bleed: 0, color: color }
+output: { metadata: false }
+pages:
+  - layout: { template: grid, params: { cols: 4, rows: 6 } }
+    panels:
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: clean, stroke: { pen: g-pen } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: clean, stroke: { pen: maru-pen } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: clean, stroke: { pen: kabura-pen } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: clean, stroke: { pen: marker } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: clean, stroke: { pen: brush } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: clean, stroke: { pen: pencil } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: ink, stroke: { pen: g-pen } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: ink, stroke: { pen: maru-pen } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: ink, stroke: { pen: kabura-pen } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: ink, stroke: { pen: marker } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: ink, stroke: { pen: brush } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: ink, stroke: { pen: pencil } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: loose, stroke: { pen: g-pen } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: loose, stroke: { pen: maru-pen } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: loose, stroke: { pen: kabura-pen } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: loose, stroke: { pen: marker } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: loose, stroke: { pen: brush } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: loose, stroke: { pen: pencil } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: sketch, stroke: { pen: g-pen } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: sketch, stroke: { pen: maru-pen } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: sketch, stroke: { pen: kabura-pen } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: sketch, stroke: { pen: marker } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: sketch, stroke: { pen: brush } }
+      - layers:
+          - { type: draw, kind: rect, size: [12mm, 8mm], hand: sketch, stroke: { pen: pencil } }
