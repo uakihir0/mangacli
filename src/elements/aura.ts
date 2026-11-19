@@ -41,7 +41,8 @@ export function renderAura(el: RElement, ctx: ElemCtx, region: ResolvedRegion): 
   if (p.target === undefined) return bad("target", "SCHEMA_REQUIRED", `${p.kind} requires target`);
   const target = typeof p.target === "string" ? ctx.refs.target(p.target, ctx.panel?.panel.id) : undefined;
   if (!target) return bad("target", "REF_NOT_FOUND", `image target "${p.target}" not found`);
-  if (target.type !== "image" || !target.imagePx) return bad("target", "SCHEMA_TYPE", `${p.kind} target must be an image`);
+  if (target.type !== "image") return bad("target", "SCHEMA_TYPE", `${p.kind} target must be an image`);
+  if (!target.imagePx) return [];
   const loops = ctx.alphaContours?.get(target.id) ?? [];
   const b = loops.length ? boundsOf(loops.flat()) : target.bbox;
   const length = toMm(p.length as string, { ...ctx.u, base: Math.max(b.w, b.h) });

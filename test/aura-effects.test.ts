@@ -47,6 +47,11 @@ describe("alpha tracing", () => {
 });
 
 describe.each(["aura", "arcs"])("%s", kind => {
+  it("skips missing image placeholders in draft mode", async () => {
+    const { diagnostics, pages } = await render(scene(`effect: ${kind}, target: figure`), { draft: true, format: "svg", throwOnError: false });
+    expect(diagnostics.filter(d => d.severity === "error")).toEqual([]);
+    expect(pages).toHaveLength(1);
+  });
   it("leaves every source-alpha pixel unchanged, even when painted above the image", async () => {
     const baseline = await raster();
     const result = await raster(`effect: ${kind}, target: figure, seed: 21`);
