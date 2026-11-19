@@ -203,10 +203,11 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       fits = withMargin.every((q) => pointInPolygon({ x: q.x + ic.x, y: q.y + ic.y }, body.inner));
     } else {
       let ar = (p.aspectRange as [number, number]) ?? [0.55, 1.8];
-      if (compact) ar = [0.15, 6.7];
+      const defaultAspectRange = el.builtinProps?.includes("aspectRange") ?? p.aspectRange === undefined;
+      if (compact && defaultAspectRange) ar = [0.15, 6.7];
       // a box follows its text block; horizontal lines make wider balloons than vertical columns
       if (kind === "rect" || kind === "none") ar = [0.05, 20];
-      else if (style.writing === "horizontal") ar = [ar[0], Math.max(ar[1], 2.6)];
+      else if (style.writing === "horizontal" && defaultAspectRange) ar = [ar[0], Math.max(ar[1], 2.6)];
       const fixedAspect = typeof p.aspect === "number" ? p.aspect : undefined;
       base = fitBody(kind, params, shapeSeed, withMargin, fixedAspect, ar);
       body = genBody(kind, base.w, base.h, params, shapeSeed);

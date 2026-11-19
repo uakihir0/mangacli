@@ -25,6 +25,15 @@ async function plan(text: string, writing = "vertical", props: Record<string, un
 }
 
 describe("balloon text extent sizing", () => {
+  it.each(["element", "defaults", "style"])("honors explicit aspectRange from %s", async (source) => {
+    for (const writing of ["vertical", "horizontal"]) for (const aspectRange of [[0.9, 1.1], [0.55, 1.8]]) {
+      const p = await plan("あいう", writing, source === "element" ? { aspectRange } : source === "style" ? { style: "custom" } : {},
+        source === "defaults" ? { defaults: { balloon: { aspectRange } } } : source === "style" ? { styles: { custom: { aspectRange } } } : {});
+      expect(p.el.builtinProps).not.toContain("aspectRange");
+      expect(p.base.w / p.base.h).toBeGreaterThanOrEqual(aspectRange[0]);
+      expect(p.base.w / p.base.h).toBeLessThanOrEqual(aspectRange[1]);
+    }
+  });
   it.each(["element", "defaults", "style"])("honors explicit padding from %s", async (source) => {
     for (const padding of [["2em", "2em"], ["0.6em", "0.8em"]]) {
       const p = await plan("えっ", "vertical", source === "element" ? { padding } : source === "style" ? { style: "custom" } : {},
