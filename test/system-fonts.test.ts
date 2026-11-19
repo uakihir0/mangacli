@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, stat, truncate, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -115,6 +115,23 @@ it.each([
     await writeNamedFont(regular, names("Regular"), { weight: 400 });
     const faces = [...await readSystemFontFaces(alternate), ...await readSystemFontFaces(regular)];
     expect(findSystemFont(faces, "Example Roman")?.path).toBe(regular);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+it("keeps names discoverable when the optional OS/2 metadata is truncated", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "mc-font-"));
+  try {
+    const path = join(dir, "Partial.otf");
+    await writeNamedFont(path, [
+      { id: 1, language: 0x0409, name: "Example Roman" },
+      { id: 2, language: 0x0409, name: "Regular" },
+      { id: 6, language: 0x0409, name: "ExampleRoman-Regular" },
+    ], { weight: 400 });
+    await truncate(path, (await stat(path)).size - 1);
+    const faces = await readSystemFontFaces(path);
+    expect(findSystemFont(faces, "ExampleRoman-Regular")).toMatchObject({ path, regular: true });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

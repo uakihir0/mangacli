@@ -131,7 +131,8 @@ export async function readSystemFontFaces(path: string): Promise<SystemFontFace[
             if (tag === "name" && length >= 6 && length <= 1024 * 1024) {
               names = parseNames(await read(file, start, length));
             } else if (tag === "OS/2" && length >= 64) {
-              const os2 = await read(file, start, 64);
+              const os2 = await read(file, start, 64).catch(() => undefined);
+              if (!os2) continue;
               const weight = os2.readUInt16BE(4);
               const width = os2.readUInt16BE(6);
               const flags = os2.readUInt16BE(62);
