@@ -2,7 +2,7 @@
 import { BLACK, WHITE, parseColor } from "../core/color.js";
 import { Rng, fbm1p, noise1 } from "../core/random.js";
 import { type Range, parseAngle, toMm, toRange } from "../core/units.js";
-import { polyPath } from "../geom/path.js";
+import { flattenPath, parseSvgPath, polyPath, smoothPath, transformPath } from "../geom/path.js";
 import { type Rect, type Vec } from "../geom/vec.js";
 import { type HandSpec, type PenSpec } from "../ink/presets.js";
 import { inkLine } from "../ink/shape.js";
@@ -17,6 +17,7 @@ import { runPluginDrawable } from "./plugindraw.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { inksToNodes } from "./inkir.js";
 import { type ResolvedRegion, resolveRegion } from "./region.js";
+import { effectSilhouette, splitClearLine } from "./effect-clear.js";
 
 type Obj = Record<string, unknown>;
 
@@ -30,6 +31,55 @@ interface FxCtx {
   pen: PenSpec;
   color: { r: number; g: number; b: number; a: number };
   k: number;
+  clears: { region: ResolvedRegion; margin: number; contains: (p: Vec, extra?: number) => boolean }[];
+}
+
+function effectLine(f: FxCtx, ...args: Parameters<typeof inkLine>): InkPoly[] {
+  if (!f.clears.length) return inkLine(...args);
+  const [points, style, hand, rng, opts = {}] = args;
+  const runs = splitClearLine(points, (p) => f.clears.some((c) => c.contains(p, style.width * 0.8 + hand.wobbleAmp * 2 + hand.tremorAmp * 2)), 0.15 * f.k, 0.8 * f.k);
+  return runs.flatMap((run) => {
+    let length = 0;
+    for (let i = 1; i < run.length; i++) length += Math.hypot(run[i].x - run[i - 1].x, run[i].y - run[i - 1].y);
+    const cutStart = Math.hypot(run[0].x - points[0].x, run[0].y - points[0].y) > 0.01;
+    const cutEnd = Math.hypot(run.at(-1)!.x - points.at(-1)!.x, run.at(-1)!.y - points.at(-1)!.y) > 0.01;
+    return inkLine(run, style, { ...hand, rulerAngleError: 0, taper: cutStart || cutEnd ? Math.max(1, hand.taper) : hand.taper }, rng, { ...opts, taperIn: cutStart || opts.taperIn, taperOut: cutEnd || opts.taperOut, taperInLen: cutStart ? Math.min(4 * f.k, length * 0.4) : opts.taperInLen, taperOutLen: cutEnd ? Math.min(4 * f.k, length * 0.4) : opts.taperOutLen });
+  });
+}
+
+function resolveClears(f: FxCtx): FxCtx["clears"] {
+  const raw = f.p.clear == null ? [] : Array.isArray(f.p.clear) ? [...f.p.clear] : [f.p.clear];
+  if (["focus-lines", "uni-flash", "speed-lines", "beta-flash"].includes(String(f.p.kind)) && f.p.clearFigures !== false) {
+    for (const t of f.ctx.refs.all()) {
+      if (t.type === "image" && t.character && t.imagePx && (!f.ctx.panel || t.panelId === f.ctx.panel.panel.id)) {
+        if (!raw.some((s) => isObj(s) && s.element === t.id)) raw.push({ element: t.id, mode: "alpha", automatic: true });
+      }
+    }
+  }
+  return raw.flatMap((spec, i) => {
+    const region = resolveRegion(spec, f.ctx, "panel", [...f.el.path, "clear", i]);
+    const margin = isObj(spec) && spec.margin !== undefined ? L(f, spec.margin) : region.alphaOf ? L(f, "1mm") : 0;
+    if (region.alphaOf) {
+      const image = f.ctx.refs.get(region.alphaOf)?.imagePx;
+      const silhouette = image && effectSilhouette(f.ctx, image, margin);
+      if (!silhouette) return [];
+      if (silhouette.opaque) {
+        if (!(isObj(spec) && spec.automatic)) f.ctx.bag.warn("EFFECT_OPAQUE_CLEAR", `alpha clear ignored: image "${region.alphaOf}" is essentially opaque`, { path: [...f.el.path, "clear", i] });
+        return [];
+      }
+      return [{ region, margin, contains: silhouette.contains }];
+    }
+    return [{ region, margin, contains: (p: Vec, extra = 0) => {
+      if (region.contains(p)) return true;
+      const radius = margin + extra;
+      return region.polys.some((poly) => poly.some((a, j) => {
+        const b = poly[(j + 1) % poly.length];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+        return Math.hypot(p.x - a.x - dx * t, p.y - a.y - dy * t) <= radius;
+      }));
+    } }];
+  });
 }
 
 /** the burst centre: explicit, else the face of the panel's main character, else the region centre */
@@ -155,20 +205,10 @@ function focusLines(f: FxCtx, over: Obj = {}): InkPoly[] {
   const curve = (p.curve as number) ?? 0;
   const angles = clusteredAngles(f.rng, count, jit, cl);
   const out: InkPoly[] = [];
-  const clear = p.clear;
-  const clearReg0 = clear ? resolveRegion(clear, f.ctx, "panel", [...f.el.path, "clear"]) : null;
-  // silhouette clears are applied as a mask afterwards (applyClear)
-  const clearReg = clearReg0 && !clearReg0.alphaOf ? clearReg0 : null;
   for (const a of angles) {
     const d = { x: Math.cos(a), y: Math.sin(a) };
     let rin = ellipseR(rx, ry, a - rot0) * (1 + ij * Math.pow(f.rng.next(), 1.5));
     if (f.rng.chance((spikes.ratio as number) ?? 0.06)) rin *= 1 - ((spikes.depth as number) ?? 0.45) * f.rng.next();
-    if (clearReg) {
-      // shorten until outside clear region
-      let r = rin;
-      while (r < far && clearReg.contains({ x: c.x + d.x * r, y: c.y + d.y * r })) r += 0.5 * f.k;
-      rin = r;
-    }
     const outerP = { x: c.x + d.x * far, y: c.y + d.y * far };
     const innerP = { x: c.x + d.x * rin, y: c.y + d.y * rin };
     const w = sampleR(f, th);
@@ -185,7 +225,7 @@ function focusLines(f: FxCtx, over: Obj = {}): InkPoly[] {
     }
     const taperLen = Math.min(vis * 0.75, 40 * f.k);
     out.push(
-      ...inkLine(pts, lineStyle(f, w), f.hand, f.rng.fork("fl"), {
+      ...effectLine(f, pts, lineStyle(f, w), f.hand, f.rng.fork("fl"), {
         ruler: p.ruler !== false && !curve,
         taperIn: taper === "out" || taper === "both",
         taperOut: taper === "in" || taper === "both",
@@ -198,7 +238,7 @@ function focusLines(f: FxCtx, over: Obj = {}): InkPoly[] {
     if (f.rng.chance(0.03)) {
       const off = f.rng.range(0.1, 0.3) * f.k;
       const n = { x: -d.y * off, y: d.x * off };
-      out.push(...inkLine(pts.map((q) => ({ x: q.x + n.x, y: q.y + n.y })), lineStyle(f, w * 0.7), f.hand, f.rng.fork("fl2"), { ruler: true, taperOut: true, taperIn: false, taperOutLen: taperLen, resolution: Math.max(0.3, w), inkPool: false }));
+      out.push(...effectLine(f, pts.map((q) => ({ x: q.x + n.x, y: q.y + n.y })), lineStyle(f, w * 0.7), f.hand, f.rng.fork("fl2"), { ruler: true, taperOut: true, taperIn: false, taperOutLen: taperLen, resolution: Math.max(0.3, w), inkPool: false }));
     }
   }
   return out;
@@ -243,7 +283,7 @@ function betaFlash(f: FxCtx): Node[] {
     ri = Math.min(ri, ro - 1 * f.k);
     spikesAt.push({ a, ri });
     const w = sampleR(f, th);
-    inks.push(...inkLine([{ x: c.x + d.x * ro, y: c.y + d.y * ro }, { x: c.x + d.x * ri, y: c.y + d.y * ri }], lineStyle(f, w), f.hand, f.rng.fork("bf"), { ruler: true, taperIn: false, taperOut: true, taperOutLen: (ro - ri) * 0.85, resolution: Math.max(0.3, w), inkPool: false }));
+    inks.push(...effectLine(f, [{ x: c.x + d.x * ro, y: c.y + d.y * ro }, { x: c.x + d.x * ri, y: c.y + d.y * ri }], lineStyle(f, w), f.hand, f.rng.fork("bf"), { ruler: true, taperIn: false, taperOut: true, taperOutLen: (ro - ri) * 0.85, resolution: Math.max(0.3, w), inkPool: false }));
   }
   // the solid black reaches in past the outer boundary as a ring of wedges, so the strokes
   // grow out of solid ink instead of ending at a visible (scalloped) edge
@@ -302,7 +342,7 @@ function uniFlash(f: FxCtx): Node[] {
       if (ro <= ri + 0.5 * f.k) continue;
       const w = sampleR(f, th);
       const len = ro - ri;
-      inks.push(...inkLine([{ x: c.x + d.x * ro, y: c.y + d.y * ro }, { x: c.x + d.x * ri, y: c.y + d.y * ri }], lineStyle(f, w), f.hand, f.rng.fork("uf"), { ruler: true, taperIn: ufTaper !== "out" && ufTaper !== "none", taperOut: ufTaper !== "in" && ufTaper !== "none", taperInLen: len * (1 - peak), taperOutLen: len * peak, resolution: Math.max(0.2, w), inkPool: false }));
+      inks.push(...effectLine(f, [{ x: c.x + d.x * ro, y: c.y + d.y * ro }, { x: c.x + d.x * ri, y: c.y + d.y * ri }], lineStyle(f, w), f.hand, f.rng.fork("uf"), { ruler: true, taperIn: ufTaper !== "out" && ufTaper !== "none", taperOut: ufTaper !== "in" && ufTaper !== "none", taperInLen: len * (1 - peak), taperOutLen: len * peak, resolution: Math.max(0.2, w), inkPool: false }));
     }
   }
   const pre: Node[] = [];
@@ -325,7 +365,16 @@ function uniFlash(f: FxCtx): Node[] {
 function speedLines(f: FxCtx): InkPoly[] {
   const p = f.p;
   const b = f.region.bbox;
-  const ang = parseAngle((p.angle as string) ?? 0);
+  const follow = p.followPath;
+  const pc = placeCtx(f.ctx, f.el);
+  const points = Array.isArray(follow) ? follow.map((q) => resolvePoint(q, pc)).filter((q): q is Vec => q !== null) : [];
+  const path = points.length >= 2 ? smoothPath(points, false) : isObj(follow) && typeof follow.path === "string" ? transformPath(parseSvgPath(follow.path), [1, 0, 0, 1, f.ctx.coordsBox.x, f.ctx.coordsBox.y]) : [];
+  const guide = flattenPath(path, 0.1)[0]?.pts ?? [];
+  if (follow !== undefined && guide.length < 2) f.ctx.bag.error("EFFECT_PATH_INVALID", "followPath needs at least two points or a nonempty SVG path", { path: [...f.el.path, "followPath"] });
+  const arc = [0];
+  for (let i = 1; i < guide.length; i++) arc.push(arc[i - 1] + Math.hypot(guide[i].x - guide[i - 1].x, guide[i].y - guide[i - 1].y));
+  const total = arc.at(-1) ?? 0;
+  const ang = total > 0 ? Math.atan2(guide.at(-1)!.y - guide[0].y, guide.at(-1)!.x - guide[0].x) : parseAngle((p.angle as string) ?? 0);
   const d = { x: Math.cos(ang), y: Math.sin(ang) };
   const n = { x: -d.y, y: d.x };
   const corners = [{ x: b.x, y: b.y }, { x: b.x + b.w, y: b.y }, { x: b.x, y: b.y + b.h }, { x: b.x + b.w, y: b.y + b.h }];
@@ -344,8 +393,6 @@ function speedLines(f: FxCtx): InkPoly[] {
   const cl = (p.cluster as number) ?? 0.4;
   const seed = f.rng.nextU32();
   const dens = (p.density as number) ?? 1;
-  const clearReg0 = p.clear ? resolveRegion(p.clear, f.ctx, "panel", [...f.el.path, "clear"]) : null;
-  const clearReg = clearReg0 && !clearReg0.alphaOf ? clearReg0 : null;
   // in a band region the lines thin out toward the band's open edge instead of stopping at a rule
   const band = isObj(p.region) && isObj((p.region as Obj).band) ? String(((p.region as Obj).band as Obj).side ?? "") : "";
   const bandN = band === "top" ? { x: 0, y: -1 } : band === "bottom" ? { x: 0, y: 1 } : band === "left" ? { x: -1, y: 0 } : band === "right" ? { x: 1, y: 0 } : null;
@@ -371,28 +418,23 @@ function speedLines(f: FxCtx): InkPoly[] {
     else if (align === "center") start = (d0 + d1) / 2 - len / 2 + f.rng.range(-0.05, 0.05) * extent;
     else start = d0 - len * 0.2 + f.rng.range(0, Math.max(0, extent - len * 0.6));
     const w = sampleR(f, th);
-    const P = (t: number) => ({ x: n.x * pos + d.x * t, y: n.y * pos + d.y * t });
-    let segs: [number, number][] = [[start, start + len]];
-    if (clearReg) {
-      const ns: [number, number][] = [];
-      for (const [a0, a1] of segs) {
-        let cur: number | null = null;
-        const step = 0.5 * f.k;
-        for (let t = a0; t <= a1; t += step) {
-          const inside = clearReg.contains(P(t));
-          if (!inside && cur === null) cur = t;
-          if (inside && cur !== null) {
-            if (t - cur > 2 * f.k) ns.push([cur, t]);
-            cur = null;
-          }
-        }
-        if (cur !== null && a1 - cur > 2 * f.k) ns.push([cur, a1]);
-      }
-      segs = ns;
-    }
+    const P = (t: number) => {
+      if (!total) return { x: n.x * pos + d.x * t, y: n.y * pos + d.y * t };
+      const s = Math.max(0, Math.min(total, (t - d0) / extent * total));
+      let i = 1;
+      while (i < arc.length - 1 && arc[i] < s) i++;
+      const a = guide[i - 1], z = guide[i];
+      const length = arc[i] - arc[i - 1] || 1;
+      const fraction = (s - arc[i - 1]) / length;
+      const offset = pos - (n0 + n1) / 2;
+      return { x: a.x + (z.x - a.x) * fraction - (z.y - a.y) / length * offset, y: a.y + (z.y - a.y) * fraction + (z.x - a.x) / length * offset };
+    };
+    const segs: [number, number][] = [[start, start + len]];
     for (const [a0, a1] of segs) {
       const segLen = a1 - a0;
-      out.push(...inkLine([P(a0), P(a1)], lineStyle(f, w), f.hand, f.rng.fork("sl"), { ruler: p.ruler !== false, taperIn: taper === "both" || taper === "start", taperOut: taper === "both" || taper === "end", taperInLen: segLen * 0.35, taperOutLen: segLen * 0.45, resolution: Math.max(0.3, w), inkPool: false }));
+      const steps = total ? Math.max(2, Math.ceil(segLen / (0.5 * f.k))) : 1;
+      const line = Array.from({ length: steps + 1 }, (_, i) => P(a0 + segLen * i / steps));
+      out.push(...effectLine(f, line, lineStyle(f, w), f.hand, f.rng.fork("sl"), { ruler: !total && p.ruler !== false, taperIn: taper === "both" || taper === "start", taperOut: taper === "both" || taper === "end", taperInLen: segLen * 0.35, taperOutLen: segLen * 0.45, resolution: Math.max(0.3, w), inkPool: false }));
     }
   }
   return out;
@@ -412,7 +454,7 @@ function gloomLines(f: FxCtx): InkPoly[] {
     const len = sampleR(f, lenR);
     const w = sampleR(f, th);
     const y0 = b.y - 1 * f.k;
-    out.push(...inkLine([{ x, y: y0 }, { x: x + f.rng.range(-0.15, 0.15) * f.k, y: y0 + len }], lineStyle(f, w), f.hand, f.rng.fork("gl"), { ruler: true, taperIn: (p.taper as string) === "both", taperOut: true, taperInLen: len * 0.15, taperOutLen: len * 0.6, resolution: Math.max(0.3, w), inkPool: false }));
+    out.push(...effectLine(f, [{ x, y: y0 }, { x: x + f.rng.range(-0.15, 0.15) * f.k, y: y0 + len }], lineStyle(f, w), f.hand, f.rng.fork("gl"), { ruler: true, taperIn: (p.taper as string) === "both", taperOut: true, taperInLen: len * 0.15, taperOutLen: len * 0.6, resolution: Math.max(0.3, w), inkPool: false }));
     x += sampleR(f, sp);
   }
   return out;
@@ -433,7 +475,7 @@ function rain(f: FxCtx): InkPoly[] {
   for (let i = 0; i < n; i++) {
     const c = { x: b.x + f.rng.next() * b.w, y: b.y + f.rng.next() * b.h };
     const l = sampleR(f, lenR);
-    out.push(...inkLine([{ x: c.x - (d.x * l) / 2, y: c.y - (d.y * l) / 2 }, { x: c.x + (d.x * l) / 2, y: c.y + (d.y * l) / 2 }], lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("r"), { ruler: true, taperIn: true, taperOut: true, taperInLen: l * 0.2, taperOutLen: l * 0.35, inkPool: false, resolution: 0.25 }));
+    out.push(...effectLine(f, [{ x: c.x - (d.x * l) / 2, y: c.y - (d.y * l) / 2 }, { x: c.x + (d.x * l) / 2, y: c.y + (d.y * l) / 2 }], lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("r"), { ruler: true, taperIn: true, taperOut: true, taperInLen: l * 0.2, taperOutLen: l * 0.35, inkPool: false, resolution: 0.25 }));
   }
   return out;
 }
@@ -465,7 +507,7 @@ function swirl(f: FxCtx): InkPoly[] {
       pts.push({ x: c.x + Math.cos(a) * rad, y: c.y + Math.sin(a) * rad });
     }
     const len = r * span;
-    out.push(...inkLine(pts, lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("sw"), { taperIn: true, taperOut: true, taperInLen: len * 0.2, taperOutLen: len * 0.55, inkPool: false }));
+    out.push(...effectLine(f, pts, lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("sw"), { taperIn: true, taperOut: true, taperInLen: len * 0.2, taperOutLen: len * 0.55, inkPool: false }));
   }
   return out;
 }
@@ -519,7 +561,7 @@ function hatching(f: FxCtx): InkPoly[] {
             const o = (i - (lpb - 1) / 2) * (size / lpb);
             const l = size * f.rng.range(0.8, 1.05);
             const c0 = { x: cx + n.x * o, y: cy + n.y * o };
-            out.push(...inkLine([{ x: c0.x - (d.x * l) / 2, y: c0.y - (d.y * l) / 2 }, { x: c0.x + (d.x * l) / 2, y: c0.y + (d.y * l) / 2 }], lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("ka"), { taperIn: true, taperOut: true, taperInLen: l * 0.3, taperOutLen: l * 0.4, inkPool: false, wobble: false, resolution: 0.15, ruler }));
+            out.push(...effectLine(f, [{ x: c0.x - (d.x * l) / 2, y: c0.y - (d.y * l) / 2 }, { x: c0.x + (d.x * l) / 2, y: c0.y + (d.y * l) / 2 }], lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("ka"), { taperIn: true, taperOut: true, taperInLen: l * 0.3, taperOutLen: l * 0.4, inkPool: false, wobble: false, resolution: 0.15, ruler }));
           }
         }
       }
@@ -563,7 +605,7 @@ function hatching(f: FxCtx): InkPoly[] {
               }
               const l = a1 - a0;
               if (l < 0.6 * f.k) continue;
-              out.push(...inkLine([{ x: n.x * s + d.x * a0, y: n.y * s + d.y * a0 }, { x: n.x * s + d.x * a1, y: n.y * s + d.y * a1 }], lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("h"), { taperIn: true, taperOut: true, taperInLen: Math.min(l * 0.3, 2 * f.k), taperOutLen: Math.min(l * 0.4, 3 * f.k), inkPool: false, resolution: 0.3, ruler }));
+              out.push(...effectLine(f, [{ x: n.x * s + d.x * a0, y: n.y * s + d.y * a0 }, { x: n.x * s + d.x * a1, y: n.y * s + d.y * a1 }], lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("h"), { taperIn: true, taperOut: true, taperInLen: Math.min(l * 0.3, 2 * f.k), taperOutLen: Math.min(l * 0.4, 3 * f.k), inkPool: false, resolution: 0.3, ruler }));
             }
           }
           t0 = null;
@@ -603,11 +645,11 @@ function impact(f: FxCtx): Node[] {
   for (let i = 0; i < outer.length; i++) {
     const a = outer[i];
     const bb = outer[(i + 1) % outer.length];
-    inks.push(...inkLine([a, bb], lineStyle(f, w), f.hand, f.rng.fork("im"), { taperIn: i % 2 === 1, taperOut: i % 2 === 0, inkPool: false }));
+    inks.push(...effectLine(f, [a, bb], lineStyle(f, w), f.hand, f.rng.fork("im"), { taperIn: i % 2 === 1, taperOut: i % 2 === 0, inkPool: false }));
   }
   if (p.double !== false) {
     const inner = star(radius * 0.6, 2);
-    for (let i = 0; i < inner.length; i++) inks.push(...inkLine([inner[i], inner[(i + 1) % inner.length]], lineStyle(f, w * 0.7), f.hand, f.rng.fork("im2"), { inkPool: false }));
+    for (let i = 0; i < inner.length; i++) inks.push(...effectLine(f, [inner[i], inner[(i + 1) % inner.length]], lineStyle(f, w * 0.7), f.hand, f.rng.fork("im2"), { inkPool: false }));
   }
   const rays = (isObj(p.rays) ? p.rays : { count: 24 }) as Obj;
   const rc = Number(rays.count ?? 24);
@@ -618,7 +660,7 @@ function impact(f: FxCtx): Node[] {
     const r0 = radius * (1.5 + f.rng.range(0, 0.3));
     const l = sampleR(f, rl);
     const d = { x: Math.cos(a), y: Math.sin(a) };
-    inks.push(...inkLine([{ x: c.x + d.x * r0, y: c.y + d.y * r0 }, { x: c.x + d.x * (r0 + l), y: c.y + d.y * (r0 + l) }], lineStyle(f, sampleR(f, rt)), f.hand, f.rng.fork("ray"), { ruler: true, taperIn: true, taperOut: true, inkPool: false }));
+    inks.push(...effectLine(f, [{ x: c.x + d.x * r0, y: c.y + d.y * r0 }, { x: c.x + d.x * (r0 + l), y: c.y + d.y * (r0 + l) }], lineStyle(f, sampleR(f, rt)), f.hand, f.rng.fork("ray"), { ruler: true, taperIn: true, taperOut: true, inkPool: false }));
   }
   nodes.push(...inksToNodes(inks, f.color, tag(f.el, "ink")));
   return wrap(f, nodes);
@@ -661,33 +703,28 @@ function vignette(f: FxCtx): Node[] {
 }
 
 /** clear: keep the effect off a region for every kind (focus/speed lines also shorten their lines) */
-function applyClear(f: FxCtx, nodes: Node[], kind: string): Node[] {
-  const clear = f.p.clear;
-  // radial lines stop just short of the characters instead of running into their outline
-  if ((clear === undefined || clear === null) && (kind === "focus-lines" || kind === "uni-flash") && f.p.clearFigures !== false && nodes.length) {
-    let out = nodes;
-    for (const t of f.ctx.refs.all())
-      if (t.type === "image" && t.character && t.imagePx && (!f.ctx.panel || t.panelId === f.ctx.panel.panel.id))
-        out = [{ kind: "group", alphaMaskOf: { ...t.imagePx, invert: true, dilate: 3 * f.k }, children: out }];
-    return out;
+function applyClear(f: FxCtx, nodes: Node[]): Node[] {
+  // Line effects are cleared before inking; only filled surfaces need a mask.
+  let out = nodes;
+  for (const { region: reg, margin } of f.clears) {
+    const maskFills = (children: Node[], mask: (node: Node) => Node): Node[] => children.map((node) => node.kind === "group" ? { ...node, children: maskFills(node.children, mask) } : node.tag?.role === "ink" ? node : mask(node));
+    if (reg.alphaOf) {
+      const t = f.ctx.refs.get(reg.alphaOf);
+      if (t?.imagePx) out = maskFills(out, (node) => ({ kind: "group", alphaMaskOf: { ...t.imagePx!, invert: true, dilate: margin }, children: [node] }));
+    } else {
+      const b = f.region.bbox;
+      const outer = polyPath([{ x: b.x - 1, y: b.y - 1 }, { x: b.x + b.w + 1, y: b.y - 1 }, { x: b.x + b.w + 1, y: b.y + b.h + 1 }, { x: b.x - 1, y: b.y + b.h + 1 }], true);
+      const path = [...outer, ...reg.path];
+      out = maskFills(out, (node) => reg.feather > 0 ? { kind: "group", softClip: { path, fillRule: "evenodd", feather: reg.feather }, children: [node] } : { kind: "group", clip: path, clipRule: "evenodd", children: [node] });
+    }
   }
-  if (clear === undefined || clear === null || !nodes.length) return nodes;
-  const reg = resolveRegion(clear, f.ctx, "panel", [...f.el.path, "clear"]);
-  if (reg.alphaOf) {
-    const t = f.ctx.refs.get(reg.alphaOf);
-    if (t?.imagePx) return [{ kind: "group", alphaMaskOf: { ...t.imagePx, invert: true, dilate: reg.feather || 1.2 * f.k }, children: nodes }];
-  }
-  if (kind === "focus-lines" || kind === "speed-lines") return nodes;
-  const b = f.region.bbox;
-  const outer = polyPath([{ x: b.x - 1, y: b.y - 1 }, { x: b.x + b.w + 1, y: b.y - 1 }, { x: b.x + b.w + 1, y: b.y + b.h + 1 }, { x: b.x - 1, y: b.y + b.h + 1 }], true);
-  const path = [...outer, ...reg.path];
-  return [reg.feather > 0 ? { kind: "group", softClip: { path, fillRule: "evenodd", feather: reg.feather }, children: nodes } : { kind: "group", clip: path, clipRule: "evenodd", children: nodes }];
+  return out;
 }
 
 export function renderEffect(el: RElement, ctx: ElemCtx): Node[] {
   const hold: { f?: FxCtx } = {};
   const out = renderEffectInner(el, ctx, hold);
-  return hold.f ? applyClear(hold.f, out, String(el.props.kind)) : out;
+  return hold.f ? applyClear(hold.f, out) : out;
 }
 
 function renderEffectInner(el: RElement, ctx: ElemCtx, hold: { f?: FxCtx }): Node[] {
@@ -697,7 +734,8 @@ function renderEffectInner(el: RElement, ctx: ElemCtx, hold: { f?: FxCtx }): Nod
   const pen = resolvePen(p.pen, ctx.u, hand.pen);
   const color = parseColor((p.color as string) ?? "black") ?? BLACK;
   const region = resolveRegion(p.region, ctx, ctx.panel ? "panel" : "page", [...el.path, "region"]);
-  const f: FxCtx = { el, p, ctx, region, rng: new Rng(el.seed), hand, pen, color, k: ctx.u.k };
+  const f: FxCtx = { el, p, ctx, region, rng: new Rng(el.seed), hand, pen, color, k: ctx.u.k, clears: [] };
+  f.clears = resolveClears(f);
   hold.f = f;
   const ink = (inks: InkPoly[]) => wrap(f, inksToNodes(inks, color, tag(el, "ink")), backgroundNode(f));
   switch (kind) {

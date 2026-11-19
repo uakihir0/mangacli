@@ -4277,6 +4277,57 @@
                     },
                     "kind": {
                       "type": "string"
+                    },
+                    "clear": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/__schema50"
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/$defs/__schema50"
+                          }
+                        }
+                      ]
+                    },
+                    "clearFigures": {
+                      "type": "boolean"
+                    },
+                    "followPath": {
+                      "anyOf": [
+                        {
+                          "minItems": 2,
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/$defs/__schema30"
+                          }
+                        },
+                        {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "path": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "path"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "array"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -5428,6 +5479,9 @@
                 "rect": {
                   "$ref": "#/$defs/__schema21"
                 },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
+                },
                 "feather": {
                   "$ref": "#/$defs/__schema0"
                 }
@@ -5454,6 +5508,9 @@
               "properties": {
                 "ellipse": {
                   "$ref": "#/$defs/__schema21"
+                },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
                 },
                 "feather": {
                   "$ref": "#/$defs/__schema0"
@@ -5496,6 +5553,9 @@
                     "maxItems": 2
                   }
                 },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
+                },
                 "feather": {
                   "$ref": "#/$defs/__schema0"
                 }
@@ -5522,6 +5582,9 @@
               "properties": {
                 "path": {
                   "type": "string"
+                },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
                 },
                 "feather": {
                   "$ref": "#/$defs/__schema0"
@@ -5581,6 +5644,9 @@
                     }
                   ]
                 },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
+                },
                 "feather": {
                   "$ref": "#/$defs/__schema0"
                 }
@@ -5616,6 +5682,9 @@
                     "alpha"
                   ]
                 },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
+                },
                 "feather": {
                   "$ref": "#/$defs/__schema0"
                 }
@@ -5645,6 +5714,9 @@
                   "items": {
                     "$ref": "#/$defs/__schema50"
                   }
+                },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
                 },
                 "feather": {
                   "$ref": "#/$defs/__schema0"
@@ -5684,6 +5756,9 @@
                   "minItems": 2,
                   "maxItems": 2
                 },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
+                },
                 "feather": {
                   "$ref": "#/$defs/__schema0"
                 }
@@ -5710,6 +5785,9 @@
               "properties": {
                 "invert": {
                   "$ref": "#/$defs/__schema50"
+                },
+                "margin": {
+                  "$ref": "#/$defs/__schema0"
                 },
                 "feather": {
                   "$ref": "#/$defs/__schema0"

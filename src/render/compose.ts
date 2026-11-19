@@ -7,6 +7,7 @@ import { parseAngle, toMm } from "../core/units.js";
 import { type ElemCtx, type Silhouette, placeCtx, tag } from "../elements/context.js";
 import { type BalloonPlan, planBalloon, renderBalloon, renderConnected } from "../elements/balloon.js";
 import { renderEffect } from "../elements/effects.js";
+import { prepareEffectAlpha } from "../elements/effect-clear.js";
 import { layoutImage } from "../elements/image.js";
 import { inksToNodes } from "../elements/inkir.js";
 import { renderMark } from "../elements/marks.js";
@@ -891,6 +892,7 @@ async function silhouettes(refs: RefRegistry, ctx: ElemCtx): Promise<Silhouette[
   const out: Silhouette[] = [];
   const pid = ctx.panel?.panel.id;
   for (const t of refs.all()) {
+    if (t.imagePx) await prepareEffectAlpha(ctx, t.imagePx);
     if (t.type !== "image" || !t.imagePx || (pid && t.panelId !== pid) || !t.character) continue;
     const { w, h, matrix, assetKey } = t.imagePx;
     const gh = 64;
