@@ -24,7 +24,9 @@ export function inksToNodes(inks: InkPoly[], color: RGBA, tag?: NodeTag): Node[]
     path.inkStrokes = inks.filter((k) => Math.round(k.opacity * 1000) / 1000 === op && k.centerline).map((k) => ({
       width: k.centerline!.width,
       path: k.centerline!.points.map((p, i) => [i ? "L" : "M", p.x, p.y]),
+      outline: polysToPath([k.pts]),
     }));
+    path.inkBasePath = polysToPath(inks.filter((k) => Math.round(k.opacity * 1000) / 1000 === op && !k.centerline).map((k) => k.pts));
     if (op >= 0.999) out.push(path);
     else out.push({ kind: "group", opacity: op, children: [path], tag });
   }

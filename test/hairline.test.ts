@@ -60,21 +60,44 @@ describe("mono hairline protection", () => {
   });
 
   it("keeps axis-aligned and diagonal strokes continuous across subpixel phases", async () => {
-    for (const transpose of [false, true]) for (const slope of [0, 0.125, 0.25, 0.5, 0.75, 1]) {
+    for (const transpose of [false, true]) for (const slope of [0, 0.02, 0.125, 0.25, 0.5, 0.75, 1]) {
       for (let px = 0; px < 16; px++) for (let py = 0; py < 16; py++) {
         const { backend, list, node } = setup(0.015, px / 16, py / 16, slope);
         if (transpose) node.path = node.path.map((p) => [p[0], p[2], p[1]]) as PathNode["path"];
+        if (px % 2) {
+          const start = node.path[0], end = node.path[1];
+          node.path = Array.from({ length: 81 }, (_, i) => {
+            const t = i / 80;
+            const e = 0.15 * Math.sin(i * 0.3) * (25.4 / 600);
+            return [i ? "L" : "M", start[1]! + (end[1]! - start[1]!) * t + (transpose ? e : 0), start[2]! + (end[2]! - start[2]!) * t + (transpose ? 0 : e)];
+          });
+        }
         node.paint = node.stroke!.paint;
         node.inkStrokes = [{ path: node.path, width: 0.015 }];
         delete node.stroke;
         const result = await backend.render(list);
-        for (let x = 6; x < 45; x++) {
-          let black = false;
-          for (let y = 0; y < 50; y++) if (result.data[(transpose ? x * 50 + y : y * 50 + x) * 4] === 0) black = true;
-          expect(black, `slope=${slope}, phase=${px}/16,${py}/16, x=${x}`).toBe(true);
+        for (let x = 7; x < 43; x++) {
+          const black: number[] = [];
+          for (let y = 0; y < 50; y++) if (result.data[(transpose ? x * 50 + y : y * 50 + x) * 4] === 0) black.push(y);
+          expect(black.length, `slope=${slope}, phase=${px}/16,${py}/16, x=${x}`).toBe(2);
+          expect(black[1] - black[0]).toBe(1);
         }
       }
     }
+  });
+
+  it.each([[0, 0.4], [0.5, 1], [0.5, 0.4]])("replaces geometry once with the same paint (gray=%s, alpha=%s)", async (gray, alpha) => {
+    const { backend, list, node } = setup(0.015, 0.3, 0.7, 0);
+    node.paint = { type: "solid", color: { r: gray, g: gray, b: gray, a: alpha } };
+    delete node.stroke;
+    const s = 600 / 25.4;
+    const original: PathNode["path"] = [["M", 5 / s, 5.5 / s], ["L", 46 / s, 5.5 / s], ["L", 46 / s, 6 / s], ["L", 5 / s, 6 / s], ["Z"]];
+    node.inkStrokes = [{ path: node.path, width: 0.015, outline: original }];
+    node.path = original;
+    const actual = await backend.render(list);
+    delete node.inkStrokes;
+    node.path = [["M", 5 / s, 5 / s], ["L", 45 / s, 5 / s], ["L", 45 / s, 7 / s], ["L", 5 / s, 7 / s], ["Z"]];
+    expect((await backend.render(list)).data).toEqual(actual.data);
   });
 
   it("leaves sufficiently wide ink byte-identical and does not warn on empty output", async () => {

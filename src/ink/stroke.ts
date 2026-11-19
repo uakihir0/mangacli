@@ -145,7 +145,7 @@ export function strokeOutline(center: readonly Vec[], o: StrokeOptions): InkPoly
   if (o.inkPool !== false && o.pen.inkPool > 0 && taperIn && o.rng.chance(0.15 * o.pen.inkPool)) {
     const r = w0 * (0.45 + 0.2 * o.pen.inkPool);
     const c = { x: pts[0].x + tx[0] * Math.min(lin, r), y: pts[0].y + ty[0] * Math.min(lin, r) };
-    out.push({ pts: blobPoly(c, r, o.rng), opacity });
+    out.push({ pts: blobPoly(c, r, o.rng), opacity, centerline: { points: centers, width: w0 } });
   }
   return out;
 }

@@ -138,6 +138,42 @@ function setM(ctx: SKRSContext2D, m: Matrix) {
   ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
 }
 
+function pixelBand(path: PathData, m: Matrix): PathData {
+  const points = path.filter((p) => p[0] === "M" || p[0] === "L").map((p) => applyMat(m, { x: p[1]!, y: p[2]! }));
+  if (points.length < 2) return [];
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const vertical = Math.max(...ys) - Math.min(...ys) > Math.max(...xs) - Math.min(...xs);
+  const samples = new Map<number, number>();
+  for (let i = 1; i < points.length; i++) {
+    let a = points[i - 1];
+    let b = points[i];
+    if (vertical) { a = { x: a.y, y: a.x }; b = { x: b.y, y: b.x }; }
+    if (a.x > b.x) [a, b] = [b, a];
+    if (b.x === a.x) continue;
+    for (let x = Math.ceil(a.x - 0.5); x + 0.5 < b.x; x++) {
+      const t = (x + 0.5 - a.x) / (b.x - a.x);
+      samples.set(x, Math.floor(a.y + (b.y - a.y) * t - 0.5));
+    }
+  }
+  const det = m[0] * m[3] - m[1] * m[2];
+  if (!det) return [];
+  const inverse: Matrix = [m[3] / det, -m[1] / det, -m[2] / det, m[0] / det, (m[2] * m[5] - m[3] * m[4]) / det, (m[1] * m[4] - m[0] * m[5]) / det];
+  const out: PathData = [];
+  for (const [major, minor] of samples) {
+    const x = vertical ? minor : major;
+    const y = vertical ? major : minor;
+    const w = vertical ? 2 : 1;
+    const h = vertical ? 1 : 2;
+    for (const [i, p] of [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }].entries()) {
+      const q = applyMat(inverse, p);
+      out.push([i ? "L" : "M", q.x, q.y]);
+    }
+    out.push(["Z"]);
+  }
+  return out;
+}
+
 function grayize(c: RGBA, mode: ColorMode): RGBA {
   if (mode === "color") return c;
   const y = linearToSrgb(luminanceLinear(c));
@@ -473,19 +509,14 @@ export class RasterBackend {
       return minimum;
     };
     if (n.paint && n.inkStrokes && dev.opts.colorMode === "mono") {
+      const replacement: PathData = [...(n.inkBasePath ?? [])];
+      let changed = false;
       for (const ink of n.inkStrokes) {
         const width = effectiveWidth(ink.width, ink.path);
-        if (width === ink.width) continue;
-        ctx.save();
-        setM(ctx, m);
-        const style = this.paintStyle(dev, n.paint);
-        if (style) ctx.strokeStyle = style as string;
-        ctx.lineWidth = width;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        ctx.stroke(buildPath(ink.path));
-        ctx.restore();
+        if (width === ink.width) replacement.push(...(ink.outline ?? []));
+        else { replacement.push(...pixelBand(ink.path, m)); changed = true; }
       }
+      if (changed) n = { ...n, path: replacement };
     }
     if (n.stroke) {
       ctx.save();
