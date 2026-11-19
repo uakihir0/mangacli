@@ -5,13 +5,14 @@ import { loadConfig } from "../config.js";
 
 type Obj = Record<string, unknown>;
 
-const { input, opts, configPath } = workerData as { input: unknown; opts: RenderOptions; configPath?: string };
+const { input, opts, configPath, trackSystemFonts } = workerData as { input: unknown; opts: RenderOptions; configPath?: string; trackSystemFonts?: boolean };
 const config = configPath ? ((await loadConfig(configPath)) as unknown as Obj) : undefined;
 const r = await render(input as string, {
   ...opts,
   config,
   throwOnError: false,
   onProgress: (e) => parentPort?.postMessage({ type: "progress", e }),
+  onSystemFont: trackSystemFonts ? (path) => parentPort?.postMessage({ type: "systemFont", path }) : undefined,
 });
 parentPort?.postMessage({
   type: "done",

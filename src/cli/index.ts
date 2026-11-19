@@ -10,6 +10,7 @@ import { type Diagnostic, MangaError, MangaValidationError } from "../core/diagn
 import { defaultFontSet, loadCatalog } from "../fonts/catalog.js";
 import { defaultFontCacheDir, findLocalCatalogFont } from "../fonts/download.js";
 import { installFonts } from "../fonts/install.js";
+import { listSystemFonts } from "../fonts/system.js";
 import { PACKAGE_ROOT } from "../fonts/catalog.js";
 import { jsonSchema } from "../schema/jsonschema.js";
 import { collectDeps } from "./deps.js";
@@ -194,10 +195,11 @@ function summarize(diags: Diagnostic[]) {
 
 // ---- commands ----------------------------------------------------------------------
 
-async function cmdRender(file: string, o: Obj): Promise<number> {
+async function cmdRender(file: string, o: Obj, onSystemFont?: (path: string) => void): Promise<number> {
   const cwd = process.cwd();
   const input = readInput(file, o);
   const opts = await renderOptions(o, file);
+  opts.onSystemFont = onSystemFont;
   const cfgOut = ((opts.config as Obj | undefined)?.output ?? {}) as Obj;
   const toStdout = !!o.stdout;
   if (!toStdout) {
@@ -306,16 +308,17 @@ async function renderParallel(input: string | { yaml: string; baseDir: string },
   const here = new URL(import.meta.url);
   const ts = here.pathname.endsWith(".ts");
   const workerUrl = new URL(ts ? "./render-worker.ts" : "./render-worker.js", here);
-  const { onProgress, config, ...plain } = opts;
+  const { onProgress, onSystemFont, config, ...plain } = opts;
   const configPath = (config as { __file?: string } | undefined)?.__file;
   let done = 0;
   const results = await Promise.all(
     groups.map(
       (ids) =>
         new Promise<Obj>((ok, ng) => {
-          const w = new Worker(workerUrl, { workerData: { input, opts: { ...plain, pages: ids }, configPath }, execArgv: ts ? ["--import", "tsx"] : [] });
+          const w = new Worker(workerUrl, { workerData: { input, opts: { ...plain, pages: ids }, configPath, trackSystemFonts: !!onSystemFont }, execArgv: ts ? ["--import", "tsx"] : [] });
           w.on("message", (m: Obj) => {
             if (m.type === "progress") onProgress?.({ ...(m.e as { phase: string; pageId?: string }), done: ++done, total: wanted.length });
+            else if (m.type === "systemFont") onSystemFont?.(m.path as string);
             else if (m.type === "done") ok(m);
           });
           w.on("error", ng);
@@ -436,6 +439,11 @@ async function cmdWatch(file: string, o: Obj): Promise<number> {
   let timer: NodeJS.Timeout | undefined;
   const watched = new Set<string>();
   const watcher = watch([entry], { ignoreInitial: true });
+  const addDep = (path: string) => {
+    if (watched.has(path)) return;
+    watched.add(path);
+    watcher.add(path);
+  };
   const run = async () => {
     if (running) {
       again = true;
@@ -445,14 +453,9 @@ async function cmdWatch(file: string, o: Obj): Promise<number> {
     try {
       if (!out.json && process.stderr.isTTY) process.stderr.write("\x1bc");
       log("info", paint("2", new Date().toLocaleTimeString()));
-      await cmdRender(file, o);
+      await cmdRender(file, o, addDep);
       // watch imports, includes and assets referenced by the document
-      for (const f of collectDeps(entry)) {
-        if (!watched.has(f)) {
-          watched.add(f);
-          watcher.add(f);
-        }
-      }
+      for (const f of collectDeps(entry)) addDep(f);
     } catch (e) {
       reportError(e);
     } finally {
@@ -482,9 +485,11 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
   let diags: Diagnostic[] = [];
   let version = 0;
   const clients = new Set<import("node:http").ServerResponse>();
+  const watcher = watch(collectDeps(entry), { ignoreInitial: true });
   const build = async () => {
     try {
       const opts = await renderOptions({ ...o, profile: o.profile ?? "preview" }, file);
+      opts.onSystemFont = (path) => watcher.add(path);
       const r = await render(entry, opts);
       pages = r.pages.map((p) => ({ id: p.id, data: p.data, mime: p.mimeType, ext: p.format }));
       diags = r.diagnostics;
@@ -531,7 +536,6 @@ img{max-height:85vh;box-shadow:0 2px 12px #0008;background:#fff}figcaption{text-
   });
   await build();
   let timer: NodeJS.Timeout | undefined;
-  const watcher = watch(collectDeps(entry), { ignoreInitial: true });
   watcher.on("all", () => {
     clearTimeout(timer);
     timer = setTimeout(async () => {
@@ -581,6 +585,17 @@ async function cmdFonts(sub: string | undefined, args: string[], o: Obj): Promis
     return 0;
   }
   if (sub === "list") {
+    if (o.system) {
+      if (o.catalog || args.length) throw new UsageError(t("--system は --catalog やファイル指定と併用できません", "--system cannot be combined with --catalog or a document"));
+      for (const { path, index, families, fullNames, postScriptNames } of await listSystemFonts()) {
+        emitJson({ type: "font", source: "system", path, index, families, fullNames, postScriptNames });
+        if (!out.json) {
+          const names = [...new Set([...families, ...fullNames, ...postScriptNames])];
+          process.stdout.write(`${names.join(" / ")}\t${path}#${index}\n`);
+        }
+      }
+      return 0;
+    }
     const config = await configFor(o, args[0]);
     const fetchOpts = { fontDir: config?.fontDir, fontCacheDir: config?.fontCacheDir };
     if (o.catalog || !args[0]) {
@@ -912,7 +927,7 @@ common(cli.command("migrate <file>", "Convert an older document to the current v
   .option("--write", "Write the result")
   .action(wrap((file: string, o: Obj) => cmdMigrate(file, o)));
 common(cli.command("cache [sub]", "Font cache: info | clean")).action(wrap((sub: string | undefined, _o: Obj) => cmdCache(sub)));
-common(cli.command("fonts <sub> [...args]", "Catalog fonts: install [ids...] | list [file] | check <file> | verify | licenses [file]"))
+common(cli.command("fonts <sub> [...args]", "Fonts: install [ids...] | list [--catalog | --system | file] | check <file> | verify | licenses [file]"))
   .option("-o, --out <file>", "Write licenses to a file")
   .option("--set <name>", "Font set")
   .option("--for <file>", "Fonts used by a document")
@@ -920,6 +935,7 @@ common(cli.command("fonts <sub> [...args]", "Catalog fonts: install [ids...] | l
   .option("--dir <dir>", "Install into a directory")
   .option("--force", "Download again")
   .option("--catalog", "List the catalog")
+  .option("--system", "List installed fonts; check their licenses before use")
   .action(wrap((sub: string, args: string[], o: Obj) => cmdFonts(sub, args, o)));
 
 cli.help();

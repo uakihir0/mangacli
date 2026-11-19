@@ -1,6 +1,6 @@
 // SVG backend (spec 10.4.4): the display list as vector paths, mm units.
 import sharp from "sharp";
-import type { RGBA } from "../core/color.js";
+import { type RGBA, linearToSrgb, srgbToLinear } from "../core/color.js";
 import type { PathData } from "../geom/path.js";
 import type { Matrix } from "../geom/vec.js";
 import type { AssetRegistry } from "./assets.js";
@@ -10,8 +10,10 @@ import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec
 export interface SvgOptions {
   crop: "trim" | "bleed" | "marks";
   assets: AssetRegistry;
-  /** resolution of embedded images */
+  /** resolution of embedded images (the output dpi); line art keeps it up to the source resolution */
   imageDpi?: number;
+  /** cap on the embedded resolution of non-line-art images */
+  maxImageDpi?: number;
   colorMode: "color" | "gray" | "mono";
 }
 
@@ -39,6 +41,17 @@ function rgb(c: RGBA): string {
 
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+}
+
+// mono line art: the same 50% threshold as the raster backend, so 1-bit art stays 1-bit
+function binarize(src: Uint8Array): Uint8Array {
+  const d = Uint8Array.from(src);
+  for (let i = 0; i < d.length; i += 4) {
+    const lin = 0.2126 * srgbToLinear(d[i] / 255) + 0.7152 * srgbToLinear(d[i + 1] / 255) + 0.0722 * srgbToLinear(d[i + 2] / 255);
+    d[i] = d[i + 1] = d[i + 2] = linearToSrgb(lin) < 0.5 ? 0 : 255;
+    d[i + 3] = d[i + 3] > 127 ? 255 : 0;
+  }
+  return d;
 }
 
 const matrix = (m: Matrix) => `matrix(${m.map(n).join(" ")})`;
@@ -113,12 +126,13 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
   };
 
   const image = async (im: ImageNode): Promise<string> => {
-    const dpi = o.imageDpi ?? 200;
+    const dpi = im.lineart ? o.imageDpi ?? 200 : Math.min(o.imageDpi ?? 200, o.maxImageDpi ?? Infinity);
     const w = Math.max(1, Math.min(im.sourceRect.w, Math.round((im.dest.w / 25.4) * dpi)));
     const h = Math.max(1, Math.min(im.sourceRect.h, Math.round((im.dest.h / 25.4) * dpi)));
     const px0 = await o.assets.pixels(im.assetKey, w, h, im.sourceRect);
     if (!px0) return "";
-    const px = im.filters.length ? await applyFilters(px0, im.filters, im.dest.w / px0.width) : px0;
+    const px1 = im.filters.length ? await applyFilters(px0, im.filters, im.dest.w / px0.width) : px0;
+    const px = im.lineart && o.colorMode === "mono" ? { ...px1, data: binarize(px1.data) } : px1;
     let img = sharp(px.data, { raw: { width: px.width, height: px.height, channels: 4 } });
     if (o.colorMode !== "color") img = img.grayscale();
     const png = await img.png().toBuffer();
