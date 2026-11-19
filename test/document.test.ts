@@ -55,6 +55,7 @@ describe("rendering", () => {
     const probe = `mangacli: 1
 meta: { lang: en }
 page: { size: [25.4mm, 25.4mm], bleed: 0, baseFrame: trim, color: mono }
+book: { pageNumbers: { show: never } }
 pages:
   - panels:
       - border: none
@@ -136,6 +137,34 @@ ${screens.map(({ lpi, angle }) => `      - background: { tone: { density: 35%, l
       renderMonoToneLayers(`{ ${common}, gradient: { stops: [[0%, 35%], [100%, 35%]] } }`),
     ]);
     expect(uniform.equals(gradient)).toBe(true);
+  });
+  it("keeps the 85 LPI, 30-degree midtone checker cells from merging along pixel edges", async () => {
+    const tone = "density: 50%, lpi: 85, angle: 30deg";
+    const [uniform, gradient] = await Promise.all([
+      renderMonoToneLayers(`{ ${tone} }`),
+      renderMonoToneLayers(`{ ${tone}, gradient: { stops: [[0%, 50%], [100%, 50%]] } }`),
+    ]);
+    expect(uniform.equals(gradient)).toBe(true);
+    expect(Math.abs(uniform.filter(p => p === 0).length / uniform.length - 0.5)).toBeLessThan(0.001);
+    const width = 550;
+    const visited = new Uint8Array(uniform.length);
+    let largest = 0;
+    for (let i = 0; i < uniform.length; i++) {
+      if (visited[i]) continue;
+      visited[i] = 1;
+      const component = [i];
+      for (let j = 0; j < component.length; j++) {
+        const p = component[j];
+        const col = p % width;
+        for (const q of [col > 0 ? p - 1 : -1, col < width - 1 ? p + 1 : -1, p - width, p + width]) {
+          if (q < 0 || q >= uniform.length || visited[q] || uniform[q] !== uniform[p]) continue;
+          visited[q] = 1;
+          component.push(q);
+        }
+      }
+      largest = Math.max(largest, component.length);
+    }
+    expect(largest).toBeLessThan(32);
   });
   it("writes PDF with trim and bleed boxes", async () => {
     const r = await render(yaml(doc.replace("bleed: 0", "bleed: 3mm")), { profile: "print-mono", dpi: 100, format: "pdf" });

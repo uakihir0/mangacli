@@ -87,6 +87,65 @@ function mod(n: number, period: number): number {
   return r < 0 ? (r + period) % period : r;
 }
 
+function checkerAt(a: number, b: number, cells: number, fx: number, fy: number) {
+  const den = 4 * cells;
+  const ox = Math.floor(den * (1 - fx));
+  const oy = Math.floor(den * (1 - fy));
+  const nearby = [0, -1, 1];
+  const vertex = (s: number, t: number): [number, number] => [
+    Math.floor(((a - b) * s + (a + b) * t + ox) / den),
+    Math.floor(((a + b) * s + (b - a) * t + oy) / den),
+  ];
+  return (x: number, y: number, u: number, v: number): number => {
+    const s = Math.floor(u + v + 0.5);
+    const t = Math.floor(u - v + 0.5);
+    const contains = (i: number, j: number) => {
+      // Snap shared checker corners to pixel vertices so a crossing doesn't
+      // land inside a pixel and get assigned to only one color.
+      const corners = [
+        vertex(2 * i - 1, 2 * j - 1), vertex(2 * i - 1, 2 * j + 1),
+        vertex(2 * i + 1, 2 * j + 1), vertex(2 * i + 1, 2 * j - 1),
+      ];
+      return corners.every(([ax, ay], k) => {
+        const [bx, by] = corners[(k + 1) % 4];
+        return (bx - ax) * (y + 0.5 - ay) >= (by - ay) * (x + 0.5 - ax);
+      });
+    };
+    for (const di of nearby) {
+      for (const dj of nearby) {
+        if (contains(s + di, t + dj)) return (s + di + t + dj) & 1;
+      }
+    }
+    return (s + t) & 1;
+  };
+}
+
+function balanceChecker(
+  mask: Uint8Array, width: number, indexAt: (x: number, y: number) => number, candidates: number[],
+): boolean {
+  const count = mask.reduce((sum, ink) => sum + ink, 0);
+  let remaining = Math.round(mask.length / 2) - count;
+  if (remaining === 0) return true;
+  const from = remaining < 0 ? 1 : 0;
+  remaining = Math.abs(remaining);
+  const directions = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  for (const i of candidates) {
+    if (mask[i] !== from) continue;
+    const x = i % width;
+    const y = Math.floor(i / width);
+    const at = (dx: number, dy: number) => mask[indexAt(x + dx, y + dy)];
+    const sides = directions.map(([dx, dy]) => at(dx, dy));
+    const other = sides.indexOf(1 - from);
+    if (other < 0 || sides.lastIndexOf(1 - from) !== other) continue;
+    const [dx, dy] = directions[(other + 2) % 4];
+    // Move a pixel along a flat edge without joining or splitting either color.
+    if (at(dx + dy, dy + dx) !== from || at(dx - dy, dy - dx) !== from) continue;
+    mask[i] = 1 - from;
+    if (--remaining === 0) return true;
+  }
+  return false;
+}
+
 /**
  * Calibrate a round screen against the actual printer pixels. A
  * rational supercell repeats on the device grid rather than drifting through
@@ -136,14 +195,21 @@ export function makeBinaryRoundToneSampler(
   const oy = Math.floor(originY);
   const fx = originX - ox;
   const fy = originY - oy;
+  const indexAt = (x: number, y: number) => mod(y, g) * width + mod(x - Math.floor(y / g) * shift, width);
+  const checker = checkerAt(a, b, cells, fx, fy);
+  const mask = new Uint8Array(area);
   const dots: { index: number; distance: number; rank: number }[][] = Array.from({ length: cells * cells }, () => []);
   for (let y = 0; y < g; y++) {
     for (let x = 0; x < width; x++) {
-      const u = mod(((x + fx) * a + (y + fy) * b) * cells / area, cells);
-      const v = mod((-(x + fx) * b + (y + fy) * a) * cells / area, cells);
+      const screenU = ((x + fx) * a + (y + fy) * b) * cells / area;
+      const screenV = (-(x + fx) * b + (y + fy) * a) * cells / area;
+      const u = mod(screenU, cells);
+      const v = mod(screenV, cells);
       const i = Math.floor(u);
       const j = Math.floor(v);
-      dots[j * cells + i].push({ index: y * width + x, distance: spot("round", 2 * (u - i) - 1, 2 * (v - j) - 1), rank: 0 });
+      const index = y * width + x;
+      mask[index] = checker(x, y, screenU, screenV);
+      dots[j * cells + i].push({ index, distance: spot("round", 2 * (u - i) - 1, 2 * (v - j) - 1), rank: 0 });
     }
   }
 
@@ -159,11 +225,16 @@ export function makeBinaryRoundToneSampler(
   }
   const ordered = dots.flat().sort((p, q) => p.rank - q.rank || p.distance - q.distance);
   const tile = new Uint32Array(area);
-  for (let i = 0; i < ordered.length; i++) tile[ordered[i].index] = i;
-  const rankAt = (px: number, py: number) => {
-    const y = py + oy;
-    return tile[mod(y, g) * width + mod(px + ox - Math.floor(y / g) * shift, width)];
-  };
+  const center = Math.round(area / 2);
+  const edges = [...ordered].sort((p, q) => Math.abs(p.distance - 1) - Math.abs(q.distance - 1)).map(p => p.index);
+  if (balanceChecker(mask, width, indexAt, edges)) {
+    let ink = 0;
+    let paper = center;
+    for (const { index } of ordered) tile[index] = mask[index] ? ink++ : paper++;
+  } else {
+    for (let i = 0; i < ordered.length; i++) tile[ordered[i].index] = i;
+  }
+  const rankAt = (px: number, py: number) => tile[indexAt(px + ox, py + oy)];
   if (!gradient) return (px: number, py: number) => Number(rankAt(px, py) < constantCutoff);
   return (px: number, py: number) => {
     const x = px + originX;
