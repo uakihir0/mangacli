@@ -692,14 +692,19 @@ function materialEffects(f: FxCtx, kind: string): Node[] {
   const nodes: Node[] = [];
   const stroke = resolveStroke({ pen: p.pen, color: p.color, ...(isObj(p.stroke) ? p.stroke : {}) }, f.hand, f.ctx.u, f.ctx.bag, [...f.el.path, "stroke"]);
   const line = (pts: Vec[], width: number, color = f.color) => {
-    nodes.push(...inksToNodes(inkLine(pts, { ...lineStyle(f, width), pen: stroke?.pen ?? f.pen }, f.hand, rng.fork("line"), { taperOut: true, inkPool: false }), color, tag(f.el, "ink")));
+    const lineRng = rng.fork("line");
+    const style = { ...stroke, width };
+    const inks = stroke.style === "solid"
+      ? inkLine(pts, style, stroke.hand, lineRng, { taperOut: true, inkPool: false })
+      : inkShape({ pts, closed: false, smooth: true }, { hand: stroke.hand, rng: lineRng, line: style }).inks;
+    nodes.push(...inksToNodes(inks, color, tag(f.el, "ink")));
   };
   const plane = (pts: Vec[], paint: unknown, role: "fill" | "tone" = "fill") => {
     const resolved = parsePaint(paint, { u: f.ctx.u, box: b, seed: f.el.seed });
     if (resolved) nodes.push({ kind: "path", path: polyPath(pts, true), fillRule: "nonzero", paint: resolved, tag: tag(f.el, role) });
   };
   const shape = (pts: Vec[], paint: unknown, angular = false) => {
-    const s = inkShape({ pts, closed: true, smooth: !angular }, { hand: f.hand, rng: rng.fork("shape"), join: "clean", line: { ...lineStyle(f, stroke?.width ?? 0.3 * f.k), pen: stroke?.pen ?? f.pen } });
+    const s = inkShape({ pts, closed: true, smooth: !angular }, { hand: stroke.hand, rng: rng.fork("shape"), join: "clean", line: stroke });
     plane(s.fill, paint);
     nodes.push(...inksToNodes(s.inks, stroke?.color ?? f.color, tag(f.el, "ink")));
   };

@@ -35,6 +35,16 @@ describe("inherited crack center", () => {
   });
 });
 
+describe.each(["lightning", "dust", "smoke"])("%s stroke styles", kind => {
+  const ink = async (stroke: string) => leaves((await renderer.displayList(input(kind, 42, `stroke: ${stroke}`), 1)).root).filter(n => n.tag?.elementType === "effect" && n.tag.role === "ink");
+  it("omits ink when stroke is none", async () => {
+    expect(await ink("none")).toEqual([]);
+  });
+  it("preserves dashed outlines", async () => {
+    expect(await ink("{ style: dashed, dash: [2mm, 2mm] }")).not.toEqual(await ink("{ style: solid, dash: [2mm, 2mm] }"));
+  });
+});
+
 describe.each([ ["lightning", "bolts", 1], ["crack", "count", 2], ["dust", "puffs", 2], ["smoke", "density", 0.1] ] as const)("%s", (kind, param, value) => {
   it("renders without diagnostics, with independent ink and planes", async () => {
     expect((await validate(input(kind))).diagnostics).toEqual([]);
