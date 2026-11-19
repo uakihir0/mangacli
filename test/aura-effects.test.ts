@@ -161,6 +161,31 @@ describe.each(["aura", "arcs"])("%s", kind => {
   });
 });
 
+describe("arcs controls", () => {
+  it("keeps default arcs above the lowest contour and restores bottom ink at zero bias", async () => {
+    const baseline = await raster();
+    let lowest = 0;
+    for (let y = 180; y < 540; y++) for (let x = 140; x < 500; x++) {
+      if (baseline.data[(y * baseline.info.width + x) * baseline.info.channels] < 180) lowest = y;
+    }
+    const below = async (props: string) => {
+      const { data, info } = await raster(`effect: arcs, target: figure, count: 96, length: 8mm, seed: 42${props}`);
+      let ink = 0;
+      for (let y = lowest + 5; y < info.height - 5; y++) for (let x = 5; x < info.width - 5; x++) {
+        const i = (y * info.width + x) * info.channels;
+        if (data[i] < 80 && baseline.data[i] === 255) ink++;
+      }
+      return ink;
+    };
+    expect(await below("")).toBe(0);
+    expect(await below(", upwardBias: 0")).toBeGreaterThan(100);
+  });
+  it.each([-0.1, 1.1, "up"])("rejects invalid upwardBias %s", async upwardBias => {
+    const { diagnostics } = await validate(scene(`effect: arcs, target: figure, upwardBias: ${upwardBias}`));
+    expect(diagnostics.some(d => d.severity === "error")).toBe(true);
+  });
+});
+
 describe("aura controls", () => {
   it("extends farther above than below with upward bias", async () => {
     const { data, info } = await raster("effect: aura, target: figure, upwardBias: 1, seed: 42");

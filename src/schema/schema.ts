@@ -347,6 +347,7 @@ const effectProps = z
     jaggedness: z.number().min(0).max(1).optional(), branching: z.number().min(0).max(1).optional(),
     puffs: z.number().int().nonnegative().optional(), debris: z.number().int().nonnegative().optional(),
     shade: z.unknown().optional(), target: z.unknown().optional(),
+    upwardBias: z.number().min(0).max(1).optional(),
   })
   .catchall(z.unknown()).superRefine((v, ctx) => {
     if (v.kind === "crack") {

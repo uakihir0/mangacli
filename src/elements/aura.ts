@@ -87,15 +87,23 @@ export function renderAura(el: RElement, ctx: ElemCtx, region: ResolvedRegion): 
       draw(flame, layer === layers - 1 ? paint : solid(WHITE), r.fork(`ink-${layer}`));
     }
   } else {
-    const pool = usable.flatMap(loop => samples(loop, 256));
+    const bias = Number(p.upwardBias);
+    const pool = usable.flatMap(loop => {
+      const maxY = Math.max(...loop.map(q => q.y));
+      return samples(loop, 256).filter(({ p: q, n }) => n.y <= 1 - bias && q.y <= maxY - bias * length);
+    });
     if (!pool.length) return [];
     const count = Math.round(Number(p.count) * density);
     for (let i = 0; i < count; i++) {
       const r = rng.fork(`arc-${i}`);
       const { p: q, n } = pool[Math.floor((i + r.next()) / count * pool.length)];
       const start = { x: q.x + n.x * length * 0.12, y: q.y + n.y * length * 0.12 };
-      const angle = Math.atan2(n.y, n.x) + r.range(-1.15, 1.15);
-      const pts = lightningPoints(r, start, angle, length * r.range(0.65, 1.2), 1);
+      const direction = Math.atan2(n.y, n.x) + r.range(-1.15, 1.15);
+      const dy = Math.sin(direction);
+      const angle = Math.atan2(dy - bias * (Math.max(0, dy) + 0.65), Math.cos(direction));
+      const pts = lightningPoints(r, start, angle, length * r.range(0.65, 1.2), 1).map(v => ({
+        x: v.x, y: v.y - bias * Math.max(0, v.y - start.y),
+      }));
       draw(lightningOutline(pts, length * 0.14), paint, r.fork("ink"));
     }
   }
