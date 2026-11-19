@@ -87,6 +87,15 @@ mangacli cache info | cache clean
 
 すべてのオプションは `mangacli <command> --help` で確認できます。`--json` を付けると機械可読な NDJSON を出力します。
 
+PDF/X で入稿する場合は、印刷所が指定する PDF/X の版と CMYK ICC プロファイルを使います。
+
+```bash
+mangacli render manga.yaml -p print-mono -f pdf --pdf-x 4 \
+  --pdf-x-icc printer.icc --pdf-x-condition "印刷所指定の出力条件"
+```
+
+PDF/X-1a:2001 は `--pdf-x 1a`（ICC v2 のみ）を指定します。どちらも 1 ビットの白黒画像を黒版に保持します。オプションを省略した場合は従来の PDF 出力になります。入稿前に印刷所指定のプリフライトを実施してください。
+
 ## API
 
 ```ts
