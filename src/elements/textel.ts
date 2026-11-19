@@ -23,7 +23,7 @@ function outlineNodes(path: PathData, outlines: unknown, ctx: ElemCtx, el: RElem
   return list
     .map((o) => ({ w: toMm(o.width as string, ctx.u), c: parseColor((o.color as string) ?? "white") ?? WHITE, j: o.join === "miter" ? ("miter" as const) : ("round" as const) }))
     .sort((a, b) => b.w - a.w)
-    .map((o) => ({ kind: "path" as const, path, fillRule: "nonzero" as const, paint: null, stroke: { width: o.w * 2, paint: { type: "solid" as const, color: o.c }, join: o.j }, tag: tag(el, "text") }));
+    .map((o) => ({ kind: "path" as const, path, fillRule: "nonzero" as const, paint: null, stroke: { width: o.w * 2, paint: { type: "solid" as const, color: o.c }, join: o.j, ...(o.j === "miter" ? { miterLimit: 2 } : {}) }, tag: tag(el, "text") }));
 }
 
 export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; layout?: TextLayout } {
@@ -217,8 +217,18 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     const m = matMul(matTranslate(cx + t.jx + (vertical ? 0 : sh) + cv.dx, cy + t.jy + (vertical ? sh : 0) + cv.dy), matMul(matRotate(t.r + cv.ang), matMul(matScale(t.s), matTranslate(-cx, -cy))));
     let path = transformPath(g.path, m);
     // distort: flatten -> displace -> smooth
-    if (warp > 0 || roughen > 0 || skew || persp || bulge) {
-      const polys = flattenPath(path, 0.05 * u.k);
+    const noisy = warp > 0 || roughen > 0;
+    if (skew && !noisy && !persp && !bulge) {
+      // a plain skew is affine: move the Bezier control points, so curves stay curves
+      const tk = Math.tan(skew);
+      path = path.map((c) => {
+        const o: (string | number)[] = [c[0]];
+        for (let k = 1; k + 1 < c.length; k += 2) o.push(Number(c[k]) + tk * (Number(c[k + 1]) - totalH / 2), Number(c[k + 1]));
+        return o as unknown as typeof c;
+      });
+    } else if (noisy || skew || persp || bulge) {
+      // without noise the outline is kept as a fine polygon (no smoothing), so ends stay square
+      const polys = flattenPath(path, (noisy ? 0.05 : 0.004) * u.k);
       const out: PathData = [];
       for (const pl of polys) {
         let s = 0;
@@ -246,7 +256,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
           return { x, y };
         });
         // only the noise needs smoothing; skew / perspective / bulge keep the glyph's square corners
-        out.push(...((warp > 0 || roughen > 0) && pts.length > 3 ? smoothPath(pts, true) : polyPath(pts, true)));
+        out.push(...(noisy && pts.length > 3 ? smoothPath(pts, true) : polyPath(pts, true)));
       }
       path = out;
     }
