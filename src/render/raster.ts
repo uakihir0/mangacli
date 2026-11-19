@@ -304,6 +304,13 @@ export class RasterBackend {
     const shift: Matrix = [1, 0, 0, 1, -r.x, -r.y];
     const sub: Dev = { ...dev, ctx: octx, W: r.w, H: r.h, base: matMul(shift, dev.base) };
     const subM = matMul(shift, mm);
+    let coverage: Canvas | undefined;
+    if (g.backdrop && g.filters?.length) {
+      coverage = createCanvas(r.w, r.h);
+      const cctx = coverage.getContext("2d");
+      for (const c of g.children) await this.drawNode({ ...sub, ctx: cctx }, c, subM, coverage);
+      octx.drawImage(canvas, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
+    }
     if (g.clip) {
       octx.save();
       setM(octx, subM);
@@ -335,6 +342,13 @@ export class RasterBackend {
       const filtered = await applyFilters({ data: pixels.data, width: r.w, height: r.h }, g.filters, 1 / dev.scale);
       pixels.data.set(filtered.data);
       octx.putImageData(pixels, 0, 0);
+    }
+    if (coverage) {
+      octx.save();
+      octx.setTransform(1, 0, 0, 1, 0, 0);
+      octx.globalCompositeOperation = "destination-in";
+      octx.drawImage(coverage, 0, 0);
+      octx.restore();
     }
     let op = g.opacity ?? 1;
     if (dev.opts.colorMode === "mono" && (op < 0.999 || g.softClip)) {
@@ -368,7 +382,11 @@ export class RasterBackend {
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = op;
-    ctx.globalCompositeOperation = (g.blend && g.blend !== "normal" ? g.blend : "source-over") as never;
+    if (coverage) {
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.drawImage(coverage, r.x, r.y);
+    }
+    ctx.globalCompositeOperation = (coverage ? "lighter" : g.blend && g.blend !== "normal" ? g.blend : "source-over") as never;
     ctx.drawImage(off, r.x, r.y);
     ctx.restore();
   }

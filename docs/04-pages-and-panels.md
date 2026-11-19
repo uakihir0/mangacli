@@ -22,7 +22,9 @@ pages:
 
 `pages[]` にも同じ指定ができ、コマとページレイヤーを合成した後に処理する（`page` に書けば全ページの既定値）。ページの紙の背景・コマ枠も含め、ノンブルは常に除外する。コマとページ両方に指定すると順に適用する。透過部分は反転しても不透明にならない。
 
-PNG・PDF・PSD はラスターフィルタを使用する。SVG は `invert`、`grayscale`、`brightness`、`contrast`、`threshold`、`levels` に対応し、未対応のフィルタは `SVG_FILTER_UNSUPPORTED` 警告を出して省略する。実例は [panel-invert.yaml](examples/panel-invert.yaml)。
+はみ出す要素のコマ内の部分は、コマの絵とブレンドしてから一緒に処理する。コマ外の部分はページの下地と合成してから、要素が描かれた範囲だけを処理する。白地の線画を `blend: multiply` で重ねても、白地が反転後の絵を塗りつぶすことはない。
+
+PNG・PDF・PSD はラスターフィルタを使用する。SVG は `invert`、`grayscale`、`brightness`、`contrast`、`threshold`、`levels` に対応し、未対応のフィルタは `SVG_FILTER_UNSUPPORTED` 警告を出して省略する。SVG でもコマ内の部分は一緒に合成するが、はみ出す部分のページ下地との合成には未対応で、`SVG_FILTER_BACKDROP_UNSUPPORTED` 警告を出す。実例は [panel-invert.yaml](examples/panel-invert.yaml)。
 
 ## 4.1 ページの幾何
 

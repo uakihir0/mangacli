@@ -56,6 +56,8 @@ export interface NodeTag {
 export interface GroupNode {
   kind: "group";
   filters?: ImageFilter[];
+  /** Filter the children composited over the existing canvas, within their coverage. */
+  backdrop?: boolean;
   transform?: Matrix;
   opacity?: number;
   blend?: BlendMode;

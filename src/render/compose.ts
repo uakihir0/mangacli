@@ -318,19 +318,29 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   // build tree
   const root: GroupNode = { kind: "group", children: [] };
   const bgPaint = parsePaint(page.settings.background ?? "paper", { u, box: geom.bleedBox, seed: page.seed, bag, path: [...page.path, "background"] });
+  const free = items.filter((i) => !i.stackUnder);
+  free.sort((a, b) => a.z - b.z || a.layer - b.layer || a.source - b.source || a.panelIdx - b.panelIdx || (a.layer === 1 && b.layer === 1 ? b.listIdx - a.listIdx : a.listIdx - b.listIdx));
+  const freeNodes = new Map<Item, Node[]>();
+  const panelFree = new Map<PanelGeom, Node[]>();
+  for (const it of free) {
+    const pg = it.source === 0 ? drawOrder[it.panelIdx] : undefined;
+    if (!pg) continue;
+    const nodes = compositeNodes(it.nodes, pg.panel.props, bag, pg.panel.path);
+    const filtered = nodes[0];
+    if (filtered?.kind !== "group" || !filtered.filters?.length || !filtered.children.length) continue;
+    const poly = panelShapePoly(pg, geom);
+    const clip = poly !== pg.polygon ? smoothPath(poly, true) : polyPath(poly, true);
+    const inside: Node[] = it.openClip ? [{ kind: "group", clip: it.openClip, children: filtered.children }] : filtered.children;
+    panelFree.set(pg, [...(panelFree.get(pg) ?? []), ...inside]);
+    freeNodes.set(it, [{ kind: "group", clip: [...polyPath(rectPts(geom.bleedBox), true), ...clip], clipRule: "evenodd", children: [{ ...filtered, backdrop: true }] }, ...nodes.slice(1)]);
+  }
   for (const it of items.filter((i) => i.stackUnder)) root.children.push(...it.nodes);
   for (const { pg, clipped } of panelNodes) {
     if (pg.panel.props.visible === false) continue;
-    root.children.push(...panelTree(pg, clipped, geom, bgPaint, bag));
+    root.children.push(...panelTree(pg, clipped, geom, bgPaint, bag, panelFree.get(pg)));
   }
-  const free = items.filter((i) => !i.stackUnder);
-  free.sort((a, b) => a.z - b.z || a.layer - b.layer || a.source - b.source || a.panelIdx - b.panelIdx || (a.layer === 1 && b.layer === 1 ? b.listIdx - a.listIdx : a.listIdx - b.listIdx));
   for (const it of free) {
-    let nodes = it.nodes;
-    if (it.source === 0) {
-      const pg = drawOrder[it.panelIdx];
-      if (pg) nodes = compositeNodes(nodes, pg.panel.props, bag, pg.panel.path);
-    }
+    const nodes = freeNodes.get(it) ?? it.nodes;
     if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, children: it.el.type === "balloon" ? cleanClippedBalloonInk(it.openClip)(nodes) : nodes });
     else root.children.push(...nodes);
   }
@@ -456,7 +466,7 @@ function panelShapePoly(pg: PanelGeom, geom: PageGeom): Vec[] {
   return pg.polygon;
 }
 
-function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: ReturnType<typeof parsePaint>, bag: DiagnosticBag): Node[] {
+function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: ReturnType<typeof parsePaint>, bag: DiagnosticBag, free: Node[] = []): Node[] {
   const u = geom.units;
   const p = pg.panel.props;
   const out: Node[] = [];
@@ -473,6 +483,7 @@ function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: Retur
   const clip = isShaped ? smoothPath(poly, true) : polyPath(poly, true);
   const cleanBalloonInk = cleanClippedBalloonInk(clip);
   for (const it of clipped) inner.push(...(it.el.type === "balloon" ? cleanBalloonInk(it.nodes) : it.nodes));
+  inner.push(...free);
   out.push({ kind: "group", clip, children: compositeNodes(inner, p, bag, pg.panel.path), tag: { elementId: pg.panel.id, elementType: "panel", role: "art", separation: "art" } });
   out.push(...borderNodes(pg, poly, isShaped, geom, bag));
   return out;

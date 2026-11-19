@@ -158,6 +158,7 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
 
   const group = async (g: GroupNode): Promise<string> => {
     const attrs: string[] = [];
+    if (g.backdrop) o.bag?.warn("SVG_FILTER_BACKDROP_UNSUPPORTED", "SVG filters spilling content without the page backdrop; use raster output for backdrop blending");
     if (g.filters?.length) {
       const primitives: string[] = [];
       for (const f of g.filters) {
