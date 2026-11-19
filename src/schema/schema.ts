@@ -135,7 +135,7 @@ export const Region = RegionBase;
 
 const Mask = z.union([z.object({ region: Region, invert: z.boolean().optional(), feather: Length.optional() }).strict(), Region]);
 
-const Clip = z.union([z.enum(["panel", "none", "trim", "auto"]), z.object({ to: z.literal("panel"), open: z.array(z.enum(["top", "right", "bottom", "left"])) }).strict()]);
+const Clip = z.union([z.enum(["panel", "none", "trim", "auto"]), z.object({ to: z.union([z.literal("panel"), z.array(z.string()).min(1)]), open: z.array(z.enum(["top", "right", "bottom", "left"])).optional() }).strict()]);
 
 const common = {
   id: z.string().optional(),
@@ -160,7 +160,7 @@ const common = {
   seed: z.number().int().min(0).max(4294967295).optional(),
   separation: z.string().optional(),
   note: z.string().optional(),
-  stack: z.enum(["over", "under"]).optional(),
+  stack: z.enum(["over", "under", "art"]).optional(),
 };
 
 const TextValue = z.union([z.string(), z.record(z.string(), z.string())]);
@@ -351,6 +351,10 @@ const effectProps = z
   .catchall(z.unknown()).superRefine((v, ctx) => {
     if (v.kind === "crack") {
       for (const [key, schema] of Object.entries({ shade: Paint, target: Region })) if (v[key] !== undefined && !schema.safeParse(v[key]).success) ctx.addIssue({ code: "custom", path: [key], message: `invalid ${key}` });
+    }
+    if (["aura", "arcs"].includes(v.kind)) {
+      const fields: Record<string, z.ZodType> = { target: z.string().min(1), length: Length, fill: Paint, stroke: Stroke, layers: z.number().int().min(1).max(3), tongues: z.number().int().min(3).max(256), upwardBias: z.number().min(0).max(1), count: z.number().int().min(0).max(1024) };
+      for (const [key, schema] of Object.entries(fields)) if (v[key] !== undefined && !schema.safeParse(v[key]).success) ctx.addIssue({ code: "custom", path: [key], message: `invalid ${key}` });
     }
     const direction = v.kind === "swirl-lines" ? z.enum(["cw", "ccw"]) : v.kind === "dust" ? z.union([Angle, z.literal("both")]) : ["lightning", "smoke"].includes(v.kind) ? Angle : undefined;
     if (direction && v.direction !== undefined && !direction.safeParse(v.direction).success) ctx.addIssue({ code: "custom", path: ["direction"], message: `invalid direction for ${v.kind}` });

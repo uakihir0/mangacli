@@ -4,15 +4,17 @@
 
 | ファイル | 内容 | 使う機能の優先度 |
 |---|---|---|
+| [span-figure.yaml](span-figure.yaml) | 3 コマをまたぐ人物、和集合クリップ、上辺の開放、枠線の下の絵、顔を避ける吹き出し（[出力](../images/span-figure.png)） | P0・P1 |
 | [aside.yaml](aside.yaml) | 顔の横に置く小さな手書きのセリフ。白フチと短い引き出し線（[描画結果](../images/aside.png)） | P1 |
 | [minimal.yaml](minimal.yaml) | 最小の例。既定値（B5・モノクロ・右綴じ・縦書き・`ink`・フォントセット `manga-basic`）で 1 ページ | P0 のみ |
 | [b5-mono.yaml](b5-mono.yaml) | B5 判モノクロの同人誌原稿 2 ページ。断ち切り、斜めの間白、分割木、カタログのフォントによる混植、ルビ・傍点、各種の吹き出し・効果・トーン、描き文字、漫符、セリフの省略記法、連結、はみ出し、コマをまたぐ吹き出し、入稿用プロファイル | P0・P1 |
 | [sns-color-yonkoma.yaml](sns-color-yonkoma.yaml) | SNS 投稿用のカラー 4 コマ（1080 × 1350 px）。px 単位、色・グラデーションの塗り、4 コマのテンプレート | P0・P1 |
 | [color-page.yaml](color-page.yaml) | B5 のカラー 1 ページ。グラデーションの地、背景の乗算、雨、波に沿った描き文字、色付きの集中線・ウニフラッシュ、照れの漫符 | P0・P1 |
 | [gallery-balloons.yaml](gallery-balloons.yaml) | 組み込みの吹き出しのスタイル（`as`）の一覧 | P0・P1 |
+| [slice.yaml](slice.yaml) | 2 本の斜めの斬撃でコマと中の絵を 3 片に分ける | P0 |
 | [gallery-effects.yaml](gallery-effects.yaml) | 効果・トーン・漫符・描き文字の一覧 | P0・P1 |
 | [light-effects.yaml](light-effects.yaml) | 黒ベタの上の後光、人物の背後の光線、舞台のスポットライト（カラー・1 ビット） | P1 |
-| [slice.yaml](slice.yaml) | 2 本の斜めの斬撃でコマと中の絵を 3 片に分ける | P0 |
+| [aura.yaml](aura.yaml) | 透明な人物画像の輪郭に沿う闘気と短い放電 | P1 |
 | [en-comic.yaml](en-comic.yaml) | 英語のページ（`lang: en`）。左から右へ読む順、`comic-basic` フォントセットの大文字の横書きの吹き出し、行の均等化 | P0・P1 |
 | [full-page-art.yaml](full-page-art.yaml) | 間白や枠なしゴマから塗り足しまでの絵が見えるぶち抜きゴマ。小ゴマに白い抜き縁を付ける（[出力画像](../images/full-page-art.png)） | P1 |
 
