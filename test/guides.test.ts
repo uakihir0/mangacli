@@ -73,6 +73,8 @@ describe("preview guides overlay", () => {
       const [trim, edge] = p.side === "left" ? [83, 85.9] : [3, 0.1];
       expect(isMagenta(px.at(trim, 30))).toBe(true);
       expect(along(px, edge, isOrange)).toBe(true);
+      // no bleed line from the other page inside the trim
+      expect(along(px, p.side === "left" ? 80.1 : 5.9, isOrange)).toBe(false);
     }
   });
 
