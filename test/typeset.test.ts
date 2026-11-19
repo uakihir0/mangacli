@@ -3,6 +3,8 @@ import { FontRegistry } from "../src/fonts/registry.js";
 import { flattenPath, type PathData } from "../src/geom/path.js";
 import { boundsOf } from "../src/geom/vec.js";
 import { defaultTextStyle, layoutText } from "../src/text/layout.js";
+import { noStart } from "../src/text/linebreak.js";
+import { parseMarkup } from "../src/text/markup.js";
 
 const reg = new FontRegistry(new Map() as never, "manga-basic", [], {});
 const ink = (path: PathData) => boundsOf(flattenPath(path, 0.01).flatMap((p) => p.pts));
@@ -12,6 +14,61 @@ const lines = async (t: string, o: Record<string, unknown> = {}) => {
 };
 
 describe("typesetting", () => {
+  it.each([
+    "「えっ」「何？」\nどういうこと。」",
+    "“本当”に\n『約束』（仮）\n【重要】",
+    "「あ」「い」",
+    "『え』『お』",
+    "（か）（き）",
+    "」『",
+  ])("keeps compressed vertical brackets visible: %s", async (text) => {
+    await reg.prepare("dialogue", text);
+    const style = { ...defaultTextStyle({ font: "dialogue", fontSize: 10 }), wrap: "none" as const };
+    const layout = layoutText(text, style, reg);
+    const full = layoutText(text, { ...style, punctCompress: false }, reg);
+    expect(layout.errors).toEqual([]);
+    expect(layout.missing).toEqual([]);
+    expect(layout.glyphs).toHaveLength(full.glyphs.length);
+    const ink = layout.glyphs.map((g) => boundsOf(flattenPath(g.path, 0.01).flatMap((p) => p.pts)));
+    const chars = Array.from(text);
+    let pairs = 0;
+    for (let i = 0; i + 1 < layout.glyphs.length; i++) {
+      const a = layout.glyphs[i];
+      const b = layout.glyphs[i + 1];
+      if (!"」』）".includes(chars[a.unit]) || !"「『（".includes(chars[b.unit])) continue;
+      pairs++;
+      expect(ink[i].w).toBeGreaterThan(0);
+      expect(ink[i + 1].w).toBeGreaterThan(0);
+      expect(ink[i + 1].y).toBeGreaterThan(ink[i].y + ink[i].h);
+      expect(ink[i + 1].y + ink[i + 1].h - ink[i].y).toBeLessThanOrEqual(10);
+      expect((full.glyphs[i + 1].cy - full.glyphs[i].cy) - (b.cy - a.cy)).toBeCloseTo(10);
+      if (i + 2 < ink.length && layout.glyphs[i + 2].cx === b.cx) {
+        expect(ink[i + 2].y).toBeGreaterThan(ink[i + 1].y + ink[i + 1].h);
+      }
+    }
+    expect(pairs).toBeGreaterThan(0);
+  });
+  it.each([
+    ["「えっ」「何？」\nどういうこと。」", 3],
+    ["「えっ」「何？」\nどういうこと。」", 8],
+    ["そんなことないでしょう。」", 2],
+    ["あいうえおかきく。）」』", 4],
+    ...Array.from("、。，．）］｝」』】〕〉》〙〗’”｠»),.]}>？！・：々ー").map((ch) => [`あ${ch}${ch}${ch}`, 1] as const),
+  ])("keeps prohibited column starts attached: %s", async (text, maxChars) => {
+    const result = await lines(text, { maxChars });
+    const plain = parseMarkup(text, { vertical: true }).units.flatMap((u) => u.kind === "char" ? [u.ch] : []).join("");
+    expect(result.join("").replaceAll("？", "?").replaceAll("！", "!")).toBe(plain.replaceAll("？", "?").replaceAll("！", "!"));
+    for (const line of result) expect(noStart(Array.from(line)[0] ?? "", "strict"), line).toBe(false);
+  });
+  it("handles empty text with a column limit", async () => {
+    expect((await lines("", { maxChars: 1 })).join("")).toBe("");
+  });
+  it("keeps closing chains attached after hanging punctuation", async () => {
+    expect(await lines("あ。」』", { maxChars: 1, hanging: true })).toEqual(["あ。」』"]);
+  });
+  it("allows prohibited starts when kinsoku is disabled", async () => {
+    expect(await lines("あ」」", { maxChars: 1, kinsoku: "none", wrap: "char" })).toEqual(["あ", "」", "」"]);
+  });
   it("breaks a long phrase at a word start", async () => {
     expect(await lines("宿題、まだ終わってなくてさ……")).toEqual(["宿題、まだ", "終わって", "なくてさ……"]);
   });

@@ -194,6 +194,7 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
   // per-line advances with letter spacing and punctuation compression
   const ls = style.letterSpacing * em;
   const lineData = lines.map((ln) => {
+    const offsets = ln.boxes.map(() => 0);
     const advs = ln.boxes.map((b, i) => {
       let a = b.adv;
       if (style.punctCompress && i + 1 < ln.boxes.length) {
@@ -201,12 +202,16 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
         // only full-width punctuation has the half-em of space that compression removes
         if (isClosingPunct(b.lastChar) && (isClosingPunct(nx.firstChar) || isOpeningPunct(nx.firstChar)) && b.orient !== "sideways" && b.adv > b.size * 0.8) a -= b.size * 0.5;
       }
-      if (style.punctCompress && i > 0 && isOpeningPunct(b.firstChar) && isClosingPunct(ln.boxes[i - 1].lastChar) && b.orient !== "sideways" && b.adv > b.size * 0.8) a -= b.size * 0.5;
+      if (style.punctCompress && i > 0 && isOpeningPunct(b.firstChar) && isClosingPunct(ln.boxes[i - 1].lastChar) && b.orient !== "sideways" && b.adv > b.size * 0.8) {
+        a -= b.size * 0.5;
+        // Opening punctuation loses leading space, not the space occupied by its ink.
+        offsets[i] = -b.size * 0.5;
+      }
       return a + (i + 1 < ln.boxes.length ? ls : 0);
     });
     const len = advs.reduce((x, y) => x + y, 0);
     const size = Math.max(em, ...ln.boxes.map((b) => b.size));
-    return { ln, advs, len, size };
+    return { ln, advs, offsets, len, size };
   });
   const blockLen = Math.max(0, ...lineData.map((d) => d.len));
   const rng = new Rng(style.seed);
@@ -235,8 +240,9 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
       let y = offset;
       const just = style.align === "justify" && c.d.ln.boxes.length > 1 && c !== cols[cols.length - 1] ? (blockLen - c.d.len) / (c.d.ln.boxes.length - 1) : 0;
       c.d.ln.boxes.forEach((b, bi) => {
-        emitBox(b, cx, y, true, glyphs, style, rng);
-        (b as Box & { _pos?: [number, number] })._pos = [cx, y];
+        const by = y + c.d.offsets[bi];
+        emitBox(b, cx, by, true, glyphs, style, rng);
+        (b as Box & { _pos?: [number, number] })._pos = [cx, by];
         y += c.d.advs[bi] + just;
       });
       outLines.push({ rect: { x: cx - c.d.size / 2, y: offset, w: c.d.size, h: c.d.len }, length: c.d.len, text: c.d.ln.boxes.map((b) => b.chars).join("") });
@@ -255,8 +261,9 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
     let x = offset;
     const just = style.align === "justify" && i < lineData.length - 1 && d.ln.boxes.length > 1 ? (blockLen - d.len) / (d.ln.boxes.length - 1) : 0;
     d.ln.boxes.forEach((b, bi) => {
-      emitBox(b, x, y + asc, false, glyphs, style, rng);
-      (b as Box & { _pos?: [number, number] })._pos = [x, y + asc];
+      const bx = x + d.offsets[bi];
+      emitBox(b, bx, y + asc, false, glyphs, style, rng);
+      (b as Box & { _pos?: [number, number] })._pos = [bx, y + asc];
       x += d.advs[bi] + just;
     });
     outLines.push({ rect: { x: offset, y, w: d.len, h: d.size }, length: d.len, text: d.ln.boxes.map((b) => b.chars).join("") });
@@ -691,7 +698,7 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
     if (b.chars === "" && b.breakBefore === "forced") continue;
     const adv = b.adv + (cur.length ? ls : 0);
     if (cur.length && len + adv > Lmax + 1e-6) {
-      const prohibited = noStart(b.firstChar, style.kinsoku) && b.chars.length === 1 && b.adv <= b.size * 1.01;
+      const prohibited = noStart(b.firstChar, style.kinsoku);
       // hanging: 、。，． hang outside the line end
       if (prohibited && style.hanging && /^[、。，．,.]$/.test(b.firstChar)) {
         cur.push(b);
@@ -727,13 +734,13 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
         len += adv;
         continue;
       }
-      if (k < 0) k = cur.length;
-      // oidashi would leave a one-character line: fall back to oikomi (exceed by one character)
+      // No legal break, or oidashi would leave one character: use oikomi.
       if (prohibited && k <= 1) {
         cur.push(b);
         len += adv;
         continue;
       }
+      if (k < 0) k = cur.length;
       const carry = cur.slice(k);
       cur = cur.slice(0, k);
       push(true);

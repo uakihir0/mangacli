@@ -5,7 +5,7 @@ import type { PathData } from "../geom/path.js";
 import { type Matrix, type Rect, applyMat, matMul } from "../geom/vec.js";
 import type { AssetRegistry } from "./assets.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
-import { makeToneSampler } from "./screen.js";
+import { makeBinaryRoundToneSampler, makeToneSampler } from "./screen.js";
 import { distanceSquared } from "./edt.js";
 import { applyFilters } from "./filters.js";
 
@@ -237,7 +237,36 @@ export class RasterBackend {
       ctx.restore();
       drawCropMarks(ctx, { x: bleedPx, y: bleedPx, w: trimPxW, h: trimPxH }, bleedOnly, s, o.marks);
     } else await this.drawNode(dev, list.root, base, canvas);
-    const img = ctx.getImageData(0, 0, W, H);
+    return this.result(canvas);
+  }
+
+  addMarks(raster: { data: Uint8ClampedArray; width: number; height: number }, bleed: number): RasterResult {
+    const o = this.opts;
+    const s = o.dpi / 25.4;
+    const margin = Math.round((o.marks?.margin ?? 10) * s + 1e-6);
+    const b = Math.round(bleed * s + 1e-6);
+    const W = raster.width + 2 * margin;
+    const H = raster.height + 2 * margin;
+    if (W * H > (o.maxPixels ?? 200_000_000)) throw new Error(`OUTPUT_TOO_LARGE: ${W}x${H} exceeds maxOutputPixels`);
+    const canvas = createCanvas(W, H);
+    const ctx = canvas.getContext("2d");
+    if (!o.transparent) {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, W, H);
+    }
+    if (margin) drawCropMarks(ctx, { x: margin + b, y: margin + b, w: raster.width - 2 * b, h: raster.height - 2 * b }, b, s, o.marks);
+    const result = this.result(canvas);
+    for (let y = 0; y < raster.height; y++) {
+      result.data.set(raster.data.subarray(y * raster.width * 4, (y + 1) * raster.width * 4), ((y + margin) * W + margin) * 4);
+    }
+    return result;
+  }
+
+  private result(canvas: Canvas): RasterResult {
+    const o = this.opts;
+    const W = canvas.width;
+    const H = canvas.height;
+    const img = canvas.getContext("2d").getImageData(0, 0, W, H);
     const data = img.data;
     if (o.colorMode === "mono") {
       for (let i = 0; i < data.length; i += 4) {
@@ -520,7 +549,11 @@ export class RasterBackend {
     }
     const target = this.target(dev, r);
     const gradDensity = flat && spec.gradient ? true : false;
-    const sampler = makeToneSampler(spec, target, densityFn);
+    const origin = applyMat(dev.base, { x: spec.offset[0], y: spec.offset[1] });
+    const binaryRound = mode === "mono" && p.type === "tone" && spec.dot === "round"
+      ? makeBinaryRoundToneSampler(spec, cellPx, 0.5 - origin.x, 0.5 - origin.y, (x, y) => target.toMm(x - r.x, y - r.y))
+      : undefined;
+    const sampler = binaryRound ? (x: number, y: number) => binaryRound(x + r.x, y + r.y) : makeToneSampler(spec, target, densityFn);
     const alphaSampler = alphaFn ? makeToneSampler({ ...spec, angle: 0, seed: 11, grain: 0.15 }, target, alphaFn) : null;
     const ss = mode === "mono" ? 1 : 2;
     const tc = grayize(color, mode);

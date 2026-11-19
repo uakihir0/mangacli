@@ -14,6 +14,7 @@ import { resolveRegion } from "../elements/region.js";
 import { renderSfx, renderText } from "../elements/textel.js";
 import { textValue } from "../elements/textstyle.js";
 import type { FontRegistry } from "../fonts/registry.js";
+import { miterFrameEdges } from "../geom/miter.js";
 import { flattenPath, parseSvgPath, polyPath, smoothPath, transformPath } from "../geom/path.js";
 import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
 import { inkLine, inkShape } from "../ink/shape.js";
@@ -96,7 +97,6 @@ async function prepareFonts(page: RPage, o: ComposeOptions) {
   for (const pn of page.panels) pn.elements.forEach(add);
   page.layers.forEach(add);
   for (const [f, t] of jobs) await o.fonts.prepare(f, t);
-  await o.fonts.prepare("ui", "0123456789-");
 }
 
 export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: number, o: ComposeOptions): Promise<{ list: DisplayList; info: PageLayoutInfo }> {
@@ -328,7 +328,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     else root.children.push(...it.nodes);
   }
   // page numbers
-  if (o.nombre !== null) root.children.push(...nombreNodes(doc, page, geom, o, panels));
+  root.children.push(...(await nombreNodes(doc, page, geom, o, panels)));
   const list: DisplayList = {
     version: 1,
     page: { id: page.id, index: page.index },
@@ -475,6 +475,16 @@ function borderNodes(pg: PanelGeom, poly: Vec[], shaped: boolean, geom: PageGeom
   const cy = pg.polygon.reduce((a, q) => a + q.y, 0) / n;
   const sideName = (d: Vec, nrm: Vec) => (Math.abs(d.x) >= Math.abs(d.y) ? (nrm.y > 0 ? "top" : "bottom") : nrm.x > 0 ? "left" : "right");
   const L = (v: unknown, fb: string) => toMm((v as string) ?? fb, u);
+  const edges = pg.polygon.map((a, i) => {
+    const c = pg.polygon[(i + 1) % n];
+    const d = { x: c.x - a.x, y: c.y - a.y };
+    let nrm = { x: -d.y, y: d.x };
+    if (nrm.x * (cx - a.x) + nrm.y * (cy - a.y) < 0) nrm = { x: -nrm.x, y: -nrm.y };
+    const sides = isObj(b0.sides) ? (b0.sides as Obj) : {};
+    const sv = sides[sideName(d, nrm)];
+    return sv === undefined ? main : sv === "none" ? null : resolveB({ ...b0, ...(isObj(sv) ? sv : {}), sides: undefined }, [...pg.panel.path, "border", "sides"]);
+  });
+  const miters = miterFrameEdges(pg.polygon, edges.map((e) => e?.st.width ?? main.st.width));
   for (let i = 0; i < n; i++) {
     const a = pg.polygon[i];
     const c = pg.polygon[(i + 1) % n];
@@ -486,13 +496,17 @@ function borderNodes(pg: PanelGeom, poly: Vec[], shaped: boolean, geom: PageGeom
     let nrm = { x: -dir.y, y: dir.x };
     if (nrm.x * (cx - a.x) + nrm.y * (cy - a.y) < 0) nrm = { x: -nrm.x, y: -nrm.y };
     // per-side overrides (spec 4.9 sides)
-    const sides = isObj(b0.sides) ? (b0.sides as Obj) : {};
-    const sv = sides[sideName(dir, nrm)];
-    const E = sv === undefined ? main : sv === "none" ? null : resolveB({ ...b0, ...(isObj(sv) ? sv : {}), sides: undefined }, [...pg.panel.path, "border", "sides"]);
+    const E = edges[i];
     if (!E || E.style === "none" || E.st.width <= 0) continue;
     const { st, hand, b } = E;
     const ruler = b.ruler !== false;
     const join = (b.join as string) ?? "clean";
+    if (join === "clean" && E.style === "solid" && ruler) {
+      const node: Node = { kind: "path", path: polyPath(miters[i], true), fillRule: "nonzero", paint: { type: "solid", color: st.color }, tag: t };
+      const opacity = st.pen.opacity ?? 1;
+      nodes.push(opacity >= 0.999 ? node : { kind: "group", opacity, children: [node], tag: t });
+      continue;
+    }
     let e0 = st.width / 2;
     let e1 = st.width / 2;
     if (join === "overshoot") {
@@ -1209,10 +1223,11 @@ function segRect(a: Vec, b: Vec, r: Rect): boolean {
 
 // ---- page numbers -----------------------------------------------------------------
 
-function nombreNodes(doc: ResolvedDoc, page: RPage, geom: PageGeom, o: ComposeOptions, panels: PanelGeom[] = []): Node[] {
+async function nombreNodes(doc: ResolvedDoc, page: RPage, geom: PageGeom, o: ComposeOptions, panels: PanelGeom[]): Promise<Node[]> {
   const book = (doc.doc.book ?? {}) as Obj;
   const pn = (book.pageNumbers ?? {}) as Obj;
-  if (pn.enabled === false || o.nombre === null) return [];
+  const { nombre } = o;
+  if (pn.enabled === false || nombre === null) return [];
   const show = (pn.show as string) ?? "print";
   if (show === "never" || (show === "print" && !o.print)) return [];
   if (page.number === false) return [];
@@ -1220,6 +1235,8 @@ function nombreNodes(doc: ResolvedDoc, page: RPage, geom: PageGeom, o: ComposeOp
   const u = geom.units;
   const hidden0 = (isObj(page.number) && (page.number as Obj).hidden === true) || pn.hidden === true;
   const fmt = (pn.format as string) ?? "{n}";
+  const font = (pn.font as string) ?? "ui";
+  const writing = pn.writing === "vertical" ? "vertical" : "horizontal";
   const margin = (pn.margin as unknown[]) ?? ["8mm", "12mm"];
   const pos = (pn.position as string) ?? "bottom-outer";
   const color = parseColor((pn.color as string) ?? "black") ?? BLACK;
@@ -1227,35 +1244,40 @@ function nombreNodes(doc: ResolvedDoc, page: RPage, geom: PageGeom, o: ComposeOp
   const halves: { n: number; side: "left" | "right"; x0: number; w: number }[] =
     geom.type === "spread"
       ? [
-          { n: o.nombre!, side: geom.rtl ? "right" : "left", x0: geom.rtl ? geom.trimW / 2 : 0, w: geom.trimW / 2 },
-          { n: o.nombre! + 1, side: geom.rtl ? "left" : "right", x0: geom.rtl ? 0 : geom.trimW / 2, w: geom.trimW / 2 },
+          { n: nombre, side: geom.rtl ? "right" : "left", x0: geom.rtl ? geom.trimW / 2 : 0, w: geom.trimW / 2 },
+          { n: nombre + 1, side: geom.rtl ? "left" : "right", x0: geom.rtl ? 0 : geom.trimW / 2, w: geom.trimW / 2 },
         ]
-      : [{ n: o.nombre!, side: geom.side === "left" ? "left" : "right", x0: 0, w: geom.trimW }];
+      : [{ n: nombre, side: geom.side === "left" ? "left" : "right", x0: 0, w: geom.trimW }];
+  const numbers = halves.map((h) => ({ ...h, text: fmt.replaceAll("{n}", String(h.n)) }));
+  await o.fonts.prepare(font, numbers.map((h) => h.text).join(""));
   // art bled to the trim covers the number: it moves into the binding margin as a small hidden number
   const bled = panels.filter((p) => p.bledSides.length > 0);
-  const make = (h: (typeof halves)[number], hidden: boolean) => {
+  const make = (h: (typeof numbers)[number], hidden: boolean) => {
     const size = hidden ? toMm("5pt", u) : toMm((pn.fontSize as string) ?? "8pt", u);
     const mv = toMm(margin[0] as string, u);
-    const mh = hidden ? 1.5 : toMm(margin[1] as string, u);
+    const middle = !hidden && pos === "outer-middle";
     const inner = pos.includes("inner") || hidden;
-    const text = fmt.replace("{n}", String(h.n));
-    const tl = layoutText(text, defaultTextStyle({ font: (pn.font as string) ?? "ui", fontSize: size, writing: "horizontal", markup: false, tcy: null }), o.fonts);
+    const tl = layoutText(h.text, defaultTextStyle({ font, fontSize: size, writing, markup: false, tcy: null }), o.fonts);
     const outerLeft = h.side === "left";
+    const outerGap = outerLeft ? geom.baseFrame.x - h.x0 : h.x0 + h.w - (geom.baseFrame.x + geom.baseFrame.w);
+    const mh = hidden ? 1.5
+      : middle && pn.margin === undefined && outerGap >= tl.width + size * 0.25 ? (outerGap - tl.width) / 2
+      : toMm(margin[1] as string, u);
     let x: number;
     if (pos.includes("center") && !hidden) x = h.x0 + h.w / 2 - tl.width / 2;
     else if ((outerLeft && !inner) || (!outerLeft && inner)) x = h.x0 + mh;
     else x = h.x0 + h.w - mh - tl.width;
-    const y = pos.startsWith("top") && !hidden ? mv : hidden ? geom.trimH - 3 - tl.height : geom.trimH - mv - tl.height;
+    const y = hidden ? geom.trimH - 3 - tl.height : middle ? (geom.trimH - tl.height) / 2 : pos.startsWith("top") ? mv : geom.trimH - mv - tl.height;
     return { tl, x, y, size, rect: { x: geom.trim.x + x - 1, y: geom.trim.y + y - 1, w: tl.width + 2, h: tl.height + 2 } };
   };
-  return halves.map((h) => {
+  return numbers.map((h) => {
     let r = make(h, hidden0);
     if (!hidden0 && pn.autoHide !== false && bled.some((p) => rectIntersect(p.box, r.rect))) r = make(h, true);
     const { tl, x, y, size } = r;
     return {
       kind: "path" as const,
       stroke: { width: size * 0.25, paint: { type: "solid" as const, color: WHITE }, join: "round" as const },
-      path: tl.glyphs.flatMap((g) => g.path.map((c) => (c[0] === "Z" ? c : (c.map((v, i) => (i === 0 ? v : i % 2 === 1 ? (v as number) + x : (v as number) + y)) as typeof c)))),
+      path: tl.glyphs.flatMap((g) => transformPath(g.path, [1, 0, 0, 1, x, y])),
       fillRule: "nonzero" as const,
       paint: { type: "solid" as const, color },
       tag: { elementId: `${page.id}-nombre`, elementType: "nombre", role: "furniture" as const, separation: "furniture" },
