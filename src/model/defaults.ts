@@ -55,6 +55,9 @@ export const BUILTIN_EFFECT_DEFAULTS: Record<string, Obj> = {
   hatching: { pattern: "hatch", angle: "45deg", spacing: "0.6bmm", thickness: ["0.08bmm", "0.16bmm"], blockSize: ["2bmm", "3.5bmm"], linesPerBlock: 4, edge: "soft", ruler: false, pen: { preset: "maru-pen" } },
   rain: { angle: "100deg", rate: 2.5, length: ["4bmm", "14bmm"], thickness: ["0.1bmm", "0.22bmm"], taper: "both", ruler: true, pen: { preset: "maru-pen" } },
   vignette: { color: "paper", width: "8bmm", shape: "rect", softness: 0.7, screen: "am" },
+  glow: { color: "white", blur: "4bmm" },
+  "light-rays": { color: "white", count: 24, angle: 0, spread: 0.55 },
+  spotlight: { color: "white", source: ["18%", "0%"], target: ["60%", "78%"], width: "45%", shade: 0.8 },
 };
 
 export const BUILTIN_MARK_DEFAULTS: Record<string, Obj> = {
@@ -103,7 +106,18 @@ export const BUILTIN_STYLES: Record<string, Obj> = {
   gruff: { shape: { kind: "hexagon" }, stroke: { width: "0.25bmm" }, tail: { kind: "wedge" }, font: "dialogue" },
 };
 
-export const PAGE_PRESETS: Record<string, { w: number; h: number; unit: "mm" | "px" }> = {
+export interface PagePreset {
+  w: number;
+  h: number;
+  unit: "mm" | "px";
+  baseFrame?: "trim" | { size?: [string | number, string | number]; offset?: [string | number, string | number]; margins?: { top: string | number; bottom: string | number; inner: string | number; outer: string | number } };
+  bleed?: string | number;
+  printSize?: string | [string | number, string | number];
+  dpi?: number;
+}
+
+export const PAGE_PRESETS: Record<string, PagePreset> = {
+  "manga-b4": { w: 220, h: 310, unit: "mm", baseFrame: { size: ["180mm", "270mm"] }, bleed: "5mm", printSize: "B5" },
   A4: { w: 210, h: 297, unit: "mm" },
   A5: { w: 148, h: 210, unit: "mm" },
   A6: { w: 105, h: 148, unit: "mm" },
