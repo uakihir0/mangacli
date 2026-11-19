@@ -85,6 +85,8 @@ mangacli fonts verify | fonts licenses [file]
 mangacli cache info | cache clean
 ```
 
+In live preview, click an element warning to locate it with a highlight frame. Click again or press Esc to clear; selection survives auto-reload independently of Guides.
+
 Run `mangacli <command> --help` for all options. `--json` prints machine-readable NDJSON.
 
 For PDF/X submission, ask your printer for the version and CMYK ICC profile. For example:

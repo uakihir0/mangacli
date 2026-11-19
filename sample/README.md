@@ -23,4 +23,8 @@ npx mangacli render sample/effect-figure-clear.yaml -p preview
 
 原稿は 600 dpi で出力され、コマ絵は掲載寸法で 300 ppi 以上です。線画の目標は 600 ppi ですが、生成時の上限（長辺 4096 px、参照画像付きの場合は約 4 メガピクセル）により、すべてのコマが 600 ppi に達するわけではありません。拡大補間はしていません。
 
-同じ `SOGNI_APP_ID` の接続は 1 本までなので、デーモンは 1 つだけ動かす。
+`SOGNI_API_KEY` と `SOGNI_APP_ID` は環境変数に設定する。同じ `SOGNI_APP_ID` の接続は 1 本までなので、デーモンは 1 つだけ動かす。
+
+新しい作品を作る場合は [漫画制作スキル](../.agents/skills/manga-production/SKILL.md) も参照。
+
+完了イベントを取り逃した場合、デーモンは Sogni に結果を再照会する。これは同じ生成ジョブの画像を回収する処理で、再生成はしない。
