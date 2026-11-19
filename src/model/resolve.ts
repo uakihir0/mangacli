@@ -316,6 +316,8 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       return el;
     });
     const settings = merge(deepClone((doc.page ?? {}) as Obj), pickPageSettings(pg));
+    if (pg.printScale !== undefined && pg.printSize === undefined) delete settings.printSize;
+    if (pg.printSize !== undefined && pg.printScale === undefined) delete settings.printScale;
     let hand: Obj = {};
     if (docHand) hand = merge(hand, { hand: docHand }).hand as Obj;
     if (pageHand) hand = merge({ hand }, { hand: pageHand }).hand as Obj;

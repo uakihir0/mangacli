@@ -40,6 +40,13 @@ describe("print-basis units", () => {
 });
 
 describe("print geometry", () => {
+  it("lets page-level print settings replace the other inherited setting", async () => {
+    for (const [inherited, specific, scale] of [["printSize: B5", "printScale: 0.5", 0.5], ["printScale: 0.5", "printSize: B5", 182 / 220]] as const) {
+      const r = await validate({ yaml: `mangacli: 1\npage: { size: manga-b4, ${inherited} }\npages:\n  - ${specific}\n    panels: [{}]\n` });
+      expect(r.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+      expect(r.layout[0].geom.printScale).toBeCloseTo(scale);
+    }
+  });
   it("defaults to identity and resolves manga-b4 geometry", async () => {
     const plain = await validate(input());
     expect(plain.layout[0].geom.printScale).toBe(1);
