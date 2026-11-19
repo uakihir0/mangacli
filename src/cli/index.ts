@@ -12,6 +12,7 @@ import { defaultFontCacheDir, findLocalCatalogFont } from "../fonts/download.js"
 import { installFonts } from "../fonts/install.js";
 import { PACKAGE_ROOT } from "../fonts/catalog.js";
 import { jsonSchema } from "../schema/jsonschema.js";
+import { collectDeps } from "./deps.js";
 import { ASSETS_README, CONFIG_TEMPLATE, FONTS_README, TEMPLATES } from "./templates.js";
 
 type Obj = Record<string, unknown>;
@@ -547,21 +548,6 @@ img{max-height:85vh;box-shadow:0 2px 12px #0008;background:#fff}figcaption{text-
     spawn(cmd, process.platform === "win32" ? ["/c", "start", url] : [url], { stdio: "ignore", detached: true }).unref();
   }
   return new Promise<number>(() => {});
-}
-
-/** files a document depends on (best effort: imports, includes, asset paths) */
-function collectDeps(entry: string): string[] {
-  const out = new Set<string>();
-  const visit = (f: string, depth: number) => {
-    if (depth > 8 || out.has(f) || !existsSync(f)) return;
-    out.add(f);
-    const text = readFileSync(f, "utf8");
-    const base = dirname(f);
-    for (const m of text.matchAll(/(?:^|[\s,{[])(?:src|import|include|imports|path)\s*:\s*["']?([^\s"',}\]#]+\.(?:ya?ml|json|png|jpe?g|webp|avif|tiff?|svg|ttf|otf))["']?/gm)) visit(resolve(base, m[1]), depth + 1);
-    for (const m of text.matchAll(/^\s*-\s+["']?([^\s"'#]+\.ya?ml)["']?\s*$/gm)) visit(resolve(base, m[1]), depth + 1);
-  };
-  visit(entry, 0);
-  return [...out];
 }
 
 async function cmdSchema(o: Obj): Promise<number> {
