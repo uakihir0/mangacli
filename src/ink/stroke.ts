@@ -26,6 +26,7 @@ export interface StrokeOptions {
 export interface InkPoly {
   pts: Vec[];
   opacity: number;
+  centerline?: { points: Vec[]; width: number };
 }
 
 const PULL_R = norm2(-0.45, 1);
@@ -123,12 +124,14 @@ export function strokeOutline(center: readonly Vec[], o: StrokeOptions): InkPoly
 
   const left: Vec[] = [];
   const right: Vec[] = [];
+  const centers: Vec[] = [];
   for (let i = 0; i < n; i++) {
     const nx = -ty[i];
     const ny = tx[i];
     const e = tremAmp > 0 ? tremAmp * Math.min(1, w[i] / w0) * noise1(seedT, s[i] / tremLen) : 0;
     const cx = pts[i].x + nx * e;
     const cy = pts[i].y + ny * e;
+    centers.push({ x: cx, y: cy });
     const hw = w[i] / 2;
     left.push({ x: cx + nx * hw, y: cy + ny * hw });
     right.push({ x: cx - nx * hw, y: cy - ny * hw });
@@ -138,7 +141,7 @@ export function strokeOutline(center: readonly Vec[], o: StrokeOptions): InkPoly
   for (let i = n - 1; i >= 0; i--) poly.push(right[i]);
   if (o.pen.cap === "round") poly.push(...capArc(pts[0], { x: tx[0], y: ty[0] }, w[0] / 2, true));
 
-  const out: InkPoly[] = [{ pts: poly, opacity }];
+  const out: InkPoly[] = [{ pts: poly, opacity, centerline: { points: centers, width: w0 } }];
   if (o.inkPool !== false && o.pen.inkPool > 0 && taperIn && o.rng.chance(0.15 * o.pen.inkPool)) {
     const r = w0 * (0.45 + 0.2 * o.pen.inkPool);
     const c = { x: pts[0].x + tx[0] * Math.min(lin, r), y: pts[0].y + ty[0] * Math.min(lin, r) };

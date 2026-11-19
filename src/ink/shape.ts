@@ -204,6 +204,7 @@ export function inkShape(c: ShapeContour, o: InkShapeOptions): InkResult {
       inks = inks.map((k) => ({
         opacity: k.opacity * hand.passOpacity,
         pts: k.pts.map((p) => ({ x: p.x + Math.cos(ang) * off, y: p.y + Math.sin(ang) * off })),
+        centerline: k.centerline && { width: k.centerline.width, points: k.centerline.points.map((p) => ({ x: p.x + Math.cos(ang) * off, y: p.y + Math.sin(ang) * off })) },
       }));
     }
     res.inks.push(...inks);

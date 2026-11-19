@@ -75,6 +75,8 @@ export interface PathNode {
   path: PathData;
   fillRule: "nonzero" | "evenodd";
   paint: Paint | null;
+  /** Source ink centerlines for device-dependent mono hairline protection. */
+  inkStrokes?: { path: PathData; width: number }[];
   /** outline stroke (used for text outlines / faux bold); drawn before fill */
   stroke?: { width: number; paint: Paint; join: "round" | "miter" };
   tag?: NodeTag;

@@ -8,11 +8,15 @@ import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec
 import { makeBinaryRoundToneSampler, makeToneSampler } from "./screen.js";
 import { distanceSquared } from "./edt.js";
 import { applyFilters } from "./filters.js";
+import type { DiagnosticBag } from "../core/diagnostics.js";
+
+export const MONO_MIN_STROKE_PIXELS = 2;
 
 export type ColorMode = "color" | "gray" | "mono";
 export type ToneRendering = "dots" | "flat" | "auto";
 
 export interface RasterOptions {
+  diagnostics?: DiagnosticBag;
   dpi: number;
   crop: "trim" | "bleed" | "marks";
   marks?: { margin?: number; length?: number; width?: number };
@@ -448,12 +452,38 @@ export class RasterBackend {
 
   private async drawPath(dev: Dev, n: PathNode, m: Matrix): Promise<void> {
     const ctx = dev.ctx;
+    // Smallest singular value keeps the minimum valid under nonuniform transforms.
+    const a = m[0] ** 2 + m[1] ** 2;
+    const b = m[2] ** 2 + m[3] ** 2;
+    const c = m[0] * m[2] + m[1] * m[3];
+    const scale = Math.sqrt(Math.max(0, (a + b - Math.hypot(a - b, 2 * c)) / 2));
+    const effectiveWidth = (width: number) => {
+      if (dev.opts.colorMode !== "mono" || scale <= 0 || width * scale >= MONO_MIN_STROKE_PIXELS) return width;
+      const minimum = MONO_MIN_STROKE_PIXELS / scale;
+      dev.opts.diagnostics?.warn("RENDER_HAIRLINE_THICKENED", `${n.tag?.elementId ?? "stroke"}: requested ${width.toFixed(4)}mm at ${dev.opts.dpi} dpi; line thickened to ${minimum.toFixed(4)}mm (${MONO_MIN_STROKE_PIXELS} device pixels) for mono output`, { elementId: n.tag?.elementId });
+      return minimum;
+    };
+    if (n.paint && n.inkStrokes && dev.opts.colorMode === "mono") {
+      for (const ink of n.inkStrokes) {
+        const width = effectiveWidth(ink.width);
+        if (width === ink.width) continue;
+        ctx.save();
+        setM(ctx, m);
+        const style = this.paintStyle(dev, n.paint);
+        if (style) ctx.strokeStyle = style as string;
+        ctx.lineWidth = width;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.stroke(buildPath(ink.path));
+        ctx.restore();
+      }
+    }
     if (n.stroke) {
       ctx.save();
       setM(ctx, m);
       const st = this.paintStyle(dev, n.stroke.paint);
       if (st) ctx.strokeStyle = st as string;
-      ctx.lineWidth = n.stroke.width;
+      ctx.lineWidth = effectiveWidth(n.stroke.width);
       ctx.lineJoin = n.stroke.join;
       ctx.lineCap = "round";
       ctx.stroke(buildPath(n.path));

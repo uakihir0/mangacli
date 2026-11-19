@@ -174,7 +174,8 @@ diagnostics:
 | コード | 重大度 | 条件 | 変更 |
 |---|---|---|---|
 | `RENDER_FEATURE_APPROXIMATED` | W | バックエンドが対応しない機能を近似した | ○ |
-| `RENDER_LINE_TOO_THIN` | I | 線幅を最小値に引き上げた、または出力解像度で細すぎる | ○ |
+| `RENDER_LINE_TOO_THIN` | I | 線幅をpen.minWidthに引き上げた | ○ |
+| `RENDER_HAIRLINE_THICKENED` | W | monoラスタ出力で指定線幅が2デバイスピクセル未満のため増幅。要素ID・指定mm幅・dpi・補正幅を通知 | ○ |
 | `RENDER_FAILED` | E | 描画に失敗した | × |
 | `RENDER_SINGLE_THREAD` | I | モジュール指定子のないプラグインがあるため、生成・描画をメインスレッドで行った | ○ |
 | `OUTPUT_MODE_UNSUPPORTED` | E | 形式が対応しないカラーモード・透過を指定した | × |
