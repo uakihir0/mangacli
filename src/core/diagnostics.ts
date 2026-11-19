@@ -40,9 +40,9 @@ export class DiagnosticBag {
   }
 
   add(d: Omit<Diagnostic, "location"> & { location?: SourceLocation }): void {
-    const o = this.overrides[d.code];
+    const o = FIXED_ERRORS.has(d.code) ? undefined : this.overrides[d.code];
     if (o === "off") return;
-    const sev = o && FIXED_ERRORS.has(d.code) ? d.severity : (o ?? d.severity);
+    const sev = o ?? d.severity;
     const loc = d.location ?? (d.path && this.locate ? this.locate(d.path) : undefined);
     const pk = d.path ? d.path.join(".") : "";
     if (this.items.some((x) => x.code === d.code && x.message === d.message && x.elementId === d.elementId && x.pageId === d.pageId && (x.path ? x.path.join(".") : "") === pk)) return;
@@ -67,7 +67,7 @@ export class DiagnosticBag {
 
 const FIXED_ERRORS = new Set([
   "YAML_SYNTAX", "YAML_DUPLICATE_KEY", "YAML_UNKNOWN_TAG", "SCHEMA_UNKNOWN_KEY", "SCHEMA_TYPE", "SCHEMA_REQUIRED",
-  "REF_NOT_FOUND", "ID_DUPLICATE", "ASSET_NOT_FOUND", "FONT_NOT_CONFIGURED", "INTERNAL_ERROR",
+  "REF_NOT_FOUND", "ID_DUPLICATE", "ASSET_NOT_FOUND", "FONT_NOT_CONFIGURED", "FONT_NOT_FOUND", "INTERNAL_ERROR",
 ]);
 
 export class MangaError extends Error {
