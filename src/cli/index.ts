@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { cac } from "cac";
 import { parse as parseYaml } from "yaml";
-import { type RenderOptions, render, validate } from "../api.js";
+import { GUIDE_COLORS, type RenderOptions, render, validate } from "../api.js";
 import { PDF_X_VERSIONS } from "../output/pdfx.js";
 import { type MangaConfig, findConfig, loadConfig } from "../config.js";
 import { type Diagnostic, MangaError, MangaValidationError } from "../core/diagnostics.js";
@@ -526,18 +526,30 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
     const { errors, warnings } = summarize(diags);
     log("info", `${paint("2", new Date().toLocaleTimeString())} ${pages.length} page(s)${errors ? `, ${errors} error(s)` : ""}${warnings ? `, ${warnings} warning(s)` : ""}`);
   };
+  // line samples in the same colours and dash styles as the guides layer
+  const guideLegend = () => {
+    const line = (color: string, dash: string) => `<svg width="28" height="10" aria-hidden="true"><line x1="1" y1="5" x2="27" y2="5" stroke="${color}" stroke-width="2.5"${dash ? ` stroke-dasharray="${dash}"` : ""}/></svg>`;
+    const band = `<svg width="28" height="10" aria-hidden="true"><rect x="1" y="0" width="26" height="10" fill="${GUIDE_COLORS.foldBand}" stroke="${GUIDE_COLORS.fold}" stroke-dasharray="3 2"/></svg>`;
+    const items: [string, string][] = [
+      [line(GUIDE_COLORS.trim, ""), t("断裁", "trim")],
+      [line(GUIDE_COLORS.bleed, "2.5 2.5"), t("塗り足し", "bleed")],
+      [line(GUIDE_COLORS.safe, "6 3"), t("安全線", "safe")],
+      [band, t("ノド", "fold")]
+    ];
+    return `<span class="legend">${items.map(([sample, name]) => `<span>${sample}${esc(name)}</span>`).join("")}</span>`;
+  };
   const html = () => `<!doctype html><meta charset="utf-8"><title>mangacli preview</title>
-<style>body{margin:0;background:#3a3a3a;font:13px system-ui;color:#ddd}header{padding:8px 12px;background:#222;position:sticky;top:0;display:flex;gap:16px;align-items:center}header label{margin-left:auto;cursor:pointer}
+<style>body{margin:0;background:#3a3a3a;font:13px system-ui;color:#ddd}header{padding:8px 12px;background:#222;position:sticky;top:0;display:flex;gap:16px;align-items:center}header label{margin-left:auto;cursor:pointer}.legend{display:flex;gap:10px;align-items:center}.legend span{display:flex;gap:4px;align-items:center}body:not(.guides) .legend{display:none}
 main{display:flex;flex-wrap:wrap;flex-direction:row-reverse;gap:16px;padding:16px;justify-content:center}figure{margin:0}
 img{max-height:85vh;box-shadow:0 2px 12px #0008;background:#fff}figcaption{text-align:center;padding:4px}
 .d{padding:2px 12px}.error{color:#ff8080}.warning{color:#ffd480}</style>
 <header>${esc(relative(process.cwd(), entry))} — ${pages.length} page(s)
-<label title="${esc(t("断裁位置・塗り足し・安全領域の線と見開き中央の危険帯を重ねて表示（塗り足しまで表示）", "Overlay the trim, bleed and safe lines and the spread fold danger band (shows the bleed area)"))}"><input type="checkbox" id="guides"> ${esc(t("ガイド（断裁・塗り足し・安全線・ノド）", "Guides (trim, bleed, safe line, fold)"))}</label></header>
+<label title="${esc(t("断裁位置・塗り足し・安全領域の線と見開き中央の危険帯を重ねて表示（塗り足しまで表示）", "Overlay the trim, bleed and safe lines and the spread fold danger band (shows the bleed area)"))}"><input type="checkbox" id="guides"> ${esc(t("ガイド（断裁・塗り足し・安全線・ノド）", "Guides (trim, bleed, safe line, fold)"))}</label>${guideLegend()}</header>
 <section>${diags.filter((d) => d.severity !== "info").map((d) => `<div class="d ${d.severity}">${esc(d.code)} ${d.location ? `${d.location.line}:${d.location.column} ` : ""}${esc(d.message)}</div>`).join("")}</section>
 <main>${pages.map((p, i) => `<figure><img data-src="/page/${i}.${p.ext}?v=${version}"><figcaption>${i + 1} · ${esc(p.id)}</figcaption></figure>`).join("")}</main>
 <script>const box=document.getElementById("guides"),saved=localStorage.getItem("mangacli-guides");
 box.checked=saved===null?${o.guides ? "true" : "false"}:saved==="1";
-const show=()=>{for(const img of document.querySelectorAll("img[data-src]"))img.src=img.dataset.src+(box.checked?"&guides=1":"")};
+const show=()=>{document.body.classList.toggle("guides",box.checked);for(const img of document.querySelectorAll("img[data-src]"))img.src=img.dataset.src+(box.checked?"&guides=1":"")};
 box.onchange=()=>{localStorage.setItem("mangacli-guides",box.checked?"1":"0");show()};show();
 new EventSource("/events").onmessage=()=>location.reload()</script>`;
   const esc = (x: string) => x.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
