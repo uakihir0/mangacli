@@ -158,9 +158,9 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
     const tl = layoutText(text, style, ctx.fonts, boxLimit);
     const compact = kind === "ellipse" && !fixedBase && tl.lines.length <= 1 && Math.max(tl.width, tl.height) <= style.fontSize * 3.5;
     if (compact) {
-      // Curvature supplies the remaining clearance beyond these corner insets.
-      padV = Math.min(padV, style.fontSize * 0.24);
-      padH = Math.min(padH, style.fontSize * 0.24);
+      const inset = (extent: number) => Math.max(0, (extent / 2 + style.fontSize * 0.65) / Math.SQRT2 - extent / 2 - margin);
+      padV = Math.min(padV, inset(tl.height));
+      padH = Math.min(padH, inset(tl.width));
     }
     // a size limit that forces breaks inside phrases: set the text smaller before breaking it badly
     if (boxLimit !== undefined && !fixedBase && scale > minFontScale + 1e-6 && attempt < 11 && breakFaults(tl, ctx.lang) > breakFaults(layoutText(text, style, ctx.fonts), ctx.lang)) {
@@ -175,7 +175,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       const fill = lens.reduce((a, b) => a + b, 0) / (L * maxL);
       const elong = Math.max(tl.width, tl.height) / Math.max(1e-6, Math.min(tl.width, tl.height));
       params.squareness = Math.max(0, Math.min(0.3, 0.03 * (L - 1) + (fill - 0.7) * 0.1 + (elong > 2.5 ? 0.25 : 0)));
-      if (compact) params.squareness = 0.5;
+      if (compact) params.squareness = 0;
     }
     // points relative to text block center
     const cx = tl.width / 2;

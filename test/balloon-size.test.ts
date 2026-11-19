@@ -27,6 +27,13 @@ describe("balloon text extent sizing", () => {
   it.each(["vertical", "horizontal"])("caps short %s balloon clearance and follows the text aspect", async (writing) => {
     for (const text of ["え", "えっ", "あいう"]) {
       const p = await plan(text, writing);
+      expect(p.params.squareness).toBe(0);
+      for (const line of p.text.lines) {
+        const r = line.rect;
+        for (const x of [r.x, r.x + r.w]) for (const y of [r.y, r.y + r.h]) {
+          expect(pointInPolygon({ x: x - p.text.width / 2 + p.innerCenter.x, y: y - p.text.height / 2 + p.innerCenter.y }, p.body.inner)).toBe(true);
+        }
+      }
       const x = p.innerCenter.x;
       const y = p.innerCenter.y;
       const gaps = [x - p.text.width / 2 - p.outer.x, p.outer.x + p.outer.w - x - p.text.width / 2,
