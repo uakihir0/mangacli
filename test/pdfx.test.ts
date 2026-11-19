@@ -136,8 +136,8 @@ describe("PDF/X", () => {
       const output = join(dir, "input.pdf");
       writeFileSync(doc, source + "output: { format: pdf }\n");
       writeFileSync(profile, icc());
-      const cli = (...args: string[]) => spawnSync(join(root, "node_modules/.bin/tsx"), [
-        join(root, "src/cli/index.ts"), "render", doc, "--no-config", "-o", dir, "-p", "print-mono", "--dpi", "100", "--concurrency", "2", ...args,
+      const cli = (...args: string[]) => spawnSync(process.execPath, [
+        "--import", "tsx", join(root, "src/cli/index.ts"), "render", doc, "--no-config", "-o", dir, "-p", "print-mono", "--dpi", "100", "--concurrency", "2", ...args,
       ], { cwd: root, encoding: "utf8" });
       expect(cli("--pdf-x", "4").status).toBe(3);
       expect(existsSync(output)).toBe(false);
