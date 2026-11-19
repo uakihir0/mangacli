@@ -38,7 +38,7 @@ describe("printed page numbers", () => {
     ["bottom-inner", 13, 50.5, 67, 50.5],
     ["top-outer", 67, 9, 13, 9],
     ["top-center", 40, 9, 40, 9],
-    ["outer-middle", 67, 30, 13, 30],
+    ["outer-middle", 76.5, 30, 3.5, 30],
   ] as const)("positions %s on facing pages", async (position, rightX, rightY, leftX, leftY) => {
     const [[right], [left]] = await numbers({ position, format: "1" }, [blank, blank]);
     for (const [node, x, y] of [[right, rightX, rightY], [left, leftX, leftY]] as const) {
@@ -46,6 +46,19 @@ describe("printed page numbers", () => {
       expect(Math.abs(box.x + box.w / 2 - x)).toBeLessThan(1);
       expect(Math.abs(box.y + box.h / 2 - y)).toBeLessThan(1);
     }
+  });
+
+  it("centers outer-middle between trim and the frame unless a margin is explicit", async () => {
+    const page = { ...blank, size: "B5", baseFrame: { margins: { top: "10mm", bottom: "10mm", inner: "10mm", outer: "20mm" } } };
+    const position = "outer-middle";
+    const [[centered]] = await numbers({ position, writing: "vertical", format: "P{n}" }, [page]);
+    const [[custom]] = await numbers({ position, writing: "vertical", format: "P{n}", margin: ["8mm", "5mm"] }, [page]);
+    const [[noGutter]] = await numbers({ position, writing: "vertical", format: "P{n}" }, [{ ...page, baseFrame: "trim" }]);
+    const c = bounds(centered);
+    expect(Math.abs(c.x + c.w / 2 - (182 - 10))).toBeLessThan(0.5);
+    expect(c.x - (182 - 20)).toBeGreaterThan(5);
+    expect(Math.abs(182 - (bounds(custom).x + bounds(custom).w) - 5)).toBeLessThan(0.5);
+    expect(Math.abs(182 - (bounds(noGutter).x + bounds(noGutter).w) - 12)).toBeLessThan(0.5);
   });
 
   it("uses vertical writing for the formatted number", async () => {

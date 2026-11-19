@@ -1240,15 +1240,19 @@ async function nombreNodes(doc: ResolvedDoc, page: RPage, geom: PageGeom, o: Com
   const make = (h: (typeof numbers)[number], hidden: boolean) => {
     const size = hidden ? toMm("5pt", u) : toMm((pn.fontSize as string) ?? "8pt", u);
     const mv = toMm(margin[0] as string, u);
-    const mh = hidden ? 1.5 : toMm(margin[1] as string, u);
+    const middle = !hidden && pos === "outer-middle";
     const inner = pos.includes("inner") || hidden;
     const tl = layoutText(h.text, defaultTextStyle({ font, fontSize: size, writing, markup: false, tcy: null }), o.fonts);
     const outerLeft = h.side === "left";
+    const outerGap = outerLeft ? geom.baseFrame.x - h.x0 : h.x0 + h.w - (geom.baseFrame.x + geom.baseFrame.w);
+    const mh = hidden ? 1.5
+      : middle && pn.margin === undefined && outerGap >= tl.width + size * 0.25 ? (outerGap - tl.width) / 2
+      : toMm(margin[1] as string, u);
     let x: number;
     if (pos.includes("center") && !hidden) x = h.x0 + h.w / 2 - tl.width / 2;
     else if ((outerLeft && !inner) || (!outerLeft && inner)) x = h.x0 + mh;
     else x = h.x0 + h.w - mh - tl.width;
-    const y = hidden ? geom.trimH - 3 - tl.height : pos === "outer-middle" ? (geom.trimH - tl.height) / 2 : pos.startsWith("top") ? mv : geom.trimH - mv - tl.height;
+    const y = hidden ? geom.trimH - 3 - tl.height : middle ? (geom.trimH - tl.height) / 2 : pos.startsWith("top") ? mv : geom.trimH - mv - tl.height;
     return { tl, x, y, size, rect: { x: geom.trim.x + x - 1, y: geom.trim.y + y - 1, w: tl.width + 2, h: tl.height + 2 } };
   };
   return numbers.map((h) => {
