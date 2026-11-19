@@ -22,12 +22,12 @@ export interface ImageOut {
   bbox: Rect;
 }
 
-export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect): Promise<ImageOut> {
+export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect, role: "art" | "background" = "art"): Promise<ImageOut> {
   const p = el.props;
   const pc = placeCtx(ctx, el);
   const placeholderLabel = typeof p.placeholder === "string" ? p.placeholder : undefined;
   const src = typeof p.src === "string" ? p.src : undefined;
-  let info = src ? await ctx.assets.info(src, [...el.path, "src"], !!placeholderLabel) : null;
+  const info = src ? await ctx.assets.info(src, [...el.path, role === "background" ? "image" : "src"], !!placeholderLabel) : null;
   if (!src && !placeholderLabel) ctx.bag.error("SCHEMA_REQUIRED", "image needs src or placeholder", { path: el.path });
   const isPlaceholder = !info || info.missing || !!placeholderLabel && !src;
   const iw = info?.width ?? 1000;
@@ -140,11 +140,11 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect):
   const [top, bottom] = [Math.max(0, dy), Math.min(bh, dy + dh)];
   const vis = boundsOf([{ x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom }].map((q) => applyMat(pl.matrix, q)));
   const ref: RefTarget = { id: el.id, type: "image", bbox: vis, anchors, regions, character: (p.character as string) ?? info?.character, panelId: ctx.panel?.panel.id, imagePx: info && !info.missing ? { matrix: pxToPage, assetKey: info.key, w: iw, h: ih } : undefined };
-  ctx.refs.add(ref, el.path[el.path.length - 1] as number);
+  if (role === "art") ctx.refs.add(ref, el.path[el.path.length - 1] as number);
 
   const nodes: Node[] = [];
   if (isPlaceholder) {
-    nodes.push(...(await placeholderNodes(el, ctx, pl.matrix, bw, bh, placeholderLabel ?? src ?? "?")));
+    nodes.push(...(await placeholderNodes(el, ctx, pl.matrix, bw, bh, placeholderLabel ?? src ?? "?", role)));
     return { nodes, bbox: pl.bbox };
   }
   // resolution check
@@ -172,13 +172,13 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect):
       }
       return [pf];
     }),
-    tag: tag(el, "art"),
+    tag: tag(el, role),
   };
   const outline = Array.isArray(p.outline) ? (p.outline as Obj[]) : [];
   const ows = outline.map((o) => ({ w: toMm(o.width as string, ctx.u), color: parseColor((o.color as string) ?? "white") ?? { r: 1, g: 1, b: 1, a: 1 }, threshold: typeof o.threshold === "number" ? o.threshold : undefined, join: o.join as "round" | "miter" | undefined })).sort((a, b) => b.w - a.w);
   const clipPath = fit === "cover" || dx < 0 || dy < 0 || dx + dw > bw || dy + dh > bh ? polyPath([applyMat(pl.matrix, { x: 0, y: 0 }), applyMat(pl.matrix, { x: bw, y: 0 }), applyMat(pl.matrix, { x: bw, y: bh }), applyMat(pl.matrix, { x: 0, y: bh })], true) : undefined;
-  const group: Node = { kind: "group", opacity: typeof p.opacity === "number" ? p.opacity : undefined, blend: blend as "normal", clip: hasSize ? clipPath : undefined, children: [], tag: tag(el, "art") };
-  ref.imageSilhouette = { kind: "group", clip: group.clip, children: [{ ...img, tag: undefined }] };
+  const group: Node = { kind: "group", opacity: typeof p.opacity === "number" ? p.opacity : undefined, blend: blend as "normal", clip: hasSize ? clipPath : undefined, children: [], tag: tag(el, role) };
+  if (role === "art") ref.imageSilhouette = { kind: "group", clip: group.clip, children: [{ ...img, tag: undefined }] };
   if (ows.length) (img as { outline?: unknown }).outline = ows;
   if (isObj(p.shadow) || p.shadow === true) {
     const sh = (isObj(p.shadow) ? p.shadow : {}) as Obj;
@@ -190,25 +190,25 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect):
   return { nodes, bbox: pl.bbox };
 }
 
-async function placeholderNodes(el: RElement, ctx: ElemCtx, m: Matrix, w: number, h: number, label: string): Promise<Node[]> {
+async function placeholderNodes(el: RElement, ctx: ElemCtx, m: Matrix, w: number, h: number, label: string, role: "art" | "background"): Promise<Node[]> {
   const u = ctx.u;
   const hand = resolveHand({ preset: "sketch" }, u, true);
   const stroke = resolveStroke({ width: `${0.2 * u.k}mm`, pen: { preset: "pencil" } }, hand, u);
   const rng = new Rng(el.seed);
   const corners = [applyMat(m, { x: 0, y: 0 }), applyMat(m, { x: w, y: 0 }), applyMat(m, { x: w, y: h }), applyMat(m, { x: 0, y: h })];
-  const nodes: Node[] = [{ kind: "path", path: polyPath(corners, true), fillRule: "nonzero", paint: { type: "solid", color: { r: 0.92, g: 0.92, b: 0.92, a: 1 } }, tag: tag(el, "art") }];
+  const nodes: Node[] = [{ kind: "path", path: polyPath(corners, true), fillRule: "nonzero", paint: { type: "solid", color: { r: 0.92, g: 0.92, b: 0.92, a: 1 } }, tag: tag(el, role) }];
   const box = inkShape({ pts: corners, closed: true, corners: corners.map((_, i) => ({ index: i, kind: "convex" as const })) }, { line: stroke, hand, rng: rng.fork("b"), join: "overshoot" });
-  nodes.push(...inksToNodes(box.inks, { r: 0.4, g: 0.4, b: 0.4, a: 1 }, tag(el, "art")));
+  nodes.push(...inksToNodes(box.inks, { r: 0.4, g: 0.4, b: 0.4, a: 1 }, tag(el, role)));
   const d1 = inkShape({ pts: [corners[0], corners[2]], closed: false, smooth: true }, { line: { ...stroke, width: stroke.width * 0.6 }, hand, rng: rng.fork("d1") });
   const d2 = inkShape({ pts: [corners[1], corners[3]], closed: false, smooth: true }, { line: { ...stroke, width: stroke.width * 0.6 }, hand, rng: rng.fork("d2") });
-  nodes.push(...inksToNodes([...d1.inks, ...d2.inks], { r: 0.6, g: 0.6, b: 0.6, a: 1 }, tag(el, "art")));
+  nodes.push(...inksToNodes([...d1.inks, ...d2.inks], { r: 0.6, g: 0.6, b: 0.6, a: 1 }, tag(el, role)));
   await ctx.fonts.prepare("dialogue", label);
   const fs = Math.min(w, h) * 0.08;
   const tl = layoutText(label, defaultTextStyle({ font: "dialogue", fontSize: Math.max(2, Math.min(5 * u.k, fs)), writing: "horizontal", maxExtent: w * 0.85, align: "center" }), ctx.fonts);
   const ox = w / 2 - tl.width / 2;
   const oy = h / 2 - tl.height / 2;
   const tm = matMul(m, matTranslate(ox, oy));
-  nodes.push({ kind: "path", path: tl.glyphs.flatMap((g) => transformPath(g.path, tm)), fillRule: "nonzero", paint: { type: "solid", color: { r: 0.35, g: 0.35, b: 0.35, a: 1 } }, tag: tag(el, "art") });
+  nodes.push({ kind: "path", path: tl.glyphs.flatMap((g) => transformPath(g.path, tm)), fillRule: "nonzero", paint: { type: "solid", color: { r: 0.35, g: 0.35, b: 0.35, a: 1 } }, tag: tag(el, role) });
   void smoothPath;
   return nodes;
 }
