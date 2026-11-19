@@ -11,6 +11,24 @@ pages:
 `, filename: "/v/spread-marks.yaml" });
 
 describe("split spread crop marks", () => {
+  it("keeps physical marks on both split pages when printing reduced artwork", async () => {
+    const reduced = (type: "spread" | "page") => ({ yaml: input(type).yaml.replace("bleed: 3mm", "bleed: 3mm, printScale: 0.5") });
+    const options = { format: "png", crop: "marks", dpi: 254, colorMode: "gray", output: "print" } as const;
+    const single = await renderer.render(reduced("page"), options);
+    const expected = await sharp(single.pages[0]!.data).ensureAlpha().raw().toBuffer();
+    const result = await renderer.render(reduced("spread"), { ...options, spread: "split" });
+    expect(result.pages).toHaveLength(2);
+    for (const page of result.pages) {
+      expect([page.width, page.height]).toEqual([630, 530]);
+      const actual = await sharp(page.data).ensureAlpha().raw().toBuffer();
+      for (let y = 0; y < page.height; y++) for (let x = 0; x < page.width; x++) {
+        if (x >= 100 && x < 530 && y >= 100 && y < 430) continue;
+        const i = (y * page.width + x) * 4;
+        expect(actual.subarray(i, i + 4).equals(expected.subarray(i, i + 4))).toBe(true);
+      }
+    }
+  });
+
   it.each(["gray", "mono"] as const)("matches the full single-page mark set in %s output", async (colorMode) => {
     const single = await renderer.render(input("page"), { format: "png", crop: "marks", dpi: 254, colorMode });
     const expected = await sharp(single.pages[0]!.data).ensureAlpha().raw().toBuffer();

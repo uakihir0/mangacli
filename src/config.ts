@@ -4,12 +4,14 @@ import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { MangaError } from "./core/diagnostics.js";
+import type { MangaPlugin } from "./plugin.js";
 
 type Obj = Record<string, unknown>;
 
 export interface MangaConfig {
   root?: string;
   plugins?: unknown[];
+  pageSizes?: MangaPlugin["pageSizes"];
   fonts?: Record<string, unknown>;
   fontFallback?: string[];
   fontSet?: string;

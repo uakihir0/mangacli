@@ -5,9 +5,9 @@ import { parseColor } from "../core/color.js";
 import { toMm } from "../core/units.js";
 import { polyPath, smoothPath, transformPath } from "../geom/path.js";
 import { defaultTextStyle, layoutText } from "../text/layout.js";
-import { type Matrix, type Rect, type Vec, applyMat, matMul, matScale, matTranslate } from "../geom/vec.js";
+import { type Matrix, type Rect, type Vec, applyMat, boundsOf, matMul, matScale, matTranslate } from "../geom/vec.js";
 import { inkShape } from "../ink/shape.js";
-import { center, place, sizeValue } from "../layout/place.js";
+import { type RefTarget, center, place, sizeValue } from "../layout/place.js";
 import type { RElement } from "../model/resolve.js";
 import { resolveHand, resolveStroke } from "../model/values.js";
 import type { Node } from "../render/ir.js";
@@ -136,9 +136,11 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect):
     regions[k] = { poly, bbox: { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) } };
   }
   // visible image bbox (page) = element box ∩ image rect
-  const ic = [applyMat(pl.matrix, { x: Math.max(0, dx), y: Math.max(0, dy) }), applyMat(pl.matrix, { x: Math.min(bw, dx + dw), y: Math.min(bh, dy + dh) })];
-  const vis: Rect = { x: Math.min(ic[0].x, ic[1].x), y: Math.min(ic[0].y, ic[1].y), w: Math.abs(ic[1].x - ic[0].x), h: Math.abs(ic[1].y - ic[0].y) };
-  ctx.refs.add({ id: el.id, type: "image", bbox: vis, anchors, regions, character: (p.character as string) ?? info?.character, panelId: ctx.panel?.panel.id, imagePx: info && !info.missing ? { matrix: pxToPage, assetKey: info.key, w: iw, h: ih } : undefined }, el.path[el.path.length - 1] as number);
+  const [left, right] = [Math.max(0, dx), Math.min(bw, dx + dw)];
+  const [top, bottom] = [Math.max(0, dy), Math.min(bh, dy + dh)];
+  const vis = boundsOf([{ x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom }].map((q) => applyMat(pl.matrix, q)));
+  const ref: RefTarget = { id: el.id, type: "image", bbox: vis, anchors, regions, character: (p.character as string) ?? info?.character, panelId: ctx.panel?.panel.id, imagePx: info && !info.missing ? { matrix: pxToPage, assetKey: info.key, w: iw, h: ih } : undefined };
+  ctx.refs.add(ref, el.path[el.path.length - 1] as number);
 
   const nodes: Node[] = [];
   if (isPlaceholder) {
@@ -176,6 +178,7 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect):
   const ows = outline.map((o) => ({ w: toMm(o.width as string, ctx.u), color: parseColor((o.color as string) ?? "white") ?? { r: 1, g: 1, b: 1, a: 1 }, threshold: typeof o.threshold === "number" ? o.threshold : undefined, join: o.join as "round" | "miter" | undefined })).sort((a, b) => b.w - a.w);
   const clipPath = fit === "cover" || dx < 0 || dy < 0 || dx + dw > bw || dy + dh > bh ? polyPath([applyMat(pl.matrix, { x: 0, y: 0 }), applyMat(pl.matrix, { x: bw, y: 0 }), applyMat(pl.matrix, { x: bw, y: bh }), applyMat(pl.matrix, { x: 0, y: bh })], true) : undefined;
   const group: Node = { kind: "group", opacity: typeof p.opacity === "number" ? p.opacity : undefined, blend: blend as "normal", clip: hasSize ? clipPath : undefined, children: [], tag: tag(el, "art") };
+  ref.imageSilhouette = { kind: "group", clip: group.clip, children: [{ ...img, tag: undefined }] };
   if (ows.length) (img as { outline?: unknown }).outline = ows;
   if (isObj(p.shadow) || p.shadow === true) {
     const sh = (isObj(p.shadow) ? p.shadow : {}) as Obj;

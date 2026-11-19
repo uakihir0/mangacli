@@ -162,6 +162,7 @@ interface RenderOptions {
   // 出力
   profile?: string;                              // 既定 "web"
   format?: OutputFormat | OutputFormat[];
+  pdfX?: { version: "1a" | "4"; iccProfile: Uint8Array; outputCondition: string }; // 白黒二値 PDF の入稿用
   colorMode?: "color" | "gray" | "mono";
   dpi?: number;
   scale?: number;
