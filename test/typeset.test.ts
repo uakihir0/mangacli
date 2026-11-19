@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as hb from "harfbuzzjs";
 import { load } from "../src/api.js";
+import { findCatalogFont } from "../src/fonts/catalog.js";
+import { ensureCatalogFont } from "../src/fonts/download.js";
 import { type FontDef, FontRegistry } from "../src/fonts/registry.js";
+import * as system from "../src/fonts/system.js";
 import { type PathData, flattenPath, pathFromJson } from "../src/geom/path.js";
 import { boundsOf } from "../src/geom/vec.js";
 import { resolveDocument } from "../src/model/resolve.js";
@@ -27,31 +30,49 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
-  it.each([["shout", "spike"], ["scream", "burst"]])("uses heavy gothic for %s with an opt-in pop face", async (as, kind) => {
+  it.each([
+    ["prefers Gothic MB101 U over Shin Go U", ["ShinGoPro-U", "ゴシックMB101 U"], "ゴシックMB101 U"],
+    ["uses installed Shin Go U if Gothic MB101 U is absent", ["ShinGoPro-U"], "ShinGoPro-U"],
+    ["falls back to Zen Kaku Gothic New Black", ["ShinGoPro-B"], "Zen Kaku Gothic New 900"],
+  ] as const)("%s for Japanese shout and scream", async (_, names, expected) => {
     const { doc, bag } = load({
       filename: "/virtual/shouts.yaml",
       yaml: `mangacli: 1
 pages:
   - panels:
       - dialogue:
-          - { text: "絶対だ！", as: ${as} }
-          - { text: "絶対だ！", as: ${as}, style: gag-pop }
+          - { text: "絶対だ！", as: shout }
+          - { text: "絶対だ！", as: scream }
 `,
     });
-    const [regular, pop] = resolveDocument(doc, bag).pages[0].panels[0].elements.map((e) => e.props);
+    const shouts = resolveDocument(doc, bag).pages[0].panels[0].elements.map((e) => e.props);
     expect(bag.items).toEqual([]);
-    expect(regular.shape).toMatchObject({ kind });
-    expect(pop.shape).toEqual(regular.shape);
-    expect(pop.fontScale).toBe(regular.fontScale);
+    expect(shouts.map((e) => e.shape)).toMatchObject([{ kind: "spike" }, { kind: "burst" }]);
 
-    for (const [font, key] of [
-      [String(regular.font), "cat:zen-kaku-gothic-new@900"],
-      [String(pop.font), "cat:dela-gothic-one@400"],
-      ["sfx", "cat:dela-gothic-one@400"],
-    ]) {
+    const path = await ensureCatalogFont(findCatalogFont("zen-kaku-gothic-new", 700)!);
+    const list = vi.spyOn(system, "listSystemFonts").mockResolvedValue(names.map((name) => ({
+      path, index: 0, regular: false,
+      families: name.startsWith("ゴ") ? [name] : [],
+      fullNames: [],
+      postScriptNames: name.startsWith("ShinGo") ? [name] : [],
+    })));
+    try {
+      const onError = vi.fn();
+      const onSystemFont = vi.fn();
+      const fonts = new FontRegistry(new Map(), "manga-basic", [], { onError, onSystemFont });
       const text = "絶対だ！";
-      await reg.prepare(font, text);
-      expect([...text].map((ch) => reg.pick(font, ch.codePointAt(0)!)?.font.key)).toEqual(Array(text.length).fill(key));
+      for (const font of shouts.map((e) => String(e.font))) {
+        await fonts.prepare(font, text);
+        expect(fonts.primary(font)?.label).toBe(expected);
+        expect([...text].map((ch) => fonts.pick(font, ch.codePointAt(0)!)?.font.label)).toEqual(Array(text.length).fill(expected));
+      }
+      await fonts.prepare("sfx", text);
+      expect(fonts.primary("sfx")?.key).toBe("cat:dela-gothic-one@400");
+      expect(onError).not.toHaveBeenCalled();
+      expect(list).toHaveBeenCalledTimes(1);
+      expect(onSystemFont.mock.calls).toEqual(expected === "Zen Kaku Gothic New 900" ? [] : [[path]]);
+    } finally {
+      list.mockRestore();
     }
   });
   it("detects active vertical forms when OpenType features change on the same font", async () => {

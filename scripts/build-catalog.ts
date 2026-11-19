@@ -91,7 +91,14 @@ const catalog = {
       thought: "dialogue",
       whisper: "dialogue",
       narration: { font: "shippori-mincho@500", fallback: ["noto-sans-jp@400"] },
-      shout: { font: "zen-kaku-gothic-new@900", fallback: ["noto-sans-jp@700"] },
+      shout: {
+        system: [
+          ["GothicMB101Pr6N-U", "GothicMB101Pro-U", "A-OTF Gothic MB101 Pr6N U", "A-OTF Gothic MB101 Pro U", "A-OTF ゴシックMB101 Pr6N U", "A-OTF ゴシックMB101 Pro U", "Gothic MB101 U", "ゴシックMB101 U"],
+          ["ShinGoPr6N-U", "ShinGoPro-U", "A-OTF Shin Go Pr6N U", "A-OTF Shin Go Pro U", "A-OTF 新ゴ Pr6N U", "A-OTF 新ゴ Pro U", "Shin Go U", "Shin Go Ultra", "新ゴ U"],
+        ],
+        font: "zen-kaku-gothic-new@900",
+        fallback: ["noto-sans-jp@700"],
+      },
       sfx: { font: "dela-gothic-one@400", fallback: ["noto-sans-jp@700"] },
       hand: { font: "yomogi@400", fallback: ["noto-sans-jp@400"] },
       title: { font: "zen-maru-gothic@900", fallback: ["noto-sans-jp@700"] },

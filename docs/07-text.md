@@ -216,7 +216,7 @@ macOS では `~/Library/Fonts`、`/Library/Fonts`、`/System/Library/Fonts`、Wi
 | `zen-antique` | Zen Antique | 400 | アンチック体（アンチゴチのかな） |
 | `zen-kaku-gothic-new` | Zen Kaku Gothic New | 400、700、900 | ゴシック体（アンチゴチの漢字） |
 | `shippori-mincho` | Shippori Mincho | 400、500、700 | 明朝体（ナレーション） |
-| `dela-gothic-one` | Dela Gothic One | 400 | 極太ゴシック体（ギャグ・ポップ調の叫び、描き文字） |
+| `dela-gothic-one` | Dela Gothic One | 400 | 極太ゴシック体（描き文字） |
 | `zen-maru-gothic` | Zen Maru Gothic | 500、700、900 | 丸ゴシック体（題、やわらかいセリフ） |
 | `rampart-one` | Rampart One | 400 | 立体的な描き文字 |
 | `yomogi` | Yomogi | 400 | 手書き風 |
@@ -242,14 +242,14 @@ fonts:
 
 #### フォントセット
 
-トップレベルの `fontSet`（既定は、レンダリング時の言語が `ja`・`zh`・`ko` なら `manga-basic`、それ以外なら `comic-basic`）は、ロールとカタログのフォントの対応表である。`fonts` に登録のないロールに使う（7.3.3）。`fontSet: none` で無効にする。
+トップレベルの `fontSet`（既定は、レンダリング時の言語が `ja`・`zh`・`ko` なら `manga-basic`、それ以外なら `comic-basic`）は、ロールとフォントの対応表である。`fonts` に登録のないロールに使う（7.3.3）。`fontSet: none` で無効にする。
 
 | ロール | `manga-basic` のフォント |
 |---|---|
 | `dialogue` | 混植: かな・約物は `zen-antique`、その他は `zen-kaku-gothic-new@700`（アンチゴチ）。フォールバックは `noto-sans-jp@700` |
 | `thought`、`whisper` | `dialogue` と同じ |
 | `narration` | `shippori-mincho@500` |
-| `shout` | `zen-kaku-gothic-new@900`（`as: shout`、`as: scream`） |
+| `shout` | ゴシックMB101 U（インストール済み）→ 新ゴ U（インストール済み）→ `zen-kaku-gothic-new@900`（`as: shout`、`as: scream`） |
 | `sfx` | `dela-gothic-one` |
 | `hand` | `yomogi` |
 | `title` | `zen-maru-gothic@900` |
@@ -262,6 +262,8 @@ fonts:
 | `sfx`、`title` | `bangers` |
 
 いずれもフォールバックは `noto-sans-jp`。
+
+叫び用の市販フォントは、ファミリー名、フルネーム、PostScript 名でインストール済みのものだけを探す。同梱・自動取得はしない。
 
 CJK 以外の言語の横書きの吹き出しは、コミックの慣習に合わせて既定で大文字にする（`textTransform: auto`。`uppercase` で常に、`none` で変換しない）。また、CJK 以外の言語では `'` `"` を `’` `“` `”` に置き換え、`...` やダッシュは変換しない。
 
