@@ -16,6 +16,8 @@ import { type ResolvedDoc, resolveDocument } from "./model/resolve.js";
 import { type EncodeOptions, EXT, MIME, type OutputFormat, encode } from "./output/encode.js";
 import { PROFILES, type Profile, applyOutput, resolveProfile } from "./output/profiles.js";
 import { PdfWriter } from "./output/pdf.js";
+import { PsdWriter } from "./output/psd.js";
+import { type PdfXOptions, pdfXProfile } from "./output/pdfx.js";
 import { type Finish, applyFinish } from "./output/finish.js";
 import { AssetRegistry } from "./render/assets.js";
 import { type PageLayoutInfo, composePage } from "./render/compose.js";
@@ -41,8 +43,11 @@ type Obj = Record<string, unknown>;
 export type MangaInput = string | URL | { yaml: string; filename?: string; baseDir?: string } | Obj | LoadedDocument;
 
 export interface RenderOptions {
+  output?: "manuscript" | "print";
   profile?: string;
   format?: OutputFormat | OutputFormat[];
+  /** Opt-in PDF/X export for opaque 1-bit monochrome PDF. */
+  pdfX?: PdfXOptions;
   colorMode?: "color" | "gray" | "mono";
   dpi?: number;
   scale?: number;
@@ -117,6 +122,7 @@ export interface RenderedPage {
   height: number;
   dpi: number;
   separation?: string;
+  elements: { id: string; x: number; y: number; width: number; height: number }[];
   data: Uint8Array;
   path?: string;
 }
@@ -165,6 +171,8 @@ const BUILTIN_TEMPLATES = new Set(["single", "grid", "tiers", "yonkoma", "hero-t
 
 function pluginSetFor(o: RenderOptions, bag?: DiagnosticBag): PluginSet | undefined {
   const list = [...(o.plugins ?? []), ...(((cfgOf(o)?.plugins as MangaPlugin[] | undefined) ?? []).filter((x) => x && typeof x === "object"))];
+  const pageSizes = cfgOf(o)?.pageSizes as MangaPlugin["pageSizes"];
+  if (pageSizes) list.push({ name: "config-page-sizes", override: true, pageSizes });
   if (!list.length) return undefined;
   const set = new PluginSet(list, {
     shapes: new Set(Object.keys(BODY_GENERATORS)),
@@ -463,7 +471,30 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   const outDir = options.outDir ? resolvePath(options.outDir) : undefined;
   const nameTpl = options.name ?? (docOutput.name as string) ?? prof.name ?? "{name}-{page:03}";
   const emitted = new Set<string>();
-  const seps0 = normalizeSeparations(options.separate ?? prof.separate);
+  const separate = options.separate ?? prof.separate;
+  const seps0 = normalizeSeparations(separate);
+  const regularFormats = formats.filter((f) => f !== "psd");
+  const regularRuns: { name?: string; list?: string[]; formats: OutputFormat[] }[] =
+    regularFormats.length ? (seps0 ?? [{}]).map((run) => ({ ...run, formats: regularFormats })) : [];
+  const hasPsd = formats.includes("psd");
+  const psdFormats: OutputFormat[] = ["psd"];
+  const outputRuns = hasPsd ? [...regularRuns, { name: undefined, formats: psdFormats }] : regularRuns;
+  // Transparent output omits the page ground (panel grounds stay; spec 10.15).
+  const bgOverride = options.background ?? (typeof docOutput.background === "string" ? docOutput.background : undefined);
+  const transparentOut = options.transparent ?? (bgOverride === "transparent" ? true : undefined) ?? prof.transparent ?? false;
+  let pdfX: ConstructorParameters<typeof PdfWriter>[1];
+  if (options.pdfX && !options.layoutOnly) {
+    if (!formats.includes("pdf") || (options.colorMode ?? prof.colorMode) !== "mono" || transparentOut || seps0) {
+      bag.error("OUTPUT_MODE_UNSUPPORTED", "PDF/X requires PDF output in opaque 1-bit monochrome mode, without separations or debug overlays");
+      return fail();
+    }
+    try {
+      pdfX = { ...options.pdfX, iccProfile: pdfXProfile(options.pdfX) };
+    } catch (e) {
+      bag.error("OUTPUT_MODE_UNSUPPORTED", (e as Error).message);
+      return fail();
+    }
+  }
   // print profiles hand spreads to the printer as two pages
   const spreadMode = options.spread ?? prof.spread ?? (prof.print ? "split" : "joined");
   const title = String((p.doc.meta as Obj | undefined)?.title ?? p.name);
@@ -475,7 +506,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   };
   if (outDir && options.clean && !options.layoutOnly) {
     // the template with its placeholders as wildcards
-    const rx = new RegExp("^" + String(nameTpl).replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\{\w+(?::\d+)?\}/g, ".+") + "(-[a-z]+)?\\.(png|jpg|webp|avif|tif|svg|pdf)$");
+    const rx = new RegExp("^" + String(nameTpl).replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\{\w+(?::\d+)?\}/g, ".+") + "(-[a-z]+)?\\.(" + Object.values(EXT).join("|") + ")$");
     try {
       for (const f of readdirSync(outDir)) if (rx.test(f)) rmSync(join(outDir, f), { force: true });
     } catch {
@@ -492,9 +523,9 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const g = computePageGeom(page, pl.physical, bookOf(p.doc), probe);
       const split = g.type === "spread" && spreadMode === "split";
       const halves = split ? [{ side: g.rtl ? "right" : "left", n: pl.nombre }, { side: g.rtl ? "left" : "right", n: pl.nombre === null ? null : pl.nombre + 1 }] : [{ side: g.side, n: pl.nombre }];
-      for (const run of seps0 ?? [{ name: undefined }])
+      for (const run of outputRuns)
         for (const h of halves)
-          for (const fmt of formats) {
+          for (const fmt of run.formats) {
             if (fmt === "pdf") continue;
             const f = outName(page, pl.idx, h.side, h.n, g.type === "spread" && !split, split, run.name, EXT[fmt]);
             const prev = seen.get(f);
@@ -522,8 +553,9 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const dpiFor = (geom: import("./layout/page.js").PageGeom) => {
         const sz = pageSize(page.settings, bag, page.path);
         const markW = crop === "marks" ? 2 * (((prof as { marks?: { margin?: number } }).marks?.margin) ?? 10) : 0;
-        const cropW = crop === "bleed" || crop === "marks" ? geom.bleedBox.w + markW : geom.trimW;
-        const cropH = crop === "bleed" || crop === "marks" ? geom.bleedBox.h + markW : geom.trimH;
+        const outputScale = options.output === "print" ? geom.printScale : 1;
+        const cropW = (crop === "bleed" || crop === "marks" ? geom.bleedBox.w : geom.trimW) * outputScale + markW;
+        const cropH = (crop === "bleed" || crop === "marks" ? geom.bleedBox.h : geom.trimH) * outputScale + markW;
         let d: number;
         const W0 = options.width ?? (options.dpi || options.scale ? undefined : prof.width);
         const H0 = options.height ?? (options.dpi || options.scale ? undefined : prof.height);
@@ -544,9 +576,6 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const { list: list0, info } = await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor, characters: resolved.characters });
       info.number = pl.nombre;
       let list = plugins ? (plugins.hook("beforeRender", list0) as DisplayList) : list0;
-      // transparent output: no page ground (panel grounds stay; spec 10.15)
-      const bgOverride = options.background ?? (typeof docOutput.background === "string" ? (docOutput.background as string) : undefined);
-      const transparentOut = options.transparent ?? (bgOverride === "transparent" ? true : undefined) ?? prof.transparent ?? false;
       if (bgOverride && bgOverride !== "transparent") {
         // replace the page ground
         const paint = parsePaint(bgOverride, { u: info.geom.units, box: list.boxes.bleed, seed: resolved.seed, bag, path: ["output", "background"] });
@@ -556,7 +585,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           list = { ...list, background: paint, root: { ...list.root, children: [bgNode, ...kids] } };
         }
       }
-      if (transparentOut && (options.colorMode ?? prof.colorMode) === "mono") bag.error("OUTPUT_MODE_UNSUPPORTED", "1-bit output cannot have a transparent background", { pageId: page.id });
+      if (transparentOut && regularFormats.length && (options.colorMode ?? prof.colorMode) === "mono") bag.error("OUTPUT_MODE_UNSUPPORTED", "1-bit output cannot have a transparent background", { pageId: page.id });
       if (transparentOut && formats.some((f) => f === "jpeg")) bag.error("OUTPUT_MODE_UNSUPPORTED", "jpeg cannot store a transparent background", { pageId: page.id });
       if (transparentOut) list = { ...list, background: null, root: { ...list.root, children: list.root.children.filter((c) => !(c.kind === "path" && c.tag?.elementType === "page" && c.tag.role === "background")) } };
       result.layout.push(info);
@@ -572,13 +601,28 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const intent = geom.color;
       const colorMode = options.colorMode ?? (prof.colorMode === "intent" ? (intent === "mono" ? "gray" : "color") : prof.colorMode);
       const dpi = dpiFor(geom);
+      const outputScale = options.output === "print" ? geom.printScale : 1;
+      const rasterDpi = dpi * outputScale;
+      const marks = outputScale === 1 ? prof.marks : { margin: (prof.marks?.margin ?? 10) / outputScale, length: (prof.marks?.length ?? 9) / outputScale, width: (prof.marks?.width ?? 0.1) / outputScale };
       if (dpi > lim.maxDpi) throw new Error(`SECURITY_LIMIT_EXCEEDED: ${Math.round(dpi)} dpi exceeds maxDpi (${lim.maxDpi})`);
-      const runs: { name?: string; list?: string[] }[] = seps0 ? seps0 : [{}];
       const splitMarks = geom.type === "spread" && spreadMode === "split" && crop === "marks";
       const rasterCrop = splitMarks ? "bleed" : crop;
+      const psdLayers = hasPsd ? (separate === "all" || !seps0?.length ? allSeparations(list.root) : seps0) : [];
+      const runs = [
+        ...regularRuns.map((run) => ({ ...run, layer: undefined, transparent: transparentOut || !!run.list, drawMarks: true })),
+        ...psdLayers.map((layer, index) => ({
+          name: undefined,
+          list: layer.list,
+          layer: layer.name,
+          formats: index === psdLayers.length - 1 ? psdFormats : [],
+          transparent: transparentOut || !layer.list.includes("background"),
+          drawMarks: index === 0,
+        })),
+      ];
+      const psds = new Map<string, PsdWriter>();
       for (const run of runs) {
-        const backend = new RasterBackend({ maxPixels: lim.maxOutputPixels, dpi, crop: rasterCrop, marks: prof.marks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: transparentOut || !!run.list, separations: run.list, assets });
-        const needRaster = formats.some((f) => f !== "svg");
+        const backend = new RasterBackend({ maxPixels: lim.maxOutputPixels, dpi: rasterDpi, crop: rasterCrop, marks, drawMarks: run.drawMarks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: run.transparent, separations: run.list, assets });
+        const needRaster = run.layer !== undefined || run.formats.some((f) => f !== "svg");
         let full = needRaster ? await backend.render(list) : { data: new Uint8ClampedArray(0), width: 0, height: 0, dpi };
         if (plugins && needRaster) full = { ...full, ...(plugins.hook("afterRender", { data: full.data, width: full.width, height: full.height }) as object) };
         // finishing passes: off for print profiles unless the profile itself asks for them
@@ -587,18 +631,18 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         const quiet = prof.print || profName === "preview" || profName === "draft" || draft;
         const finish = options.finish === false ? undefined : (options.finish ?? profOwn ?? (quiet ? undefined : (prof.finish as Finish | undefined)));
         if (finish && needRaster && !run.list) full = { ...full, ...(await applyFinish(full, finish, { dpi, colorMode: colorMode as "color", seed: resolved.seed, bag })) };
-        if (options.debug) drawDebug(full, list, info, dpi, rasterCrop, options.debug, prof.marks?.margin ?? 10);
+        if (options.debug) drawDebug(full, list, info, rasterDpi, rasterCrop, options.debug, marks?.margin ?? 10);
         // spreads: one joined image, or two pages each with bleed on all sides (spec 10.9)
-        const trimWidth = Math.round((geom.trimW * dpi) / 25.4 + 1e-6);
-        const trimHeight = Math.round((geom.trimH * dpi) / 25.4 + 1e-6);
+        const trimWidth = Math.round((geom.trimW * rasterDpi) / 25.4 + 1e-6);
+        const trimHeight = Math.round((geom.trimH * rasterDpi) / 25.4 + 1e-6);
         const fullTrim = { x: Math.round((full.width - trimWidth) / 2), y: Math.round((full.height - trimHeight) / 2), w: trimWidth, h: trimHeight };
         const parts: { raster: { data: Uint8ClampedArray; width: number; height: number }; trim: typeof fullTrim; side: string; nombre: number | null }[] = [];
         if (geom.type === "spread" && spreadMode === "split" && needRaster) {
-          const trimPx = Math.round((geom.trimW * dpi) / 25.4 + 1e-6);
+          const trimPx = Math.round((geom.trimW * rasterDpi) / 25.4 + 1e-6);
           const edge = Math.round((full.width - trimPx) / 2);
           const half = Math.round(trimPx / 2);
           // Preserve artwork past the fold for each page's bleed.
-          const inner = crop === "trim" ? 0 : Math.round((geom.bleed * dpi) / 25.4 + 1e-6);
+          const inner = crop === "trim" ? 0 : Math.round((geom.bleed * rasterDpi) / 25.4 + 1e-6);
           const leftW = edge + half + inner;
           const slice = (x0: number, w: number) => {
             const out = new Uint8ClampedArray(w * full.height * 4);
@@ -620,31 +664,50 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           const second = geom.rtl ? left : right;
           parts.push({ ...first, nombre: pl.nombre }, { ...second, nombre: pl.nombre === null ? null : pl.nombre + 1 });
         } else parts.push({ raster: full, trim: fullTrim, side: geom.side, nombre: pl.nombre });
+        if (run.layer !== undefined) {
+          for (const { raster, side } of parts) {
+            let psd = psds.get(side);
+            if (!psd) {
+              psd = new PsdWriter(raster.width, raster.height, colorMode, dpi);
+              psds.set(side, psd);
+            }
+            psd.addLayer(run.layer, raster);
+          }
+        }
         for (const part of parts)
-        for (const fmt of formats) {
+        for (const fmt of run.formats) {
           const raster = part.raster;
           if (fmt === "pdf") {
             const key = run.name ?? "";
             let pw = pdfs.get(key);
             if (!pw) {
-              pw = { writer: new PdfWriter({ title: typeof meta.title === "string" ? meta.title : undefined, author: typeof meta.author === "string" ? meta.author : undefined, date: sde ? new Date(Number(sde) * 1000) : undefined }), colorMode, dpi };
+              pw = { writer: new PdfWriter({ title: typeof meta.title === "string" ? meta.title : pdfX ? p.name : undefined, author: typeof meta.author === "string" ? meta.author : undefined, date: sde ? new Date(Number(sde) * 1000) : undefined }, pdfX), colorMode, dpi };
               pdfs.set(key, pw);
             }
-            const bleedPx = crop === "trim" ? 0 : Math.round((geom.bleed * dpi) / 25.4 + 1e-6);
+            const bleedPx = crop === "trim" ? 0 : Math.round((geom.bleed * rasterDpi) / 25.4 + 1e-6);
             const trim = part.trim;
             pw.writer.addPage({ rgba: raster.data, width: raster.width, height: raster.height, dpi, colorMode: (options.debug ? "color" : colorMode) as "color", transparent: transparentOut || !!run.list, trim, bleed: { x: trim.x - bleedPx, y: trim.y - bleedPx, w: trim.w + 2 * bleedPx, h: trim.h + 2 * bleedPx } });
             continue;
           }
           if (fmt === "svg" && part !== parts[0]) continue;
           const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, compression: prof.compression, chroma: prof.chroma, tiffCompression: prof.tiffCompression, transparent: transparentOut || !!run.list, metadata: prof.metadata === false ? {} : { Software: `mangacli ${PKG_VERSION}`, Title: String(meta.title ?? ""), ...(meta.author ? { Author: String(meta.author) } : {}), ...(meta.copyright ? { Copyright: String(meta.copyright) } : {}), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed), ...(sourceHash ? { "mangacli:source-hash": sourceHash } : {}) } };
-          const data = fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: Math.min(dpi, 300) })) : await encode(raster.data, raster.width, raster.height, enc);
+          const data = fmt === "psd" ? psds.get(part.side)!.build()
+            : fmt === "svg" ? Buffer.from(await renderSvg(list, { crop, assets, colorMode: colorMode as "color", imageDpi: rasterDpi, maxImageDpi: 300, outputScale, marks }))
+            : await encode(raster.data, raster.width, raster.height, enc);
           const svgSize = () => {
-            const bw = crop === "trim" ? geom.trimW : geom.bleedBox.w;
-            const bh = crop === "trim" ? geom.trimH : geom.bleedBox.h;
-            return { w: Math.round((bw * dpi) / 25.4), h: Math.round((bh * dpi) / 25.4) };
+            const margin = crop === "marks" ? 2 * (marks?.margin ?? 10) : 0;
+            const bw = (crop === "trim" ? geom.trimW : geom.bleedBox.w) + margin;
+            const bh = (crop === "trim" ? geom.trimH : geom.bleedBox.h) + margin;
+            return { w: Math.round((bw * rasterDpi) / 25.4), h: Math.round((bh * rasterDpi) / 25.4) };
           };
           const size = fmt === "svg" ? svgSize() : { w: raster.width, h: raster.height };
-          const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: size.w, height: size.h, dpi, separation: run.name, data };
+          const scale = rasterDpi / 25.4;
+          const svgMargin = crop === "marks" ? marks?.margin ?? 10 : 0;
+          const origin = fmt === "svg" ? { x: crop === "trim" ? 0 : (svgMargin - geom.bleedBox.x) * scale, y: crop === "trim" ? 0 : (svgMargin - geom.bleedBox.y) * scale } : part.trim;
+          const trimX = fmt !== "svg" && parts.length > 1 && part.side === "right" ? Math.round(trimWidth / 2) : 0;
+          const elements = info.elements.map(({ id, bbox }) => ({ id, x: bbox.x * scale + origin.x - trimX, y: bbox.y * scale + origin.y, width: bbox.w * scale, height: bbox.h * scale }))
+            .filter((b) => b.x < size.w && b.y < size.h && b.x + b.width > 0 && b.y + b.height > 0);
+          const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: size.w, height: size.h, dpi, separation: run.name, elements, data };
           if (outDir) {
             const file = outName(page, pl.idx, part.side, part.nombre, geom.type === "spread" && parts.length === 1, parts.length > 1, run.name, EXT[fmt]);
             if (emitted.has(file)) {
@@ -682,10 +745,12 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
     timings[page.id] = performance.now() - tp;
     options.onProgress?.({ phase: "render", pageId: page.id, done: ++done, total });
   }
+  // A submission PDF must not silently omit pages if rendering failed.
+  if (pdfX && (bag.hasErrors || result.failures.length || (options.strict && bag.items.some((d) => d.severity === "warning")))) pdfs.clear();
   for (const [sep, pw] of pdfs) {
     if (!pw.writer.pageCount) continue;
     const data = pw.writer.build();
-    const rp: RenderedPage = { id: resolved.pages[0]?.id ?? "document", index: 0, number: null, side: "document", format: "pdf", mimeType: MIME.pdf, colorMode: pw.colorMode, width: 0, height: 0, dpi: pw.dpi, separation: sep || undefined, data };
+    const rp: RenderedPage = { id: resolved.pages[0]?.id ?? "document", index: 0, number: null, side: "document", format: "pdf", mimeType: MIME.pdf, colorMode: pw.colorMode, width: 0, height: 0, dpi: pw.dpi, separation: sep || undefined, elements: [], data };
     if (outDir) {
       const file = join(outDir, `${p.name}${sep ? `-${sep}` : ""}.pdf`);
       mkdirSync(dirname(file), { recursive: true });
@@ -733,10 +798,19 @@ function errorFor(items: Diagnostic[]): MangaError {
   return new MangaValidationError(items);
 }
 
+function allSeparations(root?: Node): { name: string; list: string[] }[] {
+  const names = new Set(["background", "art", "fx", "frame", "balloon", "text", "sfx", "furniture"]);
+  const visit = (node: Node) => {
+    if (node.tag) names.add(node.tag.separation);
+    if (node.kind === "group") node.children.forEach(visit);
+  };
+  if (root) visit(root);
+  return Array.from(names, (name) => ({ name, list: [name] }));
+}
+
 function normalizeSeparations(s: RenderOptions["separate"]): { name: string; list: string[] }[] | null {
   if (!s) return null;
-  const all = ["background", "art", "fx", "frame", "balloon", "text", "sfx", "furniture"];
-  if (s === "all") return all.map((n) => ({ name: n, list: [n] }));
+  if (s === "all") return allSeparations();
   if (Array.isArray(s)) return s.map((n) => ({ name: n, list: [n] }));
   return Object.entries(s).map(([name, list]) => ({ name, list }));
 }
@@ -745,7 +819,10 @@ function roundList(list: DisplayList): unknown {
   return JSON.parse(JSON.stringify(list, (_, v) => (typeof v === "number" ? Math.round(v * 1000) / 1000 : v)));
 }
 
-/** debug overlay (spec 10.11.1): boxes, panels with reading order, elements, text, balloons, order, grid */
+/** colours of the `guides` debug layer (exported for tests) */
+export const GUIDE_COLORS = { safe: "rgb(0,150,255)", fold: "rgb(230,0,0)", foldBand: "rgba(255,0,0,0.18)" } as const;
+
+/** debug overlay (spec 10.11.1): guides, boxes, panels with reading order, elements, text, balloons, order, grid */
 function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: number }, list: DisplayList, info: PageLayoutInfo, dpi: number, crop: string, layers: boolean | string[], markMargin = 10) {
   const s = dpi / 25.4;
   const off = crop === "bleed" ? list.boxes.bleed.x : crop === "marks" ? list.boxes.bleed.x - markMargin : 0;
@@ -794,6 +871,41 @@ function drawDebug(raster: { data: Uint8ClampedArray; width: number; height: num
     rect(list.boxes.trim, "#ff0000");
     rect(list.boxes.baseFrame, "#00a0ff");
     rect(list.boxes.safe, "#00c000", [2, 2]);
+  }
+  if (want("guides")) {
+    // placement guides: the safe line text must stay inside, and the spread fold band text must avoid
+    const fm = info.geom.foldMargin;
+    const glw = Math.max(2 / s, 0.25);
+    if (fm > 0) {
+      const cx = list.boxes.trim.x + list.boxes.trim.w / 2;
+      const y0 = list.boxes.bleed.y;
+      const h = list.boxes.bleed.h;
+      g.fillStyle = GUIDE_COLORS.foldBand;
+      g.fillRect(cx - fm, y0, 2 * fm, h);
+      g.strokeStyle = GUIDE_COLORS.fold;
+      g.lineWidth = glw;
+      g.setLineDash([2, 1]);
+      for (const x of [cx - fm, cx + fm]) {
+        g.beginPath();
+        g.moveTo(x, y0);
+        g.lineTo(x, y0 + h);
+        g.stroke();
+      }
+      g.setLineDash([]);
+      g.beginPath();
+      g.moveTo(cx, y0);
+      g.lineTo(cx, y0 + h);
+      g.stroke();
+      label(`fold ±${Math.round(fm * 10) / 10}mm`, cx + fm + 1, list.boxes.safe.y + 4, GUIDE_COLORS.fold);
+    }
+    if (info.geom.units.units !== "px") {
+      g.strokeStyle = GUIDE_COLORS.safe;
+      g.lineWidth = glw;
+      g.setLineDash([3, 1.5]);
+      g.strokeRect(list.boxes.safe.x, list.boxes.safe.y, list.boxes.safe.w, list.boxes.safe.h);
+      g.setLineDash([]);
+      label("safe", list.boxes.safe.x + 1, list.boxes.safe.y - 1, GUIDE_COLORS.safe);
+    }
   }
   if (want("panels"))
     for (const pn of info.panels) {

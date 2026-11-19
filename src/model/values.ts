@@ -201,7 +201,7 @@ export function parsePaint(v: unknown, ctx: PaintCtx): Paint | null {
         if (d === null) return err(`invalid tone density "${args[0]}"`);
         const t: Obj = { density: d };
         for (const a of args.slice(1)) {
-          if (/lpi$/.test(a)) t.lpi = parseFloat(a);
+          if (/lpi(@print)?$/.test(a)) t.lpi = a.endsWith("@print") ? a.replace("lpi", "") : parseFloat(a);
           else if (/(deg|rad|turn)$/.test(a)) t.angle = a;
           else if (["round", "square", "ellipse", "line", "cross", "noise"].includes(a)) t.dot = a;
           else return err(`invalid tone argument "${a}"`);
@@ -217,7 +217,7 @@ export function parsePaint(v: unknown, ctx: PaintCtx): Paint | null {
         for (const a of args.slice(2)) {
           if (a === "radial") g.type = "radial";
           else if (/(deg|rad|turn)$/.test(a)) g.angle = a;
-          else if (/lpi$/.test(a)) t.lpi = parseFloat(a);
+          else if (/lpi(@print)?$/.test(a)) t.lpi = a.endsWith("@print") ? a.replace("lpi", "") : parseFloat(a);
           else if (["round", "square", "ellipse", "line", "cross", "noise"].includes(a)) t.dot = a;
           else return err(`invalid tone-gradient argument "${a}"`);
         }
@@ -305,7 +305,7 @@ function toneFromObj(t: Obj, ctx: PaintCtx): Paint | null {
   const dot = ((t.dot as string) ?? "round") as DotShape;
   const spec: ToneSpec = {
     density: densityOf(t.density) ?? 0,
-    lpi: typeof t.lpi === "number" ? t.lpi : 60,
+    lpi: typeof t.lpi === "number" ? t.lpi : typeof t.lpi === "string" && /^(?:\d+(?:\.\d+)?|\.\d+)@print$/.test(t.lpi) ? parseFloat(t.lpi) * (ctx.u.printScale ?? 1) : 60,
     angle: parseAngle((t.angle as string) ?? "45deg"),
     dot,
     grain: t.grain !== undefined ? toMm(t.grain as string, ctx.u) : 0.08,

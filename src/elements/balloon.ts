@@ -2,8 +2,8 @@
 import { BLACK, WHITE, parseColor } from "../core/color.js";
 import { Rng } from "../core/random.js";
 import { type UnitContext, parseAngle, toMm } from "../core/units.js";
-import { type PathData, distToPolyline, pointInPolygon, polyPath, polygonArea, rayPolygon } from "../geom/path.js";
-import { type Rect, type Vec, boundsOf, rot } from "../geom/vec.js";
+import { type PathData, distToPolyline, flattenPath, pointInPolygon, polyPath, polygonArea, rayPolygon, transformPath } from "../geom/path.js";
+import { type Rect, type Vec, boundsOf, matTranslate, rot } from "../geom/vec.js";
 import type { HandSpec } from "../ink/presets.js";
 import { type ShapeContour, inkShape } from "../ink/shape.js";
 import { blobPoly } from "../ink/stroke.js";
@@ -155,7 +155,14 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       const lim = mx === "auto" ? Infinity : mx * 0.72 - 2 * (style.writing === "vertical" ? padV : padH) - 2 * margin;
       if (isFinite(lim)) boxLimit = Math.min(boxLimit ?? Infinity, Math.max(lim, style.fontSize * 4.5));
     }
-    const tl = layoutText(text, style, ctx.fonts, boxLimit);
+    let tl = layoutText(text, style, ctx.fonts, boxLimit);
+    if (p.as === "aside") {
+      const pts = tl.glyphs.flatMap(g => flattenPath(g.path).flatMap(q => q.pts));
+      if (pts.length) {
+        const b = boundsOf(pts);
+        tl = { ...tl, width: b.w, height: b.h, glyphs: tl.glyphs.map(g => ({ ...g, path: transformPath(g.path, matTranslate(-b.x, -b.y)) })) };
+      }
+    }
     const compact = kind === "ellipse" && !fixedBase && tl.lines.length <= 1 && Math.max(tl.width, tl.height) <= style.fontSize * 3.5;
     if (compact && (el.builtinProps?.includes("padding") ?? p.padding === undefined)) {
       const inset = (extent: number) => Math.max(0, (extent / 2 + style.fontSize * 0.65) / Math.SQRT2 - extent / 2 - margin);
@@ -181,7 +188,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
     const cx = tl.width / 2;
     const cy = tl.height / 2;
     const pts: Vec[] = [];
-    for (const ln of tl.lines) {
+    for (const ln of p.as === "aside" ? [{ rect: { x: 0, y: 0, w: tl.width, h: tl.height } }] : tl.lines) {
       const r = ln.rect;
       pts.push({ x: r.x - padH - cx, y: r.y - padV - cy }, { x: r.x + r.w + padH - cx, y: r.y - padV - cy }, { x: r.x + r.w + padH - cx, y: r.y + r.h + padV - cy }, { x: r.x - padH - cx, y: r.y + r.h + padV - cy });
     }
@@ -375,6 +382,20 @@ function arcLengths(pts: Vec[]): number[] {
   return s;
 }
 
+/** the outline point at least `half` (straight-line) away from `at`, walking backward (dir -1) or forward */
+function pointAtChord(pts: Vec[], s: number[], at: number, half: number, dir: 1 | -1): { p: Vec; i: number } {
+  const P = s[s.length - 1];
+  const o = pointAtArc(pts, s, at).p;
+  const step = Math.max(1e-3, half / 24);
+  let q = pointAtArc(pts, s, at + dir * half);
+  // a spiky outline packs much arc into little width: walk on until the chord is wide enough
+  for (let d = half; d < P * 0.45; d += step) {
+    q = pointAtArc(pts, s, at + dir * d);
+    if (Math.hypot(q.p.x - o.x, q.p.y - o.y) >= half) break;
+  }
+  return q;
+}
+
 function pointAtArc(pts: Vec[], s: number[], at: number): { p: Vec; i: number } {
   const P = s[s.length - 1];
   at = ((at % P) + P) % P;
@@ -506,11 +527,13 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       continue;
     }
     const gap = t.gap !== undefined ? toMm(t.gap as string, u) : 2 * u.k;
-    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : Math.min(12 * u.k, Math.max(4.5 * u.k, minSide * 0.6));
+    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : Math.min(9 * u.k, Math.max(4.5 * u.k, minSide * 0.4));
     let length: number;
     if (t.length !== undefined) length = toMm(t.length as string, u);
     else if (target) {
-      let avail = Math.hypot(target.x - R.x, target.y - R.y) - gap;
+      const dist = Math.hypot(target.x - R.x, target.y - R.y);
+      let avail = dist - gap;
+      let stopped = false;
       // do not run into the speaker's face
       const tgtRef = typeof t.to === "string" ? ctx.refs.target(t.to, ctx.panel?.panel.id) : who ? ctx.refs.target(who, ctx.panel?.panel.id) : undefined;
       // the face region is the speaker's only when the target lies on it (an image may also carry
@@ -518,7 +541,10 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       const face = faceOf(tgtRef?.regions.face?.bbox, target);
       if (face) {
         const tf = rayEllipseEntry(R, dir, face);
-        if (tf !== null) avail = Math.min(avail, tf - gap * 0.5);
+        if (tf !== null) {
+          avail = Math.min(avail, tf - gap * 0.5);
+          stopped = true;
+        }
       }
       // nor into the speaker's figure: the tip stops just short of the art's silhouette
       const sil = tgtRef ? ctx.silhouettes?.find((q) => q.id === tgtRef.id) : undefined;
@@ -527,19 +553,29 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         for (let d = step; d < avail; d += step)
           if (silhouetteHit(sil, { x: R.x + dir.x * d, y: R.y + dir.y * d })) {
             avail = Math.min(avail, d - 0.5 * u.k);
+            stopped = true;
             break;
           }
       }
+      // a bare point (a mouth or face anchor, no face region to stop at) is the middle of the face:
+      // the tail points at it from at most halfway so it never reaches into the face
+      if (!stopped) avail = Math.min(avail, dist * 0.5);
       // a tail always reads as a pointer, even when the speaker's face is right beside the body
       length = Math.min(maxLen, Math.max(4.5 * u.k, avail));
     } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
     // off-panel tails run past the frame and are cut by it
     // on a spiky body the tail must outreach the spikes to read as the pointer
-    if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.4, 6 * u.k);
+    if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.15, 6 * u.k);
     if (offSide && target) length = Math.hypot(target.x - R.x, target.y - R.y);
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
-    const bw = (t.width !== undefined ? toMm(t.width as string, u) : Math.min(2.8 * u.k, Math.max(1.6 * u.k, minSide * 0.13)) * (kind === "zigzag" ? 1.5 : 1)) * widthScale;
+    // a wedge's base is a quarter to a third of the body, so the tail reads as a triangle at a glance
+    const bw0 = Math.min(2.8 * u.k, Math.max(1.6 * u.k, minSide * 0.13));
+    const bwAuto = kind === "zigzag" ? bw0 * 1.5 : offSide ? bw0 : Math.max(bw0, Math.min(minSide * 0.3, length * 1.2));
+    const bw = (t.width !== undefined ? toMm(t.width as string, u) : bwAuto) * widthScale;
+    // on a spiky body the tail is one more, larger spike of the outline (the shout/scream presets
+    // also set bend/sideCurve 0 for straight sides)
+    const spiky = plan.params.kind === "spike" || plan.params.kind === "burst";
     const bend = typeof t.bend === "number" ? t.bend : 0.1;
     const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : 0.12;
     const perp = { x: -dir.y, y: dir.x };
@@ -547,7 +583,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     // a tail with a speaker curls toward the face: its centre line is a circular arc whose centre
     // lies on the face's side, leaving the body along `dir` and turning toward the face
     let arcFn: ((tt: number) => Vec) | null = null;
-    if (kind === "wedge" && !offSide && t.curl !== false && target) {
+    if (kind === "wedge" && !offSide && (t.curl === true || (t.curl !== false && !spiky)) && target) {
       const ref = typeof t.to === "string" ? ctx.refs.target(t.to, ctx.panel?.panel.id) : who ? ctx.refs.target(who, ctx.panel?.panel.id) : undefined;
       const fb = faceOf(ref?.regions.face?.bbox, target);
       const F = fb ? { x: fb.x + fb.w / 2, y: fb.y + fb.h / 2 } : target;
@@ -623,8 +659,8 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     // wedge / zigzag: splice into contour
     const s = arcLengths(cur.pts);
     const sR = s[hit.index] + hit.u * (s[hit.index + 1] - s[hit.index]);
-    const A = pointAtArc(cur.pts, s, sR - bw / 2);
-    const B = pointAtArc(cur.pts, s, sR + bw / 2);
+    const A = pointAtChord(cur.pts, s, sR, bw / 2, -1);
+    const B = pointAtChord(cur.pts, s, sR, bw / 2, 1);
     const sideA: Vec[] = [];
     const sideB: Vec[] = [];
     const N = Math.max(12, Math.ceil(length / (0.3 * u.k)));
@@ -708,7 +744,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     const bStart = out.length;
     for (let k = sideB.length - 2; k >= 1; k--) out.push(sideB[k]);
     const corners = (cur.corners ?? []).filter((c) => idxMap.has(c.index)).map((c) => ({ index: idxMap.get(c.index)!, kind: c.kind }));
-    corners.push({ index: 0, kind: "concave" }, { index: aIndex, kind: "concave" }, { index: tipIndex, kind: "tip" });
+    corners.push({ index: 0, kind: "concave" }, { index: aIndex, kind: "concave" }, { index: tipIndex, kind: "point" });
     for (const zc of zigCorners) {
       corners.push({ index: aIndex + zc, kind: "convex" });
       corners.push({ index: bStart + (sideB.length - 2 - zc), kind: "convex" });
@@ -743,10 +779,20 @@ function buildBody(plan: BalloonPlan, ctx: ElemCtx, skipTails = false): BodyBuil
   const body = plan.body;
   let contour: ShapeContour = { ...body.contour, pts: translate(body.contour.pts) };
   const tails: Obj[] = skipTails ? [] : Array.isArray(p.tails) ? (p.tails as Obj[]) : isObj(p.tail) ? [p.tail as Obj] : [];
-  const tr = applyTails(contour, tails, { ctx, plan, center, rng });
-  if (tr.contour) contour = tr.contour;
+  let tailContour = contour;
+  if (p.as === "aside" && plan.text.glyphs.length) {
+    const pts = plan.text.glyphs.flatMap(g => flattenPath(g.path).flatMap(q => q.pts));
+    if (pts.length) {
+      const b = boundsOf(pts);
+      const x = plan.innerCenter.x - plan.text.width / 2 + plan.textOffset.x + b.x;
+      const y = plan.innerCenter.y - plan.text.height / 2 + plan.textOffset.y + b.y;
+      tailContour = { pts: translate([{ x, y }, { x: x + b.w, y }, { x: x + b.w, y: y + b.h }, { x, y: y + b.h }]), closed: true };
+    }
+  }
+  const tr = applyTails(tailContour, tails, { ctx, plan, center, rng });
+  if (tr.contour && p.as !== "aside") contour = tr.contour;
   const stroke = resolveStroke(p.stroke, plan.hand, ctx.u, ctx.bag, [...el.path, "stroke"]);
-  const ruler = !!(plan.params.ruler ?? body.ruler) && !contour.corners?.some((c) => c.kind === "tip");
+  const ruler = !!(plan.params.ruler ?? body.ruler) && !contour.corners?.some((c) => c.kind === "tip" || c.kind === "point");
   return { contour, extra: tr.extra, stroke, ruler, rng };
 }
 
@@ -811,7 +857,7 @@ function textNodesFlat(plan: BalloonPlan, ctx: ElemCtx): Node[] {
   const outlines = Array.isArray(p.textOutline) ? (p.textOutline as Obj[]) : [];
   const ow = outlines.map((o) => ({ w: toMm(o.width as string, u), c: parseColor((o.color as string) ?? "white") ?? WHITE })).sort((a, b) => b.w - a.w);
   for (const o of ow) nodes.push({ kind: "path", path: textNode.path, fillRule: "nonzero", paint: null, stroke: { width: o.w * 2, paint: { type: "solid", color: o.c }, join: "round" }, tag: tag(el, "text", "text") });
-  nodes.push(...glyphNodes(tl.glyphs, shift, { type: "solid", color }, tl.fontSize, tag(el, "text", "text")));
+  nodes.push(...glyphNodes(p.as === "aside" ? tl.glyphs.map(g => ({ ...g, bold: true })) : tl.glyphs, shift, { type: "solid", color }, tl.fontSize, tag(el, "text", "text")));
   return nodes;
 }
 

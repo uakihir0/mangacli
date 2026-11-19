@@ -2,7 +2,7 @@
 import * as hb from "harfbuzzjs";
 import { Rng, noise1 } from "../core/random.js";
 import type { FontPick, FontRegistry, LoadedFont } from "../fonts/registry.js";
-import { type PathData, flattenPath, pathFromJson } from "../geom/path.js";
+import { type PathData, flattenPath, pathFromJson, transformPath } from "../geom/path.js";
 import { type Matrix, type Rect, boundsOf, matMul, matRotate, matScale, matTranslate } from "../geom/vec.js";
 import { type KinsokuLevel, inseparable, isClosingPunct, isOpeningPunct, noEnd, noStart, phraseBoundaries, wordBoundaries } from "./linebreak.js";
 import { type InlineStyle, type NormalizeOptions, type ParsedText, type Unit, assignTcy, parseMarkup } from "./markup.js";
@@ -89,9 +89,10 @@ interface Box {
   chars: string;
   units: number[];
   adv: number; // along line (mm)
+  punctCompressed?: boolean;
   size: number; // em size mm
   orient: Orient;
-  glyphs: { gid: number; font: LoadedFont; m: Matrix }[]; // matrix relative to box origin: vertical => (col center, box top); horizontal => (box left, baseline)
+  glyphs: { gid: number; font: LoadedFont; m: Matrix; path?: PathData }[]; // matrix relative to box origin: vertical => (col center, box top); horizontal => (box left, baseline)
   breakBefore?: "forced";
   wbrBefore?: boolean;
   space?: boolean;
@@ -196,18 +197,9 @@ export function layoutText(text: string, style: TextStyle, reg: FontRegistry, bo
   const lineData = lines.map((ln) => {
     const offsets = ln.boxes.map(() => 0);
     const advs = ln.boxes.map((b, i) => {
-      let a = b.adv;
-      if (style.punctCompress && i + 1 < ln.boxes.length) {
-        const nx = ln.boxes[i + 1];
-        // only full-width punctuation has the half-em of space that compression removes
-        if (isClosingPunct(b.lastChar) && (isClosingPunct(nx.firstChar) || isOpeningPunct(nx.firstChar)) && b.orient !== "sideways" && b.adv > b.size * 0.8) a -= b.size * 0.5;
-      }
-      if (style.punctCompress && i > 0 && isOpeningPunct(b.firstChar) && isClosingPunct(ln.boxes[i - 1].lastChar) && b.orient !== "sideways" && b.adv > b.size * 0.8) {
-        a -= b.size * 0.5;
-        // Opening punctuation loses leading space, not the space occupied by its ink.
-        offsets[i] = -b.size * 0.5;
-      }
-      return a + (i + 1 < ln.boxes.length ? ls : 0);
+      const compressed = compressPunctuation(b, ln.boxes[i - 1], ln.boxes[i + 1], style);
+      offsets[i] = compressed.offset;
+      return compressed.advance + (i + 1 < ln.boxes.length ? ls : 0);
     });
     const len = advs.reduce((x, y) => x + y, 0);
     const size = Math.max(em, ...ln.boxes.map((b) => b.size));
@@ -311,7 +303,7 @@ function emitBox(b: Box, ox: number, oy: number, _vertical: boolean, out: GlyphO
       const jit: Matrix = matMul(matTranslate(cx + dx, cy + dy), matMul(matRotate(r), matMul(matScale(s), matTranslate(-cx, -cy))));
       m = matMul(jit, m);
     }
-    out.push({ path: pathFromJson(glyphJson(g.font, g.gid), m), color: b.color, unit: b.units[0] ?? 0, bold: b.bold, cx, cy });
+    out.push({ path: g.path ? transformPath(g.path, m) : pathFromJson(glyphJson(g.font, g.gid), m), color: b.color, unit: b.units[0] ?? 0, bold: b.bold, cx, cy });
   }
 }
 
@@ -374,7 +366,15 @@ function buildBoxes(parsed: ParsedText, style: TextStyle, reg: FontRegistry, mis
     const bold = !!st.bold && !reg.boldName(st.font ?? style.font);
     const first = boxes.length;
     // split run by font pick (per char) for shaping
-    const picks: (FontPick | null)[] = chars.map((c) => reg.pick(fname, c.codePointAt(0)!));
+    let picks: (FontPick | null)[] = chars.map((c) => reg.pick(fname, c.codePointAt(0)!));
+    if (o === "tcy" && chars.every((c) => /^[!?！？]$/.test(c))) {
+      const full = chars.map((c) => c === "!" ? "！" : c === "?" ? "？" : c);
+      const fullPicks = full.map((c) => reg.pick(fname, c.codePointAt(0)!));
+      const fullPick = fullPicks.find((p) => p && full.every((c) => p.font.has(c.codePointAt(0)!)));
+      const forms = fullPick ? full : chars.map((c) => c === "！" ? "!" : c === "？" ? "?" : c);
+      const groupPick = fullPick ?? forms.map((c) => reg.pick(fname, c.codePointAt(0)!)).find((p) => p && forms.every((c) => p.font.has(c.codePointAt(0)!))) ?? null;
+      picks = chars.map(() => groupPick);
+    }
     let s0 = 0;
     while (s0 < chars.length) {
       let s1 = s0 + 1;
@@ -475,6 +475,23 @@ function fitDashes(per: Box[], vertical: boolean) {
   }
 }
 
+function compressPunctuation(b: Box, previous: Box | undefined, next: Box | undefined, style: TextStyle) {
+  let advance = b.adv;
+  let offset = 0;
+  if (b.punctCompressed || !style.punctCompress || b.orient === "sideways") return { advance, offset };
+  if (style.writing === "vertical" && (b.chars === "〝" || b.chars === "〟")) return { advance: advance / 2, offset };
+  // Only full-width punctuation has the half-em of space that compression removes.
+  if (b.adv > b.size * 0.8) {
+    if (next && isClosingPunct(b.lastChar) && (isClosingPunct(next.firstChar) || isOpeningPunct(next.firstChar))) advance -= b.size * 0.5;
+    if (previous && isOpeningPunct(b.firstChar) && isClosingPunct(previous.lastChar)) {
+      advance -= b.size * 0.5;
+      // Opening punctuation loses leading space, not the space occupied by its ink.
+      offset = -b.size * 0.5;
+    }
+  }
+  return { advance, offset };
+}
+
 function positionNonokagi(b: Box, lang: string, baselineShift: number) {
   if ((b.chars !== "〝" && b.chars !== "〟") || b.glyphs.length !== 1) return;
   const g = b.glyphs[0];
@@ -519,6 +536,21 @@ function hasVertForm(f: LoadedFont, ch: string, lang: string): boolean {
 }
 
 function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: number, o: Orient, vertical: boolean, style: TextStyle, boxes: Box[]) {
+  if (pk.face && pk.scale !== 1) {
+    // compose scale: shape at the body size so the pitch stays, then enlarge each face about its cell centre
+    const from = boxes.length;
+    shapeSegment(seg, segUnits, { ...pk, scale: 1, face: false }, size0, o, vertical, style, boxes);
+    const k = pk.scale;
+    const s0 = size0 / pk.font.upem;
+    const emCentre = -((pk.font.ascender + pk.font.descender) * s0) / 2;
+    for (const b of boxes.slice(from)) {
+      // dashes stay fitted end to end so runs of them still join
+      if (DASHES.has(b.chars) || WAVE_DASHES.has(b.chars)) continue;
+      const [px, py] = vertical ? [0, b.adv / 2] : [b.adv / 2, emCentre];
+      for (const g of b.glyphs) g.m = [g.m[0] * k, g.m[1] * k, g.m[2] * k, g.m[3] * k, px + (g.m[4] - px) * k, py + (g.m[5] - py) * k];
+    }
+    return;
+  }
   const f = pk.font;
   const size = size0 * pk.scale;
   const s = size / f.upem;
@@ -538,6 +570,23 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
   };
   const bshift = pk.baselineShift * size;
   if (vertical && o === "upright") {
+    const dash = seg.findIndex((c) => DASHES.has(c));
+    if (dash >= 0) {
+      if (dash > 0) shapeSegment(seg.slice(0, dash), segUnits.slice(0, dash), pk, size0, o, vertical, style, boxes);
+      const glyph = shape(f, seg[dash], "ltr", style.lang)[0];
+      const bounds = glyph ? inkBox(f, glyph.gid) : undefined;
+      const inkThickness = bounds ? (bounds[3] - bounds[1]) / f.upem : 0;
+      const thickness = Number.isFinite(inkThickness) && inkThickness > 0 ? inkThickness / 2 : 0.07;
+      const half = size * gx * Math.max(0.05, Math.min(0.12, thickness)) / 2;
+      const sideways = !hasVertForm(f, seg[dash], style.lang);
+      const shaped = shape(f, seg[dash], sideways ? "ltr" : "ttb", style.lang);
+      const advance = shaped.reduce((sum, g) => sum + (sideways ? g.xAdvance : -g.yAdvance), 0) * s * gy;
+      const adv = advance > 0 ? advance : size * gy;
+      const path: PathData = [["M", bshift - half, 0], ["L", bshift + half, 0], ["L", bshift + half, adv], ["L", bshift - half, adv], ["Z"]];
+      boxes.push({ chars: seg[dash], units: [segUnits[dash]], adv, size: size0, orient: o, glyphs: [{ gid: 0, font: f, m: [1, 0, 0, 1, 0, 0], path }], firstChar: seg[dash], lastChar: seg[dash] });
+      if (dash + 1 < seg.length) shapeSegment(seg.slice(dash + 1), segUnits.slice(dash + 1), pk, size0, o, vertical, style, boxes);
+      return;
+    }
     // marks that must turn in vertical text: fonts without a vertical alternate get them rotated
     const turn = seg.findIndex((c) => VERT_TURN.has(c) && !hasVertForm(f, c, style.lang));
     if (turn >= 0) {
@@ -568,7 +617,12 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
       gl.m = verticalWaveMatrix(gl.font, gl.gid, gl.m, bshift, b.adv / 2);
     }
     fitDashes(per, true);
-    for (const b of per) positionNonokagi(b, style.lang, bshift);
+    for (const b of per) {
+      const { advance } = compressPunctuation(b, undefined, undefined, style);
+      b.punctCompressed = advance !== b.adv;
+      b.adv = advance;
+      positionNonokagi(b, style.lang, bshift);
+    }
     // fonts without vertical forms for small kana and 、。 get them moved toward the upper right
     // (judged from where the glyph's ink actually sits: some fonts map them to centred forms)
     for (const b of style.smallKanaFix === false ? [] : per) {
@@ -601,20 +655,32 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
     return;
   }
   // horizontal shaping (horizontal writing, sideways, tcy)
-  const g = shape(f, text, "ltr", style.lang);
+  const horizontalText = vertical && o === "tcy"
+    ? text.replace(/[!?]/g, (ch) => { const full = ch === "!" ? "！" : "？"; return f.has(full.codePointAt(0)!) ? full : ch; })
+    : text;
+  const g = shape(f, horizontalText, "ltr", style.lang);
   const xs: number[] = [];
   let px = 0;
+  const tcyMarks = vertical && o === "tcy" && /^[!?！？]+$/.test(text);
   for (const gl of g) {
-    xs.push(px);
-    px += gl.xAdvance * s;
+    if (tcyMarks) {
+      const [x0, , x1] = inkBox(f, gl.gid);
+      xs.push(px - (x0 + gl.xOffset) * s);
+      px += (x1 - x0) * s + size0 * 0.08;
+    } else {
+      xs.push(px);
+      px += gl.xAdvance * s;
+    }
   }
+  if (tcyMarks && g.length) px -= size0 * 0.08;
   const asc = f.ascender * s;
   const desc = f.descender * s;
   const center = -(asc + desc) / 2; // canvas y of em center relative to baseline
   if (vertical && o === "tcy") {
     const W = px;
-    const sx = W > size0 ? Math.max(0.5, size0 / W) : 1;
-    if (W > size0 * 1.6) tcyWarn.push(text);
+    const minScale = /^[!?！？]{2,3}$/.test(text) ? 0 : 0.5;
+    const sx = W > size0 ? Math.max(minScale, size0 / W) : 1;
+    if (W > size0 * 1.6 && !/^[!?！？]{2,3}$/.test(text)) tcyWarn.push(text);
     const box: Box = { chars: text, units: segUnits.slice(), adv: size0, size: size0, orient: o, glyphs: [], firstChar: seg[0], lastChar: seg[seg.length - 1] };
     g.forEach((gl, k) => {
       // horizontal local: x along, y baseline -> place centered in column (x=0) and em cell

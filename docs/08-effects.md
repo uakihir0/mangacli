@@ -12,7 +12,7 @@
 - type: effect
   kind: speed-lines
   angle: 10deg
-  clear: { element: taro1, mode: bbox }
+  clear: { element: taro1, mode: alpha, margin: 1mm }
 ```
 
 ### 8.1.1 共通プロパティ
@@ -27,11 +27,27 @@
 | `ruler` | 真偽値 | 種類による | 定規で引いた線にする（直線の効果線は `true`） |
 | `density` | 数値 | `1` | 線の本数の倍率 |
 | `background` | Paint | `none` | 線を描く前に `region` を塗る（例: `paper` で下の絵を隠す） |
-| `clear` | Region | - | 線を描かない範囲（人物の顔など）。`feather` で境界をぼかすと、線が徐々に短く・まばらになる |
+| `clear` | Region または Region の配列 | - | 線を描かない範囲。`{ element: taro1, mode: alpha, margin: 1mm }` で画像の透明度から輪郭を取り、余白を空けて入り抜きする |
+| `clearFigures` | 真偽値 | `true` | 集中線・ウニフラッシュ・流線・ベタフラッシュで、同じコマの人物画像を自動で抜く。明示した `clear` と併用可能 |
+| `minLength` | Length | `3mm` | 抜き処理後に残す線の最小長。元の線長の 5%・線幅の 6 倍よりも短い断片も捨てる。両端の入り抜きは各 40% 以下に抑え、点状の残りを防ぐ |
 | `seed` | 整数 | 導出 | シード |
 | `hand` | Hand | - | 手描き設定 |
 
 効果は、他の要素と同じく `layers` のリストの順に重なる。人物の背後に効果線を描く場合は、効果を画像より前に書く。
+
+ただし、背景まで不透明な一枚絵を後に重ねると効果線も隠れる。一枚絵に線を追加するときは画像の**後**に効果を書く。不透明な画像は人物抜きに使わない（明示的な `mode: alpha` なら `EFFECT_OPAQUE_CLEAR` 警告）。一枚絵の顔を避けるには `ellipse` や `polygon` の `clear` を指定する。`background` の既定値は `none`。`paper` を指定すると下の絵を覆うので注意。
+
+`margin` は白い抜きの幅（alpha の既定値は `1mm`、その他は `0mm`）。透明な人物切り抜き画像を使用する。線は輪郭の手前で分割され、新しい端の約 4mm（短い線では長さの 40% まで）で自然に細くなる。小さすぎる断片は描かない。alpha の `margin` を省略した場合は `feather` を余白幅として線・面の両方に適用する。その他の領域の `feather` はベタやトーンなど面の抜き境界をぼかす指定。
+
+```yaml
+- effect: speed-lines
+  clear:
+    - { element: taro1, mode: alpha, margin: 1mm }
+    - { ellipse: [70%, 30%, 12mm, 16mm], margin: 1mm }
+  followPath: [[0%, 70%], [50%, 25%], [100%, 40%]]
+```
+
+`speed-lines.followPath` はコマ座標の点列（2点以上）。点列を滑らかにつないだ進行方向に沿って流線を曲げる。SVG の開いたパス（mm、コマ左上原点）も `followPath: { path: "M0 60 Q50 0 100 40" }` として指定できる。最初のサブパスを使い、パスに沿う距離へ線の位置・長さを割り当て、法線方向へ並べる。指定時は `angle` より優先。鋭い折り返しや極端にきついカーブは避ける。
 
 ### 8.1.2 効果の一覧
 
@@ -48,8 +64,9 @@
 | `rain` | 雨 | 雨 | P1 |
 | `vignette` | ぼかし枠 | 回想、夢、柔らかさ | P1 |
 | `snow` | 雪 | 雪 | P2 |
-| `glow` | 発光 | 光る物体（カラー） | P2 |
-| `light-rays` | 光線 | 後光、光の筋 | P2 |
+| `glow` | 発光 | 光る物体、輪郭の後光 | P1 |
+| `light-rays` | 光線 | 後光、光の筋 | P1 |
+| `spotlight` | スポットライト | 舞台、暗闇の人物 | P1 |
 
 ### 8.1.3 線の分布
 
@@ -264,9 +281,32 @@ passes:
 | `softness` | 0〜1 | `0.7` | ぼかしの柔らかさ |
 | `screen` | `am` \| `spatter` | `am` | モノクロ出力での表し方。`am` は網点、`spatter` はホワイトの飛沫のような不規則な点 |
 
-## 8.12 発光と光線（glow / light-rays）
+## 8.12 発光と光線（glow / light-rays / spotlight）
 
-（P2）`glow` は要素の形の周りに光のにじみを付ける（主にカラー）。`light-rays` は点から放射状に明暗の帯を描く。キーのみ予約する。
+`glow` は要素の輪郭をぼかして後光を描く。`light-rays` は光源から放射状の帯を描く。
+`spotlight` は光源から床の光だまりへ伸びる光を描き、光が届かない部分を暗くする。
+既定の光の色は白。1 ビット出力では発光のぼかしを白い網点で表し、光線とスポットライトの明暗も網点化する。
+効果をキャラクター画像より前に配置すると、画像を白く塗りつぶさずに背後を照らせる。[作例](examples/light-effects.yaml)
+
+| 効果 | キー | 型 | 既定値・意味 |
+|---|---|---|---|
+| `glow` | `target` | 要素 ID または Region | 必須。画像 ID は配置済み画像のアルファ、吹き出しは輪郭、その他は外接矩形を使う。`trim` などの領域名が優先される。同名の画像には `{ element: trim, mode: alpha }` を使う |
+| | `blur` | 正の Length | `4bmm`。ぼかしの強さ（ガウスの標準偏差）。% は効果領域の短辺基準 |
+| `light-rays` | `center` | Point | 効果領域の中心。座標・位置キーワード・`hero.face` などの参照を指定可能 |
+| | `count` | 整数 | `24`。放射帯の本数（1〜1024、`density` を掛けた後も最大 1024） |
+| | `angle` | Angle | `0deg`。最初の帯の方向（右が 0 度、時計回り） |
+| | `spread` | 数値 | `0.55`。帯 1 本が隣の帯までの角度に占める割合（0 より大きく 1 以下） |
+| `spotlight` | `source` | Point | `[18%, 0%]`。円錐の頂点 |
+| | `target` | Point | `[60%, 78%]`。床の光だまりの中心 |
+| | `width` | 正の Length | `45%`。光だまりの幅。% は効果領域の幅基準 |
+| | `shade` | 0〜1 | `0.8`。円錐と光だまりの外側に重ねる黒の不透明度。0 で暗くしない |
+
+```yaml
+layers:
+  - { effect: light-rays, center: hero.face, count: 20 }
+  - { effect: glow, target: hero, blur: 4mm }
+  - { image: hero.png, id: hero, anchors: { face: [500, 400] } }
+```
 
 ## 8.13 トーン
 

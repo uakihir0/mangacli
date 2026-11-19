@@ -5,7 +5,8 @@ import type { Vec } from "../geom/vec.js";
 import type { HandSpec, PenSpec } from "./presets.js";
 import { type InkPoly, blobPoly, rotateAboutMid, strokeOutline } from "./stroke.js";
 
-export type CornerKind = "convex" | "concave" | "tip" | "valley";
+/** `point`: a tail tip, inked at full width to the point like a convex corner */
+export type CornerKind = "convex" | "concave" | "tip" | "valley" | "point";
 
 export interface Corner {
   index: number;
@@ -348,6 +349,7 @@ function solid(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, r
         const startKind = firstPart ? sg.a.kind : "smooth";
         const endKind = lastPart ? sg.b.kind : "smooth";
         const extFor = (k: string) => {
+          if (k === "point") return 0;
           if (k !== "convex") return 0;
           if (join === "overshoot") return rng.range(hand.overshoot[0], hand.overshoot[1]);
           if (join === "gap") return -rng.range(hand.gap[0], hand.gap[1]);
@@ -364,13 +366,13 @@ function solid(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, r
         pts = extend(pts, Math.max(0, e0), Math.max(0, e1));
         // direction: draw toward tips; concave/valley start strongly (short entry)
         let reverse = false;
-        if (endKind === "tip") reverse = false;
-        else if (startKind === "tip") reverse = true;
+        if (endKind === "tip" || endKind === "point") reverse = false;
+        else if (startKind === "tip" || startKind === "point") reverse = true;
         if (reverse) pts = pts.reverse();
         const sKind = reverse ? endKind : startKind;
         const eKind = reverse ? startKind : endKind;
-        const sharpStart = sKind === "concave" || sKind === "valley" || (sKind === "convex" && join !== "overshoot");
-        const sharpEnd = eKind === "concave" || eKind === "valley" || (eKind === "convex" && join !== "overshoot");
+        const sharpStart = sKind === "concave" || sKind === "valley" || sKind === "point" || (sKind === "convex" && join !== "overshoot");
+        const sharpEnd = eKind === "concave" || eKind === "valley" || eKind === "point" || (eKind === "convex" && join !== "overshoot");
         if (!firstPart || !lastPart) pts = shiftNormal(pts, rng.normal() * hand.misalign * 0.3);
         // corners where strokes meet are drawn with pressure (no taper) so joints stay clean
         draw(pts, !sharpStart, !sharpEnd);

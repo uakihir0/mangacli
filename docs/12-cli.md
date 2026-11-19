@@ -55,6 +55,9 @@ mangacli render <file | -> [options]
 | `-o, --out <dir>` | 出力先。既定は `output.dir`、なければ `./out` |
 | `-p, --profile <name>` | 出力プロファイル（[10.7](10-color-and-output.md#107-出力プロファイル)）。既定 `web` |
 | `-f, --format <fmt[,fmt]>` | 出力形式 |
+| `--pdf-x <1a\|4>` | 白黒二値 PDF の入稿用規格。PDF/X-1a:2001 または PDF/X-4。下の 2 オプションと併用 |
+| `--pdf-x-icc <path>` | 印刷所指定の CMYK 出力プロファイル。1a は ICC v2、4 は ICC v2 または v4 |
+| `--pdf-x-condition <name>` | 印刷所指定の出力条件名 |
 | `--color <color\|gray\|mono>` | カラーモード |
 | `--dpi <n>`、`--scale <n>`、`--width <px>`、`--height <px>` | 解像度・寸法（[10.5](10-color-and-output.md#105-解像度とサイズ)） |
 | `--crop <trim\|bleed\|marks>` | 出力範囲 |
@@ -123,14 +126,15 @@ mangacli watch <file> [render のオプション]
 （P1）
 
 ```bash
-mangacli preview <file> [--port 4173] [--host 127.0.0.1] [--open] [--profile preview]
+mangacli preview <file> [--port 4173] [--host 127.0.0.1] [--open] [--guides] [--profile preview]
 ```
 
 - ローカルの HTTP サーバーを起動し、ブラウザでページを表示する。
 - 表示: 一覧（見開きの並び）、1 ページ、見開き。
 - 保存のたびに、変更したページを自動で更新する（Server-Sent Events）。
-- 診断の一覧を表示し、項目を選ぶと該当するページと要素を強調する。
+- 診断の一覧で要素に対応する警告をクリックすると、該当ページへスクロールし、画像上の要素を枠で強調する。再クリックまたは Esc で解除する。選択は自動再読み込み後も保たれ、ガイドの表示とは独立している。
 - デバッグオーバーレイの項目、プロファイル（`preview` / `web`）、シードを画面上で切り替えられる。
+- 画面上部の「ガイド」チェックで、安全領域の線と見開きの中央の危険帯（デバッグオーバーレイの `guides`）を重ねて表示する。警告が出る前に、要素を置く位置の目安にする。選択はブラウザに保存され、再読み込み後も保たれる。`--guides` で初期状態をオンにする。
 - 既定で `127.0.0.1` にのみバインドする（[2.13](02-architecture.md#213-セキュリティ)）。
 
 ### 12.3.6 schema

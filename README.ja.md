@@ -74,7 +74,7 @@ pages:
 mangacli render <file> [-p print-mono|print-gray|print-color|web|sns|preview|draft] [-o out] [--pages 1-3]
 mangacli validate <file> [--strict] [--reporter text|json|github]
 mangacli watch <file>                  # 保存のたびに描き直す
-mangacli preview <file> [--open]       # ブラウザでライブプレビュー（127.0.0.1:4173）
+mangacli preview <file> [--open] [--guides] # ブラウザでライブプレビュー（127.0.0.1:4173）
 mangacli init [dir] [--template basic|b5-mono|sns-color|yonkoma]
 mangacli fonts install [--set manga-basic] [--for manga.yaml] [--dir ./fonts]
 mangacli fonts list [--catalog]
@@ -86,6 +86,15 @@ mangacli cache info | cache clean
 ```
 
 すべてのオプションは `mangacli <command> --help` で確認できます。`--json` を付けると機械可読な NDJSON を出力します。
+
+PDF/X で入稿する場合は、印刷所が指定する PDF/X の版と CMYK ICC プロファイルを使います。
+
+```bash
+mangacli render manga.yaml -p print-mono -f pdf --pdf-x 4 \
+  --pdf-x-icc printer.icc --pdf-x-condition "印刷所指定の出力条件"
+```
+
+PDF/X-1a:2001 は `--pdf-x 1a`（ICC v2 のみ）を指定します。どちらも 1 ビットの白黒画像を黒版に保持します。オプションを省略した場合は従来の PDF 出力になります。入稿前に印刷所指定のプリフライトを実施してください。
 
 ## API
 

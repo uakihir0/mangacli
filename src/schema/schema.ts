@@ -1,10 +1,10 @@
 // Canonical document schema (spec 3-10). Validated after shorthand normalization.
 import { z } from "zod";
 
-const LEN_RE = /^[-+]?(?:\d+(?:\.\d+)?|\.\d+)\s*(mm|cm|in|pt|px|Q|H|em|%)?$/;
+const LEN_RE = /^[-+]?(?:\d+(?:\.\d+)?|\.\d+)\s*(mm|cm|in|pt|px|Q|H|em|%)?(@print)?$/;
 const ANG_RE = /^[-+]?(?:\d+(?:\.\d+)?|\.\d+)\s*(deg|rad|turn)?$/;
 
-export const Length = z.union([z.number(), z.string().regex(LEN_RE, "invalid length")]).describe("Length: number or '<n><unit>' (mm, cm, in, pt, px, Q, H, em, %)");
+export const Length = z.union([z.number(), z.string().regex(LEN_RE, "invalid length")]).describe("Length: number or '<n><unit>' (mm, cm, in, pt, px, Q, H, em, %), optionally suffixed @print");
 export const LengthAuto = z.union([Length, z.literal("auto")]);
 export const Angle = z.union([z.number(), z.string().regex(ANG_RE, "invalid angle")]).describe("Angle in degrees or '<n>deg|rad|turn'");
 export const Num = z.number();
@@ -19,7 +19,7 @@ export const ColorStr = z.string();
 const ToneObj = z
   .object({
     density: z.union([z.number(), z.string()]).optional(),
-    lpi: z.number().positive().max(200).optional(),
+    lpi: z.union([z.number().positive().max(200), z.string().regex(/^(?:\d+(?:\.\d+)?|\.\d+)@print$/).refine((v) => parseFloat(v) > 0 && parseFloat(v) <= 200)]).optional(),
     angle: Angle.optional(),
     dot: z.enum(["round", "square", "ellipse", "line", "cross", "noise"]).optional(),
     grain: Length.optional(),
@@ -120,15 +120,15 @@ const Outline = z.array(z.object({ width: Length, color: z.union([ColorStr, Pain
 const RegionBase: z.ZodType = z.lazy(() =>
   z.union([
     z.enum(["panel", "page", "trim", "bleed", "baseFrame"]),
-    z.object({ rect: Rect, feather: Length.optional() }).strict(),
-    z.object({ ellipse: Rect, feather: Length.optional() }).strict(),
-    z.object({ polygon: z.array(z.tuple([Length, Length])), feather: Length.optional() }).strict(),
-    z.object({ path: z.string(), feather: Length.optional() }).strict(),
-    z.object({ band: z.object({ side: z.enum(["top", "right", "bottom", "left"]), size: Length }).strict(), feather: Length.optional() }).strict(),
-    z.object({ element: z.string(), mode: z.enum(["bbox", "shape", "alpha"]).optional(), feather: Length.optional() }).strict(),
-    z.object({ union: z.array(RegionBase), feather: Length.optional() }).strict(),
-    z.object({ subtract: z.tuple([RegionBase, RegionBase]), feather: Length.optional() }).strict(),
-    z.object({ invert: RegionBase, feather: Length.optional() }).strict(),
+    z.object({ rect: Rect, margin: Length.optional(), feather: Length.optional() }).strict(),
+    z.object({ ellipse: Rect, margin: Length.optional(), feather: Length.optional() }).strict(),
+    z.object({ polygon: z.array(z.tuple([Length, Length])), margin: Length.optional(), feather: Length.optional() }).strict(),
+    z.object({ path: z.string(), margin: Length.optional(), feather: Length.optional() }).strict(),
+    z.object({ band: z.object({ side: z.enum(["top", "right", "bottom", "left"]), size: Length }).strict(), margin: Length.optional(), feather: Length.optional() }).strict(),
+    z.object({ element: z.string(), mode: z.enum(["bbox", "shape", "alpha"]).optional(), margin: Length.optional(), feather: Length.optional() }).strict(),
+    z.object({ union: z.array(RegionBase), margin: Length.optional(), feather: Length.optional() }).strict(),
+    z.object({ subtract: z.tuple([RegionBase, RegionBase]), margin: Length.optional(), feather: Length.optional() }).strict(),
+    z.object({ invert: RegionBase, margin: Length.optional(), feather: Length.optional() }).strict(),
   ]),
 );
 export const Region = RegionBase;
@@ -339,7 +339,7 @@ const sfxProps = {
 };
 
 const effectProps = z
-  .object({ ...common, type: z.literal("effect"), kind: z.string() })
+  .object({ ...common, type: z.literal("effect"), kind: z.string(), clear: z.union([Region, z.array(Region)]).optional(), clearFigures: z.boolean().optional(), minLength: Length.optional(), followPath: z.union([z.array(Point).min(2), z.object({ path: z.string() }).strict()]).optional() })
   .catchall(z.unknown());
 
 const fillProps = {
@@ -492,7 +492,11 @@ const pageSettings = {
   background: Paint.optional(),
   color: z.enum(["mono", "color"]).optional(),
   foldMargin: Length.optional(),
+  printScale: z.number().positive().max(1).optional(),
+  printSize: z.union([z.string(), z.tuple([Length, Length])]).optional(),
 };
+
+const printSettingsValid = (value: { printScale?: number; printSize?: unknown }) => value.printScale === undefined || value.printSize === undefined;
 
 const Page = z
   .object({
@@ -509,7 +513,7 @@ const Page = z
     title: z.string().optional(),
     include: z.string().optional(),
   })
-  .strict();
+  .strict().refine(printSettingsValid, "printScale and printSize are mutually exclusive");
 
 const FontDef = z.union([
   z.object({ src: z.string(), index: z.number().int().optional(), variations: z.record(z.string(), z.number()).optional(), bold: z.string().optional(), fallback: z.array(z.string()).optional() }).strict(),
@@ -570,7 +574,7 @@ export const Document = z
     engine: z.number().int().positive().optional(),
     meta: z.object({ title: z.string().optional(), subtitle: z.string().optional(), author: z.union([z.string(), z.array(z.string())]).optional(), lang: z.string().optional(), description: z.string().optional(), copyright: z.string().optional(), keywords: z.array(z.string()).optional() }).strict().optional(),
     book: z.object({ binding: z.enum(["right", "left"]).optional(), readingDirection: z.enum(["rtl", "ltr"]).optional(), firstPageSide: z.enum(["left", "right"]).optional(), pageNumbers: PageNumbers.optional(), signature: z.union([z.number().int(), z.literal(false)]).optional() }).strict().optional(),
-    page: z.object(pageSettings).strict().optional(),
+    page: z.object(pageSettings).strict().refine(printSettingsValid, "printScale and printSize are mutually exclusive").optional(),
     seed: z.number().int().min(0).max(4294967295).optional(),
     hand: Hand.optional(),
     fonts: z.record(z.string(), FontDef).optional(),

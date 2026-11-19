@@ -54,6 +54,9 @@ export const BUILTIN_EFFECT_DEFAULTS: Record<string, Obj> = {
   hatching: { pattern: "hatch", angle: "45deg", spacing: "0.6bmm", thickness: ["0.08bmm", "0.16bmm"], blockSize: ["2bmm", "3.5bmm"], linesPerBlock: 4, edge: "soft", ruler: false, pen: { preset: "maru-pen" } },
   rain: { angle: "100deg", rate: 2.5, length: ["4bmm", "14bmm"], thickness: ["0.1bmm", "0.22bmm"], taper: "both", ruler: true, pen: { preset: "maru-pen" } },
   vignette: { color: "paper", width: "8bmm", shape: "rect", softness: 0.7, screen: "am" },
+  glow: { color: "white", blur: "4bmm" },
+  "light-rays": { color: "white", count: 24, angle: 0, spread: 0.55 },
+  spotlight: { color: "white", source: ["18%", "0%"], target: ["60%", "78%"], width: "45%", shade: 0.8 },
 };
 
 export const BUILTIN_MARK_DEFAULTS: Record<string, Obj> = {
@@ -86,15 +89,16 @@ export const BUILTIN_MARK_DEFAULTS: Record<string, Obj> = {
 
 /** Built-in speech styles selected by `as` (spec 6.13). */
 export const BUILTIN_STYLES: Record<string, Obj> = {
+  aside: { shape: { kind: "none" }, font: "hand", fontScale: 0.75, lettering: { mode: "hand" }, textOutline: [{ width: "0.65bmm", color: "paper" }], minSize: ["0bmm", "0bmm"], padding: ["0.05em", "0.05em"], autoConnect: false, tail: { kind: "none", maxLength: "3bmm", gap: "0.5bmm", bend: 0, curl: false, allowVertical: true } },
   say: { shape: { kind: "ellipse" }, stroke: { width: "0.25bmm", pen: { preset: "g-pen" }, style: "solid" }, tail: { kind: "wedge" }, font: "dialogue" },
   think: { shape: { kind: "cloud" }, stroke: { width: "0.2bmm", pen: { preset: "maru-pen" }, style: "solid" }, tail: { kind: "bubbles" }, font: "thought" },
-  shout: { shape: { kind: "spike" }, stroke: { width: "0.3bmm", pen: { preset: "g-pen" }, style: "solid" }, tail: { kind: "wedge", widthScale: 1.3 }, font: "shout", fontScale: 1.4 },
+  shout: { shape: { kind: "spike" }, stroke: { width: "0.3bmm", pen: { preset: "g-pen" }, style: "solid" }, tail: { kind: "wedge", widthScale: 1.3, bend: 0, sideCurve: 0 }, font: "shout", fontScale: 1.4 },
   whisper: { shape: { kind: "ellipse" }, stroke: { width: "0.2bmm", style: "dashed" }, tail: { kind: "wedge", widthScale: 0.7 }, font: "whisper", fontScale: 0.85 },
   tremble: { shape: { kind: "wavy" }, stroke: { width: "0.22bmm" }, tail: { kind: "wedge" }, font: "dialogue" },
   narration: { shape: { kind: "rect", ruler: true }, stroke: { width: "0.2bmm", pen: { preset: "g-pen" } }, tail: { kind: "none" }, font: "narration", autoPlace: "flow", padding: ["0.6em", "0.6em"] },
   monologue: { shape: { kind: "none" }, tail: { kind: "none" }, font: "narration", textOutline: [{ width: "0.8bmm", color: "white" }] },
   inverted: { shape: { kind: "ellipse" }, stroke: { width: "0.25bmm" }, tail: { kind: "wedge" }, font: "dialogue", fill: "black", color: "white" },
-  scream: { shape: { kind: "burst" }, stroke: { width: "0.35bmm" }, tail: { kind: "wedge", widthScale: 1.5 }, font: "shout", fontScale: 1.5 },
+  scream: { shape: { kind: "burst" }, stroke: { width: "0.35bmm" }, tail: { kind: "wedge", widthScale: 1.5, bend: 0, sideCurve: 0 }, font: "shout", fontScale: 1.5 },
   shock: { shape: { kind: "flash" }, stroke: { style: "none" }, tail: { kind: "none" }, font: "thought" },
   electronic: { shape: { kind: "electronic" }, stroke: { width: "0.25bmm" }, tail: { kind: "zigzag" }, font: "dialogue" },
   offscreen: { shape: { kind: "ellipse" }, stroke: { width: "0.25bmm" }, tail: { kind: "wedge" }, font: "dialogue" },
@@ -102,7 +106,18 @@ export const BUILTIN_STYLES: Record<string, Obj> = {
   gruff: { shape: { kind: "hexagon" }, stroke: { width: "0.25bmm" }, tail: { kind: "wedge" }, font: "dialogue" },
 };
 
-export const PAGE_PRESETS: Record<string, { w: number; h: number; unit: "mm" | "px" }> = {
+export interface PagePreset {
+  w: number;
+  h: number;
+  unit: "mm" | "px";
+  baseFrame?: "trim" | { size?: [string | number, string | number]; offset?: [string | number, string | number]; margins?: { top: string | number; bottom: string | number; inner: string | number; outer: string | number } };
+  bleed?: string | number;
+  printSize?: string | [string | number, string | number];
+  dpi?: number;
+}
+
+export const PAGE_PRESETS: Record<string, PagePreset> = {
+  "manga-b4": { w: 220, h: 310, unit: "mm", baseFrame: { size: ["180mm", "270mm"] }, bleed: "5mm", printSize: "B5" },
   A4: { w: 210, h: 297, unit: "mm" },
   A5: { w: 148, h: 210, unit: "mm" },
   A6: { w: 105, h: 148, unit: "mm" },

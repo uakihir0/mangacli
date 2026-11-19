@@ -3,7 +3,7 @@ import sharp from "sharp";
 import { deflateSync } from "node:zlib";
 import type { ColorMode } from "../render/raster.js";
 
-export type OutputFormat = "png" | "jpeg" | "webp" | "avif" | "tiff" | "pdf" | "svg";
+export type OutputFormat = "png" | "jpeg" | "webp" | "avif" | "tiff" | "pdf" | "svg" | "psd";
 
 export interface EncodeOptions {
   format: OutputFormat;
@@ -133,6 +133,7 @@ export async function encode(rgba: Uint8ClampedArray, w: number, h: number, o: E
       return img.avif({ quality: o.quality ?? 92 }).toBuffer();
     case "pdf":
     case "svg":
+    case "psd":
       throw new Error(`${o.format} is produced by its own backend`);
     case "tiff": {
       const res = { xres: o.dpi / 25.4, yres: o.dpi / 25.4 };
@@ -170,5 +171,5 @@ function jfifDensity(b: Buffer, dpi: number): Buffer {
   return b;
 }
 
-export const MIME: Record<OutputFormat, string> = { png: "image/png", jpeg: "image/jpeg", webp: "image/webp", avif: "image/avif", tiff: "image/tiff", pdf: "application/pdf", svg: "image/svg+xml" };
-export const EXT: Record<OutputFormat, string> = { png: "png", jpeg: "jpg", webp: "webp", avif: "avif", tiff: "tif", pdf: "pdf", svg: "svg" };
+export const MIME: Record<OutputFormat, string> = { png: "image/png", jpeg: "image/jpeg", webp: "image/webp", avif: "image/avif", tiff: "image/tiff", pdf: "application/pdf", svg: "image/svg+xml", psd: "image/vnd.adobe.photoshop" };
+export const EXT: Record<OutputFormat, string> = { png: "png", jpeg: "jpg", webp: "webp", avif: "avif", tiff: "tif", pdf: "pdf", svg: "svg", psd: "psd" };

@@ -1,7 +1,7 @@
 // Cascade, IDs, seeds (spec 3.7, 3.8, 9.2.2).
 import type { DiagnosticBag } from "../core/diagnostics.js";
 import { suggest } from "../core/diagnostics.js";
-import { deriveSeed } from "../core/random.js";
+import { deriveSeed, Rng } from "../core/random.js";
 import { isObj } from "../load/normalize.js";
 import { BUILTIN_DEFAULTS, BUILTIN_EFFECT_DEFAULTS, BUILTIN_MARK_DEFAULTS, BUILTIN_STYLES } from "./defaults.js";
 
@@ -268,6 +268,10 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       acc.id = id;
       const elSeedBase = typeof raw.seed === "number" ? raw.seed : baseSeed;
       const el: RElement = { id, type, props: acc, path, seed: deriveSeed(elSeedBase, id, "element"), fromDialogue, builtinProps: [...builtinProps] };
+      if (type === "balloon" && acc.as === "aside" && acc.rotate === undefined) {
+        const tilt = new Rng(deriveSeed(el.seed, id, "aside-tilt")).next() * 2 - 1;
+        acc.rotate = `${Math.sign(tilt || 1) * (3 + Math.abs(tilt) * 2)}deg`;
+      }
       if (type === "group" && Array.isArray(raw.children)) {
         const gDefaults = isObj(raw.defaults) ? (raw.defaults as Obj) : undefined;
         const lv2 = gDefaults ? [...levels, { d: gDefaults, hand: undefined }] : levels;
@@ -327,6 +331,8 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       return el;
     });
     const settings = merge(deepClone((doc.page ?? {}) as Obj), pickPageSettings(pg));
+    if (pg.printScale !== undefined && pg.printSize === undefined) delete settings.printSize;
+    if (pg.printSize !== undefined && pg.printScale === undefined) delete settings.printScale;
     let hand: Obj = {};
     if (docHand) hand = merge(hand, { hand: docHand }).hand as Obj;
     if (pageHand) hand = merge({ hand }, { hand: pageHand }).hand as Obj;
@@ -349,7 +355,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
 }
 
 function pickPageSettings(pg: Obj): Obj {
-  const keys = ["size", "orientation", "units", "dpi", "bleed", "baseFrame", "safeArea", "gutter", "background", "color", "foldMargin"];
+  const keys = ["size", "orientation", "units", "dpi", "bleed", "baseFrame", "safeArea", "gutter", "background", "color", "foldMargin", "printScale", "printSize"];
   const o: Obj = {};
   for (const k of keys) if (pg[k] !== undefined) o[k] = pg[k];
   return o;

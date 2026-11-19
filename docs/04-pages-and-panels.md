@@ -25,6 +25,10 @@
 | 安全領域（safeArea） | 文字を収めるべき領域。仕上がりを `inset` だけ内側に縮めた矩形 | 内側 5 mm |
 | 基本枠（baseFrame） | コマ割りの基準となる領域 | 仕上がりの幅の 82.4 %、高さの 85.6 % を中央に配置（B5 で 150 × 220 mm）。px で定義した判型では、短辺の 4 % の余白を四辺に取る |
 
+原稿と印刷時の寸法を分けるには `page.printScale: 0.83` または `page.printSize: B5`（`[182mm, 257mm]` も可）を指定する。両方の同時指定はエラー。既定の倍率は 1、範囲は `0 < s <= 1`。`printSize` は `orientation` を反映した印刷幅 ÷ 原稿の仕上がり幅で倍率を求め、縦横とも同じ倍率で縮小する（縦横比が異なる場合、高さは指定サイズと一致しない）。見開きでは 1 ページ分の幅を使う。解決した倍率は API の `layout[].geom.printScale` に入る。
+
+長さには `14Q@print`、`0.3mm@print` のように `@print` を付けられる。印刷後の寸法を表し、原稿上では倍率で割った mm に解決する。文字サイズ、線幅などに共通。トーンは `lpi: "85@print"` または `tone(20%, 85lpi@print)` とし、原稿の線数は `85 * s` になる。接尾辞なしの長さ・線数は従来どおり原稿基準。
+
 ### 4.1.1 基本枠の指定
 
 ```yaml
@@ -57,6 +61,7 @@ page:
 | `A5` | 148 × 210 | mm | 同人誌など |
 | `A6` | 105 × 148 | mm | 文庫判 |
 | `B4` | 257 × 364 | mm | |
+| `manga-b4` | 220 × 310 | mm | 商業漫画原稿（暫定）。基本枠 180 × 270 mm、塗り足し 5 mm、`printSize: B5` |
 | `B5` | 182 × 257 | mm | 同人誌・漫画雑誌（**既定**） |
 | `B6` | 128 × 182 | mm | 単行本など |
 | `postcard` | 100 × 148 | mm | はがき |
@@ -69,6 +74,20 @@ page:
 - 任意の寸法は `size: [182mm, 257mm]`、`size: [1080px, 1350px]` のように指定する。
 - `orientation: landscape` を指定すると縦横を入れ替える。
 - プラグインで判型プリセットを追加できる（[11.8](11-api.md#118-プラグイン)）。
+
+`manga-b4` の数値は暫定。設定ファイルの `pageSizes`、または `override: true` のプラグインの `pageSizes` で同名プリセットを置換できる。プリセットは寸法に加え `baseFrame`、`bleed`、`printSize`、`dpi` を持てる。ドキュメント／各ページの明示指定が優先される（明示した `printScale` はプリセットの `printSize` を置き換える）。例:
+
+```ts
+export default {
+  pageSizes: {
+    "manga-b4": {
+      width: 220, height: 310, unit: "mm",
+      baseFrame: { size: ["180mm", "270mm"] },
+      bleed: "5mm", printSize: "B5", dpi: 600,
+    },
+  },
+};
+```
 
 ## 4.3 本の設定
 
@@ -236,6 +255,20 @@ layout:
 | `yonkoma` | `title`（真偽値）、`titleHeight`、`columns`（`1` \| `2`） | 4 コマ漫画。`title: true` で上部に題の欄を作る。`columns: 2` で 2 本を読み順に並べる |
 | `hero-top` | `ratio`（大ゴマの高さの比、既定 0.5）、`below`（下段の cols） | 上に大ゴマ、下に小ゴマ |
 | `hero-bottom` | `ratio`、`above` | 下に大ゴマ |
+| `impact-diagonal` | `angle`（12 度）、`ratio`（0.5）、`direction`（`rows` / `cols`） | 斜めの太い間白で 2 分割 |
+| `cascade` | `counts`（`[1,2,1]`）、`angle`（6 度）、`heights` | 傾きが交互に反転する段組 |
+| `zoom-in` | `count`（3）、`ratio`（0.65）、`angle`（0 度） | 上に等幅の小ゴマ、下に大ゴマ |
+| `splash-with-insets` | `count`（1–3、既定 2）、`corners`（`[top-right,bottom-left]`）、`size`（0.3） | 全面の大ゴマに枠付き小ゴマを重ねる |
+| `vertical-strip` | `count`（3）、`ratios`（幅の比）、`angle`（2 度） | 右から左に読む縦長のコマ |
+| `spread-hero` | `ratio`（0.55）、`counts`（`[2,2]`）、`angle`（0 度） | 中央に見開き大ゴマ。上下段の指定数は片側ごとで、ノドをまたがない。単ページでも使用可 |
+
+動的テンプレートは `seed` とページ ID から微小な角度揺らぎ（±0.4 度）を決定する。同じ seed・ID なら再現できる。角度は度数法で、`impact-diagonal` の既定角は 8–20 度に制限する（明示指定は制限しない）。`splash-with-insets` は角度ではなく小ゴマの余白を微調整する。
+`impact-diagonal`、`vertical-strip`、`spread-hero`、`splash-with-insets` は既定で仕上がりまで広げ、外周に接する辺を自動で塗り足す。`params: { bleed: false }` で無効化でき、コマ自身の `bleed` 指定を優先する。
+小ゴマは通常の枠線で大ゴマの上に描画する。読み順は大ゴマが最初、その後は右上・左上・右下・左下の順（LTR では左右反転）。その他のテンプレートも書籍の読み方向に従う。
+
+![動的テンプレート一覧](images/gallery-templates.png)
+
+ギャラリーは `npx tsx scripts/gallery-templates.ts` で再生成できる。
 
 テンプレートは内部で `rows` または `split` に展開する。`mangacli inspect --layout` で展開結果を確認できる。プラグインでテンプレートを追加できる。
 
