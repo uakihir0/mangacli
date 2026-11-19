@@ -8,6 +8,22 @@ import { RasterBackend } from "../src/render/raster.js";
 import { inksToNodes } from "../src/elements/inkir.js";
 
 const renderer = createRenderer({ profile: "print-mono" });
+
+function expectConnected(data: Uint8Array | Uint8ClampedArray, width: number, height: number, channels: number) {
+  const ink = new Set<number>();
+  for (let i = 0; i < width * height; i++) if (data[i * channels] === 0) ink.add(i);
+  expect(ink.size).toBeGreaterThan(0);
+  const pending = [ink.values().next().value!];
+  ink.delete(pending[0]);
+  while (pending.length) {
+    const i = pending.pop()!, x = i % width, y = Math.floor(i / width);
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx, yy = y + dy, j = yy * width + xx;
+      if (xx >= 0 && xx < width && yy >= 0 && yy < height && ink.delete(j)) pending.push(j);
+    }
+  }
+  expect(ink.size).toBe(0);
+}
 const input = (width: number) => ({ yaml: `mangacli: 1
 page: { size: [25.4mm, 25.4mm], bleed: 0mm }
 pages:
@@ -28,6 +44,33 @@ function setup(width: number, dx: number, dy: number, slope: number, dpi = 600) 
 }
 
 describe("mono hairline protection", () => {
+  it("keeps a real thin crack 8-connected across subpixel phases", async () => {
+    for (let x = 0; x < 4; x++) for (let y = 0; y < 4; y++) {
+      const result = await renderer.render({ yaml: `mangacli: 1
+book: { pageNumbers: { enabled: false } }
+page: { size: [25.4mm, 25.4mm], bleed: 0mm }
+pages:
+  - panels: [{ border: none }]
+    layers:
+      - { effect: crack, id: fracture, seed: 42, center: [${12.7 + x * 25.4 / 600 / 4}mm, ${12.7 + y * 25.4 / 600 / 4}mm], radius: 8mm, count: 1, branching: 0, rings: 0, shade: none, thickness: [0.015mm, 0.015mm], pen: { minWidth: 0.01mm }, hand: clean }
+` }, { format: "png", dpi: 600 });
+      expect(result.diagnostics.some(d => d.code === "RENDER_HAIRLINE_THICKENED" && d.elementId === "fracture")).toBe(true);
+      const { data, info } = await sharp(result.pages[0].data).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+      expectConnected(data, info.width, info.height, info.channels);
+    }
+  });
+  it("keeps acute zigzags 8-connected across subpixel phases", async () => {
+    const s = 600 / 25.4;
+    for (let x = 0; x < 8; x++) for (let y = 0; y < 8; y++) {
+      const { backend, list, node } = setup(0.015, 0, 0, 0);
+      node.path = [[5, 5], [8, 40], [12, 6], [16, 39], [45, 40]].map(([xx, yy], i) => [i ? "L" : "M", (xx + x / 8) / s, (yy + y / 8) / s]);
+      node.paint = node.stroke!.paint;
+      delete node.stroke;
+      node.inkStrokes = [{ path: node.path, width: 0.015 }];
+      const result = await backend.render(list);
+      expectConnected(result.data, result.width, result.height, 4);
+    }
+  });
   it.each([false, true])("unions corrected and opposite-winding wide ink (mirrored=%s)", async (mirrored) => {
     const { backend, list } = setup(0.015, 0, 0, 0);
     const s = 600 / 25.4;

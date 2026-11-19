@@ -154,17 +154,28 @@ function pixelBand(path: PathData, m: Matrix, W: number, H: number): PathData {
     minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
   }
   const vertical = maxY - minY > maxX - minX;
-  const samples = new Map<number, Set<number>>();
+  const bands = [new Map<number, Set<number>>(), new Map<number, Set<number>>()];
+  const joins: { x: number; y: number; w: number; h: number }[] = [];
+  let previousAxis: boolean | undefined;
   for (let i = 1; i < points.length; i++) {
     let a = points[i - 1];
     let b = points[i];
-    if (vertical) { a = { x: a.y, y: a.x }; b = { x: b.y, y: b.x }; }
+    const major = vertical ? Math.abs(b.y - a.y) : Math.abs(b.x - a.x);
+    const minor = vertical ? Math.abs(b.x - a.x) : Math.abs(b.y - a.y);
+    const axis = minor > 2 * major ? !vertical : vertical;
+    if (previousAxis !== undefined && axis !== previousAxis) {
+      const x = Math.floor(a.x - 0.5), y = Math.floor(a.y - 0.5);
+      if (x < W && y < H && x + 2 > 0 && y + 2 > 0) joins.push({ x, y, w: 2, h: 2 });
+    }
+    previousAxis = axis;
+    const samples = bands[Number(axis)];
+    if (axis) { a = { x: a.y, y: a.x }; b = { x: b.y, y: b.x }; }
     if (a.x > b.x) [a, b] = [b, a];
     if (b.x === a.x) continue;
-    for (let x = Math.max(0, Math.ceil(a.x - 0.5)); x < (vertical ? H : W) && x + 0.5 < b.x; x++) {
+    for (let x = Math.max(0, Math.ceil(a.x - 0.5)); x < (axis ? H : W) && x + 0.5 < b.x; x++) {
       const t = (x + 0.5 - a.x) / (b.x - a.x);
       const minor = Math.floor(a.y + (b.y - a.y) * t - 0.5);
-      if (minor >= -1 && minor < (vertical ? W : H)) {
+      if (minor >= -1 && minor < (axis ? W : H)) {
         if (!samples.has(x)) samples.set(x, new Set());
         samples.get(x)!.add(minor);
       }
@@ -174,11 +185,10 @@ function pixelBand(path: PathData, m: Matrix, W: number, H: number): PathData {
   if (!det) return [];
   const inverse: Matrix = [m[3] / det, -m[1] / det, -m[2] / det, m[0] / det, (m[2] * m[5] - m[3] * m[4]) / det, (m[1] * m[4] - m[0] * m[5]) / det];
   const out: PathData = [];
-  for (const [major, crossings] of samples) for (const minor of crossings) {
-    const x = vertical ? minor : major;
-    const y = vertical ? major : minor;
-    const w = vertical ? 2 : 1;
-    const h = vertical ? 1 : 2;
+  for (const [axis, samples] of bands.entries()) for (const [major, crossings] of samples) for (const minor of crossings) {
+    joins.push({ x: axis ? minor : major, y: axis ? major : minor, w: axis ? 2 : 1, h: axis ? 1 : 2 });
+  }
+  for (const { x, y, w, h } of joins) {
     const corners = [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
     if (det < 0) corners.reverse();
     for (const [i, p] of corners.entries()) {
