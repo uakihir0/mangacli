@@ -120,15 +120,15 @@ const Outline = z.array(z.object({ width: Length, color: z.union([ColorStr, Pain
 const RegionBase: z.ZodType = z.lazy(() =>
   z.union([
     z.enum(["panel", "page", "trim", "bleed", "baseFrame"]),
-    z.object({ rect: Rect, feather: Length.optional() }).strict(),
-    z.object({ ellipse: Rect, feather: Length.optional() }).strict(),
-    z.object({ polygon: z.array(z.tuple([Length, Length])), feather: Length.optional() }).strict(),
-    z.object({ path: z.string(), feather: Length.optional() }).strict(),
-    z.object({ band: z.object({ side: z.enum(["top", "right", "bottom", "left"]), size: Length }).strict(), feather: Length.optional() }).strict(),
-    z.object({ element: z.string(), mode: z.enum(["bbox", "shape", "alpha"]).optional(), feather: Length.optional() }).strict(),
-    z.object({ union: z.array(RegionBase), feather: Length.optional() }).strict(),
-    z.object({ subtract: z.tuple([RegionBase, RegionBase]), feather: Length.optional() }).strict(),
-    z.object({ invert: RegionBase, feather: Length.optional() }).strict(),
+    z.object({ rect: Rect, margin: Length.optional(), feather: Length.optional() }).strict(),
+    z.object({ ellipse: Rect, margin: Length.optional(), feather: Length.optional() }).strict(),
+    z.object({ polygon: z.array(z.tuple([Length, Length])), margin: Length.optional(), feather: Length.optional() }).strict(),
+    z.object({ path: z.string(), margin: Length.optional(), feather: Length.optional() }).strict(),
+    z.object({ band: z.object({ side: z.enum(["top", "right", "bottom", "left"]), size: Length }).strict(), margin: Length.optional(), feather: Length.optional() }).strict(),
+    z.object({ element: z.string(), mode: z.enum(["bbox", "shape", "alpha"]).optional(), margin: Length.optional(), feather: Length.optional() }).strict(),
+    z.object({ union: z.array(RegionBase), margin: Length.optional(), feather: Length.optional() }).strict(),
+    z.object({ subtract: z.tuple([RegionBase, RegionBase]), margin: Length.optional(), feather: Length.optional() }).strict(),
+    z.object({ invert: RegionBase, margin: Length.optional(), feather: Length.optional() }).strict(),
   ]),
 );
 export const Region = RegionBase;
@@ -339,7 +339,7 @@ const sfxProps = {
 };
 
 const effectProps = z
-  .object({ ...common, type: z.literal("effect"), kind: z.string() })
+  .object({ ...common, type: z.literal("effect"), kind: z.string(), clear: z.union([Region, z.array(Region)]).optional(), clearFigures: z.boolean().optional(), minLength: Length.optional(), followPath: z.union([z.array(Point).min(2), z.object({ path: z.string() }).strict()]).optional() })
   .catchall(z.unknown());
 
 const fillProps = {

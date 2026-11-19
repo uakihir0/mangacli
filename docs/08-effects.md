@@ -12,7 +12,7 @@
 - type: effect
   kind: speed-lines
   angle: 10deg
-  clear: { element: taro1, mode: bbox }
+  clear: { element: taro1, mode: alpha, margin: 1mm }
 ```
 
 ### 8.1.1 共通プロパティ
@@ -27,11 +27,27 @@
 | `ruler` | 真偽値 | 種類による | 定規で引いた線にする（直線の効果線は `true`） |
 | `density` | 数値 | `1` | 線の本数の倍率 |
 | `background` | Paint | `none` | 線を描く前に `region` を塗る（例: `paper` で下の絵を隠す） |
-| `clear` | Region | - | 線を描かない範囲（人物の顔など）。`feather` で境界をぼかすと、線が徐々に短く・まばらになる |
+| `clear` | Region または Region の配列 | - | 線を描かない範囲。`{ element: taro1, mode: alpha, margin: 1mm }` で画像の透明度から輪郭を取り、余白を空けて入り抜きする |
+| `clearFigures` | 真偽値 | `true` | 集中線・ウニフラッシュ・流線・ベタフラッシュで、同じコマの人物画像を自動で抜く。明示した `clear` と併用可能 |
+| `minLength` | Length | `3mm` | 抜き処理後に残す線の最小長。元の線長の 5%・線幅の 6 倍よりも短い断片も捨てる。両端の入り抜きは各 40% 以下に抑え、点状の残りを防ぐ |
 | `seed` | 整数 | 導出 | シード |
 | `hand` | Hand | - | 手描き設定 |
 
 効果は、他の要素と同じく `layers` のリストの順に重なる。人物の背後に効果線を描く場合は、効果を画像より前に書く。
+
+ただし、背景まで不透明な一枚絵を後に重ねると効果線も隠れる。一枚絵に線を追加するときは画像の**後**に効果を書く。不透明な画像は人物抜きに使わない（明示的な `mode: alpha` なら `EFFECT_OPAQUE_CLEAR` 警告）。一枚絵の顔を避けるには `ellipse` や `polygon` の `clear` を指定する。`background` の既定値は `none`。`paper` を指定すると下の絵を覆うので注意。
+
+`margin` は白い抜きの幅（alpha の既定値は `1mm`、その他は `0mm`）。透明な人物切り抜き画像を使用する。線は輪郭の手前で分割され、新しい端の約 4mm（短い線では長さの 40% まで）で自然に細くなる。小さすぎる断片は描かない。alpha の `margin` を省略した場合は `feather` を余白幅として線・面の両方に適用する。その他の領域の `feather` はベタやトーンなど面の抜き境界をぼかす指定。
+
+```yaml
+- effect: speed-lines
+  clear:
+    - { element: taro1, mode: alpha, margin: 1mm }
+    - { ellipse: [70%, 30%, 12mm, 16mm], margin: 1mm }
+  followPath: [[0%, 70%], [50%, 25%], [100%, 40%]]
+```
+
+`speed-lines.followPath` はコマ座標の点列（2点以上）。点列を滑らかにつないだ進行方向に沿って流線を曲げる。SVG の開いたパス（mm、コマ左上原点）も `followPath: { path: "M0 60 Q50 0 100 40" }` として指定できる。最初のサブパスを使い、パスに沿う距離へ線の位置・長さを割り当て、法線方向へ並べる。指定時は `angle` より優先。鋭い折り返しや極端にきついカーブは避ける。
 
 ### 8.1.2 効果の一覧
 

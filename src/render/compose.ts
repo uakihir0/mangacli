@@ -184,7 +184,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
             // marks tied to the art are drawn before the balloons are placed, so balloons avoid them
             const refTo = [p0(el.props.target), p0(el.props.at), p0(el.props.anchorTo)].filter(Boolean) as string[];
             if (refTo.some((r) => balloonIds.has(r))) break;
-            const r = renderMisc(el, c2);
+            const r = await renderMisc(el, c2);
             processed.set(el.id, mkItem(el, r.nodes, r.bbox, panelIdx, i, source, ctx));
             break;
           }
@@ -269,7 +269,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       if (["image", "balloon", "text", "sfx"].includes(el.type) || el.props.visible === false || processed.has(el.id)) continue;
       const c2 = { ...ctx, coordsBox: coordsFor(el, ctx, geom) };
       try {
-        const nodes = renderMisc(el, c2);
+        const nodes = await renderMisc(el, c2);
         processed.set(el.id, mkItem(el, nodes.nodes, nodes.bbox, panelIdx, i, source, ctx));
       } catch (e) {
         bag.error("RENDER_FAILED", `${el.id}: ${(e as Error).message}`, { path: el.path, elementId: el.id });
@@ -620,11 +620,11 @@ function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["uni
 
 // ---- misc elements ---------------------------------------------------------------
 
-function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
+async function renderMisc(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[]; bbox: Rect }> {
   const p = el.props;
   switch (el.type) {
     case "effect": {
-      const nodes = renderEffect(el, ctx);
+      const nodes = await renderEffect(el, ctx);
       return { nodes, bbox: ctx.panel?.box ?? ctx.geom.trim };
     }
     case "fill": {
@@ -702,7 +702,7 @@ function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
       const cctx: ElemCtx = sized ? { ...ctx, coordsBox: { x: 0, y: 0, w: gw as number, h: gh as number }, localFrame: true } : ctx;
       const nodes: Node[] = [];
       for (const c of el.children ?? []) {
-        const r = c.type === "text" ? renderText(c, cctx) : c.type === "sfx" ? renderSfx(c, cctx) : renderMisc(c, cctx);
+        const r = c.type === "text" ? renderText(c, cctx) : c.type === "sfx" ? renderSfx(c, cctx) : await renderMisc(c, cctx);
         nodes.push(...r.nodes);
       }
       let transform: [number, number, number, number, number, number] | undefined;
@@ -807,7 +807,7 @@ function renderDraw(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
   return { nodes, bbox: boundsOf(pts) };
 }
 
-function renderScatter(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
+async function renderScatter(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[]; bbox: Rect }> {
   const p = el.props;
   const u = ctx.u;
   const reg = resolveRegion(p.region, ctx, ctx.panel ? "panel" : "page", [...el.path, "region"]);
@@ -880,7 +880,7 @@ function renderScatter(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect 
       // an inline element definition placed at the point
       const { weight: _w, ...def } = item;
       const sub: RElement = { id: `${el.id}-s${placed.length}`, type: String(item.type), path: el.path, seed: rng.nextU32(), props: { ...def, at, rotate: def.rotate ?? deg, scale: s } };
-      const r = sub.type === "text" ? renderText(sub, ctx) : sub.type === "sfx" ? renderSfx(sub, ctx) : renderMisc(sub, ctx);
+      const r = sub.type === "text" ? renderText(sub, ctx) : sub.type === "sfx" ? renderSfx(sub, ctx) : await renderMisc(sub, ctx);
       nodes.push(...r.nodes);
     }
   }
@@ -1312,18 +1312,46 @@ function collectTranscript(el: RElement, panel: string | undefined, info: PageLa
 
 function checkTextSafety(items: Item[], geom: PageGeom, bag: DiagnosticBag, page: RPage) {
   if (geom.units.units === "px") return;
+  const movement = (mm: number) => (Math.ceil(mm * 10 - 1e-9) / 10).toFixed(1);
   for (const it of items) {
     if (!["balloon", "text", "sfx"].includes(it.el.type)) continue;
     const b = it.bbox;
     const s = geom.safe;
     const intentionalBleed = it.el.type === "sfx" && it.el.props.bleed === true;
-    if (!intentionalBleed && (b.x < s.x - 0.5 || b.y < s.y - 0.5 || b.x + b.w > s.x + s.w + 0.5 || b.y + b.h > s.y + s.h + 0.5)) {
-      bag.warn("TEXT_OUTSIDE_SAFE_AREA", `${it.el.id} extends outside the safe area`, { path: it.el.path, elementId: it.el.id, pageId: page.id });
+    const t = geom.trim;
+    const edges = [
+      { side: "上", crossed: b.y < s.y - 0.5, safe: s.y - b.y, trim: t.y - b.y },
+      { side: "下", crossed: b.y + b.h > s.y + s.h + 0.5, safe: b.y + b.h - s.y - s.h, trim: b.y + b.h - t.y - t.h },
+      { side: "左", crossed: b.x < s.x - 0.5, safe: s.x - b.x, trim: t.x - b.x },
+      { side: "右", crossed: b.x + b.w > s.x + s.w + 0.5, safe: b.x + b.w - s.x - s.w, trim: b.x + b.w - t.x - t.w },
+    ];
+    const crossed = edges.filter((e) => e.crossed);
+    if (!intentionalBleed && crossed.length) {
+      const details = crossed.map((e) => {
+        const vertical = e.side === "上" || e.side === "下";
+        const excess = vertical ? b.h - s.h - 1 : b.w - s.w - 1;
+        const overflow = `${e.side}の${e.trim > 0 ? "断裁線" : "安全線"}を ${(e.trim > 0 ? e.trim : e.safe).toFixed(1)}mm 越えています`;
+        if (excess > 1e-9) return `${overflow}、移動だけでは安全領域の許容範囲に収まりません。${vertical ? "高さ" : "幅"}を ${movement(excess)}mm 以上小さくしてください`;
+        const opposite = edges[edges.indexOf(e) ^ 1]!;
+        const maxMove = -opposite.safe + 0.5;
+        const rounded = Number(movement(e.safe));
+        if (rounded <= maxMove) return `${overflow}、安全線まで ${rounded.toFixed(1)}mm 内側に入れてください`;
+        const minMove = e.safe - 0.5;
+        const hundredth = Math.floor(maxMove * 100) / 100;
+        const distance = hundredth >= minMove ? hundredth : maxMove;
+        return `${overflow}、反対側も許容範囲に収めるため ${distance}mm 内側に入れてください（安全線の許容差 0.5mm）`;
+      });
+      bag.warn("TEXT_OUTSIDE_SAFE_AREA", `${it.el.id}: ${details.join("；")}`, { path: it.el.path, elementId: it.el.id, pageId: page.id });
     }
     if (geom.type === "spread") {
-      const fm = page.settings.foldMargin !== undefined ? toMm(page.settings.foldMargin as string, geom.units) : 10;
+      const fm = geom.foldMargin;
       const cx = geom.trimW / 2;
-      if (b.x < cx + fm && b.x + b.w > cx - fm) bag.warn("TEXT_NEAR_FOLD", `${it.el.id} is near the spread fold`, { path: it.el.path, elementId: it.el.id });
+      if (b.x < cx + fm && b.x + b.w > cx - fm) {
+        const relation = b.x <= cx && b.x + b.w >= cx
+          ? `のどをまたいでいます（左側 ${(cx - b.x).toFixed(1)}mm、右側 ${(b.x + b.w - cx).toFixed(1)}mm）`
+          : `のどまで ${Math.max(b.x - cx, cx - b.x - b.w).toFixed(1)}mm です`;
+        bag.warn("TEXT_NEAR_FOLD", `${it.el.id}: ${relation}。警告帯（のどから左右 ${fm.toFixed(1)}mm）を避けるには左へ ${movement(b.x + b.w - cx + fm)}mm または右へ ${movement(cx + fm - b.x)}mm 移動してください`, { path: it.el.path, elementId: it.el.id, pageId: page.id });
+      }
     }
   }
 }
