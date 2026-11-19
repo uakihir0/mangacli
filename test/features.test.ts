@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { join } from "node:path";
+import { describe, expect, it } from "vitest";
 import { createRenderer } from "../src/api.js";
 import { parseFilter, applyFilters } from "../src/render/filters.js";
 import { phraseBoundaries } from "../src/text/linebreak.js";
