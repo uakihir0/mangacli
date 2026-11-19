@@ -339,8 +339,22 @@ const sfxProps = {
 };
 
 const effectProps = z
-  .object({ ...common, type: z.literal("effect"), kind: z.string(), clear: z.union([Region, z.array(Region)]).optional(), clearFigures: z.boolean().optional(), minLength: Length.optional(), followPath: z.union([z.array(Point).min(2), z.object({ path: z.string() }).strict()]).optional() })
-  .catchall(z.unknown());
+  .object({ ...common, type: z.literal("effect"), kind: z.string(),
+    clear: z.union([Region, z.array(Region)]).optional(), clearFigures: z.boolean().optional(), minLength: Length.optional(), followPath: z.union([z.array(Point).min(2), z.object({ path: z.string() }).strict()]).optional(),
+    size: z.union([Length, Size]).optional(),
+    origin: Point.optional(), direction: z.union([Angle, z.literal("both")]).optional(),
+    bolts: z.number().int().nonnegative().optional(), branches: z.number().int().nonnegative().optional(),
+    jaggedness: z.number().min(0).max(1).optional(), branching: z.number().min(0).max(1).optional(),
+    puffs: z.number().int().nonnegative().optional(), debris: z.number().int().nonnegative().optional(),
+    shade: Paint.optional(), target: Region.optional(),
+  })
+  .catchall(z.unknown()).superRefine((v, ctx) => {
+    if (v.kind === "crack" && v.center === undefined) ctx.addIssue({ code: "custom", path: ["center"], message: "crack requires center" });
+    if (["lightning", "crack", "dust", "smoke"].includes(v.kind)) {
+      const fields: Record<string, z.ZodType> = { center: Point, radius: Length, length: Length, thickness: RangeOf(Length), fill: Paint, stroke: Stroke, tone: Paint, background: Paint, count: z.number().int().nonnegative(), rings: z.number().int().nonnegative(), density: z.number().min(0).max(1) };
+      for (const [key, schema] of Object.entries(fields)) if (v[key] !== undefined && !schema.safeParse(v[key]).success) ctx.addIssue({ code: "custom", path: [key], message: `invalid ${key}` });
+    }
+  });
 
 const fillProps = {
   ...common,

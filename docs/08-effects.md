@@ -59,6 +59,10 @@
 | `speed-lines` | 流線 | 速さ、動き | P0 |
 | `swirl-lines` | 回転流線 | 回転、渦、めまい | P1 |
 | `impact` | 衝撃 | 打撃、衝突、爆発 | P1 |
+| `lightning` | 稲妻 | ショック、ガーン | P1 |
+| `crack` | 亀裂 | 地面、壁、ガラスの破壊 | P1 |
+| `dust` | 土煙 | 着地、衝突 | P1 |
+| `smoke` | 煙 | 爆発後、漂う煙 | P1 |
 | `gloom-lines` | 縦線 | 落ち込み、絶望（ガーン） | P1 |
 | `hatching` | ハッチング・カケアミ | 陰影、暗さ、背景の質感 | P1 |
 | `rain` | 雨 | 雨 | P1 |
@@ -222,6 +226,71 @@ passes:
 | `stroke` | Stroke | `{ width: 0.3mm, pen: g-pen }` | 形の輪郭 |
 | `double` | 真偽値 | `true` | 内側にもう 1 つのギザギザを描く |
 | `rays` | `{ count, length, thickness }` | `{ count: 24, length: [2mm, 8mm], thickness: [0.15mm, 0.4mm] }` | 外側の短い放射線 |
+
+### 8.7.1 稲妻（lightning）
+
+黒ベタに、黒い輪郭を持つ白い稲妻。枝は途中から分かれて先端へ細くなる。
+`background: paper` と `fill: black` で白地に黒い稲妻になる。
+
+| パラメータ | 型 | 既定値 | 説明 |
+|---|---|---|---|
+| `origin` | Point | 上辺の各所 | 指定時は全て同じ始点 |
+| `direction` | Angle | `90deg` | 下向き |
+| `bolts` | 整数 | `3` | 主稲妻の本数 |
+| `branches` | 整数 | `2` | 主稲妻ごとの枝数 |
+| `length` | Length / % | `90%` | 領域の高さに対する長さ |
+| `thickness` | Range | `[1.2bmm, 3bmm]` | 根元の太さ |
+| `jaggedness` | 0〜1 | `0.8` | 折れ曲がりの強さ |
+| `fill` | Paint | `paper` | 稲妻の面 |
+| `stroke` | Stroke | `{ width: 0.25bmm }` | 黒い輪郭 |
+| `background` | Paint | `black` | 領域の背景 |
+
+### 8.7.2 亀裂（crack）
+
+放射状に割れた主線と枝、隣り合う線をつなぐ割れ目。片側の細い影が奥行きを作る。
+
+| パラメータ | 型 | 既定値 | 説明 |
+|---|---|---|---|
+| `center` | Point | 必須 | 破壊の中心 |
+| `radius` | Length / % | `30%` | 領域の短辺に対する半径 |
+| `count` | 整数 | `7` | 主亀裂の数 |
+| `branching` | 0〜1 | `0.35` | 分岐の頻度 |
+| `rings` | 整数 | `1` | 主亀裂をつなぐ段数 |
+| `thickness` | Range | `[0.15bmm, 0.65bmm]` | 先端へ抜く線幅 |
+| `shade` | Paint | `black` | 片側の影。`none` で無効 |
+| `target` | Region | region | `{ element: x }` など、対象面でクリップ |
+
+### 8.7.3 土煙（dust）
+
+着地点から左右に広がる、大小の波打つ雲塊と飛び散る小石。
+
+| パラメータ | 型 | 既定値 | 説明 |
+|---|---|---|---|
+| `origin` | Point | 領域の下中央 | 着地点 |
+| `direction` | `both` / Angle | `both` | 左右、または指定方向へ広がる |
+| `size` | Length / % | `25%` | 領域の短辺に対する大きさ |
+| `puffs` | 整数 | `7` | 雲塊数。根元ほど大きい |
+| `fill` | Paint | `paper` | 雲の面 |
+| `stroke` | Stroke | `{ width: 0.3bmm }` | Gペン風の輪郭 |
+| `tone` | Paint | `none` | 下面の陰影 |
+| `debris` | 整数 | `10` | 小石と破片の数 |
+
+### 8.7.4 煙（smoke）
+
+爆発後に漂う柔らかい輪郭と、内部の巻き込む線。`origin` の指定で煙柱になる。
+
+| パラメータ | 型 | 既定値 | 説明 |
+|---|---|---|---|
+| `origin` | Point | なし | 省略時は領域全体に分布 |
+| `direction` | Angle | `-90deg` | 煙柱の流れる方向 |
+| `density` | 0〜1 | `0.5` | 煙の数・被覆率。0 で無効 |
+| `fill` | Paint | `paper` | 煙の面 |
+| `stroke` | Stroke | `{ width: 0.2bmm }` | 柔らかい輪郭 |
+| `tone` | Paint | `none` | 下面の陰影 |
+
+全て `seed` で再現可能。共通の `region`、`clear`、`color`、`opacity`、`hand`、`background` を利用できる。
+印刷モノクロでも輪郭（ink）と面（fill / tone）は別ノード。
+実行可能な比較ページ: [impact-effects.yaml](examples/impact-effects.yaml)。
 
 ## 8.8 縦線（gloom-lines）
 
@@ -545,6 +614,9 @@ paint: { pattern: { asset: flower-tone, scale: 0.5, rotate: 15deg, offset: [0, 0
 | 場面 | 組み合わせ |
 |---|---|
 | 驚き・ショック | `beta-flash` + 人物 + `mark: surprise` + `as: shout` の吹き出し |
+| ガーン | `lightning` + `gloom-lines`（白線）または `crack` + `sfx: ガーン` |
+| 着地 | `dust` + `impact` + `sfx: ドン` |
+| 爆発後 | `smoke`（`tone` 付き）+ `crack` + `sfx: ゴゴゴ` |
 | 絶望 | `gloom-lines`（`tone` 付き）+ `mark: tremble` + `as: tremble` の吹き出し |
 | 決めゴマ | 断ち切りのコマ + `focus-lines`（`passes` で 2 重）+ `sfx` |
 | 走る・飛ぶ | `speed-lines`（`clear` で人物を避ける）+ `mark: motion` + `sfx`（`distort.skew`） |
@@ -570,4 +642,12 @@ paint: { pattern: { asset: flower-tone, scale: 0.5, rotate: 15deg, offset: [0, 0
       grow: -0.1
   dialogue:
     - { who: taro, as: shout, text: そんな…… }
+```
+
+```yaml
+# 黒ベタに白い稲妻と絶望の線
+- layers:
+    - { effect: lightning, bolts: 5, seed: 19 }
+    - { effect: gloom-lines, color: paper, opacity: 0.35 }
+    - { sfx: ガーン, at: [35%, 30%], fontSize: 18mm, color: paper, outline: 0.6mm black }
 ```
