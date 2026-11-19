@@ -339,7 +339,7 @@ const sfxProps = {
 };
 
 const effectProps = z
-  .object({ ...common, type: z.literal("effect"), kind: z.string(), clear: z.union([Region, z.array(Region)]).optional(), clearFigures: z.boolean().optional(), followPath: z.union([z.array(Point).min(2), z.object({ path: z.string() }).strict()]).optional() })
+  .object({ ...common, type: z.literal("effect"), kind: z.string(), clear: z.union([Region, z.array(Region)]).optional(), clearFigures: z.boolean().optional(), minLength: Length.optional(), followPath: z.union([z.array(Point).min(2), z.object({ path: z.string() }).strict()]).optional() })
   .catchall(z.unknown());
 
 const fillProps = {

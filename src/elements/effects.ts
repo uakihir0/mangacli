@@ -37,13 +37,20 @@ interface FxCtx {
 function effectLine(f: FxCtx, ...args: Parameters<typeof inkLine>): InkPoly[] {
   if (!f.clears.length) return inkLine(...args);
   const [points, style, hand, rng, opts = {}] = args;
-  const runs = splitClearLine(points, (p) => f.clears.some((c) => c.contains(p, style.width * 0.8 + hand.wobbleAmp * 2 + hand.tremorAmp * 2)), 0.15 * f.k, 0.8 * f.k);
+  let nominalLength = 0;
+  for (let i = 1; i < points.length; i++) nominalLength += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+  const minimum = Math.max(L(f, f.p.minLength ?? "3mm"), nominalLength * 0.05, style.width * 6);
+  const runs = splitClearLine(points, (p) => f.clears.some((c) => c.contains(p, style.width * 0.8 + hand.wobbleAmp * 2 + hand.tremorAmp * 2)), 0.15 * f.k, minimum);
   return runs.flatMap((run) => {
     let length = 0;
     for (let i = 1; i < run.length; i++) length += Math.hypot(run[i].x - run[i - 1].x, run[i].y - run[i - 1].y);
     const cutStart = Math.hypot(run[0].x - points[0].x, run[0].y - points[0].y) > 0.01;
     const cutEnd = Math.hypot(run.at(-1)!.x - points.at(-1)!.x, run.at(-1)!.y - points.at(-1)!.y) > 0.01;
-    return inkLine(run, style, { ...hand, rulerAngleError: 0, taper: cutStart || cutEnd ? Math.max(1, hand.taper) : hand.taper }, rng, { ...opts, taperIn: cutStart || opts.taperIn, taperOut: cutEnd || opts.taperOut, taperInLen: cutStart ? Math.min(4 * f.k, length * 0.4) : opts.taperInLen, taperOutLen: cutEnd ? Math.min(4 * f.k, length * 0.4) : opts.taperOutLen });
+    const taperLimit = length * 0.4;
+    return inkLine(run, style, { ...hand, rulerAngleError: 0, taper: cutStart || cutEnd ? Math.max(1, hand.taper) : hand.taper }, rng, { ...opts, taperIn: cutStart || opts.taperIn, taperOut: cutEnd || opts.taperOut, taperInLen: Math.min(taperLimit, cutStart ? 4 * f.k : opts.taperInLen ?? f.pen.taperIn * hand.taper), taperOutLen: Math.min(taperLimit, cutEnd ? 4 * f.k : opts.taperOutLen ?? f.pen.taperOut * hand.taper) }).filter((poly) => {
+      const xs = poly.pts.map((p) => p.x), ys = poly.pts.map((p) => p.y);
+      return Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) >= minimum;
+    });
   });
 }
 

@@ -31,7 +31,6 @@ pages:
             spacing: [0.6mm, 1.6mm]
             length: [65%, 100%]
             thickness: [0.12mm, 0.55mm]
-            followPath: [[0%, 65%], [50%, 30%], [100%, 55%]]
       - layers:
           - { image: opaque, id: opaque-hero }
           - effect: focus-lines

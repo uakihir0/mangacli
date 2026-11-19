@@ -29,6 +29,7 @@
 | `background` | Paint | `none` | 線を描く前に `region` を塗る（例: `paper` で下の絵を隠す） |
 | `clear` | Region または Region の配列 | - | 線を描かない範囲。`{ element: taro1, mode: alpha, margin: 1mm }` で画像の透明度から輪郭を取り、余白を空けて入り抜きする |
 | `clearFigures` | 真偽値 | `true` | 集中線・ウニフラッシュ・流線・ベタフラッシュで、同じコマの人物画像を自動で抜く。明示した `clear` と併用可能 |
+| `minLength` | Length | `3mm` | 抜き処理後に残す線の最小長。元の線長の 5%・線幅の 6 倍よりも短い断片も捨てる。両端の入り抜きは各 40% 以下に抑え、点状の残りを防ぐ |
 | `seed` | 整数 | 導出 | シード |
 | `hand` | Hand | - | 手描き設定 |
 

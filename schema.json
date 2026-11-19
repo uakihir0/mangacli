@@ -4333,6 +4333,9 @@
                     "clearFigures": {
                       "type": "boolean"
                     },
+                    "minLength": {
+                      "$ref": "#/$defs/__schema0"
+                    },
                     "followPath": {
                       "anyOf": [
                         {

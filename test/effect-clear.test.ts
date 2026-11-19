@@ -91,6 +91,32 @@ describe("effect silhouette clears", () => {
     for (const poly of polys) for (const p of poly) if (p.y >= 0 && p.y <= 60) expect(p.x < 10 || p.x > 18, JSON.stringify(p)).toBe(true);
   });
 
+  it.each(["speed-lines", "focus-lines", "uni-flash", "rain", "gloom-lines"])("%s drops cut polygons below minLength", async (kind) => {
+    const polys = await lines({ kind, minLength: "6mm", length: "60mm", inner: ["1mm", "1mm"], count: 180, clear: { element: "hero", mode: "alpha" } });
+    expect(polys.length).toBeGreaterThan(5);
+    for (const poly of polys) {
+      const xs = poly.map((p) => p.x), ys = poly.map((p) => p.y);
+      expect(Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys))).toBeGreaterThanOrEqual(6);
+    }
+  });
+
+  it("clearing straight speed lines preserves their horizontal direction", async () => {
+    const polys = await lines({ minLength: "3mm", pen: { preset: "maru-pen", cap: "flat" } });
+    expect(polys.length).toBeGreaterThan(20);
+    for (const poly of polys) {
+      const xs = poly.map((p) => p.x), left = Math.min(...xs), right = Math.max(...xs);
+      const ys = [0.25, 0.5, 0.75].map((t) => {
+        const x = left + (right - left) * t;
+        const hits = poly.flatMap((a, i) => {
+          const b = poly[(i + 1) % poly.length];
+          return (a.x < x) !== (b.x < x) ? [a.y + (b.y - a.y) * (x - a.x) / (b.x - a.x)] : [];
+        });
+        return (Math.max(...hits) + Math.min(...hits)) / 2;
+      });
+      expect(Math.max(...ys) - Math.min(...ys)).toBeLessThan(0.0001);
+    }
+  });
+
   it("followPath bends the local line direction and accepts an SVG guide", async () => {
     for (const followPath of [[["0mm", "45mm"], ["50mm", "15mm"], ["100mm", "45mm"]], { path: "M0 45 Q50 -15 100 45" }]) {
       const curved = await lines({ clearFigures: false, followPath });
