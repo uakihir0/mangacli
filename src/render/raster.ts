@@ -5,7 +5,7 @@ import type { PathData } from "../geom/path.js";
 import { type Matrix, type Rect, applyMat, matMul } from "../geom/vec.js";
 import type { AssetRegistry } from "./assets.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
-import { makeToneSampler } from "./screen.js";
+import { makeBinaryRoundToneSampler, makeToneSampler } from "./screen.js";
 import { distanceSquared } from "./edt.js";
 import { applyFilters } from "./filters.js";
 
@@ -520,7 +520,11 @@ export class RasterBackend {
     }
     const target = this.target(dev, r);
     const gradDensity = flat && spec.gradient ? true : false;
-    const sampler = makeToneSampler(spec, target, densityFn);
+    const origin = applyMat(dev.base, { x: spec.offset[0], y: spec.offset[1] });
+    const binaryRound = mode === "mono" && p.type === "tone" && spec.dot === "round" && !spec.gradient
+      ? makeBinaryRoundToneSampler(spec, cellPx, 0.5 - origin.x, 0.5 - origin.y)
+      : undefined;
+    const sampler = binaryRound ? (x: number, y: number) => binaryRound(x + r.x, y + r.y) : makeToneSampler(spec, target, densityFn);
     const alphaSampler = alphaFn ? makeToneSampler({ ...spec, angle: 0, seed: 11, grain: 0.15 }, target, alphaFn) : null;
     const ss = mode === "mono" ? 1 : 2;
     const tc = grayize(color, mode);

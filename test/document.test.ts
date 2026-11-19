@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import sharp from "sharp";
 import { load, render, validate } from "../src/api.js";
 
 const yaml = (s: string) => ({ yaml: s, filename: "/virtual/test.yaml" });
@@ -68,6 +69,47 @@ describe("rendering", () => {
     // IHDR bit depth
     expect(png[24]).toBe(1);
   });
+  it("keeps 600 dpi round screens at nominal density and limits 30-degree banding", async () => {
+    const screens = [
+      { lpi: 60, angle: 45 },
+      { lpi: 60, angle: 30, maxTileSpread: 1.8 },
+      { lpi: 85, angle: 45 },
+      { lpi: 85, angle: 30, maxTileSpread: 1.1 },
+    ];
+    const probe = `mangacli: 1
+meta: { title: Print probe, lang: en }
+page: { size: B5, color: mono }
+pages:
+  - id: screens
+    layout: { rows: [{cols: [1, 1]}, {cols: [1, 1]}] }
+    panels:
+${screens.map(({ lpi, angle }) => `      - background: { tone: { density: 35%, lpi: ${lpi}, angle: ${angle}deg } }`).join("\n")}
+`;
+    const r = await render(yaml(probe), { profile: "print-mono", crop: "marks" });
+    const png = Buffer.from(r.pages[0].data);
+    expect(png[24]).toBe(1);
+    const { data, info } = await sharp(png).greyscale().raw().toBuffer({ resolveWithObject: true });
+    for (const [i, { lpi, angle, maxTileSpread }] of screens.entries()) {
+      const x0 = i % 2 ? 2857 : 1056;
+      const y0 = i >= 2 ? 4171 : 1514;
+      const tiles = new Uint16Array(400);
+      let black = 0;
+      for (let y = 0; y < 1000; y++) {
+        for (let x = 0; x < 1000; x++) {
+          if (data[(y0 + y) * info.width + x0 + x] === 0) {
+            black++;
+            tiles[Math.floor(y / 50) * 20 + Math.floor(x / 50)]++;
+          }
+        }
+      }
+      const label = `${lpi} LPI at ${angle} degrees`;
+      expect(Math.abs(black / 10000 - 35), label).toBeLessThan(0.1);
+      if (maxTileSpread !== undefined) {
+        const tileSpread = (Math.max(...tiles) - Math.min(...tiles)) / 25;
+        expect(tileSpread, label).toBeLessThan(maxTileSpread);
+      }
+    }
+  }, 15000);
   it("writes PDF with trim and bleed boxes", async () => {
     const r = await render(yaml(doc.replace("bleed: 0", "bleed: 3mm")), { profile: "print-mono", dpi: 100, format: "pdf" });
     const pdf = Buffer.from(r.pages[0].data).toString("latin1");
