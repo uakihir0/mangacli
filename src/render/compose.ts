@@ -28,6 +28,7 @@ import { BODY_GENERATORS } from "../shapes/balloon.js";
 import { defaultTextStyle, layoutText } from "../text/layout.js";
 import { parseMarkup } from "../text/markup.js";
 import type { AssetRegistry } from "./assets.js";
+import { cleanClippedBalloonInk } from "./balloon-clip.js";
 import type { DisplayList, GroupNode, Node } from "./ir.js";
 
 type Obj = Record<string, unknown>;
@@ -324,7 +325,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   const free = items.filter((i) => !i.stackUnder);
   free.sort((a, b) => a.z - b.z || a.layer - b.layer || a.source - b.source || a.panelIdx - b.panelIdx || (a.layer === 1 && b.layer === 1 ? b.listIdx - a.listIdx : a.listIdx - b.listIdx));
   for (const it of free) {
-    if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, children: it.nodes });
+    if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, children: it.el.type === "balloon" ? cleanClippedBalloonInk(it.openClip)(it.nodes) : it.nodes });
     else root.children.push(...it.nodes);
   }
   // page numbers
@@ -433,8 +434,10 @@ function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: Retur
   const bg = parsePaint(p.background ?? "paper", { u, box: pg.fullBox, seed: pg.panel.seed, bag, path: [...pg.panel.path, "background"] });
   const inner: Node[] = [];
   if (bg) inner.push({ kind: "path", path: polyPath(poly, true), fillRule: "nonzero", paint: bg, tag: { elementId: pg.panel.id, elementType: "panel", role: "background", separation: "background" } });
-  for (const it of clipped) inner.push(...it.nodes);
-  out.push({ kind: "group", clip: isShaped ? smoothPath(poly, true) : polyPath(poly, true), children: inner, tag: { elementId: pg.panel.id, elementType: "panel", role: "art", separation: "art" } });
+  const clip = isShaped ? smoothPath(poly, true) : polyPath(poly, true);
+  const cleanBalloonInk = cleanClippedBalloonInk(clip);
+  for (const it of clipped) inner.push(...(it.el.type === "balloon" ? cleanBalloonInk(it.nodes) : it.nodes));
+  out.push({ kind: "group", clip, children: inner, tag: { elementId: pg.panel.id, elementType: "panel", role: "art", separation: "art" } });
   out.push(...borderNodes(pg, poly, isShaped, geom, bag));
   return out;
 }
