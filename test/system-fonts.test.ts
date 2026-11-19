@@ -24,7 +24,7 @@ const numberManga = (system: string) => ({
   pages: [{ type: "blank" }],
 });
 
-async function writeNamedFont(path: string, records: { id: number; language: number; name: string }[], metrics?: { weight: number; selection?: number }) {
+async function writeNamedFont(path: string, records: { id: number; language: number; name: string }[], metrics?: { weight: number; width?: number; selection?: number }) {
   const strings = records.map(({ name }) => Buffer.from(name, "utf16le").swap16());
   const storage = 6 + records.length * 12;
   const name = Buffer.alloc(storage);
@@ -48,6 +48,7 @@ async function writeNamedFont(path: string, records: { id: number; language: num
     sfnt.writeUInt32BE(sfnt.length + storage + offset, 36);
     sfnt.writeUInt32BE(os2.length, 40);
     os2.writeUInt16BE(metrics.weight, 4);
+    os2.writeUInt16BE(metrics.width ?? 5, 6);
     os2.writeUInt16BE(metrics.selection ?? 0, 62);
   }
   await writeFile(path, Buffer.concat([sfnt, name, ...strings, os2]));
@@ -96,6 +97,23 @@ it("uses OpenType weight and slope rather than assuming a style is literally nam
     await writeNamedFont(italic, names("10 Italic"), { weight: 400, selection: 1 });
     await writeNamedFont(regular, names("10 Regular"), { weight: 400 });
     const faces = [...await readSystemFontFaces(bold), ...await readSystemFontFaces(italic), ...await readSystemFontFaces(regular)];
+    expect(findSystemFont(faces, "Example Roman")?.path).toBe(regular);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+it.each([
+  ["Italic", 5],
+  ["Condensed", 3],
+] as const)("prefers standard family faces to %s faces even without OS/2 style flags", async (style, width) => {
+  const dir = await mkdtemp(join(tmpdir(), "mc-font-"));
+  try {
+    const names = (style: string) => [{ id: 1, language: 0x0409, name: "Example Roman" }, { id: 2, language: 0x0409, name: style }];
+    const alternate = join(dir, `${style}.otf`), regular = join(dir, "Regular.otf");
+    await writeNamedFont(alternate, names(style), { weight: 400, width });
+    await writeNamedFont(regular, names("Regular"), { weight: 400 });
+    const faces = [...await readSystemFontFaces(alternate), ...await readSystemFontFaces(regular)];
     expect(findSystemFont(faces, "Example Roman")?.path).toBe(regular);
   } finally {
     await rm(dir, { recursive: true, force: true });

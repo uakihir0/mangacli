@@ -103,7 +103,7 @@ function parseNames(table: Buffer) {
   return names;
 }
 
-/** Read only directories and name tables, not the outlines (CJK collections can be large). */
+/** Read only font metadata, not the outlines (CJK collections can be large). */
 export async function readSystemFontFaces(path: string): Promise<SystemFontFace[]> {
   const faces: SystemFontFace[] = [];
   try {
@@ -123,7 +123,7 @@ export async function readSystemFontFaces(path: string): Promise<SystemFontFace[
           if (!sfntTags.has(header.toString("latin1", 0, 4))) continue;
           const tables = await read(file, offset + 12, header.readUInt16BE(4) * 16);
           let names: ReturnType<typeof parseNames> | undefined;
-          let regular: boolean | undefined;
+          let regularMetrics: boolean | undefined;
           for (let pos = 0; pos < tables.length; pos += 16) {
             const tag = tables.toString("latin1", pos, pos + 4);
             const start = tables.readUInt32BE(pos + 8);
@@ -133,16 +133,20 @@ export async function readSystemFontFaces(path: string): Promise<SystemFontFace[
             } else if (tag === "OS/2" && length >= 64) {
               const os2 = await read(file, start, 64);
               const weight = os2.readUInt16BE(4);
+              const width = os2.readUInt16BE(6);
               const flags = os2.readUInt16BE(62);
               // fsSelection marks italic (bit 0), bold (5), and oblique (9).
-              if (weight > 0 && weight <= 1000) regular = weight === 400 && (flags & 0x221) === 0;
+              if (weight > 0 && weight <= 1000 && width >= 1 && width <= 9)
+                regularMetrics = weight === 400 && width === 5 && (flags & 0x221) === 0;
             }
           }
           if (!names) continue;
           const get = (...ids: number[]) => [...new Set(ids.flatMap((id) => [...(names.get(id) ?? [])]))];
           const families = get(16, 1, 21), fullNames = get(4), postScriptNames = get(6);
-          const styles = get(17, 22);
-          regular ??= (styles.length ? styles : get(2)).some((name) => /^(regular|normal|roman|book|標準)$/i.test(name));
+          const modernStyles = get(17, 22);
+          const styles = modernStyles.length ? modernStyles : get(2);
+          const slanted = styles.some((name) => /\b(?:italic|oblique|slanted)\b/i.test(name));
+          const regular = !slanted && (regularMetrics ?? styles.some((name) => /^(regular|normal|roman|book|標準)$/i.test(name)));
           if (families.length || fullNames.length || postScriptNames.length)
             faces.push({ path, index, families, fullNames, postScriptNames, regular });
         } catch {
