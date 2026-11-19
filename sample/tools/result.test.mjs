@@ -49,6 +49,24 @@ test("reports a terminal REST failure", async () => {
   await assert.rejects(waitForImage(project(), async () => ({ status: "failed", jobs: [], failure: { message: "generation failed" } }), timings), /generation failed/);
 });
 
+test("honors the SDK retry delay even when socket progress reaches 100%", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 0 });
+  const job = project();
+  let calls = 0;
+  const result = waitForImage(job, async () => {
+    if (++calls === 1) throw Object.assign(new Error("rate limited"), { retryAfter: 60 });
+    return image;
+  }, { ...timings, timeout: 120_000 });
+  t.mock.timers.tick(timings.checkAfter);
+  await Promise.resolve();
+  job.emit("progress", 100);
+  t.mock.timers.tick(59_999);
+  assert.equal(calls, 1);
+  t.mock.timers.tick(1);
+  assert.equal(await result, image.jobs[0].url);
+  assert.equal(calls, 2);
+});
+
 test("cleans up when a result remains unavailable", async () => {
   const job = project();
   await assert.rejects(waitForImage(job, () => new Promise(() => {}), { ...timings, timeout: 30 }), /timeout/);

@@ -1,10 +1,10 @@
 export async function waitForImage(project, getResult, { timeout, checkAfter = 90_000, retryAfter = 30_000, progressDelay = 3_000 }) {
-  let deadline, check, checking = false, settled = false, reachedFullProgress = false;
+  let deadline, check, checking = false, settled = false, reachedFullProgress = false, retryNotBefore = 0;
   let onProgress, onJobCompleted;
   const result = new Promise((resolve, reject) => {
     const scheduleCheck = (delay) => {
       clearTimeout(check);
-      check = setTimeout(recover, delay);
+      check = setTimeout(recover, Math.min(timeout, Math.max(delay, retryNotBefore - Date.now())));
     };
     const recover = async () => {
       if (checking || settled) return;
@@ -12,8 +12,10 @@ export async function waitForImage(project, getResult, { timeout, checkAfter = 9
       let status;
       try {
         status = await getResult();
-      } catch {
-        // The result may not have been persisted yet, or the socket may still complete.
+      } catch (error) {
+        if (Number.isFinite(error?.retryAfter) && error.retryAfter > 0) {
+          retryNotBefore = Date.now() + error.retryAfter * 1_000;
+        }
       } finally {
         checking = false;
       }
