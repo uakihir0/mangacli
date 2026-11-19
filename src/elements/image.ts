@@ -146,9 +146,12 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect):
     return { nodes, bbox: pl.bbox };
   }
   // resolution check
-  const effPpi = (cw / (dw / 25.4));
+  const effPpi = Math.min(cw / (dw / 25.4), ch / (dh / 25.4));
   const need = info!.kind === "lineart" ? ctx.outputDpi * 0.9 : ctx.outputDpi * 0.5;
-  if (effPpi < need * 0.999) ctx.bag.warn("ASSET_LOW_RESOLUTION", `${src}: effective ${Math.round(effPpi)} ppi < ${Math.round(need)} ppi`, { path: el.path, elementId: el.id });
+  if (effPpi < need * 0.999) {
+    const scale = Math.max(1, need / effPpi);
+    ctx.bag.warn("ASSET_LOW_RESOLUTION", `${src}: effective ${Math.round(effPpi)} ppi < required ${Math.round(need)} ppi (${info!.kind === "lineart" ? "line art" : "general"} threshold); asset ${iw}×${ih} px; use at least ${Math.ceil(iw * scale)}×${Math.ceil(ih * scale)} px at this display size (same framing/aspect ratio)`, { path: el.path, elementId: el.id });
+  }
   const blend = (p.blend as string) ?? info!.blend ?? (info!.kind === "lineart" || info!.kind === "texture" ? "multiply" : "normal");
   const img: Node = {
     kind: "image",
