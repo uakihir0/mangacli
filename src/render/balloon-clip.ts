@@ -55,7 +55,9 @@ function extendCornerFill(node: Node, panel: Vec[], panelPoly: Polygon, boxes: R
 
 /** Remove only isolated short pieces cut by a panel, not intentionally short, uncut ink. */
 export function cleanClippedBalloonInk(clip: PathData): (nodes: Node[]) => Node[] {
-  const panel = flattenPath(clip, FLATNESS_MM)[0]?.pts;
+  const paths = flattenPath(clip, FLATNESS_MM);
+  if (paths.length !== 1) return (nodes) => nodes;
+  const panel = paths[0]?.pts;
   if (!panel || panel.length < 3) return (nodes) => nodes;
   const panelBounds = boundsOf(panel);
   const panelPoly = [ring(panel)];
