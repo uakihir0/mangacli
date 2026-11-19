@@ -21,7 +21,7 @@ describe("examples", () => {
     join(dir, "b5-mono.yaml"),
     join(dir, "..", "..", "sample", "manga.yaml"),
     join(dir, "..", "..", "sample", "shonen-proof.yaml"),
-  ])("has no low-resolution rooftop art in print: %s", async (file) => {
+  ])("has no low-resolution art in print: %s", async (file) => {
     const r = await validate(file, { profile: "print-mono" });
     expect(r.ok).toBe(true);
     expect(r.diagnostics.filter((d) => d.code === "ASSET_LOW_RESOLUTION")).toEqual([]);

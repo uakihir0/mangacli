@@ -33,14 +33,14 @@ defaults:
 assets:
   p1-1: { src: ./art/p1-1.png, kind: background }
   p1-2: { src: ./art/p1-2.png, character: hayato, anchors: { mouth: [690, 910] }, regions: { face: [460, 420, 600, 655] } }
-  p1-3: { src: ./art/p1-3.png, character: mio, anchors: { mouth: [880, 700] }, regions: { face: [765, 535, 260, 225] } }
-  p2-1: { src: ./art/p2-1.png, character: mio, anchors: { mouth: [660, 970] }, regions: { face: [480, 615, 490, 430] } }
+  p1-3: { src: ./art/p1-3.png, character: mio, anchors: { mouth: [905, 650] }, regions: { face: [800, 485, 216, 236] } }
+  p2-1: { src: ./art/p2-1.png, character: mio, anchors: { mouth: [654, 965] }, regions: { face: [424, 615, 537, 423] } }
   p2-2: { src: ./art/p2-2.png, character: hayato, anchors: { mouth: [1020, 400] }, regions: { face: [855, 240, 390, 230] } }
   p2-3: { src: ./art/p2-3.png, character: mio, anchors: { mouth: [780, 1010] }, regions: { face: [565, 565, 610, 490] } }
   p2-4: { src: ./art/p2-4.png, character: mio }
   p3-1: { src: ./art/p3-1.png, character: mio, anchors: { mouth: [1160, 500] }, regions: { face: [1080, 400, 250, 200] } }
-  p3-2: { src: ./art/p3-2.png, character: hayato, anchors: { mouth: [950, 480] }, regions: { face: [840, 325, 350, 250] } }
-  p3-3: { src: ./art/p3-3.png, character: mio, anchors: { mouth: [775, 890] }, regions: { face: [660, 620, 330, 330] } }
+  p3-2: { src: ./art/p3-2.png, character: hayato, anchors: { mouth: [714, 569] }, regions: { face: [565, 330, 340, 300] } }
+  p3-3: { src: ./art/p3-3.png, character: mio, anchors: { mouth: [779, 782] }, regions: { face: [576, 497, 472, 351] } }
   p3-4: { src: ./art/p3-4.png, kind: background }
   p4-1: { src: ./art/p4-1.png, character: mio, anchors: { mouth: [1220, 790], hayato: [570, 665] }, regions: { face: [1020, 450, 400, 500], avoid: [400, 350, 325, 430] } }
   p4-2: { src: ./art/p4-2.png, character: mio, anchors: { mouth: [1000, 1110] }, regions: { face: [830, 710, 455, 475] } }
@@ -86,7 +86,7 @@ pages:
         layers:
           - { image: p2-1, id: mio2, focus: [0.5, 0.35] }
         dialogue:
-          - { mio: "今日こそ\n決着を\nつけるわ!!", as: shout, at: [76%, 27%], fontScale: 0.96, tail: { to: mio2.mouth, root: 148deg } }
+          - { mio: "今日こそ\n決着を\nつけるわ!!", as: shout, at: [77%, 53%], fontScale: 0.9, tail: { to: mio2.mouth, root: 148deg } }
       - id: p2-b
         layers:
           - { image: p2-2, id: hayato2, focus: [0.55, 0.3] }
@@ -94,7 +94,7 @@ pages:
           - { hayato: "……またか。\n三十連敗だぞ", at: [24%, 39%], tail: { to: hayato2.mouth } }
       - id: p2-c
         layers:
-          - { image: p2-3, id: mio3, focus: [0.5, 0.57] }
+          - { image: p2-3, id: mio3, focus: [0.5, 0.05] }
         dialogue:
           - { mio: "今度こそ\n私が勝つ！", at: [79%, 44%], tail: { to: mio3.mouth } }
       - id: p2-d
@@ -117,7 +117,7 @@ pages:
       rows:
         - { cols: [1], height: 1.2, slant: 13mm }
         - { cols: [1.15, 1], height: 0.77, colSlant: [8mm], slant: -10mm }
-        - { cols: [1], height: 0.7 }
+        - { cols: [1], height: 0.95 }
     panels:
       - id: p3-a
         bleed: [top, left, right]
@@ -129,19 +129,19 @@ pages:
       - id: p3-b
         layers:
           - { image: p3-2, id: hayato3, focus: [0.4, 0.3] }
-          - { sfx: ヒョイ, at: [81%, 61%], fontSize: 9mm, font: hand }
+          - { sfx: ヒョイ, at: [34%, 69%], fontSize: 12mm, writing: horizontal, rotate: 16deg, perChar: { rotate: [-4deg, 4deg], scale: [0.95, 1.04] } }
         dialogue:
           - { hayato: 遅い。, at: [20%, 26%], tail: { to: hayato3.mouth } }
       - id: p3-c
         layers:
-          - { image: p3-3, id: mio5, focus: [0.45, 0.3] }
+          - { image: p3-3, id: mio5, focus: [0.45, 0.25] }
         dialogue:
           - { mio: "えっ!?", at: [78%, 32%], tail: { to: mio5.mouth } }
       - id: p3-d
         bleed: [bottom, left, right]
         layers:
-          - { image: p3-4, id: grab, focus: [0.5, 0.41] }
-          - { sfx: ガシッ, at: [24%, 37%], fontSize: 17mm, writing: horizontal, rotate: -11deg }
+          - { image: p3-4, id: grab, focus: [0.5, 0.34], flip: x }
+          - { sfx: ガシッ, at: [50%, 55%], fontSize: 13mm, writing: horizontal, rotate: -11deg }
 
   # ── 4 ページ目 ───────────────────────────────
   - id: p4
@@ -161,7 +161,7 @@ pages:
     panels:
       - id: p4-a
         layers:
-          - { image: p4-1, id: close, focus: [0.45, 0.3] }
+          - { image: p4-1, id: close, focus: [0.65, 0.3] }
           - { balloon: "……ケガは？", who: hayato, at: [19%, 57%], tail: { to: close.hayato } }
       - id: p4-b
         layers:

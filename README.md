@@ -13,7 +13,7 @@ You supply the artwork (characters, backgrounds) as image files. mangacli draws 
 
 More: [a color page](docs/images/color-page.png), [balloon styles](docs/images/gallery-balloons.png), [effects and lettering](docs/images/gallery-effects.png), [page 2 of the B5 sample](docs/images/b5-mono-2.png), [an English left-to-right page](docs/images/en-comic.png).
 
-The monochrome sample uses artwork from the [four-page rooftop story](sample/); some other examples use placeholder illustrations. The panels, balloons, lettering, effects, and added tones are drawn by mangacli. Sources: [docs/examples](docs/examples/README.md).
+The B5 and color examples use a matched set of school illustrations; some other examples use placeholders. The panels, balloons, lettering, effects, and added tones are drawn by mangacli. See the [example sources](docs/examples/README.md) and the separate [four-page rooftop story](sample/).
 
 ## Features
 

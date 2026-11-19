@@ -6,7 +6,7 @@
 |---|---|---|
 | [aside.yaml](aside.yaml) | 顔の横に置く小さな手書きのセリフ。白フチと短い引き出し線（[描画結果](../images/aside.png)） | P1 |
 | [minimal.yaml](minimal.yaml) | 最小の例。既定値（B5・モノクロ・右綴じ・縦書き・`ink`・フォントセット `manga-basic`）で 1 ページ | P0 のみ |
-| [b5-mono.yaml](b5-mono.yaml) | B5 判モノクロの対決シーン 2 ページ。斜めの間白、裁ち切り、混植、ルビ、心の声、描き文字、トンボ付き出力 | P0・P1 |
+| [b5-mono.yaml](b5-mono.yaml) | B5 判モノクロの放課後の場面 2 ページ。斜めの間白、裁ち切り、混植、ルビ、心の声、描き文字、トンボ付き出力 | P0・P1 |
 | [sns-color-yonkoma.yaml](sns-color-yonkoma.yaml) | SNS 投稿用のカラー 4 コマ（1080 × 1350 px）。px 単位、色・グラデーションの塗り、4 コマのテンプレート | P0・P1 |
 | [color-page.yaml](color-page.yaml) | B5 のカラー 1 ページ。グラデーションの地、背景の乗算、雨、波に沿った描き文字、色付きの集中線・ウニフラッシュ、照れの漫符 | P0・P1 |
 | [gallery-balloons.yaml](gallery-balloons.yaml) | 組み込みの吹き出しのスタイル（`as`）の一覧 | P0・P1 |
@@ -15,8 +15,8 @@
 | [en-comic.yaml](en-comic.yaml) | 英語のページ（`lang: en`）。左から右へ読む順、`comic-basic` フォントセットの大文字の横書きの吹き出し、行の均等化 | P0・P1 |
 
 - フォントはカタログのものを使うため、初回のレンダリング時に自動でダウンロードする。事前に取得する場合は `npx mangacli fonts install --for docs/examples/b5-mono.yaml` を実行する。
-- B5 版と最小例は [4 ページの作例](../../sample/) の作画を使用し、掲載寸法で 300 ppi 以上を確保しています。入稿用プロファイルでは文字・コマ線を 600 dpi で出力します。
-- `assets/` の画像は、`scripts/make-sample-assets.ts` で生成した簡単な仮の絵（本プロジェクトと同じ MIT）。自分の絵に差し替えて使う。
+- B5・最小例・カラーの作例には Sogni で生成した同じ絵柄の素材（`assets/school/`）を使用しています。B5 と最小例の作画は掲載寸法で 300 ppi 以上、入稿用プロファイルの文字・コマ線は 600 dpi です。
+- ほかの作例の仮の絵は `scripts/make-sample-assets.ts` で生成しています。自分の絵に差し替えて使えます。
 - 描画結果は [../images](../images) にある。
 
 ```bash

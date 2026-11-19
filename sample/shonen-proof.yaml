@@ -36,8 +36,8 @@ pages:
           - balloon: "今日こそ\n決着を\nつけるわ!!"
             as: shout
             fontScale: 1.05
-            at: [78%, 23%]
-            tail: { to: [44%, 39%], root: 145deg }
+            at: [78%, 52%]
+            tail: { to: [38%, 48%], root: 145deg }
       - layers:
           - { image: reply, focus: [0.55, 0.34] }
           - balloon: "……\nまたかよ"
@@ -45,7 +45,7 @@ pages:
             at: [22%, 23%]
             tail: { to: [46%, 40%] }
       - layers:
-          - { image: resolve, focus: [0.5, 0.4] }
+          - { image: resolve, focus: [0.5, 0.05] }
           - balloon: "三十一回目は、\n私が勝つの！"
             at: [79%, 46%]
             tail: { to: [43%, 45%] }
