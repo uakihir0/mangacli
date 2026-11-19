@@ -25,6 +25,22 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
+  it("keeps mixed TCY marks in one cell with ASCII-only font fallback", async () => {
+    const fonts = new FontRegistry(new Map<string, FontDef>([
+      ["ascii", { kind: "file", path: "assets/fonts/Lato-Regular.ttf" }],
+      ["jp", { kind: "catalog", id: "dela-gothic-one" }],
+      ["mixed", { kind: "compose", items: [{ font: "ascii", ranges: ["U+0000-007F"] }, { font: "jp" }] }],
+    ]), "none", [], {});
+    for (const font of ["ascii", "mixed"]) {
+      await fonts.prepare(font, "！!?！！");
+      for (const text of ["！!?", "！！", "<tcy>！！</tcy>"]) {
+        const result = layoutText(text, defaultTextStyle({ font, fontSize: 10 }), fonts);
+        expect(result.missing).toEqual([]);
+        expect(new Set(result.glyphs.map((g) => g.cy)).size).toBe(1);
+        expect(result.lines[0].rect.h).toBeCloseTo(10);
+      }
+    }
+  });
   it.each(["dela-gothic-one", "noto-sans-jp"])("keeps TCY marks full height and vertical dashes thin with %s", async (id) => {
     const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id }]]), "none", [], {});
     await fonts.prepare("test", "──っ！！!?勝");

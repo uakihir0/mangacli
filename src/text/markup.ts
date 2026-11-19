@@ -330,7 +330,9 @@ export function assignTcy(units: Unit[], opt: { digits: number; marks: boolean; 
       let j = i;
       gid++;
       while (j < units.length && units[j].kind === "char" && (units[j] as { style: InlineStyle }).style.tcy) {
-        (units[j] as { tcyGroup?: number }).tcyGroup = gid;
+        const uu = units[j] as { ch: string; tcyGroup?: number };
+        uu.ch = uu.ch === "！" ? "!" : uu.ch === "？" ? "?" : uu.ch;
+        uu.tcyGroup = gid;
         j++;
       }
       i = j;
@@ -361,6 +363,7 @@ export function assignTcy(units: Unit[], opt: { digits: number; marks: boolean; 
         gid++;
         for (let k = i; k < j; k++) {
           const uu = units[k] as { ch: string; tcyGroup?: number };
+          uu.ch = uu.ch === "！" ? "!" : uu.ch === "？" ? "?" : uu.ch;
           uu.tcyGroup = gid;
         }
       }
