@@ -159,4 +159,20 @@ pages:
     const result = await validate(doc, { assets: { figure: data } });
     expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "DIALOGUE_SPEAKER_NOT_IN_PANEL", elementId: "unlisted-speech" }));
   });
+
+  it("registers a panel-level spanning speaker in each target panel", async () => {
+    const doc = parse(scene());
+    doc.assets = { figure: { src: "figure.png", character: "hero", anchors: { mouth: [75, 40] } } };
+    doc.pages[0].panels[0].layers = [{ image: "figure", id: "figure-image", coords: "page", size: ["100mm", "80mm"], at: ["0mm", "0mm"], anchor: "top-left", fit: "fill", clip: { to: ["a", "b"] } }];
+    doc.pages[0].panels[1].layers = [{ balloon: "Hello", who: "hero", id: "speech", tail: { kind: "line", allowVertical: true } }];
+    delete doc.pages[0].layers;
+    const data = await sharp({ create: { width: 100, height: 100, channels: 3, background: "white" } }).png().toBuffer();
+    const options = { seed: 42, assets: { figure: data } };
+    const result = await validate(doc, options);
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics.some((d) => d.code === "DIALOGUE_SPEAKER_NOT_IN_PANEL")).toBe(false);
+    const implicit = await createRenderer(options).displayList(doc, 1);
+    doc.pages[0].panels[1].layers[0].tail.to = "figure-image.mouth";
+    expect(await createRenderer(options).displayList(doc, 1)).toEqual(implicit);
+  });
 });

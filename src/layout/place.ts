@@ -50,7 +50,7 @@ export class RefRegistry {
     this.panels.set(id, ids);
   }
   character(char: string, panelId?: string): RefTarget | undefined {
-    const inPanel = this.chars.filter((c) => c.char === char && (panelId === undefined || c.panelId === panelId || (c.panelId === undefined && this.panels.get(c.target.id)?.has(panelId))));
+    const inPanel = this.chars.filter((c) => c.char === char && (panelId === undefined || c.panelId === panelId || this.panels.get(c.target.id)?.has(panelId)));
     const pool = inPanel.length ? inPanel : panelId === undefined ? [] : [];
     pool.sort((a, b) => a.order - b.order);
     return pool[0]?.target;
