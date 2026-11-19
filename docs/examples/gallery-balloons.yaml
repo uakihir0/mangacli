@@ -65,7 +65,7 @@ pages:
           - { balloon: 心の声, as: monologue, at: [50%, 45%] }
           - text: monologue
       - layers:
-          - { balloon: "だが当局は\n東の極右政党による\n暗殺と見ている", at: [50%, 42%], tail: { direction: 120deg } }
+          - { balloon: "だが当局は……\n東の極右政党による\n暗殺と見ている", at: [50%, 42%], tail: { direction: 120deg } }
           - text: "say (long: squarer core)"
       - layers:
           - { balloon: オイ, as: gruff, at: [50%, 42%], tail: { direction: 60deg } }
