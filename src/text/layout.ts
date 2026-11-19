@@ -675,7 +675,7 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
     if (b.chars === "" && b.breakBefore === "forced") continue;
     const adv = b.adv + (cur.length ? ls : 0);
     if (cur.length && len + adv > Lmax + 1e-6) {
-      const prohibited = noStart(b.firstChar, style.kinsoku) && b.chars.length === 1 && b.adv <= b.size * 1.01;
+      const prohibited = noStart(b.firstChar, style.kinsoku);
       // hanging: 、。，． hang outside the line end
       if (prohibited && style.hanging && /^[、。，．,.]$/.test(b.firstChar)) {
         cur.push(b);
@@ -711,13 +711,13 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
         len += adv;
         continue;
       }
-      if (k < 0) k = cur.length;
-      // oidashi would leave a one-character line: fall back to oikomi (exceed by one character)
+      // No legal break, or oidashi would leave one character: use oikomi.
       if (prohibited && k <= 1) {
         cur.push(b);
         len += adv;
         continue;
       }
+      if (k < 0) k = cur.length;
       const carry = cur.slice(k);
       cur = cur.slice(0, k);
       push(true);
