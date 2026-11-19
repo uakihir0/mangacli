@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { load, render } from "../src/api.js";
 import { DiagnosticBag } from "../src/core/diagnostics.js";
 import { resolveDocument } from "../src/model/resolve.js";
-import type { Rect } from "../src/geom/vec.js";
+import { boundsOf, type Rect } from "../src/geom/vec.js";
+import { flattenPath } from "../src/geom/path.js";
 import type { Node } from "../src/render/ir.js";
 
 const input = (layers: string, dialogue = "") => ({
@@ -35,6 +36,7 @@ describe("aside", () => {
       expect(el.type).toBe("balloon");
       expect(el.props).toMatchObject({ who: "taro", font: "hand", fontScale: 0.75, lettering: { mode: "hand" }, shape: { kind: "none" }, tail: { kind: "none" }, textOutline: [{ color: "paper" }] });
       expect(Math.abs(parseFloat(String(el.props.rotate)))).toBeLessThanOrEqual(5);
+      expect(Math.abs(parseFloat(String(el.props.rotate)))).toBeGreaterThanOrEqual(3);
     }
     expect(resolveDocument(p.doc, new DiagnosticBag())).toEqual(doc);
   });
@@ -59,7 +61,7 @@ describe("aside", () => {
     for (const box of [aside, aside2]) {
       expect(overlap(box, face)).toBe(0);
       expect(overlap(box, speech)).toBe(0);
-      expect(Math.min(Math.abs(box.x + box.w - face.x), Math.abs(box.x - face.x - face.w))).toBeLessThan(10);
+      expect(Math.min(Math.abs(box.x + box.w - face.x), Math.abs(box.x - face.x - face.w))).toBeLessThan(3);
       expect(box.y).toBeLessThan(face.y + face.h + 10);
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.w).toBeLessThanOrEqual(100);
@@ -69,12 +71,38 @@ describe("aside", () => {
 
   it("draws a short line only when requested, including print-mono", async () => {
     for (const tail of [false, true]) {
-      const r = await render(input(`          - { aside: ボソッ, who: taro, id: aside${tail ? ", tail: { kind: line }" : ""} }`), { profile: "print-mono", format: "svg", keepLists: true });
+      const r = await render(input(`          - { aside: ボソッ, who: taro, id: aside, rotate: 0deg${tail ? ", tail: { kind: line }" : ""} }`), { profile: "print-mono", format: "svg", keepLists: true });
       expect(r.diagnostics.filter(d => d.severity === "error")).toEqual([]);
       const nodes = flatten(r.lists![0].root.children).filter(n => n.tag?.elementId === "aside");
       expect(nodes.some(n => n.tag?.role === "ink")).toBe(tail);
       expect(nodes.some(n => n.tag?.role === "text")).toBe(true);
+      const glyph = nodes.find(n => n.kind === "path" && n.tag?.role === "text" && n.paint);
+      expect(glyph?.kind === "path" && glyph.stroke?.width).toBeGreaterThan(0);
+      if (tail) {
+        const line = nodes.find(n => n.kind === "path" && n.tag?.role === "ink");
+        expect(line?.kind).toBe("path");
+        if (line?.kind === "path" && glyph?.kind === "path") {
+          const a = boundsOf(flattenPath(line.path).flatMap(q => q.pts));
+          const b = boundsOf(flattenPath(glyph.path).flatMap(q => q.pts));
+          const dx = Math.max(0, a.x - b.x - b.w, b.x - a.x - a.w);
+          const dy = Math.max(0, a.y - b.y - b.h, b.y - a.y - a.h);
+          expect(Math.hypot(dx, dy)).toBeLessThan(0.3);
+          expect(Math.hypot(a.w, a.h)).toBeLessThan(2.5);
+        }
+      }
     }
+  });
+
+  it("keeps visible handwriting at about three quarters of dialogue height", async () => {
+    const r = await render(input('          - { aside: あ, id: aside, rotate: 0deg, lettering: typeset }\n          - { balloon: あ, id: say }'), { layoutOnly: true, keepLists: true });
+    const nodes = flatten(r.lists![0].root.children);
+    const height = (id: string) => {
+      const n = nodes.find(n => n.kind === "path" && n.tag?.elementId === id && n.tag.role === "text" && n.paint);
+      if (n?.kind !== "path") throw new Error("missing glyph path");
+      return boundsOf(flattenPath(n.path).flatMap(q => q.pts)).h;
+    };
+    expect(height("aside") / height("say")).toBeGreaterThanOrEqual(0.7);
+    expect(height("aside") / height("say")).toBeLessThanOrEqual(0.78);
   });
 
   it("handles empty and unattached asides and reports unknown speakers", async () => {

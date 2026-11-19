@@ -485,7 +485,7 @@ dialogue:
   - { taro: 聞いてないし, as: aside, tail: { kind: line } }
 ```
 
-しっぽは既定では描かない。`tail: { kind: line }` で短いほぼ直線の引き出し線（最大 3bmm）を付けられる。傾きは要素の ID とシードから決まり、`rotate: 0deg` などで上書きできる。[作例](examples/aside.yaml) / [描画結果](images/aside.png)。
+しっぽは既定では描かない。`tail: { kind: line }` で文字の輪郭から顔へ向く短いほぼ直線の引き出し線（最大 3bmm）を付けられる。手書きの細い線を少し太らせ、白フチを重ねて絵の上でも読みやすくする。傾きは要素の ID とシードから左右いずれかの 3〜5°に決まり、`rotate: 0deg` などで上書きできる。[作例](examples/aside.yaml) / [描画結果](images/aside.png)。
 | `offscreen` | 画面外の声 | `ellipse` | 0.25 mm | `wedge`（`offscreen`） | `dialogue` | | P1 |
 
 キャラクターの `voice`（[3.15](03-document-format.md#315-characters)）で、キャラクターごとに発話の種類の見た目を上書きできる。

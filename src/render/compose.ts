@@ -1083,17 +1083,26 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
       const w = vp.outer.w;
       const h = vp.outer.h;
       const R = (w + h) / 4;
-      for (let y = area.y + h / 2; y <= area.y + area.h - h / 2 + 0.01 || (area.h < h && y <= area.y + h / 2 + 0.01); y += step) {
-        for (let x = area.x + w / 2; x <= area.x + area.w - w / 2 + 0.01 || (area.w < w && x <= area.x + w / 2 + 0.01); x += step) {
+      const xs: number[] = [];
+      const ys: number[] = [];
+      for (let x = area.x + w / 2; x <= Math.max(area.x + w / 2, area.x + area.w - w / 2) + 0.01; x += step) xs.push(x);
+      for (let y = area.y + h / 2; y <= Math.max(area.y + h / 2, area.y + area.h - h / 2) + 0.01; y += step) ys.push(y);
+      if (face) {
+        const gap = Math.max(w, h) * 0.05 + 0.4 * u.k;
+        xs.push(...[face.x - gap - w / 2, face.x + face.w + gap + w / 2].filter(x => x >= area.x + w / 2 && x <= area.x + area.w - w / 2));
+        ys.push(Math.min(area.y + area.h - h / 2, Math.max(area.y + h / 2, face.y + face.h * 0.6)));
+      }
+      for (const y of ys) {
+        for (const x of xs) {
           const c = { x, y };
           const rect = { x: x - w / 2, y: y - h / 2, w, h };
           const A = w * h;
           let cost = extra;
-          const clearance = aside ? rectInset(rect, -Math.max(w, h) * 0.05 - 0.7 * u.k) : rect;
+          const clearance = aside ? rectInset(rect, -Math.max(w, h) * 0.05 - 0.35 * u.k) : rect;
           if (aside) {
             for (const ob of obstacles) if (rectOverlapArea(clearance, ob.r) > 0) cost += 10000;
             if (face) {
-              const gap = 2 * u.k;
+              const gap = Math.max(w, h) * 0.05 + 0.4 * u.k;
               const left = Math.abs(rect.x + w - (face.x - gap));
               const right = Math.abs(rect.x - (face.x + face.w + gap));
               const dy = Math.abs(c.y - (face.y + face.h * 0.6));
@@ -1101,7 +1110,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
             }
           }
           // lettering keeps a little air around it: text and SFX boxes count with a margin
-          for (const ob of obstacles) cost += (ob.w === 60 ? W.avoid : ob.w) * (ob.ellipse ? ellipseOverlap(rect, ob.r) : rectOverlapArea(rect, rectInset(ob.r, -air)) / A);
+          for (const ob of obstacles) if (!aside) cost += (ob.w === 60 ? W.avoid : ob.w) * (ob.ellipse ? ellipseOverlap(rect, ob.r) : rectOverlapArea(rect, rectInset(ob.r, -air)) / A);
           for (const hr of hard) if (rectOverlapArea(rect, hr) > 0) cost += 1000;
           if (sils.length) cost += W.figure * silhouetteCover(rect, sils);
           if (speaker) cost += W.speaker * Math.abs(Math.hypot(x - speaker.x, y - speaker.y) / R - 1.6);

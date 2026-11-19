@@ -2,8 +2,8 @@
 import { BLACK, WHITE, parseColor } from "../core/color.js";
 import { Rng } from "../core/random.js";
 import { type UnitContext, parseAngle, toMm } from "../core/units.js";
-import { type PathData, distToPolyline, pointInPolygon, polyPath, polygonArea, rayPolygon } from "../geom/path.js";
-import { type Rect, type Vec, boundsOf, rot } from "../geom/vec.js";
+import { type PathData, distToPolyline, flattenPath, pointInPolygon, polyPath, polygonArea, rayPolygon, transformPath } from "../geom/path.js";
+import { type Rect, type Vec, boundsOf, matTranslate, rot } from "../geom/vec.js";
 import type { HandSpec } from "../ink/presets.js";
 import { type ShapeContour, inkShape } from "../ink/shape.js";
 import { blobPoly } from "../ink/stroke.js";
@@ -154,7 +154,14 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       const lim = mx === "auto" ? Infinity : mx * 0.72 - 2 * (style.writing === "vertical" ? padV : padH) - 2 * margin;
       if (isFinite(lim)) boxLimit = Math.min(boxLimit ?? Infinity, Math.max(lim, style.fontSize * 4.5));
     }
-    const tl = layoutText(text, style, ctx.fonts, boxLimit);
+    let tl = layoutText(text, style, ctx.fonts, boxLimit);
+    if (p.as === "aside") {
+      const pts = tl.glyphs.flatMap(g => flattenPath(g.path).flatMap(q => q.pts));
+      if (pts.length) {
+        const b = boundsOf(pts);
+        tl = { ...tl, width: b.w, height: b.h, glyphs: tl.glyphs.map(g => ({ ...g, path: transformPath(g.path, matTranslate(-b.x, -b.y)) })) };
+      }
+    }
     // a size limit that forces breaks inside phrases: set the text smaller before breaking it badly
     if (boxLimit !== undefined && !fixedBase && scale > minFontScale + 1e-6 && attempt < 11 && breakFaults(tl, ctx.lang) > breakFaults(layoutText(text, style, ctx.fonts), ctx.lang)) {
       scale = Math.max(minFontScale, scale - 0.05);
@@ -173,7 +180,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
     const cx = tl.width / 2;
     const cy = tl.height / 2;
     const pts: Vec[] = [];
-    for (const ln of tl.lines) {
+    for (const ln of p.as === "aside" ? [{ rect: { x: 0, y: 0, w: tl.width, h: tl.height } }] : tl.lines) {
       const r = ln.rect;
       pts.push({ x: r.x - padH - cx, y: r.y - padV - cy }, { x: r.x + r.w + padH - cx, y: r.y - padV - cy }, { x: r.x + r.w + padH - cx, y: r.y + r.h + padV - cy }, { x: r.x - padH - cx, y: r.y + r.h + padV - cy });
     }
@@ -732,8 +739,18 @@ function buildBody(plan: BalloonPlan, ctx: ElemCtx, skipTails = false): BodyBuil
   const body = plan.body;
   let contour: ShapeContour = { ...body.contour, pts: translate(body.contour.pts) };
   const tails: Obj[] = skipTails ? [] : Array.isArray(p.tails) ? (p.tails as Obj[]) : isObj(p.tail) ? [p.tail as Obj] : [];
-  const tr = applyTails(contour, tails, { ctx, plan, center, rng });
-  if (tr.contour) contour = tr.contour;
+  let tailContour = contour;
+  if (p.as === "aside" && plan.text.glyphs.length) {
+    const pts = plan.text.glyphs.flatMap(g => flattenPath(g.path).flatMap(q => q.pts));
+    if (pts.length) {
+      const b = boundsOf(pts);
+      const x = plan.innerCenter.x - plan.text.width / 2 + plan.textOffset.x + b.x;
+      const y = plan.innerCenter.y - plan.text.height / 2 + plan.textOffset.y + b.y;
+      tailContour = { pts: translate([{ x, y }, { x: x + b.w, y }, { x: x + b.w, y: y + b.h }, { x, y: y + b.h }]), closed: true };
+    }
+  }
+  const tr = applyTails(tailContour, tails, { ctx, plan, center, rng });
+  if (tr.contour && p.as !== "aside") contour = tr.contour;
   const stroke = resolveStroke(p.stroke, plan.hand, ctx.u, ctx.bag, [...el.path, "stroke"]);
   const ruler = !!(plan.params.ruler ?? body.ruler) && !contour.corners?.some((c) => c.kind === "tip");
   return { contour, extra: tr.extra, stroke, ruler, rng };
@@ -797,7 +814,7 @@ function textNodesFlat(plan: BalloonPlan, ctx: ElemCtx): Node[] {
   const outlines = Array.isArray(p.textOutline) ? (p.textOutline as Obj[]) : [];
   const ow = outlines.map((o) => ({ w: toMm(o.width as string, u), c: parseColor((o.color as string) ?? "white") ?? WHITE })).sort((a, b) => b.w - a.w);
   for (const o of ow) nodes.push({ kind: "path", path: textNode.path, fillRule: "nonzero", paint: null, stroke: { width: o.w * 2, paint: { type: "solid", color: o.c }, join: "round" }, tag: tag(el, "text", "text") });
-  nodes.push(...glyphNodes(tl.glyphs, shift, { type: "solid", color }, tl.fontSize, tag(el, "text", "text")));
+  nodes.push(...glyphNodes(p.as === "aside" ? tl.glyphs.map(g => ({ ...g, bold: true })) : tl.glyphs, shift, { type: "solid", color }, tl.fontSize, tag(el, "text", "text")));
   return nodes;
 }
 

@@ -257,7 +257,10 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       acc.id = id;
       const elSeedBase = typeof raw.seed === "number" ? raw.seed : baseSeed;
       const el: RElement = { id, type, props: acc, path, seed: deriveSeed(elSeedBase, id, "element"), fromDialogue };
-      if (type === "balloon" && acc.as === "aside" && acc.rotate === undefined) acc.rotate = `${new Rng(deriveSeed(el.seed, id, "aside-tilt")).next() * 10 - 5}deg`;
+      if (type === "balloon" && acc.as === "aside" && acc.rotate === undefined) {
+        const tilt = new Rng(deriveSeed(el.seed, id, "aside-tilt")).next() * 2 - 1;
+        acc.rotate = `${Math.sign(tilt || 1) * (3 + Math.abs(tilt) * 2)}deg`;
+      }
       if (type === "group" && Array.isArray(raw.children)) {
         const gDefaults = isObj(raw.defaults) ? (raw.defaults as Obj) : undefined;
         const lv2 = gDefaults ? [...levels, { d: gDefaults, hand: undefined }] : levels;
