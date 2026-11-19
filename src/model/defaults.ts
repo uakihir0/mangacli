@@ -55,6 +55,9 @@ export const BUILTIN_EFFECT_DEFAULTS: Record<string, Obj> = {
   hatching: { pattern: "hatch", angle: "45deg", spacing: "0.6bmm", thickness: ["0.08bmm", "0.16bmm"], blockSize: ["2bmm", "3.5bmm"], linesPerBlock: 4, edge: "soft", ruler: false, pen: { preset: "maru-pen" } },
   rain: { angle: "100deg", rate: 2.5, length: ["4bmm", "14bmm"], thickness: ["0.1bmm", "0.22bmm"], taper: "both", ruler: true, pen: { preset: "maru-pen" } },
   vignette: { color: "paper", width: "8bmm", shape: "rect", softness: 0.7, screen: "am" },
+  glow: { color: "white", blur: "4bmm" },
+  "light-rays": { color: "white", count: 24, angle: 0, spread: 0.55 },
+  spotlight: { color: "white", source: ["18%", "0%"], target: ["60%", "78%"], width: "45%", shade: 0.8 },
 };
 
 export const BUILTIN_MARK_DEFAULTS: Record<string, Obj> = {
