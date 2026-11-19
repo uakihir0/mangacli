@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=../../schema.json
+mangacli: 1
+page: { size: [100mm, 85mm], bleed: 0, baseFrame: trim }
+characters:
+  taro: { name: 太郎 }
+defaults:
+  balloon: { fontSize: 20bQ }
+assets:
+  taro:
+    src: ./assets/taro/normal.png
+    character: taro
+    anchors: { mouth: [500, 530] }
+    regions: { face: [250, 120, 500, 540] }
+pages:
+  - panels:
+      - layers:
+          - { image: taro, fit: contain }
+          - { aside: ボソッ, who: taro, fontScale: 0.85, tail: { kind: line } }
+        dialogue:
+          - { taro: まかせて！, at: [80%, 18%] }
