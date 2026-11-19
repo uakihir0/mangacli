@@ -60,6 +60,8 @@
 | `swirl-lines` | 回転流線 | 回転、渦、めまい | P1 |
 | `impact` | 衝撃 | 打撃、衝突、爆発 | P1 |
 | `lightning` | 稲妻 | ショック、ガーン | P1 |
+| `aura` | 闘気 | 人物の輪郭から立ち上る炎状の気 | P1 |
+| `arcs` | 放電 | 人物の周囲の短い稲妻 | P1 |
 | `crack` | 亀裂 | 地面、壁、ガラスの破壊 | P1 |
 | `dust` | 土煙 | 着地、衝突 | P1 |
 | `smoke` | 煙 | 爆発後、漂う煙 | P1 |
@@ -291,6 +293,39 @@ passes:
 全て `seed` で再現可能。共通の `region`、`clear`、`color`、`opacity`、`hand`、`background` を利用できる。
 印刷モノクロでも輪郭（ink）と面（fill / tone）は別ノード。
 実行可能な比較ページ: [impact-effects.yaml](examples/impact-effects.yaml)。
+
+### 8.7.5 闘気・輪郭放電（aura / arcs）
+
+画像のアルファ輪郭に沿う効果。`target` は画像の要素 ID または同じコマのキャラクター参照（必須）。
+未解決の参照、画像以外の対象はエラーになる。透明画像の各外周を約 256px の解像度で抽出し、
+微小な成分は炎・稲妻の生成から除く。完全透明の画像は何も描かない。
+アルファ境界にはアンチエイリアス用の小さな余白を確保するため、極端に細い隙間は閉じることがある。
+
+`aura` は輪郭に沿った炎の舌を 1〜3 層重ねる。`arcs` は `lightning` と同じ稲妻生成器を使う。
+人物の輪郭を偶奇規則の穴として面と線から取り除くので、画像より後に置いても人物内部には入らない
+（PNG・SVG 共通）。内側の透明な穴も人物の外周内として保護する。
+`region` とコマのクリップは通常通り有効。`background` は人物内部を保護するため使用しない。
+
+| 効果 | キー | 型 | 既定値・意味 |
+|---|---|---|---|
+| 共通 | `target` | 画像 ID / キャラクター参照 | 必須 |
+| 共通 | `length` | 正の Length | 炎の長さ `8bmm` / 放電の長さ `5bmm`。% は対象輪郭の長辺基準 |
+| 共通 | `fill` | Paint | `paper`。`tone(20%)` なども可。闘気では最内層の面、放電では稲妻の面 |
+| 共通 | `stroke` | Stroke | 黒、闘気 `0.25bmm` / 放電 `0.2bmm` |
+| 共通 | `seed` | 整数 | 同じ入力・シードで同じ形 |
+| `aura` | `tongues` | 整数 3〜256 | `32`。炎の舌の本数 |
+| `aura` | `upwardBias` | 0〜1 | `0.7`。上向きの炎を伸ばし、先端を上へ曲げる強さ |
+| `aura` | `layers` | 整数 1〜3 | `3`。外側から順に短くなる。外層の面は紙色 |
+| `arcs` | `count` | 整数 0〜1024 | `18`。短い稲妻の本数。0 で空出力 |
+
+```yaml
+layers:
+  - { image: hero-art, id: hero, size: [auto, 70%], at: [50%, 55%] }
+  - { effect: aura, target: hero, tongues: 30, upwardBias: 0.9, fill: 'tone(12%)', seed: 42 }
+  - { effect: arcs, target: hero, count: 16, seed: 17 }
+```
+
+実行例: [aura.yaml](examples/aura.yaml)、[モノクロ画像](images/aura.png)。
 
 ## 8.8 縦線（gloom-lines）
 
