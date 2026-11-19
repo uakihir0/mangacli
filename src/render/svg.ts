@@ -137,7 +137,7 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
     if (!dd) return "";
     if (p.stroke) {
       const sc = p.stroke.paint.type === "solid" ? gray(p.stroke.paint.color, o.colorMode) : { r: 0, g: 0, b: 0, a: 1 };
-      parts.push(`<path d="${dd}" fill="none" stroke="${rgb(sc)}" stroke-width="${n(p.stroke.width)}" stroke-linejoin="${p.stroke.join}" stroke-linecap="round"/>`);
+      parts.push(`<path d="${dd}" fill="none" stroke="${rgb(sc)}" stroke-width="${n(p.stroke.width)}" stroke-linejoin="${p.stroke.join}"${p.stroke.miterLimit ? ` stroke-miterlimit="${p.stroke.miterLimit}"` : ""} stroke-linecap="round"/>`);
     }
     if (p.paint) parts.push(`<path d="${dd}" ${fillOf(p.paint)}${p.fillRule === "evenodd" ? ' fill-rule="evenodd"' : ""}${tagAttr(p.tag)}/>`);
     return parts.join("");

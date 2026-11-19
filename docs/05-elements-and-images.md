@@ -265,6 +265,25 @@ outline:
 | `threshold` | 0〜1 | 0.5 | 画像の場合、不透明とみなすアルファのしきい値 |
 
 - リストの各項目の `width` は輪郭からの距離（累積ではない）で、幅の大きいものから順に描く。上の例は、内側に白 0.8 mm、その外側に黒 0.4 mm の縁になる。
+- 名前で指定できる縁取り（題字向け）:
+
+  | 名前 | 内容 |
+  |---|---|
+  | `thick-white` | 太い白フチ（1.4 mm）の外側に細い黒フチ（1.9 mm まで）。角は `miter`。黒い題字を絵の上で読ませる |
+  | `thick-black` | 太い黒フチ（1.4 mm）の外側に細い白フチ（1.9 mm まで）。白抜きの題字（`color: white`）に使う |
+
+  ```yaml
+  # 題字をロゴのように組む:「朝」を大きく、「をひとつ」を小さく詰め、少し傾ける
+  - sfx: "朝をひとつ"
+    font: title
+    lettering: { mode: typeset }
+    perChar: { rotate: 0deg }
+    distort: { roughen: 0, warp: 0, skew: -6deg }
+    letterSpacing: -0.12em
+    chars: [{ index: 0, scale: 1.5 }, { index: 1, scale: 0.75 }, { index: 2, scale: 0.85 }, { index: 3, scale: 0.85 }, { index: 4, scale: 0.85 }]
+    outline: thick-white
+  ```
+
 - 画像の縁取りは、出力解像度でアルファを膨張させて作る。文字・図形の縁取りは、輪郭のオフセットで作る。
 
 ### 5.7.2 影（shadow）

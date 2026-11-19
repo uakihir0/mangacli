@@ -498,6 +498,15 @@ const BaseFrame = z.union([
   z.object({ size: z.tuple([Length, Length]).optional(), offset: z.tuple([Length, Length]).optional(), margins: z.object({ top: Length, bottom: Length, inner: Length, outer: Length }).strict().optional() }).strict(),
 ]);
 
+const PageBackground = z.union([
+  Paint,
+  z.object({
+    image: z.string(),
+    fit: imageProps.fit,
+    bleed: z.literal("all").optional(),
+  }).strict(),
+]);
+
 const pageSettings = {
   size: z.union([z.string(), z.tuple([Length, Length])]).optional(),
   orientation: z.enum(["portrait", "landscape"]).optional(),
@@ -507,7 +516,8 @@ const pageSettings = {
   baseFrame: BaseFrame.optional(),
   safeArea: z.object({ inset: Length }).strict().optional(),
   gutter: z.union([Length, z.object({ col: Length.optional(), row: Length.optional() }).strict()]).optional(),
-  background: Paint.optional(),
+  background: PageBackground.optional(),
+  gutterFill: z.enum(["none", "paper"]).optional(),
   color: z.enum(["mono", "color"]).optional(),
   foldMargin: Length.optional(),
   printScale: z.number().positive().max(1).optional(),
