@@ -20,6 +20,7 @@ type Obj = Record<string, unknown>;
 export interface ImageOut {
   nodes: Node[];
   bbox: Rect;
+  footprint: Vec[];
 }
 
 export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect): Promise<ImageOut> {
@@ -143,9 +144,12 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect):
   ctx.refs.add(ref, el.path[el.path.length - 1] as number);
 
   const nodes: Node[] = [];
+  const corners = (x0: number, y0: number, x1: number, y1: number, m: Matrix) =>
+    [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }].map((q) => applyMat(m, q));
+  const frame = corners(0, 0, bw, bh, pl.matrix);
   if (isPlaceholder) {
     nodes.push(...(await placeholderNodes(el, ctx, pl.matrix, bw, bh, placeholderLabel ?? src ?? "?")));
-    return { nodes, bbox: pl.bbox };
+    return { nodes, bbox: pl.bbox, footprint: frame };
   }
   // resolution check
   const effPpi = Math.min(cw / (dw / 25.4), ch / (dh / 25.4));
@@ -176,8 +180,8 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect):
   };
   const outline = Array.isArray(p.outline) ? (p.outline as Obj[]) : [];
   const ows = outline.map((o) => ({ w: toMm(o.width as string, ctx.u), color: parseColor((o.color as string) ?? "white") ?? { r: 1, g: 1, b: 1, a: 1 }, threshold: typeof o.threshold === "number" ? o.threshold : undefined, join: o.join as "round" | "miter" | undefined })).sort((a, b) => b.w - a.w);
-  const clipPath = fit === "cover" || dx < 0 || dy < 0 || dx + dw > bw || dy + dh > bh ? polyPath([applyMat(pl.matrix, { x: 0, y: 0 }), applyMat(pl.matrix, { x: bw, y: 0 }), applyMat(pl.matrix, { x: bw, y: bh }), applyMat(pl.matrix, { x: 0, y: bh })], true) : undefined;
-  const group: Node = { kind: "group", opacity: typeof p.opacity === "number" ? p.opacity : undefined, blend: blend as "normal", clip: hasSize ? clipPath : undefined, children: [], tag: tag(el, "art") };
+  const clipped = hasSize && (fit === "cover" || dx < 0 || dy < 0 || dx + dw > bw || dy + dh > bh);
+  const group: Node = { kind: "group", opacity: typeof p.opacity === "number" ? p.opacity : undefined, blend: blend as "normal", clip: clipped ? polyPath(frame, true) : undefined, children: [], tag: tag(el, "art") };
   ref.imageSilhouette = { kind: "group", clip: group.clip, children: [{ ...img, tag: undefined }] };
   if (ows.length) (img as { outline?: unknown }).outline = ows;
   if (isObj(p.shadow) || p.shadow === true) {
@@ -187,7 +191,9 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect):
   }
   group.children.push(img);
   nodes.push(group);
-  return { nodes, bbox: pl.bbox };
+  const [x0, y0, x1, y1] = clipped ? [left, top, right, bottom] : [dx, dy, dx + dw, dy + dh];
+  const footprint = x1 > x0 && y1 > y0 ? corners(x0, y0, x1, y1, matMul(pl.matrix, flipM)) : [];
+  return { nodes, bbox: pl.bbox, footprint };
 }
 
 async function placeholderNodes(el: RElement, ctx: ElemCtx, m: Matrix, w: number, h: number, label: string): Promise<Node[]> {

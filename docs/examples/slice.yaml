@@ -1,0 +1,26 @@
+# mangacli render docs/examples/slice.yaml -p print-mono
+mangacli: 1
+meta: { title: 斬撃 }
+book: { pageNumbers: { enabled: false } }
+page: { size: [102mm, 76mm], bleed: 0, baseFrame: trim, safeArea: { inset: 0 } }
+pages:
+  - panels:
+      - id: skyline
+        box: [12mm, 8mm, 78mm, 55mm]
+        background: "#171717"
+        border: { width: 0.7mm }
+        layers:
+          - { effect: speed-lines, angle: 12deg, color: white, density: 0.33, spacing: [1.4mm, 3.8mm] }
+          - { draw: ellipse, at: [68%, 30%], size: [21mm, 21mm], fill: white, stroke: none }
+          - { draw: polygon, points: [[8%, 100%], [8%, 61%], [24%, 56%], [24%, 100%]], fill: white, stroke: none }
+          - { draw: polygon, points: [[29%, 100%], [29%, 42%], [39%, 36%], [39%, 20%], [50%, 25%], [50%, 53%], [60%, 61%], [60%, 100%]], fill: white, stroke: none }
+          - { draw: polygon, points: [[67%, 100%], [67%, 59%], [81%, 51%], [81%, 100%]], fill: white, stroke: none }
+          - { draw: polygon, points: [[84%, 100%], [84%, 76%], [100%, 70%], [100%, 100%]], fill: white, stroke: none }
+          - { draw: line, points: [[36%, 45%], [36%, 100%]], stroke: { width: 1mm }, ruler: true }
+          - { draw: line, points: [[45%, 31%], [45%, 100%]], stroke: { width: 1mm }, ruler: true }
+          - { draw: line, points: [[75%, 63%], [75%, 100%]], stroke: { width: 1mm }, ruler: true }
+          - effect: slice
+            width: 0.9mm
+            cuts:
+              - { from: [0, 24%], to: [100%, 51%], shift: 4mm }
+              - { from: [0, 49%], to: [100%, 76%], shift: 6mm }

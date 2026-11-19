@@ -11,6 +11,7 @@ import { layoutImage } from "../elements/image.js";
 import { inksToNodes } from "../elements/inkir.js";
 import { renderMark } from "../elements/marks.js";
 import { resolveRegion } from "../elements/region.js";
+import { planSlice } from "../elements/slice.js";
 import { renderSfx, renderText } from "../elements/textel.js";
 import { textValue } from "../elements/textstyle.js";
 import type { FontRegistry } from "../fonts/registry.js";
@@ -32,6 +33,7 @@ import { cleanClippedBalloonInk } from "./balloon-clip.js";
 import type { DisplayList, GroupNode, Node } from "./ir.js";
 
 type Obj = Record<string, unknown>;
+const isSlice = (el: RElement) => el.type === "effect" && el.props.kind === "slice";
 
 export interface ComposeOptions {
   bag: DiagnosticBag;
@@ -131,6 +133,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
 
   // phase A: images (refs)
   const processed = new Map<string, Item>();
+  const imageFootprints = new Map<string, Vec[]>();
   const layoutGroup = async (els: RElement[], ctx: ElemCtx, panelIdx: number, source: number) => {
     for (const [i, el] of els.entries()) {
       // scatter items and marks drawn from assets are loaded up front (rendering is synchronous)
@@ -146,6 +149,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       const defaultBox = ctx.panel ? ctx.panel.fullBox : geom.bleedBox;
       const r = await layoutImage(el, c2, defaultBox);
       processed.set(el.id, mkItem(el, r.nodes, r.bbox, panelIdx, i, source, ctx));
+      imageFootprints.set(el.id, r.footprint);
     }
   };
   for (const pg of drawOrder) await layoutGroup(pg.panel.elements, baseCtx(pg), drawOrder.indexOf(pg), 0);
@@ -266,7 +270,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     }
     // effects etc (after refs exist)
     for (const [i, el] of els.entries()) {
-      if (["image", "balloon", "text", "sfx"].includes(el.type) || el.props.visible === false || processed.has(el.id)) continue;
+      if (["image", "balloon", "text", "sfx"].includes(el.type) || isSlice(el) || el.props.visible === false || processed.has(el.id)) continue;
       const c2 = { ...ctx, coordsBox: coordsFor(el, ctx, geom) };
       try {
         const nodes = renderMisc(el, c2);
@@ -278,6 +282,43 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   };
   for (const pg of drawOrder) await renderOthers(pg.panel.elements, baseCtx(pg), drawOrder.indexOf(pg), 0);
   await renderOthers(page.layers, baseCtx(), 0, 1);
+
+  const panelSlices = new Map<PanelGeom, NonNullable<ReturnType<typeof planSlice>>>();
+  const applySlices = (els: RElement[], ctx: ElemCtx) => {
+    const effects = els.filter((el) => isSlice(el) && el.props.visible !== false);
+    if (!effects.length) return;
+    const images = new Set(els.filter((el) => el.type === "image").map((el) => el.id));
+    const seen = new Set<string | undefined>();
+    for (const el of effects) {
+      const target = el.props.target === "panel" ? undefined : el.props.target;
+      const path = [...el.path, "target"];
+      if ((target === undefined && !ctx.panel) || (target !== undefined && (typeof target !== "string" || !target))) {
+        bag.error("SCHEMA_TYPE", "slice needs a panel or an image ID in the same layers list", { path });
+        continue;
+      }
+      if (target !== undefined && !images.has(target)) {
+        bag.error("REF_NOT_FOUND", `slice image "${target}" not found in the same layers list`, { path });
+        continue;
+      }
+      if (seen.has(target)) {
+        bag.error("SCHEMA_EXCLUSIVE", "use one slice effect per target and list all lines in cuts", { path });
+        continue;
+      }
+      seen.add(target);
+      const c2 = { ...ctx, coordsBox: coordsFor(el, ctx, geom) };
+      if (target === undefined && ctx.panel && ctx.panelPoly) {
+        const poly = ctx.panelPoly;
+        const slice = planSlice(el, c2, poly, poly !== ctx.panel.polygon ? smoothPath(poly, true) : undefined);
+        if (slice) panelSlices.set(ctx.panel, slice);
+      } else if (target !== undefined) {
+        const it = processed.get(target);
+        const slice = planSlice(el, c2, imageFootprints.get(target) ?? []);
+        if (it && slice) it.nodes = slice(it.nodes);
+      }
+    }
+  };
+  for (const pg of drawOrder) applySlices(pg.panel.elements, baseCtx(pg));
+  applySlices(page.layers, baseCtx());
 
   // collect items
   for (const pg of drawOrder) {
@@ -320,7 +361,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   for (const it of items.filter((i) => i.stackUnder)) root.children.push(...it.nodes);
   for (const { pg, clipped } of panelNodes) {
     if (pg.panel.props.visible === false) continue;
-    root.children.push(...panelTree(pg, clipped, geom, bgPaint, bag));
+    root.children.push(...panelTree(pg, clipped, geom, bgPaint, bag, panelSlices.get(pg)));
   }
   const free = items.filter((i) => !i.stackUnder);
   free.sort((a, b) => a.z - b.z || a.layer - b.layer || a.source - b.source || a.panelIdx - b.panelIdx || (a.layer === 1 && b.layer === 1 ? b.listIdx - a.listIdx : a.listIdx - b.listIdx));
@@ -420,7 +461,7 @@ function panelShapePoly(pg: PanelGeom, geom: PageGeom): Vec[] {
   return pg.polygon;
 }
 
-function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: ReturnType<typeof parsePaint>, bag: DiagnosticBag): Node[] {
+function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: ReturnType<typeof parsePaint>, bag: DiagnosticBag, slice?: ReturnType<typeof planSlice>): Node[] {
   const u = geom.units;
   const p = pg.panel.props;
   const out: Node[] = [];
@@ -437,8 +478,11 @@ function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: Retur
   const clip = isShaped ? smoothPath(poly, true) : polyPath(poly, true);
   const cleanBalloonInk = cleanClippedBalloonInk(clip);
   for (const it of clipped) inner.push(...(it.el.type === "balloon" ? cleanBalloonInk(it.nodes) : it.nodes));
-  out.push({ kind: "group", clip, children: inner, tag: { elementId: pg.panel.id, elementType: "panel", role: "art", separation: "art" } });
-  out.push(...borderNodes(pg, poly, isShaped, geom, bag));
+  const content: Node[] = [
+    { kind: "group", clip, children: inner, tag: { elementId: pg.panel.id, elementType: "panel", role: "art", separation: "art" } },
+    ...borderNodes(pg, poly, isShaped, geom, bag),
+  ];
+  out.push(...(slice ? slice(content) : content));
   return out;
 }
 
@@ -624,6 +668,10 @@ function renderMisc(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect } {
   const p = el.props;
   switch (el.type) {
     case "effect": {
+      if (isSlice(el)) {
+        if (p.visible !== false) ctx.bag.error("SCHEMA_TYPE", "slice must be a top-level layer, not a group child", { path: el.path });
+        return { nodes: [], bbox: ctx.coordsBox };
+      }
       const nodes = renderEffect(el, ctx);
       return { nodes, bbox: ctx.panel?.box ?? ctx.geom.trim };
     }
