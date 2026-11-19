@@ -49,6 +49,27 @@ describe("panel frame miters", () => {
     expect(miterFrameEdges(p, p.map(() => 1)).flat().every((v) => Number.isFinite(v.x) && Number.isFinite(v.y))).toBe(true);
   });
 
+  it.each([0, 0.1])("bounds unequal-width miters at a nearly collinear vertex (%s degrees)", (angle) => {
+    const rise = 30 * Math.tan(angle * Math.PI / 180);
+    const poly = [rectangle[0], { x: 50, y: 20 }, { x: 80, y: 20 + rise }, ...rectangle.slice(2)];
+    const widths = [1, 3, 1, 1, 1];
+    const edges = miterFrameEdges(poly, widths);
+    for (const p of edges.flat()) {
+      const distance = Math.min(...poly.map((a, i) => {
+        const d = sub(poly[(i + 1) % poly.length], a);
+        const t = Math.max(0, Math.min(1, ((p.x - a.x) * d.x + (p.y - a.y) * d.y) / (d.x * d.x + d.y * d.y)));
+        return Math.hypot(p.x - a.x - t * d.x, p.y - a.y - t * d.y);
+      }));
+      expect(distance).toBeLessThanOrEqual(Math.max(...widths));
+    }
+    for (const [edge, point] of [[0, 1], [0, 2], [1, 0], [1, 3]]) {
+      const d = norm(sub(poly[edge + 1], poly[edge]));
+      const p = edges[edge][point];
+      expect((p.x - poly[1].x) * d.x + (p.y - poly[1].y) * d.y).toBeCloseTo(0, 10);
+      expect(Math.hypot(p.x - poly[1].x, p.y - poly[1].y)).toBeCloseTo(widths[edge] / 2, 10);
+    }
+  });
+
   it.each(["overshoot", "gap"])("preserves the %s stroke rendering path", async (join) => {
     const nodes = await renderFrame(`{ width: 1mm, join: ${join} }`);
     expect(nodes).toHaveLength(4);
