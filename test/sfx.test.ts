@@ -114,6 +114,18 @@ describe("SFX lettering", () => {
     const result = await renderer.render(input("", ""), { format: "svg" });
     expect(result.diagnostics.filter(d => d.severity === "error")).toEqual([]);
   });
+  it.each(["en", "fr", "ja"])("uses layout tokenization for small kana after punctuation in %s", async lang => {
+    const widths = async (text: string) => {
+      const source = input("grow: 0, rotate: 0deg, brush: false, perChar: { rotate: 0deg, jitter: 0mm }", text);
+      source.yaml = source.yaml.replace("mangacli: 1", `mangacli: 1\nmeta: { lang: ${lang} }`);
+      const svg = Buffer.from((await renderer.render(source, { format: "svg" })).pages[0].data).toString();
+      return [...svg.matchAll(/stroke-width="([^"]+)"/g)].map(m => Number(m[1]));
+    };
+    const result = await widths("...ッ");
+    expect(result).toHaveLength(lang === "ja" ? 2 : 4);
+    expect(result.at(-1)).toBeCloseTo(0.84);
+    expect((await widths("--ッ")).at(-1)).toBeCloseTo(0.84);
+  });
   it("does not undo explicit shrink controls when grow is omitted", async () => {
     const box = async (extra: string, text = "ド") => (await renderer.render(input(`rotate: 0deg, brush: false, perChar: { rotate: 0deg, jitter: 0mm }, ${extra}`, text), { format: "svg" })).layout[0].elements.find(e => e.id === "sfx")!.bbox;
     const baseline = await box("chars: [{ index: 0, scale: 1 }]");

@@ -143,9 +143,14 @@ function isLatinChar(ch: string): boolean {
   return (cp >= 0x21 && cp <= 0x7e) || (cp >= 0xa0 && cp <= 0x24f);
 }
 
-export function layoutText(text: string, style: TextStyle, reg: FontRegistry, boxLimit?: number): TextLayout {
+export function parseLayoutText(text: string, style: TextStyle): ParsedText {
   const parsed: ParsedText = parseMarkup(text, { markup: style.markup, normalize: { ...(/^(ja|zh|ko)/.test(style.lang) ? style.normalize : { ellipsis: false, dash: false, waveDash: false, smartQuotes: true, ...style.normalize }), uppercase: style.textTransform === "uppercase" }, vertical: style.writing === "vertical" });
   if (style.writing === "vertical") assignTcy(parsed.units, style.tcy, style.latin);
+  return parsed;
+}
+
+export function layoutText(text: string, style: TextStyle, reg: FontRegistry, boxLimit?: number): TextLayout {
+  const parsed = parseLayoutText(text, style);
   const vertical = style.writing === "vertical";
   const em = style.fontSize;
   const missing: string[] = [];

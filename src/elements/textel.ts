@@ -12,10 +12,9 @@ import { inkShape } from "../ink/shape.js";
 import { inksToNodes } from "./inkir.js";
 import { glyphNodes } from "./glyphs.js";
 import type { Node, Paint } from "../render/ir.js";
-import { type TextLayout, layoutText } from "../text/layout.js";
+import { type TextLayout, layoutText, parseLayoutText } from "../text/layout.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
-import { parseMarkup } from "../text/markup.js";
 import { fullSizeKana, isSmallKana, sfxScale, sfxShifts, sfxWeightRadius } from "../text/sfx.js";
 import { brushGlyph, emboldenGlyph, type BrushSpec } from "../text/brush.js";
 
@@ -137,7 +136,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   // group glyphs by unit (char index order)
   const units = [...new Set(tl.glyphs.map((g) => g.unit))].sort((a, b) => a - b);
   const idxOf = new Map(units.map((uu, i) => [uu, i]));
-  const parsed = parseMarkup(text, { markup: style.markup, normalize: style.normalize, vertical });
+  const parsed = parseLayoutText(text, style);
   const unitChars = units.map(unit => {
     const char = parsed.units[unit];
     return char?.kind === "char" ? char.ch : "";
