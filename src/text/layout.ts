@@ -458,6 +458,25 @@ function fitDashes(per: Box[], vertical: boolean) {
     fitDash(per[i], vertical, span);
   }
 }
+
+function positionNonokagi(b: Box, lang: string) {
+  if ((b.chars !== "〝" && b.chars !== "〟") || b.glyphs.length !== 1) return;
+  const g = b.glyphs[0];
+  const [x0, y0, x1, y1] = inkBox(g.font, g.gid);
+  if (!isFinite(x0)) return;
+  const width = Math.abs(g.m[0]) * (x1 - x0);
+  const height = Math.abs(g.m[3]) * (y1 - y0);
+  const k = Math.min(1, 0.45 * b.size / Math.max(width, height));
+  g.m[0] *= k;
+  g.m[3] *= k;
+  const opening = b.chars === "〝";
+  if (!opening && !hasVertForm(g.font, b.chars, lang)) g.m[0] = -g.m[0];
+  const left = Math.min(g.m[0] * x0, g.m[0] * x1);
+  const right = Math.max(g.m[0] * x0, g.m[0] * x1);
+  // Keep the shaped outline (including vert/vrt2), anchored to its corner of the em box.
+  g.m[4] = (opening ? 0.45 : -0.45) * b.size - (opening ? right : left);
+  g.m[5] = (opening ? 0.05 * b.size : b.adv - 0.05 * b.size) - g.m[3] * (opening ? y1 : y0);
+}
 function fitDash(b: Box, vertical: boolean, span: number) {
   if (b.glyphs.length !== 1) return;
   const g = b.glyphs[0];
@@ -533,6 +552,7 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
     }
     for (const b of per) if (b.adv === 0) b.adv = size;
     fitDashes(per, true);
+    for (const b of per) positionNonokagi(b, style.lang);
     // fonts without vertical forms for small kana and 、。 get them moved toward the upper right
     // (judged from where the glyph's ink actually sits: some fonts map them to centred forms)
     for (const b of style.smallKanaFix === false ? [] : per) {
