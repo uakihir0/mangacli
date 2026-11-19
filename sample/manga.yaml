@@ -63,6 +63,7 @@ pages:
       - id: p1-b
         layers:
           - { image: p1-2, id: hayato1, focus: [0.45, 0.35] }
+          - { aside: またかよ, who: hayato, id: hayato-aside }
         dialogue:
           - { hayato: "……\n来たか。", at: [82%, 64%], tail: { to: hayato1.mouth } }
       - id: p1-c

@@ -4,6 +4,7 @@ English | [日本語](README.ja.md)
 
 | File | Contents | Feature priorities used |
 |---|---|---|
+| [aside.yaml](aside.yaml) | Small handwritten, white-edged speech beside a face, with an optional short line tail ([render](../images/aside.png)) | P1 |
 | [minimal.yaml](minimal.yaml) | Minimal example: one page using only defaults (B5, monochrome, right-to-left binding, vertical text, `ink` hand-drawn preset, `manga-basic` font set) | P0 only |
 | [b5-mono.yaml](b5-mono.yaml) | Two-page B5 monochrome action scene with slanted gutters, bleed, mixed catalog fonts, ruby, thought balloons, SFX lettering, and a crop-mark print profile | P0 and P1 |
 | [sns-color-yonkoma.yaml](sns-color-yonkoma.yaml) | Color 4-panel strip for social media (1080 × 1350 px). Uses px units, color and gradient fills, and the 4-panel template | P0 and P1 |

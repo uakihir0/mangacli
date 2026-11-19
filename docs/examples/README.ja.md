@@ -4,6 +4,7 @@
 
 | ファイル | 内容 | 使う機能の優先度 |
 |---|---|---|
+| [aside.yaml](aside.yaml) | 顔の横に置く小さな手書きのセリフ。白フチと短い引き出し線（[描画結果](../images/aside.png)） | P1 |
 | [minimal.yaml](minimal.yaml) | 最小の例。既定値（B5・モノクロ・右綴じ・縦書き・`ink`・フォントセット `manga-basic`）で 1 ページ | P0 のみ |
 | [b5-mono.yaml](b5-mono.yaml) | B5 判モノクロの対決シーン 2 ページ。斜めの間白、裁ち切り、混植、ルビ、心の声、描き文字、トンボ付き出力 | P0・P1 |
 | [sns-color-yonkoma.yaml](sns-color-yonkoma.yaml) | SNS 投稿用のカラー 4 コマ（1080 × 1350 px）。px 単位、色・グラデーションの塗り、4 コマのテンプレート | P0・P1 |

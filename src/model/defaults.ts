@@ -92,15 +92,16 @@ export const BUILTIN_MARK_DEFAULTS: Record<string, Obj> = {
 
 /** Built-in speech styles selected by `as` (spec 6.13). */
 export const BUILTIN_STYLES: Record<string, Obj> = {
+  aside: { shape: { kind: "none" }, font: "hand", fontScale: 0.75, lettering: { mode: "hand" }, textOutline: [{ width: "0.65bmm", color: "paper" }], minSize: ["0bmm", "0bmm"], padding: ["0.05em", "0.05em"], autoConnect: false, tail: { kind: "none", maxLength: "3bmm", gap: "0.5bmm", bend: 0, curl: false, allowVertical: true } },
   say: { shape: { kind: "ellipse" }, stroke: { pen: { preset: "g-pen" }, style: "solid" }, tail: { kind: "wedge" }, font: "dialogue" },
   think: { shape: { kind: "cloud", depth: 0.23 }, stroke: { width: "0.3bmm", pen: { preset: "maru-pen" }, style: "solid" }, tail: { kind: "bubbles" }, font: "thought" },
-  shout: { shape: { kind: "spike" }, stroke: { width: "0.3bmm", pen: { preset: "g-pen" }, style: "solid" }, tail: { kind: "wedge", widthScale: 1.3 }, font: "shout", fontScale: 1.4 },
+  shout: { shape: { kind: "spike" }, stroke: { width: "0.3bmm", pen: { preset: "g-pen" }, style: "solid" }, tail: { kind: "wedge", widthScale: 1.3, bend: 0, sideCurve: 0 }, font: "shout", fontScale: 1.4 },
   whisper: { shape: { kind: "ellipse" }, stroke: { width: "0.2bmm", style: "dashed" }, tail: { kind: "wedge", widthScale: 0.7 }, font: "whisper", fontScale: 0.85 },
   tremble: { shape: { kind: "wavy" }, stroke: { width: "0.22bmm" }, tail: { kind: "wedge" }, font: "dialogue" },
   narration: { shape: { kind: "rect", ruler: true }, stroke: { width: "0.45bmm", pen: { preset: "g-pen" } }, tail: { kind: "none" }, font: "narration", autoPlace: "flow", padding: ["0.75em", "0.7em"] },
   monologue: { shape: { kind: "none" }, tail: { kind: "none" }, font: "narration", textOutline: [{ width: "0.8bmm", color: "white" }] },
   inverted: { shape: { kind: "ellipse" }, stroke: { width: "0.25bmm" }, tail: { kind: "wedge" }, font: "dialogue", fill: "black", color: "white" },
-  scream: { shape: { kind: "burst" }, stroke: { width: "0.35bmm" }, tail: { kind: "wedge", widthScale: 1.5 }, font: "shout", fontScale: 1.5 },
+  scream: { shape: { kind: "burst" }, stroke: { width: "0.35bmm" }, tail: { kind: "wedge", widthScale: 1.5, bend: 0, sideCurve: 0 }, font: "shout", fontScale: 1.5 },
   shock: { shape: { kind: "flash" }, stroke: { style: "none" }, tail: { kind: "none" }, font: "thought" },
   electronic: { shape: { kind: "electronic" }, stroke: { width: "0.25bmm" }, tail: { kind: "zigzag" }, font: "dialogue" },
   offscreen: { shape: { kind: "ellipse" }, stroke: { width: "0.25bmm" }, tail: { kind: "wedge" }, font: "dialogue" },

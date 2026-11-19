@@ -234,9 +234,9 @@ tail: none
 | `to` | Point | 話者 | 向き先。`who` があり、同じコマに話者の画像があれば、その画像（[3.7.2](03-document-format.md#372-参照)） |
 | `direction` | Angle | `100deg`（下やや左） | `to` がない場合の向き |
 | `length` | Length | `to` までの距離から決める / 向き先がない場合は `wedge` 6 bmm、`zigzag` 11 bmm、その他 4.5 bmm（泡は列が収まるよう延長） | 本体の縁から先端まで。自動計算時は向き先や話者の顔の手前で止める |
-| `maxLength` | Length | `wedge` は短辺の 80 %（6〜16 bmm）、その他は短辺の 60 %（4.5〜12 bmm） | 向き先が遠い場合の自動計算の上限 |
+| `maxLength` | Length | 本体の短辺の 40 %（4.5〜9 bmm に制限） | 長さの上限。向き先が遠い場合は、向きだけを合わせてこの長さで止める |
 | `gap` | Length | `2mm` | 先端と向き先の点の間に残す距離（しっぽは口元に触れない） |
-| `width` | Length | `wedge` は短辺の 17 %（2.2〜3.8 bmm） | 付け根の幅。付け根から先端に向かって鋭く絞る |
+| `width` | Length | 本体の短辺の 13 %（1.6〜2.8 bmm に制限）。`wedge` は本体の短辺の 30 %（`length` の 1.2 倍以下） | 付け根の幅。漫画のしっぽは付け根から細く鋭い。しっぽは細い線にならず、ひと目で三角形に見える |
 | `curl` | 真偽値 | `true` | 話者がいる `wedge` のしっぽの中心線を円弧にする。円の中心は話者の顔（`face` 領域、なければ向き先）の側に置き、しっぽは本体から出た向きから顔の方へ曲がる（曲がりは顔の方向との角度の 0.85 倍、最大 1 rad）。`false` で `bend` による曲がりに戻す |
 | `allowVertical` | 真偽値 | 向き先があれば `true`、なければ `false` | `false` では、鉛直から 40° 以内のしっぽを斜めに出す。雲形・画面外のしっぽには適用しない |
 | `widthScale` | 数値 | `1` | 付け根の幅の倍率。カスケードの後に掛ける（`as: shout` などで使う） |
@@ -260,8 +260,8 @@ tail: none
 ### 6.6.3 幾何の計算（wedge）
 
 1. 付け根の中心 R: 本体の中心から向き先（または `direction`）への半直線と、本体の輪郭との交点。`root` に角度を指定した場合は、その方向の交点。
-2. 付け根の両端 A、B: 輪郭上で R から弧長 ±`width` / 2 の点。
-3. 先端 T: R から向き先へ向かって `length` 進んだ点。`to` がある場合、`length` の既定は「R から向き先までの距離 − `gap`」を `maxLength` で制限した値。話者の画像に `face` 領域があり、向き先がその上（30 % 広げた範囲）にあれば顔の楕円の手前で（同じ画像の別のキャラクターのアンカーへ向けるしっぽは、その顔で止めない）、なければ画像の不透明部分（シルエット）の 0.5 bmm 手前で止める。 本体がトゲ（`spike`）・爆発（`burst`）の場合は、しっぽがトゲに埋もれないよう、この既定の長さを 1.4 倍（6 bmm 以上）にする。
+2. 付け根の両端 A、B: 輪郭上で R から前後へたどり、R との直線距離が初めて `width` / 2 になる点（トゲの輪郭でも付け根の幅が保たれる）。
+3. 先端 T: R から向き先へ向かって `length` 進んだ点。`to` がある場合、`length` の既定は「R から向き先までの距離 − `gap`」を `maxLength` で制限した値。話者の画像に `face` 領域があり、向き先がその上（30 % 広げた範囲）にあれば顔の楕円の手前で（同じ画像の別のキャラクターのアンカーへ向けるしっぽは、その顔で止めない）、なければ画像の不透明部分（シルエット）の 0.5 bmm 手前で止める。どちらでも止まらない点（顔領域のないアンカーなど、顔の中心を指す点）へは、R から向き先までの半分で止め、顔に被らないようにする。 本体がトゲ（`spike`）・爆発（`burst`）の場合は、しっぽがトゲに埋もれないよう、この既定の長さを 1.15 倍（6 bmm 以上）にする。トゲ・爆発のしっぽは輪郭のトゲのひとつとして描き、`curl` の既定を `false` にする（`shout`・`scream` の型は `bend`・`sideCurve` も 0）（まっすぐな辺の三角形）。しっぽの先端は輪郭線と同じ太さのまま描く。
 4. 中心線 R→T を、`bend` に応じた 2 次ベジェ曲線にする（制御点を中心線の中点から法線方向に `bend` × `length` × 0.5 ずらす）。
 5. 辺 A→T と B→T は、中心線に沿って先端へ収束する曲線とし、`sideCurve` に応じて内側へ反らせる。
 6. 向き先が本体の内側にある場合は、しっぽを描かず警告（`BALLOON_TAIL_TARGET_INSIDE`）を出す。
@@ -464,16 +464,28 @@ panels:
 |---|---|---|---|---|---|---|---|
 | `say` | 通常のセリフ | `ellipse` | 0.34 bmm、G ペン | `wedge` | `dialogue` | | P0 |
 | `think` | 心の声 | `cloud`（`depth: 0.23`） | 0.3 bmm、丸ペン | `bubbles` | `thought` | | P0 |
-| `shout` | 叫び | `spike` | 0.3 mm、G ペン | `wedge`（`widthScale: 1.3`） | `shout` | `fontScale: 1.4` | P0 |
+| `shout` | 叫び | `spike` | 0.3 mm、G ペン | `wedge`（`widthScale: 1.3`、`bend: 0`、`sideCurve: 0`） | `shout` | `fontScale: 1.4` | P0 |
 | `whisper` | 小声 | `ellipse` | 0.2 mm、`dashed` | `wedge`（`widthScale: 0.7`） | `whisper` | `fontScale: 0.85` | P0 |
 | `tremble` | 震える声 | `wavy` | 0.22 mm | `wedge` | `dialogue` | | P0 |
 | `narration` | ナレーション | `rect` | 0.45 bmm、定規 | `none` | `narration` | 既定の位置 `place: top-<読み始め側>` | P0 |
 | `monologue` | モノローグ | `none` | - | `none` | `narration` | `textOutline: 0.8mm white` | P0 |
+| `aside` | ボソッ・ツッコミ・小さな独り言 | `none` | - | `none` | `hand` | 小さめの手書き文字、白フチ、±5°の傾き | P1 |
 | `inverted` | 恐ろしい声・邪悪な声 | `ellipse` | 0.25 mm | `wedge` | `dialogue` | `fill: black`、`color: white` | P0 |
-| `scream` | 絶叫 | `burst` | 0.35 mm | `wedge`（`widthScale: 1.5`） | `shout` | `fontScale: 1.5` | P1 |
+| `scream` | 絶叫 | `burst` | 0.35 mm | `wedge`（`widthScale: 1.5`、`bend: 0`、`sideCurve: 0`） | `shout` | `fontScale: 1.5` | P1 |
 | `shock` | 衝撃を受けた心の声 | `flash` | - | `none` | `thought` | | P1 |
 | `electronic` | 電話・機械の声 | `electronic` | 0.25 mm | `zigzag` | `dialogue` | | P1 |
 | `gruff` | ぶっきらぼうな声 | `hexagon` | 0.25 mm | `wedge` | `dialogue` | | P1 |
+
+`aside` は吹き出しの枠を描かず、通常のセリフの 0.75 倍の文字を使う。`who` があれば顔の左右を優先し、顔と他の吹き出しを避けて通常の吹き出しの後に配置する。空きが足りない場合は `BALLOON_NO_SPACE` を出す。顔は画像の `regions.face`、発話者は `character` で指定する。顔領域がなければ発話点を使い、発話者がなければコマ内に自動配置する。`at` で手動配置もできる。
+
+```yaml
+layers:
+  - { aside: ボソッ, who: taro }
+dialogue:
+  - { taro: 聞いてないし, as: aside, tail: { kind: line } }
+```
+
+しっぽは既定では描かない。`tail: { kind: line }` で文字の輪郭から顔へ向く短いほぼ直線の引き出し線（最大 3bmm）を付けられる。手書きの細い線を少し太らせ、白フチを重ねて絵の上でも読みやすくする。傾きは要素の ID とシードから左右いずれかの 3〜5°に決まり、`rotate: 0deg` などで上書きできる。[作例](examples/aside.yaml) / [描画結果](images/aside.png)。
 | `offscreen` | 画面外の声 | `ellipse` | 0.25 mm | `wedge`（`offscreen`） | `dialogue` | | P1 |
 
 キャラクターの `voice`（[3.15](03-document-format.md#315-characters)）で、キャラクターごとに発話の種類の見た目を上書きできる。
