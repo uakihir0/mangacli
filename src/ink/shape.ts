@@ -424,20 +424,19 @@ function dashed(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, 
   const inks: InkPoly[] = [];
   const point = c.closed ? c.corners?.find((k) => k.kind === "point") : undefined;
   if (point) {
+    if (on + off >= d.total) return solid(d, c, { ...line, style: "solid" }, o, rng);
     const anchor = d.s[d.vmap[point.index]];
-    const start = anchor - on / 2;
-    const end = start + d.total;
+    const half = d.total / 2;
+    const count = Math.max(1, Math.round((half + off / 2) / (on + off)));
+    const scale = half / (count * (on + off) - off / 2);
     const step = Math.max(0.08, hand.resolution * 0.5);
-    for (let s = start; s < end; s += on + off) {
-      const e = Math.min(s + on, end - off);
-      if (e <= s) break;
-      const draw = (a: number, b: number, tipIn: boolean, tipOut: boolean) => {
-        inks.push(...strokeOutline(slice(d, a, b, step), { width: line.width, pen: line.pen, hand, rng: rng.fork("d"), taperInLen: tipIn ? 0 : on * 0.3, taperOutLen: tipOut ? 0 : on * 0.35, ruler, inkPool: false }));
-      };
-      if (s < anchor && e > anchor) {
-        draw(s, anchor, false, true);
-        draw(anchor, e, true, false);
-      } else draw(s, e, false, false);
+    for (let i = 0; i < count; i++) {
+      const s = i * (on + off) * scale;
+      const e = s + on * scale;
+      for (const direction of [-1, 1]) {
+        const pts = slice(d, anchor + direction * s, anchor + direction * e, step);
+        inks.push(...strokeOutline(pts, { width: line.width, pen: line.pen, hand, rng: rng.fork("d"), taperInLen: i === 0 ? 0 : on * scale * 0.3, taperOutLen: on * scale * 0.35, ruler, inkPool: false }));
+      }
     }
     return inks;
   }

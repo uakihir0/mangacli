@@ -7,6 +7,14 @@ import * as stroke from "../src/ink/stroke.js";
 afterEach(() => vi.restoreAllMocks());
 
 describe("dashed tail outlines", () => {
+  it.each([[100, 100], [1.6, 100], [100, 1]])("inks pointed contours even with oversized dashes %j", (on, off) => {
+    const result = inkShape({ pts: [{ x: 0, y: 0 }, { x: 2, y: 1 }, { x: 0, y: 2 }], closed: true, corners: [{ index: 1, kind: "point" }] }, {
+      hand: HAND_PRESETS.clean, rng: new Rng(1),
+      line: { width: 0.2, pen: PEN_PRESETS.marker, style: "dashed", dash: [on, off] },
+    });
+    expect(result.inks.length).toBeGreaterThan(0);
+    expect(result.inks.every((ink) => ink.pts.every((p) => Number.isFinite(p.x + p.y)))).toBe(true);
+  });
   it.each([1, 42, 9876])("keeps body width and spacing through a full-width tip (seed %i)", (seed) => {
     const spy = vi.spyOn(stroke, "strokeOutline");
     const tip = { x: 16, y: 5 };
