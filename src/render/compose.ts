@@ -371,7 +371,7 @@ function compositeNodes(nodes: Node[], props: Obj, bag: DiagnosticBag, path: (st
     const yes: Node[] = [], no: Node[] = [];
     for (const node of ns) {
       if (node.tag && exclude.includes(kinds[node.tag.elementType])) no.push(node);
-      else if (node.kind === "group") {
+      else if (node.kind === "group" && !node.filters?.length) {
         const [a, b] = split(node.children);
         if (a.length) yes.push({ ...node, children: a });
         if (b.length) no.push({ ...node, children: b });

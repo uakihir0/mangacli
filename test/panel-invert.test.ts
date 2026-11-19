@@ -56,6 +56,18 @@ describe("post-composite filters", () => {
   it("leaves empty filter lists byte-identical", async () => {
     expect(await pixels(input("invert: false\n        filters: []"))).toEqual(await pixels(input()));
   });
+  it("keeps a panel's filtered text inside its composite despite page exclusions", async () => {
+    const panel = 'filters: ["threshold(0.5)"]\n        exclude: []';
+    const layers = '[{ text: ドン, color: red, outline: [], at: [20mm, 20mm], fontSize: 10mm, clip: panel }]';
+    const a = await pixels(input(panel, layers));
+    const b = await pixels(input(panel, layers, "invert: true\n    exclude: [text]"));
+    let ink = 0;
+    for (let i = 0; i < a.length; i += 4) {
+      if (a[i] === 0) ink++;
+      expect(b[i]).toBe(255 - a[i]);
+    }
+    expect(ink).toBeGreaterThan(10);
+  });
   it("removes page paper recursively for transparent output on inverted pages", async () => {
     const doc = input("background: transparent", '[{ type: draw, kind: rect, at: [20mm, 20mm], size: [10mm, 10mm], fill: black }]', "invert: true");
     for (const output of [{ transparent: true }, { background: "transparent" }]) {
