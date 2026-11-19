@@ -12,11 +12,12 @@ export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number
   const midpoint = toneCurve === "perceptual" ? 0.5 : srgbToLinear(0.5);
   const radius = Math.max(2, Math.round(dpi * 0.24 / 25.4));
   const minLength = dpi * 2 / 25.4;
-  const maxGap = Math.max(1, Math.round(dpi * 0.32 / 25.4));
+  const maxGap = Math.max(1, Math.round(dpi * 0.8 / 25.4));
   const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
   const candidates = new Uint8Array(width * height);
   for (let direction = 0; direction < directions.length; direction++) {
     const [dx, dy] = directions[direction];
+    const inner = Math.max(1, Math.round(dpi * 0.12 / (25.4 * Math.hypot(dx, dy))));
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const i = y * width + x;
@@ -25,10 +26,14 @@ export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number
         const y0 = y - dy * radius, y1 = y + dy * radius;
         if (x0 < 0 || x1 >= width || y0 < 0 || y0 >= height || y1 < 0 || y1 >= height) continue;
         const a = gray[y0 * width + x0], b = gray[y1 * width + x1];
-        if (v <= midpoint && Math.min(a, b) - v >= 0.12) {
+        const nearA = gray[(y - dy * inner) * width + x - dx * inner];
+        const nearB = gray[(y + dy * inner) * width + x + dx * inner];
+        const contrast = Math.min(Math.abs(a - v), Math.abs(b - v));
+        if (Math.abs(a - b) > Math.max(0.025, contrast * 0.35)) continue;
+        if (v <= midpoint && Math.min(a, b, nearA, nearB) - v >= 0.12) {
           candidates[i] |= 1 << direction;
         }
-        if (v > midpoint && v - Math.max(a, b) >= 0.12) {
+        if (v > midpoint && v - Math.max(a, b, nearA, nearB) >= 0.12) {
           candidates[i] |= 1 << (direction + 4);
         }
       }
@@ -75,6 +80,8 @@ export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number
                 const i = matches[p] >= 0 ? matches[p] : ray[p];
                 if (matches[p] >= 0) local = gray[i];
                 if ((gray[i] <= midpoint) === (polarity === 1) && Math.abs(gray[i] - local) <= 0.035) mask[i] = polarity;
+                const center = ray[p];
+                if ((gray[center] <= midpoint) === (polarity === 1) && Math.abs(gray[center] - local) <= 0.035) mask[center] = polarity;
               }
             }
             start = last = -1;

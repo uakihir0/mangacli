@@ -4,6 +4,24 @@ import { render } from "../src/api.js";
 import { imageInkMask } from "../src/render/image-ink.js";
 
 describe("print image ink preservation", () => {
+  it.each(["blob", "step", "shading-boundary"])("does not preserve soft %s contours as ridges", (shape) => {
+    const width = 192;
+    const rgba = new Uint8Array(width * width * 4);
+    for (let y = 0; y < width; y++) {
+      for (let x = 0; x < width; x++) {
+        const distance = Math.hypot((x - 96) / 1.3, y - 96);
+        const boundary = x - y * 0.5 - 45;
+        const v = shape === "blob" ? 70 + 120 * (1 - Math.exp(-distance * distance / 1200))
+          : shape === "step" ? 70 + 120 / (1 + Math.exp(-boundary / 2))
+          : boundary < -2 ? 70 : boundary <= 0 ? 180 : 130;
+        const i = (y * width + x) * 4;
+        rgba.fill(v, i, i + 3);
+        rgba[i + 3] = 255;
+      }
+    }
+    expect(imageInkMask(rgba, width, width, 324).some(Boolean)).toBe(false);
+  });
+
   it.each([[4096, 32], [32, 4096]])("screens a thin %s by %s image without scanning outside its bounds", (width, height) => {
     const rgba = new Uint8Array(width * height * 4);
     const vertical = height > width;
