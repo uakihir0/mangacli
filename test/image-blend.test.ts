@@ -3,6 +3,42 @@ import sharp from "sharp";
 import { render } from "../src/api.js";
 
 describe("image blend precedence", () => {
+  describe.each(["mark", "scatter"])("%s assets", (type) => {
+    describe.each(["print-gray", "print-mono"])("%s", (profile) => {
+      it.each([
+        [undefined, undefined, "multiply", 0],
+        ["normal", undefined, "normal", 255],
+        ["screen", undefined, "screen", 255],
+        [undefined, "normal", "normal", 255],
+        ["normal", "multiply", "normal", 255],
+        ["multiply", "normal", "multiply", 0],
+      ] as const)("layer=%s asset=%s uses %s", async (layerBlend, assetBlend, expectedBlend, expectedPixel) => {
+        const asset = await sharp({ create: { width: 32, height: 32, channels: 4, background: "white" } }).png().toBuffer();
+        const blend = layerBlend ? `, blend: ${layerBlend}` : "";
+        const layer = type === "mark"
+          ? `{ type: mark, kind: asset, asset: art, size: 10mm, at: [50%, 50%]${blend} }`
+          : `{ type: scatter, count: 1, itemScale: [1, 1], itemRotate: [0deg, 0deg], items: [{ asset: art, size: 4mm }]${blend} }`;
+        const result = await render({ yaml: `mangacli: 1
+page: { size: [20mm, 20mm], bleed: 0mm }
+book: { pageNumbers: { enabled: false } }
+assets:
+  art: { src: art.png, kind: lineart${assetBlend ? `, blend: ${assetBlend}` : ""} }
+pages:
+  - panels:
+      - background: ink
+        layers:
+          - ${layer}
+` }, { profile, width: 100, format: ["svg", "png"], assets: { art: asset } });
+        const svg = Buffer.from(result.pages.find((p) => p.format === "svg")!.data).toString("utf8");
+        expect(svg).toContain("<image");
+        const pixel = await sharp(Buffer.from(result.pages.find((p) => p.format === "png")!.data)).extract({ left: 10, top: 10, width: 80, height: 80 }).removeAlpha().raw().toBuffer();
+        expect(Math.max(...pixel)).toBe(expectedPixel);
+        if (expectedBlend === "normal") expect(svg).not.toContain("mix-blend-mode:");
+        else expect(svg).toContain(`mix-blend-mode:${expectedBlend}`);
+      });
+    });
+  });
+
   it.each([
     ["lineart", undefined, undefined, "multiply", 0],
     ["lineart", "normal", undefined, "normal", 255],

@@ -1,5 +1,6 @@
 // Image elements (spec 5.5).
 import { FILTER_NAMES, parseFilter } from "../render/filters.js";
+import { resolveAssetBlend } from "../render/assets.js";
 import { isObj } from "../load/normalize.js";
 import { parseColor } from "../core/color.js";
 import { toMm } from "../core/units.js";
@@ -154,7 +155,7 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect):
     const scale = Math.max(1, need / effPpi);
     ctx.bag.warn("ASSET_LOW_RESOLUTION", `${src}: effective ${Math.round(effPpi)} ppi < required ${Math.round(need)} ppi (${info!.kind === "lineart" ? "line art" : "general"} threshold); asset ${iw}×${ih} px; use at least ${Math.ceil(iw * scale)}×${Math.ceil(ih * scale)} px at this display size (same framing/aspect ratio)`, { path: el.path, elementId: el.id });
   }
-  const blend = (p.blend as string) ?? info!.blend ?? (info!.kind === "lineart" || info!.kind === "texture" ? "multiply" : "normal");
+  const blend = resolveAssetBlend(info!, p.blend);
   const img: Node = {
     kind: "image",
     assetKey: info!.key,

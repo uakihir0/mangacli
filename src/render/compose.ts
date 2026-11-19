@@ -27,7 +27,7 @@ import { parsePaint, resolveHand, resolvePen, resolveStroke } from "../model/val
 import { BODY_GENERATORS } from "../shapes/balloon.js";
 import { defaultTextStyle, layoutText } from "../text/layout.js";
 import { parseMarkup } from "../text/markup.js";
-import type { AssetRegistry } from "./assets.js";
+import { type AssetRegistry, resolveAssetBlend } from "./assets.js";
 import { cleanClippedBalloonInk } from "./balloon-clip.js";
 import type { DisplayList, GroupNode, Node } from "./ir.js";
 
@@ -355,7 +355,8 @@ function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listI
   const free = source === 1 || clip === "none" || clip === "trim" || isObj(clip) || (el.type === "balloon" && clip !== "panel" && !isOffscreen(el));
   const layer = el.type === "balloon" ? 1 : el.type === "text" || el.type === "sfx" ? 2 : 0;
   const op = typeof el.props.opacity === "number" && el.type !== "image" && el.type !== "effect" ? el.props.opacity : undefined;
-  const blend = el.type !== "image" && typeof el.props.blend === "string" && el.props.blend !== "normal" ? (el.props.blend as GroupNode["blend"]) : undefined;
+  const ownsBlend = el.type === "image" || (el.type === "mark" && el.props.kind === "asset");
+  const blend = !ownsBlend && typeof el.props.blend === "string" && el.props.blend !== "normal" ? (el.props.blend as GroupNode["blend"]) : undefined;
   let inner = nodes;
   if (el.props.visible === false) inner = [];
   // flip for lettering: mirror about the element's box (spec 5.3.4)
@@ -885,7 +886,8 @@ async function renderScatter(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[
         const h = (w * info.height) / info.width;
         const ca = Math.cos(ang);
         const sa = Math.sin(ang);
-        nodes.push({ kind: "image", assetKey: info.key, dest: { x: -w / 2, y: -h / 2, w, h }, sourceRect: { x: 0, y: 0, w: info.width, h: info.height }, transform: [ca, sa, -sa, ca, q.x, q.y], smoothing: "high", lineart: info.kind === "lineart", monoLpi: 60, filters: [], tag: tag(el, "art") });
+        const image: Node = { kind: "image", assetKey: info.key, dest: { x: -w / 2, y: -h / 2, w, h }, sourceRect: { x: 0, y: 0, w: info.width, h: info.height }, transform: [ca, sa, -sa, ca, q.x, q.y], smoothing: "high", lineart: info.kind === "lineart", monoLpi: 60, filters: [], tag: tag(el, "art") };
+        nodes.push({ kind: "group", blend: resolveAssetBlend(info, item.blend ?? (p.blend !== undefined ? "normal" : undefined)), children: [image] });
       }
     } else if (typeof item.type === "string") {
       // an inline element definition placed at the point

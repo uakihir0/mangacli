@@ -9,6 +9,7 @@ import { place, resolvePoint } from "../layout/place.js";
 import type { RElement } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolveStroke } from "../model/values.js";
 import type { Node, Paint } from "../render/ir.js";
+import { resolveAssetBlend } from "../render/assets.js";
 import { activePlugins } from "../plugin.js";
 import { runPluginDrawable } from "./plugindraw.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
@@ -140,7 +141,8 @@ export function renderMark(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
     const sa = Math.sin(rotA);
     const fx = p.flip === "x" || p.flip === "xy" || p.flip === true ? -1 : 1;
     const fy = p.flip === "y" || p.flip === "xy" ? -1 : 1;
-    return { nodes: [{ kind: "image", assetKey: info.key, dest: { x: -w / 2, y: -h / 2, w, h }, sourceRect: { x: 0, y: 0, w: info.width, h: info.height }, transform: [ca * fx, sa * fx, -sa * fy, ca * fy, c.x, c.y], smoothing: "high", lineart: info.kind === "lineart", monoLpi: 60, filters: [], tag: tag(el, "art") }], bbox: pl.bbox };
+    const image: Node = { kind: "image", assetKey: info.key, dest: { x: -w / 2, y: -h / 2, w, h }, sourceRect: { x: 0, y: 0, w: info.width, h: info.height }, transform: [ca * fx, sa * fx, -sa * fy, ca * fy, c.x, c.y], smoothing: "high", lineart: info.kind === "lineart", monoLpi: 60, filters: [], tag: tag(el, "art") };
+    return { nodes: [{ kind: "group", blend: resolveAssetBlend(info, p.blend), children: [image] }], bbox: pl.bbox };
   }
   switch (kind) {
     case "sweat":

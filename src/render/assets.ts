@@ -4,6 +4,7 @@ import sharp from "sharp";
 import { relative, resolve } from "node:path";
 import type { DiagnosticBag } from "../core/diagnostics.js";
 import { isObj, looksLikePath } from "../load/normalize.js";
+import type { BlendMode } from "./ir.js";
 
 type Obj = Record<string, unknown>;
 
@@ -24,6 +25,10 @@ export interface AssetInfo {
   blend?: string;
   data?: Uint8Array;
   missing?: boolean;
+}
+
+export function resolveAssetBlend(info: AssetInfo, blend?: unknown): BlendMode {
+  return (blend ?? info.blend ?? (info.kind === "lineart" || info.kind === "texture" ? "multiply" : "normal")) as BlendMode;
 }
 
 export class AssetRegistry {
