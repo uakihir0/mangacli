@@ -490,6 +490,8 @@ dialogue:
 
 キャラクターの `voice`（[3.15](03-document-format.md#315-characters)）で、キャラクターごとに発話の種類の見た目を上書きできる。
 
+`manga-basic` の叫び・絶叫は、インストール済みのゴシックMB101 U、新ゴ U、カタログの Zen Kaku Gothic New Black（900）の順に使う（[7.3.10](07-text.md#7310-フォントのカタログと取得)）。
+
 ## 6.14 検証
 
 | コード | 重大度 | 条件 |
