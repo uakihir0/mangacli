@@ -40,6 +40,14 @@ describe("print-basis units", () => {
 });
 
 describe("print geometry", () => {
+  it("orients preset base frames and print sizes without rotating explicit frames", async () => {
+    const r = await validate(input("size: manga-b4, orientation: landscape"));
+    expect(r.layout[0].geom).toMatchObject({ trimW: 310, trimH: 220, baseFrame: { x: 20, y: 20, w: 270, h: 180 } });
+    expect(r.layout[0].geom.printScale).toBeCloseTo(257 / 310);
+    expect(r.diagnostics.filter((d) => d.code === "PAGE_BASEFRAME_OUTSIDE_SAFE")).toEqual([]);
+    const explicit = await validate(input("size: manga-b4, orientation: landscape, baseFrame: {size: [200mm, 150mm]}"));
+    expect(explicit.layout[0].geom.baseFrame).toMatchObject({ w: 200, h: 150 });
+  });
   it("lets page-level print settings replace the other inherited setting", async () => {
     for (const [inherited, specific, scale] of [["printSize: B5", "printScale: 0.5", 0.5], ["printScale: 0.5", "printSize: B5", 182 / 220]] as const) {
       const r = await validate({ yaml: `mangacli: 1\npage: { size: manga-b4, ${inherited} }\npages:\n  - ${specific}\n    panels: [{}]\n` });

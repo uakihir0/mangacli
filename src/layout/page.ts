@@ -144,6 +144,10 @@ export function computePageGeom(page: RPage, physicalIndex: number, book: Obj, b
     if (isObj(bf) && Array.isArray(bf.size)) {
       bw = toMm((bf.size as string[])[0], pctx(singleW));
       bh = toMm((bf.size as string[])[1], pctx(trimH));
+      if (raw.baseFrame === undefined && s.orientation === "landscape") {
+        const original = pageSize({ ...s, orientation: undefined }, bag, page.path);
+        if (original.w < original.h) [bw, bh] = [bh, bw];
+      }
     }
     if (page.type === "spread") bw = trimW - (singleW - bw);
     let ox = 0;
