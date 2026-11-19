@@ -42,9 +42,9 @@ export function renderLight(el: RElement, ctx: ElemCtx, region: ResolvedRegion):
     case "glow": {
       const blur = length(p.blur, short);
       if (!Number.isFinite(blur) || blur <= 0) return bad("blur", "glow blur must be a positive length");
-      const isId = typeof p.target === "string";
-      if (!isId && !Region.safeParse(p.target).success) return bad("target", "glow target must be an element ID or region");
-      const target = isId ? { element: p.target, mode: "alpha" } : p.target;
+      const isRegion = Region.safeParse(p.target).success;
+      if (!isRegion && typeof p.target !== "string") return bad("target", "glow target must be an element ID or region");
+      const target = isRegion ? p.target : { element: p.target, mode: "alpha" };
       const resolved = resolveRegion(target, ctx, ctx.panel ? "panel" : "page", [...el.path, "target"]);
       if (!resolved.path.length) return [];
       const image = resolved.alphaOf ? ctx.refs.get(resolved.alphaOf)?.imageSilhouette : undefined;

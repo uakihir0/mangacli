@@ -58,6 +58,12 @@ describe("light effects", () => {
     expect(coverage(6)).toBe(0);
   });
 
+  it("accepts a named region as the glow target", async () => {
+    const { pixel } = await raster(scene("{ effect: glow, target: trim, blur: 2mm }"));
+    expect(pixel(20, 16)).toBe(255);
+    expect(pixel(1, 16)).toBeLessThan(200);
+  });
+
   it("radiates from an image anchor with the requested count and clips bands to the region", async () => {
     const yaml = scene(`{ effect: light-rays, center: hero.face, count: 4, angle: 0deg, spread: 0.36, region: { rect: [7mm, 4mm, 26mm, 24mm] } }
 { image: cutout, id: hero, size: [2mm, 2mm], at: [19mm, 15mm], anchors: { face: [40, 40] } }`);
