@@ -519,6 +519,21 @@ function hasVertForm(f: LoadedFont, ch: string, lang: string): boolean {
 }
 
 function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: number, o: Orient, vertical: boolean, style: TextStyle, boxes: Box[]) {
+  if (pk.face && pk.scale !== 1) {
+    // compose scale: shape at the body size so the pitch stays, then enlarge each face about its cell centre
+    const from = boxes.length;
+    shapeSegment(seg, segUnits, { ...pk, scale: 1, face: false }, size0, o, vertical, style, boxes);
+    const k = pk.scale;
+    const s0 = size0 / pk.font.upem;
+    const emCentre = -((pk.font.ascender + pk.font.descender) * s0) / 2;
+    for (const b of boxes.slice(from)) {
+      // dashes stay fitted end to end so runs of them still join
+      if (DASHES.has(b.chars) || WAVE_DASHES.has(b.chars)) continue;
+      const [px, py] = vertical ? [0, b.adv / 2] : [b.adv / 2, emCentre];
+      for (const g of b.glyphs) g.m = [g.m[0] * k, g.m[1] * k, g.m[2] * k, g.m[3] * k, px + (g.m[4] - px) * k, py + (g.m[5] - py) * k];
+    }
+    return;
+  }
   const f = pk.font;
   const size = size0 * pk.scale;
   const s = size / f.upem;

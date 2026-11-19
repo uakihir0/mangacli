@@ -128,7 +128,7 @@ fonts:
 |---|---|---|
 | `font` | フォント名 | 使うフォント |
 | `ranges` | 範囲名 \| `"U+XXXX-YYYY"` の配列 | 対象の文字。省略するとすべての文字（最後の項目に使う） |
-| `scale` | 数値 | 字面の大きさの補正（既定 1） |
+| `scale` | 数値 | 字面の大きさの補正（既定 1）。字送りは変えず、字の枠の中心を基準に字面だけを拡大・縮小する |
 | `baselineShift` | Length（`em`） | 位置の補正（縦書きでは右方向、横書きでは上方向が正） |
 
 | 範囲名 | 内容 |
@@ -214,7 +214,7 @@ macOS では `~/Library/Fonts`、`/Library/Fonts`、`/System/Library/Fonts`、Wi
 | カタログ ID | 書体 | 太さ | 主な用途 |
 |---|---|---|---|
 | `zen-antique` | Zen Antique | 400 | アンチック体（アンチゴチのかな） |
-| `zen-kaku-gothic-new` | Zen Kaku Gothic New | 400、700、900 | ゴシック体（アンチゴチの漢字） |
+| `zen-kaku-gothic-new` | Zen Kaku Gothic New | 400、500、700、900 | ゴシック体（アンチゴチの漢字） |
 | `shippori-mincho` | Shippori Mincho | 400、500、700 | 明朝体（ナレーション） |
 | `dela-gothic-one` | Dela Gothic One | 400 | 極太ゴシック体（叫び、描き文字） |
 | `zen-maru-gothic` | Zen Maru Gothic | 500、700、900 | 丸ゴシック体（題、やわらかいセリフ） |
@@ -246,7 +246,7 @@ fonts:
 
 | ロール | `manga-basic` のフォント |
 |---|---|
-| `dialogue` | 混植: かな・約物は `zen-antique`、その他は `zen-kaku-gothic-new@700`（アンチゴチ）。フォールバックは `noto-sans-jp@700` |
+| `dialogue` | 混植: かな・約物は `zen-antique`（字面 1.04 倍）、その他は `zen-kaku-gothic-new@500`（アンチゴチ）。漢字を中くらいの太さにし、かなを少し大きくして黒さをそろえる。フォールバックは `noto-sans-jp@400` |
 | `thought`、`whisper` | `dialogue` と同じ |
 | `narration` | `shippori-mincho@500` |
 | `shout`、`sfx` | `dela-gothic-one` |

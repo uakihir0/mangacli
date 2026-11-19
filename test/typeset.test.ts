@@ -241,4 +241,36 @@ describe("typesetting", () => {
       expect(x + w / 2).toBeCloseTo(cx, 1);
     }
   });
+  it("balances the default antique-kana / gothic-kanji dialogue mix", async () => {
+    await reg.prepare("dialogue", "見たア、");
+    const kanji = reg.pick("dialogue", "見".codePointAt(0)!)!;
+    expect(kanji.font.key).toMatch(/zen-kaku-gothic-new.*500/i);
+    expect(kanji.scale).toBe(1);
+    for (const ch of "たア、") {
+      const kana = reg.pick("dialogue", ch.codePointAt(0)!)!;
+      expect(kana.font.key).toMatch(/zen-antique/i);
+      expect(kana.scale).toBe(1.04);
+      expect(kana.face).toBe(true);
+    }
+  });
+  it.each(["vertical", "horizontal"] as const)("enlarges composed kana faces without changing the pitch (%s)", async (writing) => {
+    const text = "見たた見";
+    const plain = new FontRegistry(new Map<string, FontDef>([
+      ["antique", { kind: "catalog", id: "zen-antique" }],
+      ["gothic", { kind: "catalog", id: "zen-kaku-gothic-new", weight: 500 }],
+      ["mix", { kind: "compose", items: [{ font: "antique", ranges: ["kana", "punct"] }, { font: "gothic" }] }],
+    ]), "none", [], {});
+    await plain.prepare("mix", text);
+    await reg.prepare("dialogue", text);
+    const [base, scaled] = ([[plain, "mix"], [reg, "dialogue"]] as const).map(([fonts, font]) =>
+      layoutText(text, { ...defaultTextStyle({ font, fontSize: 10 }), writing, maxChars: 8 } as never, fonts)
+    );
+    expect(scaled.lines[0].length).toBeCloseTo(base.lines[0].length, 6);
+    for (const k of [0, 1, 2, 3]) {
+      const [a, b] = [base, scaled].map((l) => ink(l.glyphs[k].path));
+      const ratio = k === 1 || k === 2 ? 1.04 : 1;
+      expect(b.w / a.w).toBeCloseTo(ratio, 3);
+      expect(b.h / a.h).toBeCloseTo(ratio, 3);
+    }
+  });
 });

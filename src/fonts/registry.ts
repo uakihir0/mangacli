@@ -41,6 +41,8 @@ export interface FontPick {
   font: LoadedFont;
   scale: number;
   baselineShift: number;
+  /** `scale` enlarges the face inside the cell and keeps the character pitch (compose items) */
+  face?: boolean;
 }
 
 export const ROLE_CHAINS: Record<string, string[]> = {
@@ -71,7 +73,7 @@ interface Phys {
 
 interface Chain {
   /** ordered candidates with optional range predicates */
-  items: { phys: Phys; ranges?: string[]; scale: number; baselineShift: number }[];
+  items: { phys: Phys; ranges?: string[]; scale: number; baselineShift: number; face?: boolean }[];
 }
 
 export class FontRegistry {
@@ -168,12 +170,12 @@ export class FontRegistry {
       return;
     }
     if (!role || typeof role === "string") return;
-    const add = (font: string, ranges?: Chain["items"][number]["ranges"], scale = 1) => {
+    const add = (font: string, ranges?: Chain["items"][number]["ranges"], scale = 1, face = false) => {
       const phys = this.catalogPhys(font);
-      if (!items.some((i) => i.phys.key === phys.key && !i.ranges)) items.push({ phys, ranges, scale, baselineShift: 0 });
+      if (!items.some((i) => i.phys.key === phys.key && !i.ranges)) items.push({ phys, ranges, scale, baselineShift: 0, face });
     };
     if (!fallbackOnly) {
-      if (role.compose) for (const it of role.compose) add(it.font, it.ranges);
+      if (role.compose) for (const it of role.compose) add(it.font, it.ranges, it.scale ?? 1, true);
       if (role.font) add(role.font, undefined, role.scale ?? 1);
     }
     for (const f of role.fallback ?? []) add(f);
@@ -194,7 +196,7 @@ export class FontRegistry {
       else if (def.kind === "compose") {
         for (const it of def.items) {
           for (const c of this.chain(it.font, seen).items)
-            items.push({ ...c, ranges: it.ranges ?? c.ranges, scale: (it.scale ?? 1) * c.scale, baselineShift: (it.baselineShift ?? 0) + c.baselineShift });
+            items.push({ ...c, ranges: it.ranges ?? c.ranges, scale: (it.scale ?? 1) * c.scale, baselineShift: (it.baselineShift ?? 0) + c.baselineShift, face: true });
         }
         for (const f of def.fallback ?? []) pushName(f);
       } else {
@@ -336,8 +338,8 @@ export class FontRegistry {
       if (it.ranges && !it.ranges.some((r) => inRange(r, cp))) continue;
       const lf = this.loaded.get(it.phys.key);
       if (!lf) continue;
-      if (!firstLoaded) firstLoaded = { font: lf, scale: it.scale, baselineShift: it.baselineShift };
-      if (lf.has(cp)) return { font: lf, scale: it.scale, baselineShift: it.baselineShift };
+      if (!firstLoaded) firstLoaded = { font: lf, scale: it.scale, baselineShift: it.baselineShift, face: it.face };
+      if (lf.has(cp)) return { font: lf, scale: it.scale, baselineShift: it.baselineShift, face: it.face };
     }
     return null;
   }

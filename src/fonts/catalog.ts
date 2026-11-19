@@ -18,7 +18,7 @@ export interface CatalogFont {
   revision: number;
 }
 
-export type SetRole = string | { font?: string; compose?: { font: string; ranges?: string[] }[]; fallback?: string[]; /** size factor (condensed display faces) */ scale?: number };
+export type SetRole = string | { font?: string; compose?: { font: string; ranges?: string[]; /** face size correction */ scale?: number }[]; fallback?: string[]; /** size factor (condensed display faces) */ scale?: number };
 
 export interface Catalog {
   version: number;
