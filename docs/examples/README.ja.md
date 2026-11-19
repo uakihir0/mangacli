@@ -5,7 +5,7 @@
 | ファイル | 内容 | 使う機能の優先度 |
 |---|---|---|
 | [minimal.yaml](minimal.yaml) | 最小の例。既定値（B5・モノクロ・右綴じ・縦書き・`ink`・フォントセット `manga-basic`）で 1 ページ | P0 のみ |
-| [b5-mono.yaml](b5-mono.yaml) | B5 判モノクロの同人誌原稿 2 ページ。断ち切り、斜めの間白、分割木、カタログのフォントによる混植、ルビ・傍点、各種の吹き出し・効果・トーン、描き文字、漫符、セリフの省略記法、連結、はみ出し、コマをまたぐ吹き出し、入稿用プロファイル | P0・P1 |
+| [b5-mono.yaml](b5-mono.yaml) | B5 判モノクロの対決シーン 2 ページ。斜めの間白、裁ち切り、混植、ルビ、心の声、描き文字、トンボ付き出力 | P0・P1 |
 | [sns-color-yonkoma.yaml](sns-color-yonkoma.yaml) | SNS 投稿用のカラー 4 コマ（1080 × 1350 px）。px 単位、色・グラデーションの塗り、4 コマのテンプレート | P0・P1 |
 | [color-page.yaml](color-page.yaml) | B5 のカラー 1 ページ。グラデーションの地、背景の乗算、雨、波に沿った描き文字、色付きの集中線・ウニフラッシュ、照れの漫符 | P0・P1 |
 | [gallery-balloons.yaml](gallery-balloons.yaml) | 組み込みの吹き出しのスタイル（`as`）の一覧 | P0・P1 |
@@ -13,6 +13,7 @@
 | [en-comic.yaml](en-comic.yaml) | 英語のページ（`lang: en`）。左から右へ読む順、`comic-basic` フォントセットの大文字の横書きの吹き出し、行の均等化 | P0・P1 |
 
 - フォントはカタログのものを使うため、初回のレンダリング時に自動でダウンロードする。事前に取得する場合は `npx mangacli fonts install --for docs/examples/b5-mono.yaml` を実行する。
+- B5 版と最小例は [4 ページの作例](../../sample/) の作画を使用しています。入稿時は高解像度の原画に差し替えてください。
 - `assets/` の画像は、`scripts/make-sample-assets.ts` で生成した簡単な仮の絵（本プロジェクトと同じ MIT）。自分の絵に差し替えて使う。
 - 描画結果は [../images](../images) にある。
 

@@ -13,7 +13,7 @@ mangacli は、漫画の構造を記述したデータから、日本の漫画�
 
 ほかの作例: [カラーの 1 ページ](docs/images/color-page.png)、[吹き出しの一覧](docs/images/gallery-balloons.png)、[効果と描き文字の一覧](docs/images/gallery-effects.png)、[B5 の作例の 2 ページ目](docs/images/b5-mono-2.png)、[英語の左開きのページ](docs/images/en-comic.png)。
 
-作例の絵はスクリプトで生成した仮の絵です。それ以外（コマ、吹き出し、写植、効果、トーン）はすべて mangacli が描いています。元のファイルは [docs/examples](docs/examples/README.ja.md) にあります。
+白黒の作例には [屋上を舞台にした 4 ページの漫画](sample/) の作画を使っています。ほかの作例には仮の絵を使うものもあります。コマ、吹き出し、写植、追加の効果やトーンは mangacli が描いています。元のファイルは [docs/examples](docs/examples/README.ja.md) にあります。
 
 ## 機能
 

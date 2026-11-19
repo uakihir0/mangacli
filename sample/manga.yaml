@@ -15,7 +15,7 @@ page:
   size: B5
   bleed: 3mm
   color: mono
-  gutter: { col: 2.5mm, row: 5mm }
+  gutter: { col: 3.5mm, row: 7mm }
 
 book:
   pageNumbers: { position: bottom-outer }
@@ -26,7 +26,7 @@ characters:
 
 defaults:
   panel:
-    border: { width: 0.5mm }
+    border: { width: 0.7mm }
   balloon:
     fontSize: 18bQ
 
@@ -52,111 +52,121 @@ pages:
   - id: p1
     layout:
       rows:
-        - { cols: [1], height: 1.15 }
-        - { cols: [1.05, 1], height: 1.2 }
+        - { cols: [1], height: 0.85, slant: -6mm }
+        - { cols: [1, 1.85], height: 1.15, colSlant: [11mm] }
     panels:
       - id: p1-a
         bleed: [top, left, right]
         layers:
           - { image: p1-1, focus: [0.5, 0.5] }
-          - { balloon: "放課後の屋上──\nここには\n誰も来ない", as: narration, at: [83%, 22%] }
+          - { balloon: "放課後。\n屋上。", as: narration, at: [84%, 23%] }
       - id: p1-b
         layers:
           - { image: p1-2, id: hayato1, focus: [0.45, 0.35] }
         dialogue:
-          - { hayato: "……\n来たか" }
+          - { hayato: "……\n来たか。", at: [76%, 61%], tail: { to: [52%, 39%] } }
       - id: p1-c
+        bleed: [left, bottom]
         layers:
           - { image: p1-3, id: mio1, focus: [0.5, 0.4] }
-          - { sfx: バンッ, at: [86%, 40%], fontSize: 14mm, rotate: 8deg }
+          - { sfx: バンッ, at: [73%, 22%], fontSize: 19mm, rotate: 11deg }
         dialogue:
-          - { mio: "見つけたわよ\n<ruby=きりしま>霧島</ruby>ハヤト！", at: [12%, 14%] }
+          - { mio: "見つけた！\n<ruby=きりしま>霧島</ruby>ハヤト！", at: [22%, 27%] }
 
   # ── 2 ページ目 ───────────────────────────────
   - id: p2
     layout:
       rows:
-        - { cols: [1.15, 1], height: 1.35 }
-        - { cols: [1], height: 0.75 }
-        - { cols: [1], height: 0.75 }
+        - { cols: [1.13, 1], height: 0.94, colSlant: [-7mm] }
+        - { cols: [1], height: 0.6, slant: -9mm }
+        - { cols: [1], height: 1.08 }
     panels:
       - id: p2-a
         layers:
           - { image: p2-1, id: mio2, focus: [0.5, 0.35] }
         dialogue:
-          - { mio: "今日こそ\n決着を\nつけるわ！", as: shout, at: [80%, 12%], fontScale: 1.1 }
+          - { mio: "今日こそ\n決着を\nつけるわ!!", as: shout, at: [73%, 30%], fontScale: 0.96, tail: { to: [49%, 44%], root: 148deg } }
       - id: p2-b
         layers:
           - { image: p2-2, id: hayato2, focus: [0.55, 0.3] }
         dialogue:
-          - { hayato: "……\nまたかよ", at: [18%, 14%] }
-          - { hayato: "三十連敗中\nだろ お前", at: [22%, 48%] }
+          - { hayato: "……またか。\n三十連敗だぞ", at: [24%, 39%], tail: { to: [49%, 41%] } }
       - id: p2-c
         layers:
           - { image: p2-3, id: mio3, focus: [0.5, 0.35] }
         dialogue:
-          - { mio: "う、うるさい！", id: urusai, at: [84%, 36%] }
-          - { mio: "三十一回目は\n勝つの！", at: [72%, 58%], connect: { to: urusai, style: overlap } }
+          - { mio: "今度こそ\n私が勝つ！", at: [79%, 44%], tail: { to: [43%, 49%] } }
       - id: p2-d
+        bleed: [bottom, left, right]
         layers:
-          - { image: p2-4, id: mio4, focus: [0.5, 0.35] }
-          - { sfx: ダッ, at: [84%, 55%], fontSize: 17mm }
+          - { image: p2-4, id: mio4, focus: [0.47, 0.38] }
+          - { sfx: ダッ, at: [82%, 44%], fontSize: 22mm, rotate: -9deg, grow: -0.12 }
 
   # ── 3 ページ目 ───────────────────────────────
   - id: p3
     layout:
       rows:
-        - { cols: [1], height: 1.35 }
-        - { cols: [1, 1], height: 1.1 }
-        - { cols: [1], height: 0.6 }
+        - { cols: [1], height: 1.2, slant: 13mm }
+        - { cols: [1.15, 1], height: 0.77, colSlant: [8mm], slant: -10mm }
+        - { cols: [1], height: 0.7 }
     panels:
       - id: p3-a
+        bleed: [top, left, right]
         layers:
           - { image: p3-1, id: duel, focus: [0.5, 0.35] }
-          - { sfx: ブンッ, at: [62%, 76%], fontSize: 15mm, rotate: -10deg }
+          - { sfx: ブンッ, at: [62%, 62%], fontSize: 17mm, rotate: -26deg, writing: horizontal }
         dialogue:
-          - { mio: "はあああっ！", as: shout, at: [9%, 18%] }
+          - { mio: "はあっ!!", as: shout, at: [18%, 32%] }
       - id: p3-b
         layers:
           - { image: p3-2, id: hayato3, focus: [0.4, 0.3] }
-          - { sfx: ヒョイ, at: [80%, 82%], fontSize: 9mm, font: hand }
+          - { sfx: ヒョイ, at: [81%, 61%], fontSize: 9mm, font: hand }
         dialogue:
-          - { hayato: 遅い, at: [22%, 13%] }
+          - { hayato: 遅い。, at: [20%, 26%] }
       - id: p3-c
         layers:
           - { image: p3-3, id: mio5, focus: [0.45, 0.3] }
         dialogue:
-          - { mio: えっ, at: [82%, 12%] }
+          - { mio: "えっ!?", at: [78%, 32%] }
       - id: p3-d
+        bleed: [bottom, left, right]
         layers:
-          - { image: p3-4, id: grab, focus: [0.5, 0.4] }
-          - { sfx: ガシッ, at: [50%, 62%], fontSize: 13mm }
+          - { image: p3-4, id: grab, focus: [0.5, 0.41] }
+          - { sfx: ガシッ, at: [34%, 41%], fontSize: 17mm, writing: horizontal, rotate: -11deg }
 
   # ── 4 ページ目 ───────────────────────────────
   - id: p4
     layout:
-      rows:
-        - { cols: [1.15, 1], height: 1.3 }
-        - { cols: [1], height: 0.75 }
-        - { cols: [1], height: 1.05 }
+      split: rows
+      sizes: [1.48, 1]
+      slant: [-5mm]
+      children:
+        - split: cols
+          sizes: [1.2, 1]
+          children:
+            - panel
+            - split: rows
+              sizes: [1.2, 1]
+              children: [panel, panel]
+        - panel
     panels:
       - id: p4-a
         layers:
           - { image: p4-1, id: close, focus: [0.45, 0.3] }
-          - { balloon: "……ケガ\nないか", who: hayato, at: [12%, 30%], tail: { to: close.hayato } }
+          - { balloon: "……ケガは？", who: hayato, at: [21%, 23%], tail: { to: close.hayato } }
       - id: p4-b
         layers:
           - { image: p4-2, id: mio6, focus: [0.5, 0.3] }
         dialogue:
-          - { mio: "な、なによ\n……っ", as: tremble, at: [16%, 14%] }
+          - { mio: "な、なによ。", as: tremble, at: [19%, 32%] }
       - id: p4-c
         layers:
           - { image: p4-3, id: hayato4, focus: [0.5, 0.3] }
         dialogue:
-          - { hayato: "三十一連敗な", at: [20%, 30%] }
+          - { hayato: "これで\n三十一連敗な。", at: [23%, 43%] }
       - id: p4-d
         bleed: [bottom, left, right]
         layers:
           - { image: p4-4, id: mio7, focus: [0.5, 0.35] }
         dialogue:
-          - { mio: "次は絶対\n勝つんだから\n──っ！！", as: scream, at: [22%, 38%] }
+          - { mio: "次は絶対、\n勝つからね!!", as: scream, fontScale: 1.14, at: [21%, 36%] }

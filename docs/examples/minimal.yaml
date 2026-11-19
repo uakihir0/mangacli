@@ -11,21 +11,18 @@ mangacli: 1
 # 手元になければ初回のレンダリング時に自動でダウンロードする（mangacli fonts install で事前に取得してもよい）。
 
 assets:
-  taro: ./assets/taro/normal.png
+  roof: ./assets/rooftop/p1-1.jpg
+  entrance: ./assets/rooftop/p1-3.jpg
 
 pages:
   - layout:
-      rows: [[1], [1, 1]]          # 1 段目に 1 コマ、2 段目に 2 コマ（右が先）
+      rows:
+        - { cols: [1], height: 1 }
+        - { cols: [1], height: 1.75 }
     panels:
       - layers:
-          - image: taro              # コマ全体を覆う（cover）
-          - balloon: おはよう          # 位置を省略すると、右上から流し込み
+          - image: roof
+          - { balloon: "放課後。\n屋上。", as: narration, at: [85%, 32%] }
       - layers:
-          - balloon: |
-              今日は
-              いい天気だね
-      - layers:
-          - effect: focus-lines
-          - text: その時——
-            place: top-right
-            outline: 0.8mm white
+          - { image: entrance, focus: [0.5, 0.39] }
+          - { balloon: "見つけた！", at: [24%, 27%], tail: { to: [46%, 46%] } }
