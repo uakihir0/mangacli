@@ -203,9 +203,11 @@ function drawCropMarks(ctx: SKRSContext2D, trim: { x: number; y: number; w: numb
 }
 
 export class RasterBackend {
+  private warnedHairlines = new Set<string>();
   constructor(private opts: RasterOptions) {}
 
   async render(list: DisplayList): Promise<RasterResult> {
+    this.warnedHairlines.clear();
     const o = this.opts;
     const s = o.dpi / 25.4;
     const trimW = list.boxes.trim.w;
@@ -460,7 +462,11 @@ export class RasterBackend {
     const effectiveWidth = (width: number) => {
       if (dev.opts.colorMode !== "mono" || scale <= 0 || width * scale >= MONO_MIN_STROKE_PIXELS) return width;
       const minimum = MONO_MIN_STROKE_PIXELS / scale;
-      dev.opts.diagnostics?.warn("RENDER_HAIRLINE_THICKENED", `${n.tag?.elementId ?? "stroke"}: requested ${width.toFixed(4)}mm at ${dev.opts.dpi} dpi; line thickened to ${minimum.toFixed(4)}mm (${MONO_MIN_STROKE_PIXELS} device pixels) for mono output`, { elementId: n.tag?.elementId });
+      const id = n.tag?.elementId ?? "stroke";
+      if (!this.warnedHairlines.has(id) && this.warnedHairlines.size < 20 && (dev.opts.diagnostics?.items.length ?? 0) < 100) {
+        this.warnedHairlines.add(id);
+        dev.opts.diagnostics?.warn("RENDER_HAIRLINE_THICKENED", `${id}: requested ${width.toFixed(4)}mm at ${dev.opts.dpi} dpi; line thickened to ${minimum.toFixed(4)}mm (${MONO_MIN_STROKE_PIXELS} device pixels) for mono output (one warning per element; further thin strokes also thickened)`, { elementId: n.tag?.elementId });
+      }
       return minimum;
     };
     if (n.paint && n.inkStrokes && dev.opts.colorMode === "mono") {

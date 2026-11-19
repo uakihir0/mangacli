@@ -27,6 +27,20 @@ function setup(width: number, dx: number, dy: number, slope: number) {
 }
 
 describe("mono hairline protection", () => {
+  it("bounds warnings across varying strokes and leaves room for errors", async () => {
+    const { backend, list, node, bag } = setup(0.015, 0, 0, 0);
+    node.paint = node.stroke!.paint;
+    delete node.stroke;
+    node.inkStrokes = Array.from({ length: 250 }, (_, i) => ({ path: node.path, width: 0.01 + i / 10000 }));
+    node.tag = { elementId: "effect", elementType: "effect", role: "ink", separation: "ink" };
+    await backend.render(list);
+    expect(bag.items).toHaveLength(1);
+    list.root.children = Array.from({ length: 250 }, (_, i) => ({ ...node, tag: { ...node.tag!, elementId: `effect-${i}` } }));
+    await backend.render(list);
+    expect(bag.items.length).toBeLessThanOrEqual(21);
+    bag.error("ASSET_NOT_FOUND", "later missing asset");
+    expect(bag.items.at(-1)?.severity).toBe("error");
+  });
   it("warns for a 0.015mm user pen at 600 dpi, not for 0.10mm", async () => {
     for (const width of [0.015, 0.10]) {
       const result = await renderer.render(input(width), { format: "png", dpi: 600 });
