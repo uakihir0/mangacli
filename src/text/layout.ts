@@ -424,7 +424,8 @@ let shapeFeatures: InstanceType<typeof hb.Feature>[] = [];
 /** tate-chu-yoko runs squeezed below ~60 %, collected per layout call */
 let tcyWarn: string[] = [];
 
-const VERT_TURN = new Set(Array.from("〜～ー－―—─━–‐…‥（）「」『』【】〔〕〈〉《》［］｛｝＝＜＞→←"));
+const VERT_TURN = new Set(Array.from("ー－―—─━–‐…‥（）「」『』【】〔〕〈〉《》［］｛｝＝＜＞→←"));
+const WAVE_DASHES = new Set(["〜", "～"]);
 const vertCache = new Map<string, boolean>();
 const SMALL_KANA = new Set(Array.from("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ"));
 const VERT_PUNCT = new Set(Array.from("、。，．"));
@@ -532,6 +533,14 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
       pen[k] -= adv;
     }
     for (const b of per) if (b.adv === 0) b.adv = size;
+    // Inspect the shaped wave: an isolated glyph-ID probe can disagree with the run.
+    for (const b of per) {
+      if (!WAVE_DASHES.has(b.chars) || b.glyphs.length !== 1) continue;
+      const gl = b.glyphs[0];
+      const [x0, y0, x1, y1] = inkBox(gl.font, gl.gid);
+      if (!isFinite(x0) || x1 - x0 <= y1 - y0) continue;
+      gl.m = [0, s * gy, s * gx, 0, -(y0 + y1) / 2 * s * gx + bshift, b.adv / 2 - (x0 + x1) / 2 * s * gy];
+    }
     fitDashes(per, true);
     // fonts without vertical forms for small kana and 、。 get them moved toward the upper right
     // (judged from where the glyph's ink actually sits: some fonts map them to centred forms)
