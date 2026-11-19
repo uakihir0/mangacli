@@ -222,7 +222,7 @@ macOS では `~/Library/Fonts`、`/Library/Fonts`、`/System/Library/Fonts`、Wi
 | `yomogi` | Yomogi | 400 | 手書き風 |
 | `klee-one` | Klee One | 400、600 | 手書き風（硬筆） |
 | `yusei-magic` | Yusei Magic | 400 | マジックペン風の手書き |
-| `noto-sans-jp` | Noto Sans JP | 400、700 | 字形の欠落を補うフォールバック |
+| `noto-sans-jp` | Noto Sans JP | 400、600、700 | 字形の欠落を補うフォールバック |
 
 #### 参照の書き方
 
@@ -246,7 +246,7 @@ fonts:
 
 | ロール | `manga-basic` のフォント |
 |---|---|
-| `dialogue` | 混植: かな・約物は `zen-antique`（字面 1.04 倍）、その他は `zen-kaku-gothic-new@500`（アンチゴチ）。漢字を中くらいの太さにし、かなを少し大きくして黒さをそろえる。フォールバックは `noto-sans-jp@400` |
+| `dialogue` | 混植（アンチゴチ）: かな・約物は `zen-antique`（字面 1.04 倍）。その他は、インストール済みなら中ゴシックBBB（`GothicBBBPr6N-Medium` など）、無ければ `noto-sans-jp@600`、それも使えなければ `zen-kaku-gothic-new@500`。漢字をかなと同じか、わずかに黒い太さにそろえる。フォールバックは `noto-sans-jp@400` |
 | `thought`、`whisper` | `dialogue` と同じ |
 | `narration` | `shippori-mincho@500` |
 | `shout`、`sfx` | `dela-gothic-one` |

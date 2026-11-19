@@ -69,6 +69,8 @@ interface Phys {
   /** cheap coverage check before loading */
   coverage?: (cp: number) => boolean;
   label: string;
+  /** a missing font is skipped without a diagnostic */
+  optional?: boolean;
 }
 
 interface Chain {
@@ -161,6 +163,22 @@ export class FontRegistry {
     }
   }
 
+  /** the first installed font of `names` (font set entries such as commercial faces) */
+  private optionalSystemPhys(names: string[]): Phys {
+    const label = names[0];
+    return {
+      key: `system?:${names.join("|")}`, label, index: 0, optional: true,
+      load: async () => {
+        const faces = await (this.systemFonts ??= listSystemFonts());
+        for (const n of names) {
+          const face = findSystemFont(faces, n);
+          if (face) return { data: await readFile(face.path), index: face.index, label: face.postScriptNames[0] ?? face.fullNames[0] ?? n, path: face.path };
+        }
+        throw Object.assign(new Error(`none of ${names.join(", ")} is installed`), { code: "ENOENT" });
+      },
+    };
+  }
+
   private pushSetRole(name: string, items: Chain["items"], fallbackOnly: boolean) {
     let role: SetRole | undefined;
     try {
@@ -175,7 +193,10 @@ export class FontRegistry {
       if (!items.some((i) => i.phys.key === phys.key && !i.ranges)) items.push({ phys, ranges, scale, baselineShift: 0, face });
     };
     if (!fallbackOnly) {
-      if (role.compose) for (const it of role.compose) add(it.font, it.ranges, it.scale ?? 1, true);
+      if (role.compose) for (const it of role.compose) {
+        if (it.font) add(it.font, it.ranges, it.scale ?? 1, true);
+        else if (it.system?.length) items.push({ phys: this.optionalSystemPhys(it.system), ranges: it.ranges, scale: it.scale ?? 1, baselineShift: 0, face: true });
+      }
       if (role.font) add(role.font, undefined, role.scale ?? 1);
     }
     for (const f of role.fallback ?? []) add(f);
@@ -292,6 +313,7 @@ export class FontRegistry {
           }
         } catch (e) {
           this.failed.add(p.key);
+          if (p.optional) return;
           const err = e as Error & { code?: string };
           const code = e instanceof FontFetchError ? e.code : err.code === "ENOENT" ? "FONT_NOT_FOUND" : err.code === "EACCES" ? "FONT_LOAD_FAILED" : "FONT_UNSUPPORTED_FORMAT";
           this.fetchOpts.onError?.(code, `${p.label}: ${err.message}`);

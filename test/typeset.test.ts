@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import * as hb from "harfbuzzjs";
+import { findCatalogFont } from "../src/fonts/catalog.js";
+import { ensureCatalogFont } from "../src/fonts/download.js";
 import { type FontDef, FontRegistry } from "../src/fonts/registry.js";
+import type { SystemFontFace } from "../src/fonts/system.js";
 import { type PathData, flattenPath, pathFromJson } from "../src/geom/path.js";
 import { boundsOf } from "../src/geom/vec.js";
 import { defaultTextStyle, layoutText } from "../src/text/layout.js";
@@ -244,7 +247,7 @@ describe("typesetting", () => {
   it("balances the default antique-kana / gothic-kanji dialogue mix", async () => {
     await reg.prepare("dialogue", "見たア、");
     const kanji = reg.pick("dialogue", "見".codePointAt(0)!)!;
-    expect(kanji.font.key).toMatch(/zen-kaku-gothic-new.*500/i);
+    expect(kanji.font.key).toBe("cat:noto-sans-jp@600");
     expect(kanji.scale).toBe(1);
     for (const ch of "たア、") {
       const kana = reg.pick("dialogue", ch.codePointAt(0)!)!;
@@ -253,11 +256,28 @@ describe("typesetting", () => {
       expect(kana.face).toBe(true);
     }
   });
+  it("prefers an installed 中ゴシックBBB for dialogue kanji", async () => {
+    const path = await ensureCatalogFont(findCatalogFont("zen-kaku-gothic-new", 700)!);
+    const fonts = new FontRegistry(new Map() as never, "manga-basic", [], {});
+    const bbb: SystemFontFace = { path, index: 0, families: ["A-OTF 中ゴシックBBB Pr6N"], fullNames: [], postScriptNames: ["GothicBBBPr6N-Medium"], regular: true };
+    (fonts as unknown as { systemFonts: Promise<SystemFontFace[]> }).systemFonts = Promise.resolve([bbb]);
+    await fonts.prepare("dialogue", "見た");
+    expect(fonts.pick("dialogue", "見".codePointAt(0)!)!.font.label).toBe("GothicBBBPr6N-Medium");
+    expect(fonts.pick("dialogue", "た".codePointAt(0)!)!.font.key).toMatch(/zen-antique/);
+  });
+  it("skips a missing 中ゴシックBBB without a diagnostic", async () => {
+    const errors: string[] = [];
+    const fonts = new FontRegistry(new Map() as never, "manga-basic", [], { onError: (code) => errors.push(code) });
+    (fonts as unknown as { systemFonts: Promise<SystemFontFace[]> }).systemFonts = Promise.resolve([]);
+    await fonts.prepare("dialogue", "見た");
+    expect(fonts.pick("dialogue", "見".codePointAt(0)!)!.font.key).toBe("cat:noto-sans-jp@600");
+    expect(errors).toEqual([]);
+  });
   it.each(["vertical", "horizontal"] as const)("enlarges composed kana faces without changing the pitch (%s)", async (writing) => {
     const text = "見たた見";
     const plain = new FontRegistry(new Map<string, FontDef>([
       ["antique", { kind: "catalog", id: "zen-antique" }],
-      ["gothic", { kind: "catalog", id: "zen-kaku-gothic-new", weight: 500 }],
+      ["gothic", { kind: "catalog", id: "noto-sans-jp", weight: 600 }],
       ["mix", { kind: "compose", items: [{ font: "antique", ranges: ["kana", "punct"] }, { font: "gothic" }] }],
     ]), "none", [], {});
     await plain.prepare("mix", text);
