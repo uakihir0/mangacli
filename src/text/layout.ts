@@ -658,6 +658,7 @@ interface Line {
 function canBreakBetween(a: Box, b: Box, wrap: string, style: TextStyle): boolean {
   if (b.breakBefore === "forced") return true;
   if (wrap === "none") return false;
+  if (b.space) return false;
   if (noEnd(a.lastChar, style.kinsoku)) return false;
   if (noStart(b.firstChar, style.kinsoku)) return false;
   if (inseparable(a.lastChar, b.firstChar)) return false;

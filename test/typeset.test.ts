@@ -24,6 +24,11 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
+  it("does not expose prohibited starts when trimming a space at a break", async () => {
+    const result = await lines("え<space=1em>！", { maxChars: 2 });
+    for (const line of result) expect(noStart(Array.from(line)[0] ?? "", "strict")).toBe(false);
+    expect(result).toEqual(["え ！"]);
+  });
   it("distinguishes an independent hiragana verb from okurigana", async () => {
     expect(await lines("帰る前おごるよ", { maxChars: 4 })).toEqual(["帰る前", "おごるよ"]);
     expect(await lines("聞いてる？", { maxChars: 5 })).toEqual(["聞いてる？"]);
