@@ -147,7 +147,7 @@ function pixelBand(path: PathData, m: Matrix, W: number, H: number): PathData {
     minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
   }
   const vertical = maxY - minY > maxX - minX;
-  const samples = new Map<number, number>();
+  const samples = new Map<number, Set<number>>();
   for (let i = 1; i < points.length; i++) {
     let a = points[i - 1];
     let b = points[i];
@@ -157,14 +157,17 @@ function pixelBand(path: PathData, m: Matrix, W: number, H: number): PathData {
     for (let x = Math.max(0, Math.ceil(a.x - 0.5)); x < (vertical ? H : W) && x + 0.5 < b.x; x++) {
       const t = (x + 0.5 - a.x) / (b.x - a.x);
       const minor = Math.floor(a.y + (b.y - a.y) * t - 0.5);
-      if (minor >= -1 && minor < (vertical ? W : H)) samples.set(x, minor);
+      if (minor >= -1 && minor < (vertical ? W : H)) {
+        if (!samples.has(x)) samples.set(x, new Set());
+        samples.get(x)!.add(minor);
+      }
     }
   }
   const det = m[0] * m[3] - m[1] * m[2];
   if (!det) return [];
   const inverse: Matrix = [m[3] / det, -m[1] / det, -m[2] / det, m[0] / det, (m[2] * m[5] - m[3] * m[4]) / det, (m[1] * m[4] - m[0] * m[5]) / det];
   const out: PathData = [];
-  for (const [major, minor] of samples) {
+  for (const [major, crossings] of samples) for (const minor of crossings) {
     const x = vertical ? minor : major;
     const y = vertical ? major : minor;
     const w = vertical ? 2 : 1;

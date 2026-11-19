@@ -27,6 +27,22 @@ function setup(width: number, dx: number, dy: number, slope: number, dpi = 600) 
 }
 
 describe("mono hairline protection", () => {
+  it("keeps both crossings of a thin ellipse outline", async () => {
+    const result = await renderer.render({ yaml: `mangacli: 1
+page: { size: [25.4mm, 25.4mm], bleed: 0mm }
+pages:
+  - layers:
+      - { draw: ellipse, id: oval, at: [12.7mm, 12.7mm], size: [12mm, 8mm], anchor: center, ruler: true, stroke: { width: 0.015mm, pen: { minWidth: 0.01mm } } }
+` }, { format: "png", dpi: 600 });
+    const { data, info } = await sharp(result.pages[0].data).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    for (let x = 260; x < 340; x++) {
+      let upper = 0, lower = 0;
+      for (let y = 180; y < 300; y++) if (data[(y * info.width + x) * info.channels] === 0) upper++;
+      for (let y = 300; y < 420; y++) if (data[(y * info.width + x) * info.channels] === 0) lower++;
+      expect(upper).toBeGreaterThanOrEqual(2);
+      expect(lower).toBeGreaterThanOrEqual(2);
+    }
+  });
   it("clips a long off-page hairline at 1200 dpi without overflowing arguments", async () => {
     const { backend, list, node } = setup(0.015, 0, 0, 0, 1200);
     node.paint = node.stroke!.paint;
