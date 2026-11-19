@@ -6,9 +6,13 @@
 import { readFileSync, writeFileSync, readdirSync, renameSync, mkdirSync, existsSync, appendFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { SogniClient } from "@sogni-ai/sogni-client";
+import { waitForImage } from "./result.mjs";
 
 const root = resolve(dirname(new URL(import.meta.url).pathname), "..");
-const env = Object.fromEntries(readFileSync(join(root, ".env"), "utf8").split("\n").filter((l) => /^\w+=/.test(l)).map((l) => [l.split("=")[0], l.slice(l.indexOf("=") + 1).trim()]));
+const envFile = join(root, ".env");
+if (existsSync(envFile)) process.loadEnvFile(envFile);
+const { SOGNI_APP_ID: appId, SOGNI_API_KEY: apiKey } = process.env;
+if (!appId || !apiKey) throw new Error("Set SOGNI_APP_ID and SOGNI_API_KEY in the environment or sample/.env.");
 const Q = join(root, "gen");
 for (const d of ["queue", "running", "done", "failed"]) mkdirSync(join(Q, d), { recursive: true });
 // a crashed run leaves jobs in running/: put them back
@@ -17,28 +21,9 @@ const CONC = +(process.env.CONC ?? 4);
 const TIMEOUT = 45 * 60e3;
 const log = (s) => { const line = `${new Date().toISOString().slice(11, 19)} ${s}`; console.log(line); appendFileSync(join(Q, "log.txt"), line + "\n"); };
 
-const sogni = await SogniClient.createInstance({ appId: env.SOGNI_APP_ID, appSource: "mangacli-sample", network: "relaxed", apiKey: env.SOGNI_API_KEY });
+const sogni = await SogniClient.createInstance({ appId, appSource: "mangacli-sample", network: "relaxed", apiKey });
 await sogni.projects.waitForModels();
 log("connected");
-
-async function resultOf(project) {
-  return new Promise((res, rej) => {
-    const t = setTimeout(() => rej(new Error("timeout")), TIMEOUT);
-    const done = (u) => { clearTimeout(t); clearInterval(iv); res(u); };
-    project.on("jobCompleted", (job) => job.resultUrl && done(job.resultUrl));
-    project.on("completed", (urls) => urls?.[0] && done(urls[0]));
-    project.on("failed", (e) => { clearTimeout(t); clearInterval(iv); rej(new Error(e?.message ?? JSON.stringify(e))); });
-    project.on("jobFailed", (j) => { clearTimeout(t); clearInterval(iv); rej(new Error(j?.error?.message ?? "job failed")); });
-    // the completion event can go missing; ask the finished job for its URL
-    const iv = setInterval(async () => {
-      for (const j of project.jobs ?? []) {
-        if (j.status === "completed" || j.progress >= 100 || j.finished) {
-          try { const u = j.resultUrl ?? (await j.getResultUrl?.()); if (u) done(u); } catch {}
-        }
-      }
-    }, 15e3);
-  });
-}
 
 async function run(name) {
   const job = JSON.parse(readFileSync(join(Q, "running", name), "utf8"));
@@ -53,8 +38,10 @@ async function run(name) {
     });
     let last = -1;
     project.on("progress", (pr) => { const b = Math.floor(pr / 25); if (b !== last) { last = b; log(`.. ${job.out} ${Math.round(pr)}% ${((Date.now() - t0) / 1000) | 0}s`); } });
-    const url = await resultOf(project);
-    const img = Buffer.from(await (await fetch(url)).arrayBuffer());
+    const url = await waitForImage(project, () => sogni.projects.getResult(project.id, { kind: "image" }), { timeout: TIMEOUT });
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`image download failed: HTTP ${response.status}`);
+    const img = Buffer.from(await response.arrayBuffer());
     const out = resolve(root, job.out);
     mkdirSync(dirname(out), { recursive: true });
     writeFileSync(out, img);
