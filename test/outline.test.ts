@@ -144,6 +144,54 @@ async function raster(list: DisplayList) {
 const strokeNode = (path: PathData, options: Partial<NonNullable<PathNode["stroke"]>> = {}): PathNode => ({ kind: "path", path, fillRule: "nonzero", paint: null, stroke: { width: 0.2, paint: { type: "solid", color: WHITE }, join: "round", ...options } });
 
 describe("text outline rendering", () => {
+  it.each(["text", "sfx", "balloon"])("supports adaptive %s outlines in defaults with SVG max-width fallback", async (type) => {
+    const key = type === "balloon" ? "textOutline" : "outline";
+    const doc = { mangacli: 1, defaults: { [type]: { [key]: "auto" } }, pages: [{ panels: [{ layers: [{ type, text: "A" }] }] }] };
+    const list = await renderer.displayList(doc, 1);
+    const outline = paths(list.root).find((p) => p.tag?.role === "text" && p.stroke?.auto)!;
+    expect(outline.stroke!.auto).toMatchObject({ threshold: 0.4 });
+    expect(outline.stroke!.auto!.max).toBeCloseTo(outline.stroke!.auto!.min * 2);
+    expect(outline.stroke!.paint).toEqual({ type: "solid", color: WHITE });
+    const svg = await renderSvg(list, { crop: "trim", colorMode: "mono", assets });
+    expect(svg).toContain(`stroke-width="${+outline.stroke!.width.toFixed(4)}"`);
+  });
+
+  it("resolves custom auto bounds, empty text and invalid options cleanly", async () => {
+    const doc = (text: string, outline: unknown) => ({ mangacli: 1, pages: [{ panels: [{ layers: [{ text, outline }] }] }] });
+    const list = await renderer.displayList(doc("A", { width: "auto", min: "0.2mm", max: "0.9mm", threshold: 0.6 }), 1);
+    expect(paths(list.root).find((p) => p.stroke?.auto)?.stroke).toMatchObject({ width: 1.8, auto: { min: 0.2, max: 0.9, threshold: 0.6 } });
+    expect(load(doc("A", { width: "auto", min: "0.8bmm", max: "1.6bmm", threshold: 0.4 })).bag.hasErrors).toBe(false);
+    expect(paths((await renderer.displayList(doc("", "auto"), 1)).root).some((p) => p.stroke)).toBe(false);
+    for (const options of [{ min: "-1mm" }, { threshold: 2 }]) expect(load(doc("A", { width: "auto", ...options })).bag.hasErrors).toBe(true);
+    expect((await renderer.validate(doc("A", { width: "auto", min: "2mm", max: "1mm" }))).ok).toBe(false);
+    expect(load({ mangacli: 1, pages: [{ layers: [{ image: "unused.png", outline: "auto" }] }] }).bag.hasErrors).toBe(true);
+  });
+
+  it("samples the already-drawn bbox, handles the 40% boundary, transforms, isolation and empty backdrops", async () => {
+    const path = polyPath([{ x: 10, y: 8 }, { x: 14, y: 8 }, { x: 14, y: 14 }, { x: 10, y: 14 }], true);
+    const auto = strokeNode(path, { width: 2, auto: { min: 0.2, max: 1, threshold: 0.4 } });
+    const renderCase = async (gray: number, isolated = false, later = false) => {
+      const list = listWith([]);
+      list.root.children[0] = { ...list.root.children[0] as PathNode, paint: { type: "solid", color: { r: gray, g: gray, b: gray, a: 1 } } };
+      const group: Node = { kind: "group", isolate: isolated, transform: [1, 0, 0, 1, 4, 0], children: [auto] };
+      if (later) list.root.children.unshift(group);
+      else list.root.children.push(group);
+      const result = await new RasterBackend({ dpi: 254, crop: "trim", colorMode: "gray", toneRendering: "dots", monoLpi: 60, toneCurve: "linear", assets }).render(list);
+      return result.data[(110 * result.width + 133) * 4];
+    };
+    expect(await renderCase(0)).toBe(255);
+    expect(await renderCase(0, true)).toBe(255);
+    expect(await renderCase(153 / 255)).toBe(153);
+    expect(await renderCase(152 / 255)).toBe(255);
+    expect(await renderCase(0, false, true)).toBe(0);
+    const empty = listWith([auto]);
+    empty.root.children.shift();
+    const transparent = await new RasterBackend({ dpi: 254, crop: "trim", colorMode: "mono", toneRendering: "dots", monoLpi: 60, toneCurve: "linear", assets, transparent: true }).render(empty);
+    expect(transparent.data[(110 * 400 + 93) * 4 + 3]).toBe(0);
+    expect(transparent.data[(110 * 400 + 99) * 4 + 3]).toBe(255);
+    expect(auto.stroke!.width).toBe(2);
+  });
+
   it.each(["text", "sfx", "balloon"])("carries %s join, miter limit and fillHoles to both backends", async (type) => {
     const key = type === "balloon" ? "textOutline" : "outline";
     const input = { mangacli: 1, pages: [{ panels: [{ layers: [{ type, text: "A", [key]: { width: "0.5mm", color: "white", join: "miter", miterLimit: 3, fillHoles: "0.4mm" } }] }] }] };

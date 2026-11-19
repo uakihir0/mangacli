@@ -569,7 +569,7 @@ defaults:
     fontSize: 13Q
   text:
     font: narration
-    outline: 1mm white
+    outline: auto
   sfx:
     outline: 0.8mm white
   monologue:

@@ -78,6 +78,7 @@ export const OUTLINE_PRESETS: Record<string, Obj[]> = {
 export function normOutline(v: unknown, path: Path, bag: DiagnosticBag): unknown {
   if (v === "none") return [];
   if (typeof v === "string" && Object.hasOwn(OUTLINE_PRESETS, v)) return OUTLINE_PRESETS[v].map((o) => ({ ...o }));
+  if (v === "auto") return [{ width: "auto" }];
   if (typeof v === "string" || typeof v === "number") {
     const toks = String(v).trim().split(/\s+/);
     const o: Obj = {};

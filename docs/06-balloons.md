@@ -44,7 +44,7 @@
 | `aspectRange` | `[最小, 最大]` | `[0.55, 1.8]` | `aspect: auto` のときに許す縦横比の範囲 |
 | `padding` | Length \| `[縦, 横]` | `[0.6em, 0.8em]` | 本文と本体の内側の安全領域との間隔 |
 | `textOffset` | `[dx, dy]` | `[0, 0]` | 本文の位置の微調整 |
-| `textOutline` | Outline[] | - | 本文の縁取り。`join`・`miterLimit`・`fillHoles` は地の文字と共通（[5.7.1](05-elements-and-images.md#571-縁取りoutline)）。`shape: none` で絵の上に直接文字を置く場合にも使う |
+| `textOutline` | Outline[] \| `auto` | - | 本文の縁取り。`auto`・`min`・`max`・`threshold`・`join`・`miterLimit`・`fillHoles` は地の文字と共通（[5.7.1](05-elements-and-images.md#571-縁取りoutline)）。`shape: none` で絵の上に直接文字を置く場合にも使う。サンプリング時にはすでに描いた本体の塗りも含む |
 | `overflow` | `shrink` \| `grow` \| `clip` \| `error` | `auto` のときは `grow`、固定サイズのときは `shrink` | 本文が収まらない場合の処理（[6.7.4](#674-収まらない場合)） |
 | `minFontScale` | 0〜1 | `0.75` | `shrink` で縮める下限 |
 | `connect` | Connect \| Connect[] | - | 連結（[6.9](#69-連結と重なり)、P1） |

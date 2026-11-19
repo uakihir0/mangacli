@@ -521,8 +521,8 @@ ruby:
 | キー | 型 | 対象 | 説明 |
 |---|---|---|---|
 | `color` | Paint | すべて | 文字の塗り |
-| `outline` | Outline[] | `text`、`sfx` | 文字の外側の縁（[5.7.1](05-elements-and-images.md#571-縁取りoutline)）。単色、`join: round/miter`、`miterLimit`（既定 2）、`fillHoles`（既定 0）を指定できる |
-| `textOutline` | Outline[] | `balloon` | 吹き出しの本文の縁。`outline` と同じオプション |
+| `outline` | Outline[] \| `auto` | `text`、`sfx` | 文字の外側の縁（[5.7.1](05-elements-and-images.md#571-縁取りoutline)）。単色、`join: round/miter`、`miterLimit`（既定 2）、`fillHoles`（既定 0）を指定できる。`auto` / `width: auto` は背景の平均暗さが 40% を超えると 0.8bmm → 1.6bmm に広げる |
+| `textOutline` | Outline[] \| `auto` | `balloon` | 吹き出しの本文の縁。`outline` と同じオプション。SVG の `auto` は常に最大幅 |
 | `shadow` | Shadow | `text`、`sfx` | 影（P1） |
 | `opacity` | 0〜1 | すべて | 不透明度 |
 

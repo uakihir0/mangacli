@@ -91,7 +91,7 @@ stroke-short  = "none" | stroke-token { ws1 stroke-token } ;
 stroke-token  = length | stroke-style | color ;
 stroke-style  = "solid" | "dashed" | "dotted" | "double" ;
 
-outline-short = "none" | outline-token { ws1 outline-token } ;
+outline-short = "none" | "auto" | outline-token { ws1 outline-token } ;
 outline-token = length | color ;
 
 halo-short = "none" | length [ ws1 color ] ;
@@ -102,7 +102,8 @@ halo-short = "none" | length [ ws1 color ] ;
 - 線のスタイルの名前は CSS の色の名前と重ならないため、トークンの種類は一意に決まる。
 - 縁取りの省略記法は、長さを必須とする。
 - `halo` は長さを先に書く。YAML の `false` でも無効にできる。正規形は `{ width: <length>, color?: <color> }`（幅は非負、色を省略したときは本体の不透明な単色、または `paper`）。
-- `outline` / `textOutline` の正規形は `{ width, color?, join?, miterLimit?, fillHoles?, threshold? }` の配列。`join` は `round` または `miter`、`miterLimit` は 1 以上（既定 2）、`fillHoles` は非負の長さ（既定 0）。この 3 項目は省略記法ではなくオブジェクトで指定する。文字の縁は単色のみ。`threshold` は画像用の 0〜1 の数値。
+- `outline` / `textOutline` の正規形は `{ width, color?, join?, miterLimit?, fillHoles?, threshold? }` の配列。`join` は `round` または `miter`、`miterLimit` は 1 以上（既定 2）、`fillHoles` は非負の長さ（既定 0）。この 3 項目は省略記法ではなくオブジェクトで指定する。文字の縁は単色のみ。画像の `threshold` はアルファのしきい値（0〜1）。
+- 文字では `width: auto` と `min?`（既定 `0.8bmm`）、`max?`（既定 `1.6bmm`）、`threshold?`（既定 `0.4`）も使える。`0 <= min <= max`、`0 <= threshold <= 1`。`auto` は `[{ width: auto }]` に正規化され、色は `paper`。ラスタでは描画済み背景の平均暗さがしきい値を超えると最大幅を使う。SVG は常に最大幅。画像では不可。
 
 ## 16.6 フィルタ
 

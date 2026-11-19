@@ -79,7 +79,7 @@ export interface PathNode {
   paint: Paint | null;
   /** outline stroke (used for text outlines / faux bold); drawn before fill */
   /** `miterLimit`: miter length / width beyond which a corner is bevelled */
-  stroke?: { width: number; paint: Paint; join: "round" | "miter"; miterLimit?: number; fillHoles?: number };
+  stroke?: { width: number; paint: Paint; join: "round" | "miter"; miterLimit?: number; fillHoles?: number; auto?: { min: number; max: number; threshold: number } };
   tag?: NodeTag;
 }
 

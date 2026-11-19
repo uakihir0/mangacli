@@ -42,6 +42,7 @@ export interface RasterResult {
 
 interface Dev {
   ctx: SKRSContext2D;
+  backdrop?: { dev: Dev; x: number; y: number };
   /** mm (display-list space) -> device px */
   base: Matrix;
   opts: RasterOptions;
@@ -303,7 +304,7 @@ export class RasterBackend {
     const off = createCanvas(r.w, r.h);
     const octx = off.getContext("2d");
     const shift: Matrix = [1, 0, 0, 1, -r.x, -r.y];
-    const sub: Dev = { ...dev, ctx: octx, W: r.w, H: r.h, base: matMul(shift, dev.base) };
+    const sub: Dev = { ...dev, ctx: octx, W: r.w, H: r.h, base: matMul(shift, dev.base), backdrop: { dev, x: r.x, y: r.y } };
     const subM = matMul(shift, mm);
     if (g.clip) {
       octx.save();
@@ -471,7 +472,16 @@ export class RasterBackend {
 
   private async drawPath(dev: Dev, n: PathNode, m: Matrix): Promise<void> {
     const ctx = dev.ctx;
+    if (n.stroke?.auto) {
+      const auto = n.stroke.auto;
+      const width = this.backdropDarkness(dev, n, m) - auto.threshold > 1e-9 ? auto.max : auto.min;
+      n = { ...n, stroke: { ...n.stroke, width: width * 2 } };
+    }
     if (n.stroke) {
+      if (n.stroke.width <= 0) {
+        n = { ...n, stroke: undefined };
+        return this.drawPath(dev, n, m);
+      }
       if ((n.stroke.fillHoles ?? 0) > 0) this.drawClosedStroke(dev, n, m);
       else {
         ctx.save();
@@ -495,6 +505,33 @@ export class RasterBackend {
     if (st) ctx.fillStyle = st as string;
     ctx.fill(buildPath(n.path), n.fillRule);
     ctx.restore();
+  }
+
+  private backdropDarkness(dev: Dev, n: PathNode, m: Matrix): number {
+    const b = nodeBounds(n, m);
+    const r = b ? clampRect(b, dev.W, dev.H) : null;
+    if (!r) return 0;
+    const layers: Uint8ClampedArray[] = [];
+    let current = dev;
+    let x = r.x;
+    let y = r.y;
+    for (;;) {
+      layers.push(current.ctx.getImageData(x, y, r.w, r.h).data);
+      if (!current.backdrop) break;
+      x += current.backdrop.x;
+      y += current.backdrop.y;
+      current = current.backdrop.dev;
+    }
+    let darkness = 0;
+    for (let i = 0; i < r.w * r.h * 4; i += 4) {
+      let remaining = 1;
+      for (const data of layers) {
+        const alpha = data[i + 3] / 255;
+        darkness += remaining * alpha * (1 - (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255);
+        remaining *= 1 - alpha;
+      }
+    }
+    return darkness / (r.w * r.h);
   }
 
   private drawClosedStroke(dev: Dev, n: PathNode, m: Matrix): void {
