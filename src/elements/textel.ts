@@ -216,19 +216,39 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     const cv = curveAt(along(g, i));
     const m = matMul(matTranslate(cx + t.jx + (vertical ? 0 : sh) + cv.dx, cy + t.jy + (vertical ? sh : 0) + cv.dy), matMul(matRotate(t.r + cv.ang), matMul(matScale(t.s), matTranslate(-cx, -cy))));
     let path = transformPath(g.path, m);
-    // distort: flatten -> displace -> smooth
+    // skew, perspective and bulge are smooth maps of the plane
+    const deform = (x0: number, y0: number) => {
+      let x = x0 + (skew ? Math.tan(skew) * (y0 - totalH / 2) : 0);
+      let y = y0;
+      // perspective: horizontal scale changes from top to bottom; bulge swells the middle
+      if (persp) {
+        const ty = Math.max(0, Math.min(1, y / Math.max(1e-6, totalH)));
+        const k = persp[0] + (persp[1] - persp[0]) * ty;
+        x = totalW / 2 + (x - totalW / 2) * k;
+      }
+      if (bulge) {
+        const nx = (x - totalW / 2) / Math.max(1e-6, totalW / 2);
+        const ny = (y - totalH / 2) / Math.max(1e-6, totalH / 2);
+        const f = 1 + bulge * 0.35 * Math.max(0, 1 - (nx * nx + ny * ny) * 0.5);
+        x = totalW / 2 + (x - totalW / 2) * f;
+        y = totalH / 2 + (y - totalH / 2) * f;
+      }
+      return { x, y };
+    };
     const noisy = warp > 0 || roughen > 0;
-    if (skew && !noisy && !persp && !bulge) {
-      // a plain skew is affine: move the Bezier control points, so curves stay curves
-      const tk = Math.tan(skew);
+    if (!noisy && (skew || persp || bulge)) {
+      // no noise: move the Bezier control points, so curves stay curves and ends stay square
       path = path.map((c) => {
         const o: (string | number)[] = [c[0]];
-        for (let k = 1; k + 1 < c.length; k += 2) o.push(Number(c[k]) + tk * (Number(c[k + 1]) - totalH / 2), Number(c[k + 1]));
+        for (let k = 1; k + 1 < c.length; k += 2) {
+          const q = deform(Number(c[k]), Number(c[k + 1]));
+          o.push(q.x, q.y);
+        }
         return o as unknown as typeof c;
       });
-    } else if (noisy || skew || persp || bulge) {
-      // without noise the outline is kept as a fine polygon (no smoothing), so ends stay square
-      const polys = flattenPath(path, (noisy ? 0.05 : 0.004) * u.k);
+    } else if (noisy) {
+      // noise: flatten -> displace -> smooth
+      const polys = flattenPath(path, 0.05 * u.k);
       const out: PathData = [];
       for (const pl of polys) {
         let s = 0;
@@ -237,26 +257,10 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
           const wx = warp * em * 0.12 * noise2(seedW, q.x / (em * 1.6), q.y / (em * 1.6));
           const wy = warp * em * 0.12 * noise2(seedW + 7, q.x / (em * 1.6), q.y / (em * 1.6));
           const rr = roughen * em * 0.02 * noise1(seedR + i, s / (em * 0.25));
-          const sk = skew ? Math.tan(skew) * (q.y - totalH / 2) : 0;
-          // perspective: horizontal scale changes from top to bottom; bulge swells the middle
-          let x = q.x + wx + rr + sk;
-          let y = q.y + wy + rr;
-          if (persp) {
-            const ty = Math.max(0, Math.min(1, y / Math.max(1e-6, totalH)));
-            const k = persp[0] + (persp[1] - persp[0]) * ty;
-            x = totalW / 2 + (x - totalW / 2) * k;
-          }
-          if (bulge) {
-            const nx = (x - totalW / 2) / Math.max(1e-6, totalW / 2);
-            const ny = (y - totalH / 2) / Math.max(1e-6, totalH / 2);
-            const f = 1 + bulge * 0.35 * Math.max(0, 1 - (nx * nx + ny * ny) * 0.5);
-            x = totalW / 2 + (x - totalW / 2) * f;
-            y = totalH / 2 + (y - totalH / 2) * f;
-          }
-          return { x, y };
+          const d = deform(q.x + rr, q.y + rr);
+          return { x: d.x + wx, y: d.y + wy };
         });
-        // only the noise needs smoothing; skew / perspective / bulge keep the glyph's square corners
-        out.push(...(noisy && pts.length > 3 ? smoothPath(pts, true) : polyPath(pts, true)));
+        out.push(...(pts.length > 3 ? smoothPath(pts, true) : polyPath(pts, true)));
       }
       path = out;
     }
