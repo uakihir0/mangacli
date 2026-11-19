@@ -245,7 +245,8 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
           }
           return { x, y };
         });
-        out.push(...(pts.length > 3 ? smoothPath(pts, true) : polyPath(pts, true)));
+        // only the noise needs smoothing; skew / perspective / bulge keep the glyph's square corners
+        out.push(...((warp > 0 || roughen > 0) && pts.length > 3 ? smoothPath(pts, true) : polyPath(pts, true)));
       }
       path = out;
     }
