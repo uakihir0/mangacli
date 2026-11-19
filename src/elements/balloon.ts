@@ -364,6 +364,20 @@ function arcLengths(pts: Vec[]): number[] {
   return s;
 }
 
+/** the outline point at least `half` (straight-line) away from `at`, walking backward (dir -1) or forward */
+function pointAtChord(pts: Vec[], s: number[], at: number, half: number, dir: 1 | -1): { p: Vec; i: number } {
+  const P = s[s.length - 1];
+  const o = pointAtArc(pts, s, at).p;
+  const step = Math.max(1e-3, half / 24);
+  let q = pointAtArc(pts, s, at + dir * half);
+  // a spiky outline packs much arc into little width: walk on until the chord is wide enough
+  for (let d = half; d < P * 0.45; d += step) {
+    q = pointAtArc(pts, s, at + dir * d);
+    if (Math.hypot(q.p.x - o.x, q.p.y - o.y) >= half) break;
+  }
+  return q;
+}
+
 function pointAtArc(pts: Vec[], s: number[], at: number): { p: Vec; i: number } {
   const P = s[s.length - 1];
   at = ((at % P) + P) % P;
@@ -495,11 +509,13 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       continue;
     }
     const gap = t.gap !== undefined ? toMm(t.gap as string, u) : 2 * u.k;
-    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : Math.min(12 * u.k, Math.max(4.5 * u.k, minSide * 0.6));
+    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : Math.min(9 * u.k, Math.max(4.5 * u.k, minSide * 0.45));
     let length: number;
     if (t.length !== undefined) length = toMm(t.length as string, u);
     else if (target) {
-      let avail = Math.hypot(target.x - R.x, target.y - R.y) - gap;
+      const dist = Math.hypot(target.x - R.x, target.y - R.y);
+      let avail = dist - gap;
+      let stopped = false;
       // do not run into the speaker's face
       const tgtRef = typeof t.to === "string" ? ctx.refs.target(t.to, ctx.panel?.panel.id) : who ? ctx.refs.target(who, ctx.panel?.panel.id) : undefined;
       // the face region is the speaker's only when the target lies on it (an image may also carry
@@ -507,7 +523,10 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       const face = faceOf(tgtRef?.regions.face?.bbox, target);
       if (face) {
         const tf = rayEllipseEntry(R, dir, face);
-        if (tf !== null) avail = Math.min(avail, tf - gap * 0.5);
+        if (tf !== null) {
+          avail = Math.min(avail, tf - gap * 0.5);
+          stopped = true;
+        }
       }
       // nor into the speaker's figure: the tip stops just short of the art's silhouette
       const sil = tgtRef ? ctx.silhouettes?.find((q) => q.id === tgtRef.id) : undefined;
@@ -516,19 +535,26 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         for (let d = step; d < avail; d += step)
           if (silhouetteHit(sil, { x: R.x + dir.x * d, y: R.y + dir.y * d })) {
             avail = Math.min(avail, d - 0.5 * u.k);
+            stopped = true;
             break;
           }
       }
+      // a bare point (a mouth or face anchor, no face region to stop at) is the middle of the face:
+      // the tail points at it from at most halfway so it never reaches into the face
+      if (!stopped && t.gap === undefined) avail = Math.min(avail, dist * 0.5);
       // a tail always reads as a pointer, even when the speaker's face is right beside the body
       length = Math.min(maxLen, Math.max(4.5 * u.k, avail));
     } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
     // off-panel tails run past the frame and are cut by it
     // on a spiky body the tail must outreach the spikes to read as the pointer
-    if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.4, 6 * u.k);
+    if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.25, 6 * u.k);
     if (offSide && target) length = Math.hypot(target.x - R.x, target.y - R.y);
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
-    const bw = (t.width !== undefined ? toMm(t.width as string, u) : Math.min(2.8 * u.k, Math.max(1.6 * u.k, minSide * 0.13)) * (kind === "zigzag" ? 1.5 : 1)) * widthScale;
+    // a wedge keeps a base in proportion to its length, so a long tail is a triangle, not a line
+    const bw0 = Math.min(2.8 * u.k, Math.max(1.6 * u.k, minSide * 0.13));
+    const bwAuto = kind === "zigzag" ? bw0 * 1.5 : offSide ? bw0 : Math.min(Math.max(bw0, length * 0.36), minSide * 0.4);
+    const bw = (t.width !== undefined ? toMm(t.width as string, u) : bwAuto) * widthScale;
     const bend = typeof t.bend === "number" ? t.bend : 0.1;
     const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : 0.12;
     const perp = { x: -dir.y, y: dir.x };
@@ -612,8 +638,8 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     // wedge / zigzag: splice into contour
     const s = arcLengths(cur.pts);
     const sR = s[hit.index] + hit.u * (s[hit.index + 1] - s[hit.index]);
-    const A = pointAtArc(cur.pts, s, sR - bw / 2);
-    const B = pointAtArc(cur.pts, s, sR + bw / 2);
+    const A = pointAtChord(cur.pts, s, sR, bw / 2, -1);
+    const B = pointAtChord(cur.pts, s, sR, bw / 2, 1);
     const sideA: Vec[] = [];
     const sideB: Vec[] = [];
     const N = Math.max(12, Math.ceil(length / (0.3 * u.k)));
