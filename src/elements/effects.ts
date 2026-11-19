@@ -683,6 +683,10 @@ function impact(f: FxCtx): Node[] {
 
 function materialEffects(f: FxCtx, kind: string): Node[] {
   const { p, rng } = f;
+  if (kind === "crack" && p.center === undefined) {
+    f.ctx.bag.error("SCHEMA_REQUIRED", "crack requires center", { path: [...f.el.path, "center"] });
+    return [];
+  }
   const b = f.region.bbox;
   const unit = Math.min(b.w, b.h);
   const nodes: Node[] = [];

@@ -20,6 +20,21 @@ describe("effect direction validation", () => {
   });
 });
 
+describe("inherited crack center", () => {
+  it.each([
+    ["defaults: { effect: { crack: { center: [40%, 60%] } } }", ""],
+    ["styles: { fractured: { for: effect, center: [40%, 60%] } }", ", style: fractured"],
+  ])("accepts center from %s", async (cascade, style) => {
+    const source = { yaml: `mangacli: 1\n${cascade}\npages:\n  - panels:\n      - layers: [{ effect: crack${style} }]\n`, filename: "/v/crack.yaml" };
+    expect((await validate(source)).diagnostics).toEqual([]);
+    expect(leaves((await renderer.displayList(source, 1)).root).some(n => n.tag?.elementType === "effect")).toBe(true);
+  });
+  it("reports a missing center after resolution", async () => {
+    const source = { yaml: "mangacli: 1\npages:\n  - panels:\n      - layers: [{ effect: crack }]\n", filename: "/v/crack.yaml" };
+    expect((await validate(source)).diagnostics).toContainEqual(expect.objectContaining({ code: "SCHEMA_REQUIRED", message: "crack requires center", path: ["pages", 0, "panels", 0, "layers", 0, "center"] }));
+  });
+});
+
 describe.each([ ["lightning", "bolts", 1], ["crack", "count", 2], ["dust", "puffs", 2], ["smoke", "density", 0.1] ] as const)("%s", (kind, param, value) => {
   it("renders without diagnostics, with independent ink and planes", async () => {
     expect((await validate(input(kind))).diagnostics).toEqual([]);
