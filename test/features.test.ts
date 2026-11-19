@@ -1,10 +1,11 @@
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createRenderer } from "../src/api.js";
 import { parseFilter, applyFilters } from "../src/render/filters.js";
 import { phraseBoundaries } from "../src/text/linebreak.js";
 
 const r = createRenderer({ profile: "preview" });
-const y = (s: string) => ({ yaml: s, filename: "/Volumes/Komame/projects/mangacli/docs/examples/feat.yaml" });
+const y = (s: string) => ({ yaml: s, filename: join(import.meta.dirname, "..", "docs", "examples", "feat.yaml") });
 const page = (layers: string) => `mangacli: 1\npage: { size: [80mm, 60mm], bleed: 0, baseFrame: trim }\npages:\n  - panels:\n      - layers:\n${layers}`;
 
 describe("features", () => {
