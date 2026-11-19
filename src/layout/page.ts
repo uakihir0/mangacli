@@ -654,7 +654,7 @@ function expandTemplate(name: string, params: Obj, page: RPage, bag: DiagnosticB
         for (const c of order) if (!corners.includes(c)) corners.push(c);
         const size = number("size", 0.3, 0.1, 0.45);
         const inset = 5 * geom.k + rng.range(0, 0.5) * geom.k;
-        return wrap({ rows: [{ cols: [1] }], __insets: corners.slice(0, n).map((c) => ({ x: c.endsWith("right") ? area.x + area.w * (1 - size) - inset : area.x + inset, y: c.startsWith("bottom") ? area.y + area.h * (1 - size) - inset : area.y + inset, w: area.w * size, h: area.h * size })) });
+        return wrap({ rows: [{ cols: [1] }], __insets: corners.slice(0, n).sort((a, b) => order.indexOf(a) - order.indexOf(b)).map((c) => ({ x: c.endsWith("right") ? area.x + area.w * (1 - size) - inset : area.x + inset, y: c.startsWith("bottom") ? area.y + area.h * (1 - size) - inset : area.y + inset, w: area.w * size, h: area.h * size })) });
       }
     }
   }

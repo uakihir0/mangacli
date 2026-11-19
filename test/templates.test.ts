@@ -18,6 +18,13 @@ function compose(name: string, size = "B5", spread = false, params: Record<strin
 }
 
 describe("dynamic panel templates", () => {
+  it.each([true, false])("orders three selected insets top-to-bottom with rtl=%s", (rtl) => {
+    const { panels, bag, geom } = compose("splash-with-insets", "B5", false, { count: 3 }, rtl, 4);
+    expect(bag.hasErrors).toBe(false);
+    const corners = panels.slice(1).sort((a, b) => a.order - b.order).map((p) =>
+      `${p.box.y < geom.trimH / 2 ? "top" : "bottom"}-${p.box.x < geom.trimW / 2 ? "left" : "right"}`);
+    expect(corners).toEqual(rtl ? ["top-right", "top-left", "bottom-left"] : ["top-left", "top-right", "bottom-right"]);
+  });
   for (const name of templates) for (const [size, spread] of [["B5", false], ["A5", false], ["B5", true]] as const) {
     it(`${name} ${size} spread=${spread}`, () => {
       const { panels, bag, geom } = compose(name, size, spread, { seed: 17 });
