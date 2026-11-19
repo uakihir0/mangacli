@@ -555,10 +555,11 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     const bw0 = Math.min(2.8 * u.k, Math.max(1.6 * u.k, minSide * 0.13));
     const bwAuto = kind === "zigzag" ? bw0 * 1.5 : offSide ? bw0 : Math.max(bw0, Math.min(minSide * 0.3, length * 1.2));
     const bw = (t.width !== undefined ? toMm(t.width as string, u) : bwAuto) * widthScale;
-    // on a spiky body the tail is one more, larger spike of the outline: straight, with straight sides
+    // on a spiky body the tail is one more, larger spike of the outline (the shout/scream presets
+    // also set bend/sideCurve 0 for straight sides)
     const spiky = plan.params.kind === "spike" || plan.params.kind === "burst";
-    const bend = typeof t.bend === "number" ? t.bend : spiky ? 0 : 0.1;
-    const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : spiky ? 0 : 0.12;
+    const bend = typeof t.bend === "number" ? t.bend : 0.1;
+    const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : 0.12;
     const perp = { x: -dir.y, y: dir.x };
     let tip = { x: R.x + dir.x * length, y: R.y + dir.y * length };
     // a tail with a speaker curls toward the face: its centre line is a circular arc whose centre

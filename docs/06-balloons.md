@@ -261,7 +261,7 @@ tail: none
 
 1. 付け根の中心 R: 本体の中心から向き先（または `direction`）への半直線と、本体の輪郭との交点。`root` に角度を指定した場合は、その方向の交点。
 2. 付け根の両端 A、B: 輪郭上で R から前後へたどり、R との直線距離が初めて `width` / 2 になる点（トゲの輪郭でも付け根の幅が保たれる）。
-3. 先端 T: R から向き先へ向かって `length` 進んだ点。`to` がある場合、`length` の既定は「R から向き先までの距離 − `gap`」を `maxLength` で制限した値。話者の画像に `face` 領域があり、向き先がその上（30 % 広げた範囲）にあれば顔の楕円の手前で（同じ画像の別のキャラクターのアンカーへ向けるしっぽは、その顔で止めない）、なければ画像の不透明部分（シルエット）の 0.5 bmm 手前で止める。どちらでも止まらない点（顔領域のないアンカーなど、顔の中心を指す点）へは、R から向き先までの半分で止め、顔に被らないようにする。 本体がトゲ（`spike`）・爆発（`burst`）の場合は、しっぽがトゲに埋もれないよう、この既定の長さを 1.15 倍（6 bmm 以上）にする。トゲ・爆発のしっぽは輪郭のトゲのひとつとして描き、`bend`・`sideCurve` の既定を 0、`curl` の既定を `false` にする（まっすぐな辺の三角形）。しっぽの先端は輪郭線と同じ太さのまま描く。
+3. 先端 T: R から向き先へ向かって `length` 進んだ点。`to` がある場合、`length` の既定は「R から向き先までの距離 − `gap`」を `maxLength` で制限した値。話者の画像に `face` 領域があり、向き先がその上（30 % 広げた範囲）にあれば顔の楕円の手前で（同じ画像の別のキャラクターのアンカーへ向けるしっぽは、その顔で止めない）、なければ画像の不透明部分（シルエット）の 0.5 bmm 手前で止める。どちらでも止まらない点（顔領域のないアンカーなど、顔の中心を指す点）へは、R から向き先までの半分で止め、顔に被らないようにする。 本体がトゲ（`spike`）・爆発（`burst`）の場合は、しっぽがトゲに埋もれないよう、この既定の長さを 1.15 倍（6 bmm 以上）にする。トゲ・爆発のしっぽは輪郭のトゲのひとつとして描き、`curl` の既定を `false` にする（`shout`・`scream` の型は `bend`・`sideCurve` も 0）（まっすぐな辺の三角形）。しっぽの先端は輪郭線と同じ太さのまま描く。
 4. 中心線 R→T を、`bend` に応じた 2 次ベジェ曲線にする（制御点を中心線の中点から法線方向に `bend` × `length` × 0.5 ずらす）。
 5. 辺 A→T と B→T は、中心線に沿って先端へ収束する曲線とし、`sideCurve` に応じて内側へ反らせる。
 6. 向き先が本体の内側にある場合は、しっぽを描かず警告（`BALLOON_TAIL_TARGET_INSIDE`）を出す。
@@ -464,13 +464,13 @@ panels:
 |---|---|---|---|---|---|---|---|
 | `say` | 通常のセリフ | `ellipse` | 0.25 mm、G ペン | `wedge` | `dialogue` | | P0 |
 | `think` | 心の声 | `cloud` | 0.2 mm、丸ペン | `bubbles` | `thought` | | P0 |
-| `shout` | 叫び | `spike` | 0.3 mm、G ペン | `wedge`（`widthScale: 1.3`） | `shout` | `fontScale: 1.4` | P0 |
+| `shout` | 叫び | `spike` | 0.3 mm、G ペン | `wedge`（`widthScale: 1.3`、`bend: 0`、`sideCurve: 0`） | `shout` | `fontScale: 1.4` | P0 |
 | `whisper` | 小声 | `ellipse` | 0.2 mm、`dashed` | `wedge`（`widthScale: 0.7`） | `whisper` | `fontScale: 0.85` | P0 |
 | `tremble` | 震える声 | `wavy` | 0.22 mm | `wedge` | `dialogue` | | P0 |
 | `narration` | ナレーション | `rect` | 0.2 mm、定規 | `none` | `narration` | 既定の位置 `place: top-<読み始め側>` | P0 |
 | `monologue` | モノローグ | `none` | - | `none` | `narration` | `textOutline: 0.8mm white` | P0 |
 | `inverted` | 恐ろしい声・邪悪な声 | `ellipse` | 0.25 mm | `wedge` | `dialogue` | `fill: black`、`color: white` | P0 |
-| `scream` | 絶叫 | `burst` | 0.35 mm | `wedge`（`widthScale: 1.5`） | `shout` | `fontScale: 1.5` | P1 |
+| `scream` | 絶叫 | `burst` | 0.35 mm | `wedge`（`widthScale: 1.5`、`bend: 0`、`sideCurve: 0`） | `shout` | `fontScale: 1.5` | P1 |
 | `shock` | 衝撃を受けた心の声 | `flash` | - | `none` | `thought` | | P1 |
 | `electronic` | 電話・機械の声 | `electronic` | 0.25 mm | `zigzag` | `dialogue` | | P1 |
 | `gruff` | ぶっきらぼうな声 | `hexagon` | 0.25 mm | `wedge` | `dialogue` | | P1 |
