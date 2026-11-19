@@ -2,7 +2,7 @@
 import { type Canvas, type SKRSContext2D, Path2D, createCanvas } from "@napi-rs/canvas";
 import { type RGBA, cssColor, luminanceLinear, srgbToLinear, linearToSrgb } from "../core/color.js";
 import type { PathData } from "../geom/path.js";
-import { type Matrix, type Rect, applyMat, matMul } from "../geom/vec.js";
+import { type Matrix, type Rect, applyMat, matMul, rectInset } from "../geom/vec.js";
 import type { AssetRegistry } from "./assets.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
 import { makeBinaryRoundToneSampler, makeToneSampler } from "./screen.js";
@@ -116,6 +116,10 @@ function nodeBounds(n: Node, m: Matrix): Rect | null {
     return b;
   }
   const mm = n.transform ? matMul(m, n.transform) : m;
+  if (n.glow) {
+    const b = rectInset(n.glow.bounds, -3 * n.glow.blur);
+    return pathBounds([["M", b.x, b.y], ["L", b.x + b.w, b.y], ["L", b.x + b.w, b.y + b.h], ["L", b.x, b.y + b.h]], mm);
+  }
   if (n.clip) return pathBounds(n.clip, mm);
   let r: Rect | null = null;
   for (const c of n.children) r = union(r, nodeBounds(c, mm));
@@ -276,6 +280,10 @@ export class RasterBackend {
     const ctx = dev.ctx;
     const mm = g.transform ? matMul(m, g.transform) : m;
     if (this.opts.separations && g.tag && g.tag.role === "background" && !this.opts.separations.includes("background")) return;
+    if (g.glow) {
+      if (this.visible(g)) await this.drawGlow(dev, g, g.glow, m, mm);
+      return;
+    }
     const needOff = (g.opacity !== undefined && g.opacity < 0.999) || (g.blend && g.blend !== "normal") || !!g.alphaMaskOf || !!g.softClip || !!g.isolate;
     if (!needOff) {
       if (g.clip) {
@@ -352,6 +360,50 @@ export class RasterBackend {
     ctx.globalCompositeOperation = (g.blend && g.blend !== "normal" ? g.blend : "source-over") as never;
     ctx.drawImage(off, r.x, r.y);
     ctx.restore();
+  }
+
+  private async drawGlow(dev: Dev, g: GroupNode, glow: NonNullable<GroupNode["glow"]>, m: Matrix, mm: Matrix) {
+    const b = nodeBounds(g, m);
+    const r = b && clampRect(b, dev.W, dev.H);
+    if (!r) return;
+    const source = createCanvas(r.w, r.h);
+    const shift: Matrix = [1, 0, 0, 1, -r.x, -r.y];
+    const sub: Dev = { ...dev, ctx: source.getContext("2d"), W: r.w, H: r.h, base: matMul(shift, dev.base), opts: { ...dev.opts, colorMode: "color" } };
+    for (const child of g.children) await this.drawNode(sub, child, matMul(shift, mm), source);
+
+    const out = createCanvas(r.w, r.h);
+    const ctx = out.getContext("2d");
+    const color = grayize(glow.color, dev.opts.colorMode);
+    ctx.filter = `blur(${glow.blur * Math.hypot(mm[0], mm[1])}px)`;
+    ctx.drawImage(source, 0, 0);
+    ctx.filter = "none";
+    if (dev.opts.colorMode === "mono") {
+      const pixels = ctx.getImageData(0, 0, r.w, r.h);
+      const d = pixels.data;
+      const inv = this.target(dev, r);
+      const sample = makeToneSampler({ density: 0, lpi: dev.opts.monoLpi, angle: Math.PI / 4, dot: "round", grain: 0.08, invert: false, offset: [0, 0], seed: 3 }, inv, (x, y) => {
+        const q = applyMat(sub.base, { x, y });
+        const px = Math.min(r.w - 1, Math.max(0, Math.floor(q.x)));
+        const py = Math.min(r.h - 1, Math.max(0, Math.floor(q.y)));
+        return (d[(py * r.w + px) * 4 + 3] / 255) * color.a;
+      });
+      // Keep the mask intact until every cell has sampled the original alpha.
+      const screened = ctx.createImageData(r.w, r.h);
+      for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
+        const i = (y * r.w + x) * 4;
+        if (d[i + 3] === 0 || !sample(x, y)) continue;
+        screened.data[i] = screened.data[i + 1] = screened.data[i + 2] = screened.data[i + 3] = 255;
+      }
+      ctx.putImageData(screened, 0, 0);
+    } else {
+      ctx.globalCompositeOperation = "source-in";
+      ctx.fillStyle = cssColor(color);
+      ctx.fillRect(0, 0, r.w, r.h);
+    }
+    dev.ctx.save();
+    dev.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    dev.ctx.drawImage(out, r.x, r.y);
+    dev.ctx.restore();
   }
 
   private target(dev: Dev, r: { x: number; y: number }) {
