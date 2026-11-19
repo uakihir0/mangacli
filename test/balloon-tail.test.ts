@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { createRenderer } from "../src/api.js";
 import type { Vec } from "../src/geom/vec.js";
 import type { Node, PathNode } from "../src/render/ir.js";
@@ -52,7 +53,62 @@ const tip = (pts: Vec[]) => pts.reduce((p, q) => (q.x > p.x ? q : p));
 /** the body's right edge in page mm, mirrored from its left edge about the centre `cx` (the tail points right) */
 const rightOf = (pts: Vec[], cx: number) => 2 * cx - Math.min(...pts.map((p) => p.x));
 
+const reviewYaml = `mangacli: 1
+page: { size: [120mm, 180mm], bleed: 0mm }
+pages:
+  - layout: { template: grid, params: { cols: 1, rows: 3 } }
+    panels:
+      - layers:
+          - { balloon: "あっ！", id: a, as: shout, size: [19mm, 30mm], at: [60mm, 28mm], tail: { to: [110mm, 48mm] } }
+      - layers:
+          - { balloon: "待てっ！", id: b, as: shout, size: [19mm, 30mm], at: [60mm, 28mm], tail: { to: [20mm, 78mm] } }
+      - layers:
+          - { balloon: "父ちゃん！", id: c, as: shout, size: [19mm, 34mm], at: [60mm, 28mm], tail: { to: [10mm, 20mm], width: 4mm } }
+`;
+
+function tailEdges(pts: Vec[]): { a: number; tip: number } {
+  const straight = (i: number) => {
+    const a = pts[(i + pts.length - 1) % pts.length];
+    const b = pts[i];
+    const c = pts[(i + 1) % pts.length];
+    return Math.abs((b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)) < 1e-8;
+  };
+  let tip = pts.length - 1;
+  while (straight(tip)) tip--;
+  let a = tip - 1;
+  while (straight(a)) a--;
+  return { a, tip };
+}
+
 describe("balloon tails", () => {
+  it("joins the review shouts with straight edges and keeps the neighboring spikes", async () => {
+    const cleanYaml = reviewYaml.replaceAll("as: shout,", "as: shout, hand: clean,");
+    const root = (await r.displayList({ yaml: cleanYaml, filename: "/v/review.yaml" }, 1)).root;
+    const body = (await r.displayList({ yaml: cleanYaml.replaceAll(/tail: \{[^}]+\}/g, "tail: { kind: none }"), filename: "/v/review.yaml" }, 1)).root;
+    for (const id of ["a", "b"]) {
+      const pts = vertices(paths(root, (n) => n.tag?.elementId === id && n.tag.role === "fill")[0]);
+      const original = vertices(paths(body, (n) => n.tag?.elementId === id && n.tag.role === "fill")[0]);
+      const { a, tip } = tailEdges(pts);
+      expect(tip - a).toBeGreaterThan(12);
+      expect(pts.length - tip).toBeGreaterThan(12);
+      const shortSide = Math.min(Math.max(...original.map((p) => p.x)) - Math.min(...original.map((p) => p.x)), Math.max(...original.map((p) => p.y)) - Math.min(...original.map((p) => p.y)));
+      expect(Math.hypot(pts[a].x - pts[0].x, pts[a].y - pts[0].y)).toBeLessThanOrEqual(shortSide * 0.3 + 1e-8);
+      const retained = original.filter((p) => pts.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < 1e-8));
+      expect(retained.length / original.length).toBeGreaterThan(0.9);
+    }
+    const inked = (await r.displayList({ yaml: reviewYaml, filename: "/v/review.yaml" }, 1)).root;
+    const father = paths(inked, (n) => n.tag?.elementId === "c" && n.tag.role === "fill")[0];
+    const rounded = father.path.map((c) => c.map((v) => typeof v === "number" ? Math.round(v * 1000) / 1000 : v));
+    expect(createHash("sha256").update(JSON.stringify(rounded)).digest("hex")).toBe("0b108bb626414c3f2a026e85c0d40f15dbdbfdf1eeda4ae913311803efdfea68");
+  });
+
+  it("caps even an explicitly oversized shout root", async () => {
+    const { pts } = await outline(`{ balloon: "待てっ！", id: b, as: shout, hand: clean, size: [19mm, 30mm], at: [40mm, 35mm], tail: { direction: 130deg, width: 30mm } }`);
+    const { pts: body } = await outline(`{ balloon: "待てっ！", id: b, as: shout, hand: clean, size: [19mm, 30mm], at: [40mm, 35mm], tail: none }`);
+    const { a } = tailEdges(pts);
+    const shortSide = Math.min(Math.max(...body.map((p) => p.x)) - Math.min(...body.map((p) => p.x)), Math.max(...body.map((p) => p.y)) - Math.min(...body.map((p) => p.y)));
+    expect(Math.hypot(pts[a].x - pts[0].x, pts[a].y - pts[0].y)).toBeLessThanOrEqual(shortSide * 0.3 + 1e-8);
+  });
   const shout = `{ balloon: "父ちゃん！", id: b, as: shout, at: [40mm, 35mm], tail: { to: [125mm, 35mm] } }`;
   it("keeps a shout tail aimed far away to a moderate length", async () => {
     const { pts, origin } = await outline(shout);
