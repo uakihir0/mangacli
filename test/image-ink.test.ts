@@ -4,6 +4,41 @@ import { render } from "../src/api.js";
 import { imageInkMask } from "../src/render/image-ink.js";
 
 describe("print image ink preservation", () => {
+  it("rejects noisy and blobby midtone texture", () => {
+    const width = 192;
+    for (const blobs of [false, true]) {
+      const rgba = new Uint8Array(width * width * 4);
+      let seed = 17;
+      for (let y = 0; y < width; y++) {
+        for (let x = 0; x < width; x++) {
+          seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+          const v = blobs ? 128 + 65 * Math.sin(x / 4) * Math.cos(y / 5) : 60 + seed % 140;
+          const i = (y * width + x) * 4;
+          rgba.fill(v, i, i + 3);
+          rgba[i + 3] = 255;
+        }
+      }
+      const mask = imageInkMask(rgba, width, width, 324);
+      expect(mask.filter(Boolean).length / (width * width)).toBeLessThan(0.001);
+    }
+  });
+
+  it.each([324, 648])("rejects short crack-like squiggles at %s ppi", async (dpi) => {
+    for (const light of [false, true]) {
+      const rgba = Buffer.alloc(64 * 64 * 4, 255);
+      for (let y = 0; y < 64; y++) {
+        for (let x = 0; x < 64; x++) {
+          const crack = x >= 20 && x < 32 && y === 25 + Math.round(2 * Math.sin(x));
+          const v = crack ? (light ? 180 : 80) : (light ? 80 : 180);
+          rgba.fill(v, (y * 64 + x) * 4, (y * 64 + x) * 4 + 3);
+        }
+      }
+      const size = 64 * dpi / 324;
+      const pixels = await sharp(rgba, { raw: { width: 64, height: 64, channels: 4 } }).resize(size, size, { kernel: "nearest" }).raw().toBuffer();
+      expect(imageInkMask(pixels, size, size, dpi).some(Boolean)).toBe(false);
+    }
+  });
+
   it.each([false, true])("keeps one- and two-pixel lines continuous (light=%s) while screening tones at 324 ppi", async (light) => {
     const width = 324;
     const pixels = Buffer.alloc(width * width * 3);
