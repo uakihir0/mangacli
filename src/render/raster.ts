@@ -138,12 +138,15 @@ function setM(ctx: SKRSContext2D, m: Matrix) {
   ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
 }
 
-function pixelBand(path: PathData, m: Matrix): PathData {
+function pixelBand(path: PathData, m: Matrix, W: number, H: number): PathData {
   const points = path.filter((p) => p[0] === "M" || p[0] === "L").map((p) => applyMat(m, { x: p[1]!, y: p[2]! }));
   if (points.length < 2) return [];
-  const xs = points.map((p) => p.x);
-  const ys = points.map((p) => p.y);
-  const vertical = Math.max(...ys) - Math.min(...ys) > Math.max(...xs) - Math.min(...xs);
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of points) {
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+  }
+  const vertical = maxY - minY > maxX - minX;
   const samples = new Map<number, number>();
   for (let i = 1; i < points.length; i++) {
     let a = points[i - 1];
@@ -151,9 +154,10 @@ function pixelBand(path: PathData, m: Matrix): PathData {
     if (vertical) { a = { x: a.y, y: a.x }; b = { x: b.y, y: b.x }; }
     if (a.x > b.x) [a, b] = [b, a];
     if (b.x === a.x) continue;
-    for (let x = Math.ceil(a.x - 0.5); x + 0.5 < b.x; x++) {
+    for (let x = Math.max(0, Math.ceil(a.x - 0.5)); x < (vertical ? H : W) && x + 0.5 < b.x; x++) {
       const t = (x + 0.5 - a.x) / (b.x - a.x);
-      samples.set(x, Math.floor(a.y + (b.y - a.y) * t - 0.5));
+      const minor = Math.floor(a.y + (b.y - a.y) * t - 0.5);
+      if (minor >= -1 && minor < (vertical ? W : H)) samples.set(x, minor);
     }
   }
   const det = m[0] * m[3] - m[1] * m[2];
@@ -513,8 +517,8 @@ export class RasterBackend {
       let changed = false;
       for (const ink of n.inkStrokes) {
         const width = effectiveWidth(ink.width, ink.path);
-        if (width === ink.width) replacement.push(...(ink.outline ?? []));
-        else { replacement.push(...pixelBand(ink.path, m)); changed = true; }
+        if (width === ink.width) { for (const command of ink.outline ?? []) replacement.push(command); }
+        else { for (const command of pixelBand(ink.path, m, dev.W, dev.H)) replacement.push(command); changed = true; }
       }
       if (changed) n = { ...n, path: replacement };
     }

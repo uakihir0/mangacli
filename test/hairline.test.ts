@@ -15,18 +15,32 @@ pages:
       - { draw: line, id: hairline, points: [[2mm, 5mm], [22mm, 5mm]], ruler: true, stroke: { width: ${width}mm, pen: { minWidth: 0.01mm } } }
 ` });
 
-function setup(width: number, dx: number, dy: number, slope: number) {
+function setup(width: number, dx: number, dy: number, slope: number, dpi = 600) {
   const bag = new DiagnosticBag();
   const s = 600 / 25.4;
   const path: PathNode["path"] = [["M", (5 + dx) / s, (5 + dy) / s], ["L", (45 + dx) / s, (5 + dy + 40 * slope) / s]];
   const node: PathNode = { kind: "path", path, fillRule: "nonzero", paint: null, stroke: { width, join: "round", paint: { type: "solid", color: { r: 0, g: 0, b: 0, a: 1 } } } };
   const box = { x: 0, y: 0, w: 50 / s, h: 50 / s };
   const list: DisplayList = { version: 1, page: { id: "test", index: 0 }, size: { width: box.w, height: box.h }, boxes: { trim: box, bleed: box, baseFrame: box, safe: box }, background: null, root: { kind: "group", children: [node] } };
-  const backend = new RasterBackend({ dpi: 600, crop: "trim", colorMode: "mono", toneRendering: "dots", monoLpi: 60, toneCurve: "linear", diagnostics: bag, assets: new AssetRegistry({}, {}, bag, 600, "error") });
+  const backend = new RasterBackend({ dpi, crop: "trim", colorMode: "mono", toneRendering: "dots", monoLpi: 60, toneCurve: "linear", diagnostics: bag, assets: new AssetRegistry({}, {}, bag, 600, "error") });
   return { backend, list, node, bag };
 }
 
 describe("mono hairline protection", () => {
+  it("clips a long off-page hairline at 1200 dpi without overflowing arguments", async () => {
+    const { backend, list, node } = setup(0.015, 0, 0, 0, 1200);
+    node.paint = node.stroke!.paint;
+    delete node.stroke;
+    node.path = [["M", -1000000, 0.5], ["L", 1000000, 0.5]];
+    node.inkStrokes = [{ path: node.path, width: 0.015 }];
+    const result = await backend.render(list);
+    expect(result.width).toBe(100);
+    for (let x = 0; x < result.width; x++) {
+      let count = 0;
+      for (let y = 0; y < result.height; y++) if (result.data[(y * result.width + x) * 4] === 0) count++;
+      expect(count).toBe(2);
+    }
+  });
   it("bounds warnings across varying strokes and leaves room for errors", async () => {
     const { backend, list, node, bag } = setup(0.015, 0, 0, 0);
     node.paint = node.stroke!.paint;
