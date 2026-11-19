@@ -70,13 +70,17 @@ export function renderLight(el: RElement, ctx: ElemCtx, region: ResolvedRegion):
       if (n === 0) return [];
       const far = Math.max(...corners(b).map((q) => Math.hypot(c.x - q.x, c.y - q.y)));
       const step = 2 * Math.PI / n;
-      const path = Array.from({ length: n }, (_, i) => {
+      const half = step * spread / 2;
+      const segments = Math.max(1, Math.ceil(half / (Math.PI / 4)));
+      // Subdivide broad sectors; every outer chord must clear the region bounds.
+      const r = far / Math.cos(half / segments);
+      const path = spread === 1 ? polyPath(corners(b), true) : Array.from({ length: n }, (_, i) => {
         const a = phase + i * step;
-        const half = Math.min(step * spread / 2, Math.PI / 2 - 0.01);
-        // The outer edge must extend past the clip even for very wide rays.
-        const r = far / Math.cos(half);
-        return polyPath([c, { x: c.x + Math.cos(a - half) * r, y: c.y + Math.sin(a - half) * r },
-          { x: c.x + Math.cos(a + half) * r, y: c.y + Math.sin(a + half) * r }], true);
+        const edge = Array.from({ length: segments + 1 }, (_, j) => {
+          const theta = a + half * (2 * j / segments - 1);
+          return { x: c.x + Math.cos(theta) * r, y: c.y + Math.sin(theta) * r };
+        });
+        return polyPath([c, ...edge], true);
       }).flat();
       const paint: Paint = { type: "radial-gradient", cx: c.x, cy: c.y, r: far, stops: [
         { offset: 0, color: tint(1) }, { offset: 0.4, color: tint(0.86) }, { offset: 1, color: tint(0.3) },

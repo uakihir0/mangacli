@@ -72,6 +72,20 @@ describe("light effects", () => {
     for (const [x, y] of [[25, 21], [13, 21], [25, 9], [13, 9], [35, 15]]) expect(pixel(x, y)).toBe(0);
   });
 
+  it("renders a ray wider than a half-turn without lighting its angular gap", async () => {
+    const { pixel } = await raster(scene("{ effect: light-rays, count: 1, spread: 0.75 }"));
+    for (const [x, y] of [[30, 16], [19, 6], [19, 26], [14, 6], [14, 26]]) expect(pixel(x, y)).toBeGreaterThan(100);
+    expect(pixel(10, 16)).toBe(0);
+  });
+
+  it("lights the whole clipped region when ray bands fill a full turn", async () => {
+    const { pixel } = await raster(scene(
+      "{ effect: light-rays, center: [30mm, 16mm], count: 1, spread: 1, region: { rect: [7mm, 4mm, 26mm, 24mm] } }",
+    ));
+    for (const [x, y] of [[8, 5], [8, 27], [32, 5], [32, 27]]) expect(pixel(x, y)).toBeGreaterThan(65);
+    expect(pixel(5, 16)).toBe(0);
+  });
+
   it("lights the cone and landing pool while shading artwork outside them", async () => {
     const layer = "{ effect: spotlight, source: [12mm, 0], target: [20mm, 24mm], width: 14mm";
     const { pixel } = await raster(scene(layer + ", shade: 0.75 }", '"#808080"'));
