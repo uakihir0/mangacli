@@ -10,6 +10,7 @@ import { closeAlpha, distanceSquared } from "./edt.js";
 import { applyFilters } from "./filters.js";
 import { imageInkMask } from "./image-ink.js";
 import { cropMarkLines } from "./marks.js";
+import { resolveOutlineLayers } from "./outlines.js";
 
 export type ColorMode = "color" | "gray" | "mono";
 export type ToneRendering = "dots" | "flat" | "auto";
@@ -281,6 +282,7 @@ export class RasterBackend {
 
   private async drawGroup(dev: Dev, g: GroupNode, m: Matrix, canvas: Canvas): Promise<void> {
     const ctx = dev.ctx;
+    if (g.outlineLayers) g = { ...g, children: resolveOutlineLayers(g.children, this.backdropDarkness(dev, g, m)) };
     const mm = g.transform ? matMul(m, g.transform) : m;
     if (this.opts.separations && g.tag && g.tag.role === "background" && !this.opts.separations.includes("background")) return;
     if (g.glow) {
@@ -507,7 +509,7 @@ export class RasterBackend {
     ctx.restore();
   }
 
-  private backdropDarkness(dev: Dev, n: PathNode, m: Matrix): number {
+  private backdropDarkness(dev: Dev, n: Node, m: Matrix): number {
     const b = nodeBounds(n, m);
     const r = b ? clampRect(b, dev.W, dev.H) : null;
     if (!r) return 0;

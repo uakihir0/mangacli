@@ -9,7 +9,7 @@ type Obj = Record<string, unknown>;
 
 export function outlineNodes(path: PathData, outlines: unknown, ctx: ElemCtx, el: RElement, key: "outline" | "textOutline" = "outline"): Node[] {
   if (!Array.isArray(outlines) || !outlines.length || !path.length) return [];
-  return (outlines as Obj[]).map((o, i) => {
+  const children = (outlines as Obj[]).map((o, i) => {
     const at = [...el.path, key, i];
     const adaptive = o.width === "auto";
     const paint = parsePaint(o.color ?? (adaptive ? "paper" : "white"), { u: ctx.u, box: ctx.coordsBox, seed: el.seed, bag: ctx.bag, path: [...at, "color"] });
@@ -32,4 +32,5 @@ export function outlineNodes(path: PathData, outlines: unknown, ctx: ElemCtx, el
     }
     return { kind: "path" as const, path, fillRule: "nonzero" as const, paint: null, stroke: { width, paint, join: o.join === "miter" ? "miter" as const : "round" as const, miterLimit, fillHoles, auto }, tag: tag(el, "text", key === "textOutline" ? "text" : undefined) };
   }).filter((node) => node !== null).sort((a, b) => b.stroke.width - a.stroke.width);
+  return children.length ? [{ kind: "group", outlineLayers: true, children }] : [];
 }

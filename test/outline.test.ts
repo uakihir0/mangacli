@@ -205,6 +205,21 @@ async function raster(list: DisplayList) {
 const strokeNode = (path: PathData, options: Partial<NonNullable<PathNode["stroke"]>> = {}): PathNode => ({ kind: "path", path, fillRule: "nonzero", paint: null, stroke: { width: 0.2, paint: { type: "solid", color: WHITE }, join: "round", ...options } });
 
 describe("text outline rendering", () => {
+  it.each(["text", "sfx", "balloon"].flatMap((type) => [4, 1].map((fixed) => ({ type, fixed }))))("resolves adaptive $type layers over $fixed mm fixed ink before ordering", async ({ type, fixed }) => {
+    const key = type === "balloon" ? "textOutline" : "outline";
+    const input = (outline: unknown) => ({ mangacli: 1, page: { size: ["60mm", "40mm"], bleed: 0, baseFrame: "trim" }, pages: [{ panels: [{ border: "none", background: "white", layers: [{ type, text: "I", ...(type === "balloon" ? { as: "monologue" } : {}), at: ["30mm", "20mm"], writing: "horizontal", fontSize: "10mm", hand: false, [key]: outline }] }] }] });
+    const adaptive = [{ width: "auto", min: "0.2mm", max: "3mm", threshold: 0.01, color: "white" }, { width: `${fixed}mm`, color: "black" }];
+    const resolved = [{ width: "0.2mm", color: "white" }, { width: `${fixed}mm`, color: "black" }];
+    const actual = await renderer.render(input(adaptive), { dpi: 127, crop: "trim", colorMode: "mono" });
+    const expected = await renderer.render(input(resolved), { dpi: 127, crop: "trim", colorMode: "mono" });
+    expect(actual.failures).toEqual([]);
+    const pixels = (data: Uint8Array) => sharp(data).removeAlpha().raw().toBuffer();
+    expect(await pixels(actual.pages[0].data)).toEqual(await pixels(expected.pages[0].data));
+    const svg = await renderSvg(await renderer.displayList(input(adaptive), 1), { crop: "trim", colorMode: "mono", assets });
+    const max = [{ width: "3mm", color: "white" }, { width: `${fixed}mm`, color: "black" }];
+    expect(svg).toBe(await renderSvg(await renderer.displayList(input(max), 1), { crop: "trim", colorMode: "mono", assets }));
+  });
+
   it.each(["text", "sfx", "balloon"])("supports adaptive %s outlines in defaults with SVG max-width fallback", async (type) => {
     const key = type === "balloon" ? "textOutline" : "outline";
     const doc = { mangacli: 1, defaults: { [type]: { [key]: "auto" } }, pages: [{ panels: [{ layers: [{ type, text: "A" }] }] }] };

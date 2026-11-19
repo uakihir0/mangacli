@@ -55,6 +55,7 @@ export interface NodeTag {
 
 export interface GroupNode {
   kind: "group";
+  outlineLayers?: boolean;
   transform?: Matrix;
   opacity?: number;
   blend?: BlendMode;

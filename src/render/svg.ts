@@ -7,6 +7,7 @@ import type { AssetRegistry } from "./assets.js";
 import { applyFilters } from "./filters.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
 import { cropMarkLines } from "./marks.js";
+import { resolveOutlineLayers } from "./outlines.js";
 
 export interface SvgOptions {
   outputScale?: number;
@@ -178,6 +179,7 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
   };
 
   const group = async (g: GroupNode): Promise<string> => {
+    if (g.outlineLayers) g = { ...g, children: resolveOutlineLayers(g.children) };
     const attrs: string[] = [];
     if (g.transform) attrs.push(`transform="${matrix(g.transform)}"`);
     if (g.opacity !== undefined && g.opacity < 1) attrs.push(`opacity="${n(g.opacity)}"`);
