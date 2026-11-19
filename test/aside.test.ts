@@ -105,6 +105,25 @@ describe("aside", () => {
     expect(height("aside") / height("say")).toBeLessThanOrEqual(0.78);
   });
 
+  it("keeps the documentation aside clear of the complete head with legible glyphs", async () => {
+    const r = await render(join(import.meta.dirname, "../docs/examples/aside.yaml"), { layoutOnly: true, keepLists: true });
+    expect(r.diagnostics.filter(d => d.severity === "error")).toEqual([]);
+    const nodes = flatten(r.lists![0].root.children);
+    const glyphBounds = (id: string) => {
+      const n = nodes.find(n => n.kind === "path" && n.tag?.elementId === id && n.tag.role === "text" && n.paint);
+      if (n?.kind !== "path") throw new Error("missing glyph path");
+      return boundsOf(flattenPath(n.path).flatMap(q => q.pts));
+    };
+    const aside = r.layout[0].elements.find(e => e.id === "p1-k1-balloon1")!.bbox;
+    // The 1000 x 1400 asset is contained in a 100 x 85 mm panel.
+    const headLeft = (100 - 85 * 1000 / 1400) / 2 + 270 * 85 / 1400;
+    const headRight = (100 - 85 * 1000 / 1400) / 2 + 735 * 85 / 1400;
+    expect(Math.max(headLeft - aside.x - aside.w, aside.x - headRight)).toBeGreaterThan(1);
+    const ratio = glyphBounds("p1-k1-balloon1").w / glyphBounds("p1-k1-d1").w;
+    expect(ratio).toBeGreaterThan(0.75);
+    expect(ratio).toBeLessThan(0.9);
+  });
+
   it("handles empty and unattached asides and reports unknown speakers", async () => {
     const empty = await render(input('          - { aside: "", id: empty }\n          - { aside: 独り言, id: alone }'), { profile: "preview", layoutOnly: true });
     expect(empty.diagnostics.filter(d => d.severity === "error")).toEqual([]);

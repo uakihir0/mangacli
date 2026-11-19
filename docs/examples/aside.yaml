@@ -10,11 +10,11 @@ assets:
     src: ./assets/taro/normal.png
     character: taro
     anchors: { mouth: [500, 530] }
-    regions: { face: [280, 140, 440, 480] }
+    regions: { face: [250, 120, 500, 540] }
 pages:
   - panels:
       - layers:
           - { image: taro, fit: contain }
-          - { aside: ボソッ, who: taro, tail: { kind: line } }
+          - { aside: ボソッ, who: taro, fontScale: 0.85, tail: { kind: line } }
         dialogue:
           - { taro: まかせて！, at: [80%, 18%] }
