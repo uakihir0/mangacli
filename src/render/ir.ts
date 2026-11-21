@@ -67,8 +67,6 @@ export interface GroupNode {
   isolate?: boolean;
   /** multiply children by the alpha of an image (region mode: alpha) */
   alphaMaskOf?: { matrix: Matrix; assetKey: string; w: number; h: number; invert?: boolean; dilate?: number };
-  /** Tint and blur the children's silhouette, replacing their original colors. */
-  glow?: { color: RGBA; blur: number; bounds: Rect };
   children: Node[];
   tag?: NodeTag;
 }

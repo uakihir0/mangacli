@@ -89,7 +89,7 @@ describe("effect silhouette clears", () => {
     expect(splitClearLine(pts, (p) => p.x > 0.2, 0.1, 1)).toEqual([]);
   });
 
-  it.each(["speed-lines", "focus-lines", "uni-flash", "rain", "gloom-lines"])("%s keeps ink outside the dilated alpha silhouette", async (kind) => {
+  it.each(["speed-lines", "focus-lines", "uni-flash", "gloom-lines"])("%s keeps ink outside the dilated alpha silhouette", async (kind) => {
     const cleared = await lines({ kind, length: "60mm", inner: ["1mm", "1mm"], count: 180, clearFigures: false, clear: { element: "hero", mode: "alpha", margin: "2mm" } });
     expect(cleared.length).toBeGreaterThan(5);
     for (const poly of cleared) for (const p of poly) {
@@ -138,7 +138,7 @@ describe("effect silhouette clears", () => {
     for (const poly of polys) for (const p of poly) if (p.y >= 0 && p.y <= 60) expect(p.x < 10 || p.x > 18, JSON.stringify(p)).toBe(true);
   });
 
-  it.each(["speed-lines", "focus-lines", "uni-flash", "rain", "gloom-lines"])("%s drops cut polygons below minLength", async (kind) => {
+  it.each(["speed-lines", "focus-lines", "uni-flash", "gloom-lines"])("%s drops cut polygons below minLength", async (kind) => {
     const polys = await lines({ kind, minLength: "6mm", length: "60mm", inner: ["1mm", "1mm"], count: 180, clear: { element: "hero", mode: "alpha" } });
     expect(polys.length).toBeGreaterThan(5);
     for (const poly of polys) {

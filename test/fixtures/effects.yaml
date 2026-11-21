@@ -19,10 +19,10 @@ pages:
       - layers:
           - { effect: swirl-lines }
       - layers:
-          - { effect: hatching }
+          - { effect: lightning }
       - layers:
           - { effect: impact }
       - layers:
-          - { effect: rain }
+          - { effect: lightning, background: paper, fill: black }
       - layers:
           - { effect: vignette }

@@ -28,7 +28,6 @@ export interface ElemCtx {
   localFrame?: boolean;
   /** coarse alpha maps of the panel's character art (tails stop short of the figures) */
   silhouettes?: Silhouette[];
-  alphaContours?: Map<string, Vec[][]>;
 }
 
 export interface Silhouette {

@@ -18,7 +18,7 @@ describe("features", () => {
       "          - { sfx: ドドド, path: { kind: arc, angle: 40deg }, distort: { perspective: [0.8, 1.2], bulge: 0.3 }, chars: [{ index: 1, color: red }] }\n",
       "          - { text: \"<b>太字</b><color=red>赤</color><em mark=dot>点</em><scale x=0.7>長体</scale><shake>震え</shake>\", ruby: { position: left }, features: { palt: true } }\n",
       "          - { type: scatter, count: 5, items: [{ mark: sparkle }, { type: draw, kind: ellipse, size: [2mm, 2mm] }], orient: radial }\n",
-      "          - { effect: hatching, pattern: kakeami, gradient: { from: 1, to: 0 } }\n          - { effect: vignette, shape: rect, screen: spatter }\n",
+      "          - { effect: vignette, shape: rect, screen: spatter }\n",
     ];
     for (const d of docs) {
       const v = await r.validate(y(page(d)));

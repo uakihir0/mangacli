@@ -16,8 +16,6 @@ import { activePlugins } from "../plugin.js";
 import { runPluginDrawable } from "./plugindraw.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { inksToNodes } from "./inkir.js";
-import { renderLight } from "./light.js";
-import { renderAura } from "./aura.js";
 import { lightningPoints, lightningOutline } from "./lightning.js";
 import { type ResolvedRegion, resolveRegion } from "./region.js";
 import { type EffectAlphaCache, effectSilhouette, splitClearLine } from "./effect-clear.js";
@@ -475,26 +473,6 @@ function gloomLines(f: FxCtx): InkPoly[] {
   return out;
 }
 
-// ---- rain --------------------------------------------------------------------
-
-function rain(f: FxCtx): InkPoly[] {
-  const p = f.p;
-  const b = f.region.bbox;
-  const ang = parseAngle((p.angle as string) ?? "100deg");
-  const d = { x: Math.cos(ang), y: Math.sin(ang) };
-  const rate = ((p.rate as number) ?? 2.5) * ((p.density as number) ?? 1);
-  const n = Math.round(((b.w * b.h) / 100) * rate);
-  const lenR = R(f, p.length, { min: 3 * f.k, max: 12 * f.k, dist: "uniform" });
-  const th = R(f, p.thickness, { min: 0.08 * f.k, max: 0.2 * f.k, dist: "low" });
-  const out: InkPoly[] = [];
-  for (let i = 0; i < n; i++) {
-    const c = { x: b.x + f.rng.next() * b.w, y: b.y + f.rng.next() * b.h };
-    const l = sampleR(f, lenR);
-    out.push(...effectLine(f, [{ x: c.x - (d.x * l) / 2, y: c.y - (d.y * l) / 2 }, { x: c.x + (d.x * l) / 2, y: c.y + (d.y * l) / 2 }], lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("r"), { ruler: true, taperIn: true, taperOut: true, taperInLen: l * 0.2, taperOutLen: l * 0.35, inkPool: false, resolution: 0.25 }));
-  }
-  return out;
-}
-
 // ---- swirl -------------------------------------------------------------------
 
 function swirl(f: FxCtx): InkPoly[] {
@@ -523,110 +501,6 @@ function swirl(f: FxCtx): InkPoly[] {
     }
     const len = r * span;
     out.push(...effectLine(f, pts, lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("sw"), { taperIn: true, taperOut: true, taperInLen: len * 0.2, taperOutLen: len * 0.55, inkPool: false }));
-  }
-  return out;
-}
-
-// ---- hatching / kakeami -------------------------------------------------------
-
-function hatching(f: FxCtx): InkPoly[] {
-  const p = f.p;
-  const b = f.region.bbox;
-  const pattern = (p.pattern as string) ?? "hatch";
-  const ang0 = parseAngle((p.angle as string) ?? "45deg");
-  const spacing = L(f, p.spacing ?? `${0.6 * f.k}mm`);
-  const th = R(f, p.thickness, { min: 0.08 * f.k, max: 0.16 * f.k, dist: "uniform" });
-  const layers = Number(p.layers ?? (pattern === "hatch" ? 1 : 2));
-  const out: InkPoly[] = [];
-  const soft = (p.edge as string) !== "clean";
-  const ruler = p.ruler === true;
-  // gradient: darkness 1 -> 0 across the region; lines thin out where it is light
-  const gr = isObj(p.gradient) ? (p.gradient as Obj) : null;
-  const gAng = gr ? parseAngle((gr.angle as string) ?? "90deg") : 0;
-  const gd = { x: Math.cos(gAng), y: Math.sin(gAng) };
-  const gc = [b, { ...b, x: b.x + b.w }, { ...b, y: b.y + b.h }, { ...b, x: b.x + b.w, y: b.y + b.h }].map((q) => q.x * gd.x + q.y * gd.y);
-  const g0 = Math.min(...gc);
-  const g1 = Math.max(...gc);
-  const darkAt = (q: Vec) => {
-    if (!gr) return 1;
-    const t = (q.x * gd.x + q.y * gd.y - g0) / Math.max(1e-6, g1 - g0);
-    return Number(gr.from ?? 1) + (Number(gr.to ?? 0) - Number(gr.from ?? 1)) * t;
-  };
-  if (pattern === "kakeami") {
-    const bs = R(f, p.blockSize, { min: 2 * f.k, max: 3.5 * f.k, dist: "uniform" });
-    const lpb = Number(p.linesPerBlock ?? 4);
-    for (let layer = 0; layer < layers; layer++) {
-      const step = (bs.min + bs.max) / 2;
-      const off = layer * step * 0.37;
-      let row = 0;
-      for (let y = b.y - step + off; y < b.y + b.h + step; y += step * 0.95) {
-        row++;
-        for (let x = b.x - step + off + (row % 2) * step * 0.5; x < b.x + b.w + step; x += step * 0.95) {
-          const size = sampleR(f, bs);
-          const cx = x + f.rng.range(-0.15, 0.15) * size;
-          const cy = y + f.rng.range(-0.15, 0.15) * size;
-          if (soft && !f.region.contains({ x: cx, y: cy })) continue;
-          // darker parts get more layers
-          if (gr && f.rng.next() > Math.max(0, Math.min(1, darkAt({ x: cx, y: cy }) * layers - layer))) continue;
-          const parity = ((Math.round(x / step) + Math.round(y / step) + layer) % 2) * (Math.PI / 2);
-          const a = ang0 + parity + f.rng.range(-0.26, 0.26);
-          const d = { x: Math.cos(a), y: Math.sin(a) };
-          const n = { x: -d.y, y: d.x };
-          for (let i = 0; i < lpb; i++) {
-            const o = (i - (lpb - 1) / 2) * (size / lpb);
-            const l = size * f.rng.range(0.8, 1.05);
-            const c0 = { x: cx + n.x * o, y: cy + n.y * o };
-            out.push(...effectLine(f, [{ x: c0.x - (d.x * l) / 2, y: c0.y - (d.y * l) / 2 }, { x: c0.x + (d.x * l) / 2, y: c0.y + (d.y * l) / 2 }], lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("ka"), { taperIn: true, taperOut: true, taperInLen: l * 0.3, taperOutLen: l * 0.4, inkPool: false, wobble: false, resolution: 0.15, ruler }));
-          }
-        }
-      }
-    }
-    return out;
-  }
-  const dirs = pattern === "cross" ? [ang0, ang0 + Math.PI / 2] : [ang0];
-  for (let li = 0; li < Math.max(layers, dirs.length); li++) {
-    const a = dirs[li % dirs.length] + (li >= dirs.length ? 0.2 : 0);
-    const d = { x: Math.cos(a), y: Math.sin(a) };
-    const n = { x: -d.y, y: d.x };
-    const corners = [{ x: b.x, y: b.y }, { x: b.x + b.w, y: b.y }, { x: b.x, y: b.y + b.h }, { x: b.x + b.w, y: b.y + b.h }];
-    const pn = corners.map((q) => q.x * n.x + q.y * n.y);
-    const pd = corners.map((q) => q.x * d.x + q.y * d.y);
-    for (let s = Math.min(...pn); s < Math.max(...pn); s += spacing * f.rng.range(0.85, 1.15)) {
-      // find extent inside region by sampling
-      let t0: number | null = null;
-      const tA = Math.min(...pd);
-      const tB = Math.max(...pd);
-      const step = 0.5 * f.k;
-      for (let t = tA; t <= tB + step; t += step) {
-        const q = { x: n.x * s + d.x * t, y: n.y * s + d.y * t };
-        const ins = t <= tB && f.region.contains(q);
-        if (ins && t0 === null) t0 = t + (soft ? f.rng.range(0, 2) * f.k : 0);
-        if ((!ins || t > tB) && t0 !== null) {
-          const t1 = t - (soft ? f.rng.range(0, 2) * f.k : 0);
-          if (t1 - t0 > 1 * f.k) {
-            // with a gradient, lines are cut into strokes and the light side keeps fewer, shorter ones
-            const pieces = gr ? Math.max(1, Math.round((t1 - t0) / (4 * f.k))) : 1;
-            const pl = (t1 - t0) / pieces;
-            for (let k = 0; k < pieces; k++) {
-              let a0 = t0 + k * pl;
-              let a1 = a0 + pl * (gr ? 1.08 : 1);
-              if (gr) {
-                const mid = { x: n.x * s + d.x * (a0 + pl / 2), y: n.y * s + d.y * (a0 + pl / 2) };
-                const dk = Math.max(0, Math.min(1, darkAt(mid)));
-                if (f.rng.next() > dk + 0.05) continue;
-                const shrink = pl * (1 - (0.35 + 0.65 * dk)) * 0.5;
-                a0 += shrink;
-                a1 -= shrink;
-              }
-              const l = a1 - a0;
-              if (l < 0.6 * f.k) continue;
-              out.push(...effectLine(f, [{ x: n.x * s + d.x * a0, y: n.y * s + d.y * a0 }, { x: n.x * s + d.x * a1, y: n.y * s + d.y * a1 }], lineStyle(f, sampleR(f, th)), f.hand, f.rng.fork("h"), { taperIn: true, taperOut: true, taperInLen: Math.min(l * 0.3, 2 * f.k), taperOutLen: Math.min(l * 0.4, 3 * f.k), inkPool: false, resolution: 0.3, ruler }));
-            }
-          }
-          t0 = null;
-        }
-      }
-    }
   }
   return out;
 }
@@ -681,125 +555,38 @@ function impact(f: FxCtx): Node[] {
   return wrap(f, nodes);
 }
 
-// ---- vignette ----------------------------------------------------------------
+// ---- lightning ---------------------------------------------------------------
 
-function materialEffects(f: FxCtx, kind: string): Node[] {
+function lightningEffect(f: FxCtx): Node[] {
   const { p, rng } = f;
-  if (kind === "crack" && p.center === undefined) {
-    f.ctx.bag.error("SCHEMA_REQUIRED", "crack requires center", { path: [...f.el.path, "center"] });
-    return [];
-  }
   const b = f.region.bbox;
-  const unit = Math.min(b.w, b.h);
   const nodes: Node[] = [];
   const stroke = resolveStroke({ pen: p.pen, color: p.color, ...(isObj(p.stroke) ? p.stroke : {}) }, f.hand, f.ctx.u, f.ctx.bag, [...f.el.path, "stroke"]);
-  const line = (pts: Vec[], width: number, color = f.color) => {
-    const lineRng = rng.fork("line");
-    const style = { ...stroke, width };
-    const inks = stroke.style === "solid"
-      ? inkLine(pts, style, stroke.hand, lineRng, { taperOut: true, inkPool: false })
-      : inkShape({ pts, closed: false, smooth: true }, { hand: stroke.hand, rng: lineRng, line: style }).inks;
-    nodes.push(...inksToNodes(inks, color, tag(f.el, "ink")));
-  };
-  const plane = (pts: Vec[], paint: unknown, role: "fill" | "tone" = "fill") => {
+  const shape = (pts: Vec[], paint: unknown) => {
+    const s = inkShape({ pts, closed: true, smooth: false }, { hand: stroke.hand, rng: rng.fork("shape"), join: "clean", line: stroke });
     const resolved = parsePaint(paint, { u: f.ctx.u, box: b, seed: f.el.seed });
-    if (resolved) nodes.push({ kind: "path", path: polyPath(pts, true), fillRule: "nonzero", paint: resolved, tag: tag(f.el, role) });
-  };
-  const shape = (pts: Vec[], paint: unknown, angular = false) => {
-    const s = inkShape({ pts, closed: true, smooth: !angular }, { hand: stroke.hand, rng: rng.fork("shape"), join: "clean", line: stroke });
-    plane(s.fill, paint);
+    if (resolved) nodes.push({ kind: "path", path: polyPath(s.fill, true), fillRule: "nonzero", paint: resolved, tag: tag(f.el, "fill") });
     nodes.push(...inksToNodes(s.inks, stroke?.color ?? f.color, tag(f.el, "ink")));
   };
   const point = (v: unknown, fallback: Vec) => v === undefined ? fallback : resolvePoint(v, placeCtx(f.ctx, f.el)) ?? fallback;
   const jag = (o: Vec, angle: number, length: number, jaggedness: number) => lightningPoints(rng, o, angle, length, jaggedness);
-  if (kind === "lightning") {
-    const angle = parseAngle(p.direction as string);
-    const thickness = R(f, p.thickness, { min: 3 * f.k, max: 6 * f.k, dist: "uniform" });
-    const bolt = (pts: Vec[], width: number) => {
-      shape(lightningOutline(pts, width), p.fill, true);
-    };
-    for (let i = 0; i < Number(p.bolts); i++) {
-      const o = point(p.origin, { x: b.x + b.w * (i + rng.range(0.2, 0.8)) / Number(p.bolts), y: b.y });
-      const length = L(f, p.length, b.h) * rng.range(0.8, 1.1);
-      const pts = jag(o, angle, length, Number(p.jaggedness));
-      const width = sampleR(f, thickness);
-      bolt(pts, width);
-      for (let j = 0; j < Number(p.branches); j++) {
-        const at = rng.int(2, 6);
-        bolt(jag(pts[at], angle + (j % 2 ? -1 : 1) * rng.range(0.5, 1), length * rng.range(0.2, 0.4), Number(p.jaggedness)), width * 0.3);
-      }
-    }
-  } else if (kind === "crack") {
-    const c = point(p.center, { x: b.x + b.w / 2, y: b.y + b.h / 2 });
-    const radius = L(f, p.radius, unit);
-    const th = R(f, p.thickness, { min: 0.15 * f.k, max: 0.65 * f.k, dist: "uniform" });
-    const cracks: Vec[][] = [];
-    for (let i = 0; i < Number(p.count); i++) {
-      const a = (i + rng.range(-0.25, 0.25)) * Math.PI * 2 / Number(p.count);
-      const pts = jag(c, a, radius * rng.range(0.75, 1.2), 0.7);
-      cracks.push(pts);
-      plane([...pts, ...pts.map((q, j) => ({ x: q.x + radius * 0.035 * (1 - j / 9), y: q.y + radius * 0.012 * (1 - j / 9) })).reverse()], p.shade);
-      line(pts, sampleR(f, th));
-      for (let j = 2; j < 8; j++) if (rng.chance(Number(p.branching))) line(jag(pts[j], a + rng.range(-1, 1), radius * 0.3, 0.7), sampleR(f, th) * 0.5);
-    }
-    for (let r = 0; r < Number(p.rings); r++) for (let i = 0; i < cracks.length; i++) {
-      const index = Math.min(8, Math.round((r + 1) * 8 / (Number(p.rings) + 1)));
-      const a = cracks[i][index], z = cracks[(i + 1) % cracks.length][index];
-      line([a, { x: (a.x + z.x) / 2 + rng.range(-1, 1) * radius * 0.06, y: (a.y + z.y) / 2 + rng.range(-1, 1) * radius * 0.06 }, z], th.min);
-    }
-  } else {
-    const dust = kind === "dust";
-    const o = point(p.origin, { x: b.x + b.w / 2, y: b.y + b.h });
-    const angle = p.direction === "both" ? -Math.PI / 2 : parseAngle(p.direction as string);
-    const n = dust ? Number(p.puffs) : Math.round(Number(p.density) * 22);
-    const size = dust ? L(f, p.size, unit) : unit * 0.3;
-    for (let i = n - 1; i >= 0; i--) {
-      const t = (i + 0.5) / Math.max(1, n);
-      const travel = dust ? size * t * 1.9 : b.h * t;
-      const side = dust && p.direction === "both" ? (i % 2 ? -1 : 1) * travel : rng.range(-1, 1) * size * (0.25 + t);
-      const c = !dust && p.origin === undefined ? { x: b.x + rng.next() * b.w, y: b.y + rng.next() * b.h } : { x: o.x + Math.cos(angle) * travel - Math.sin(angle) * side, y: o.y + Math.sin(angle) * travel * (dust ? 0.4 : 1) + Math.cos(angle) * side };
-      const rx = size * (dust ? 0.65 - 0.35 * t : rng.range(0.6, 1.2));
-      const ry = rx * (dust ? 0.7 : 1.15);
-      const phase = rng.range(0, Math.PI * 2);
-      const lobes = dust ? 9 : 7;
-      const anchors = Array.from({ length: lobes }, (_, j) => {
-        const a = phase + j / lobes * Math.PI * 2;
-        const r = rng.range(0.9, 1.08);
-        return { x: c.x + Math.cos(a) * rx * r, y: c.y + Math.sin(a) * ry * r };
-      });
-      const pts: Vec[] = [];
-      for (let j = 0; j < lobes; j++) {
-        const a = anchors[j], z = anchors[(j + 1) % lobes];
-        const dx = (z.x - a.x) / 2, dy = (z.y - a.y) / 2;
-        const bulge = rng.range(0.75, 1.05);
-        for (let s = 0; s < 12; s++) {
-          const t = s / 12 * Math.PI;
-          pts.push({ x: (a.x + z.x) / 2 - dx * Math.cos(t) + dy * Math.sin(t) * bulge, y: (a.y + z.y) / 2 - dy * Math.cos(t) - dx * Math.sin(t) * bulge });
-        }
-      }
-      shape(pts, p.fill);
-      const underside = pts.filter(q => q.y >= c.y + ry * 0.35);
-      plane(underside, p.tone, "tone");
-      const curl = Array.from({ length: 28 }, (_, j) => {
-        const a = j / 27 * Math.PI * (dust ? 1.1 : 2.1) + phase;
-        const r = (1 - j / 32) * rx * 0.6;
-        return { x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r * (dust ? 0.8 : 1.4) };
-      });
-      if (i % 3 === 0) line(curl, (dust ? 0.15 : 0.12) * f.k);
-    }
-    if (dust) for (let i = 0; i < Number(p.debris); i++) {
-      const a = rng.range(-Math.PI, 0), d = size * rng.range(1, 2.8), r = rng.range(0.3, 1) * f.k;
-      const c = { x: o.x + Math.cos(a) * d, y: o.y + Math.sin(a) * d };
-      shape([{ x: c.x - r, y: c.y }, { x: c.x, y: c.y - r * 1.5 }, { x: c.x + r, y: c.y + r }], p.color);
+  const angle = parseAngle(p.direction as string);
+  const thickness = R(f, p.thickness, { min: 3 * f.k, max: 6 * f.k, dist: "uniform" });
+  for (let i = 0; i < Number(p.bolts); i++) {
+    const o = point(p.origin, { x: b.x + b.w * (i + rng.range(0.2, 0.8)) / Number(p.bolts), y: b.y });
+    const length = L(f, p.length, b.h) * rng.range(0.8, 1.1);
+    const pts = jag(o, angle, length, Number(p.jaggedness));
+    const width = sampleR(f, thickness);
+    shape(lightningOutline(pts, width), p.fill);
+    for (let j = 0; j < Number(p.branches); j++) {
+      const at = rng.int(2, 6);
+      shape(lightningOutline(jag(pts[at], angle + (j % 2 ? -1 : 1) * rng.range(0.5, 1), length * rng.range(0.2, 0.4), Number(p.jaggedness)), width * 0.3), p.fill);
     }
   }
-  let result = nodes;
-  if (kind === "crack" && p.target !== undefined) {
-    const target = resolveRegion(p.target, f.ctx, "panel", [...f.el.path, "target"]);
-    result = [{ kind: "group", clip: target.path, clipRule: target.fillRule, children: nodes }];
-  }
-  return wrap(f, result, backgroundNode(f));
+  return wrap(f, nodes, backgroundNode(f));
 }
+
+// ---- vignette ----------------------------------------------------------------
 
 function vignette(f: FxCtx): Node[] {
   const p = f.p;
@@ -840,7 +627,7 @@ function applyClear(f: FxCtx, nodes: Node[]): Node[] {
   // Line effects are cleared before inking; only filled surfaces need a mask.
   let out = nodes;
   for (const { region: reg, margin } of f.clears) {
-    const maskFills = (children: Node[], mask: (node: Node) => Node): Node[] => children.map((node) => node.kind === "group" ? { ...node, children: maskFills(node.children, mask) } : node.tag?.role === "ink" && !["aura", "arcs"].includes(String(f.p.kind)) ? node : mask(node));
+    const maskFills = (children: Node[], mask: (node: Node) => Node): Node[] => children.map((node) => node.kind === "group" ? { ...node, children: maskFills(node.children, mask) } : node.tag?.role === "ink" ? node : mask(node));
     if (reg.alphaOf) {
       const t = f.ctx.refs.get(reg.alphaOf);
       if (t?.imagePx) out = maskFills(out, (node) => ({ kind: "group", alphaMaskOf: { ...t.imagePx!, invert: true, dilate: margin }, children: [node] }));
@@ -872,9 +659,6 @@ async function renderEffectInner(el: RElement, ctx: ElemCtx, hold: { f?: FxCtx }
   hold.f = f;
   const ink = (inks: InkPoly[]) => wrap(f, inksToNodes(inks, color, tag(el, "ink")), backgroundNode(f));
   switch (kind) {
-    case "aura":
-    case "arcs":
-      return wrap(f, renderAura(el, ctx, region));
     case "focus-lines": {
       const passes = Array.isArray(p.passes) ? (p.passes as Obj[]) : null;
       const inks = passes ? passes.flatMap((ov) => focusLines(f, ov)) : focusLines(f);
@@ -899,25 +683,14 @@ async function renderEffectInner(el: RElement, ctx: ElemCtx, hold: { f?: FxCtx }
       }
       return out;
     }
-    case "rain":
-      return ink(rain(f));
     case "swirl-lines":
       return ink(swirl(f));
-    case "hatching":
-      return ink(hatching(f));
     case "impact":
       return impact(f);
     case "lightning":
-    case "crack":
-    case "dust":
-    case "smoke":
-      return materialEffects(f, kind);
+      return lightningEffect(f);
     case "vignette":
       return vignette(f);
-    case "glow":
-    case "light-rays":
-    case "spotlight":
-      return wrap(f, renderLight(el, ctx, region), backgroundNode(f));
     default: {
       const def = activePlugins()?.effects.get(kind);
       if (def) {

@@ -43,12 +43,7 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
 };
 
 export const BUILTIN_EFFECT_DEFAULTS: Record<string, Obj> = {
-  aura: { tongues: 32, length: "8bmm", upwardBias: 0.7, layers: 3, fill: "paper", stroke: { width: "0.25bmm" } },
-  arcs: { count: 18, length: "5bmm", fill: "paper", stroke: { width: "0.2bmm" } },
   lightning: { background: "black", direction: "90deg", bolts: 3, branches: 2, length: "90%", thickness: ["3bmm", "6bmm"], jaggedness: 0.8, fill: "paper", stroke: { width: "0.25bmm" }, pen: { preset: "g-pen" } },
-  crack: { radius: "30%", count: 7, branching: 0.35, rings: 1, thickness: ["0.15bmm", "0.65bmm"], shade: "black", pen: { preset: "g-pen" } },
-  dust: { direction: "both", size: "25%", puffs: 7, fill: "paper", stroke: { width: "0.3bmm" }, debris: 10, pen: { preset: "g-pen" } },
-  smoke: { direction: "-90deg", density: 0.5, fill: "paper", stroke: { width: "0.2bmm" }, pen: { preset: "g-pen" } },
   "*": { color: "black", opacity: 1, density: 1, background: "none", clip: "panel" },
   "focus-lines": { center: "auto", inner: ["32%", "26%"], innerJitter: 0.35, spikes: { ratio: 0.06, depth: 0.45 }, count: "auto", thickness: { min: "0.12bmm", max: "0.5bmm", dist: "low" }, taper: "in", angleJitter: 0.8, cluster: 0.35, curve: 0, ruler: true, pen: { preset: "maru-pen" } },
   "beta-flash": { center: "auto", inner: ["24%", "20%"], outer: ["44%", "38%"], outerJitter: 0.15, innerJitter: 0.5, spikes: { ratio: 0.1, depth: 0.6 }, count: "auto", thickness: { min: "0.25bmm", max: "1.0bmm", dist: "low" }, core: "paper", ruler: true, pen: { preset: "g-pen" } },
@@ -57,12 +52,7 @@ export const BUILTIN_EFFECT_DEFAULTS: Record<string, Obj> = {
   "swirl-lines": { center: "center", radius: ["15%", "60%"], arc: ["25deg", "90deg"], count: "auto", direction: "cw", thickness: ["0.1bmm", "0.4bmm"], spiral: 0, pen: { preset: "maru-pen" } },
   impact: { radius: "18%", spikes: 14, irregularity: 0.5, fill: "paper", stroke: { width: "0.3bmm", pen: { preset: "g-pen" } }, double: true, rays: { count: 24, length: ["2bmm", "8bmm"], thickness: ["0.15bmm", "0.4bmm"] } },
   "gloom-lines": { region: { band: { side: "top", size: "55%" } }, spacing: ["0.7bmm", "1.5bmm"], length: ["45%", "100%"], thickness: ["0.15bmm", "0.35bmm"], taper: "end", tone: "none", ruler: true, pen: { preset: "maru-pen" } },
-  hatching: { pattern: "hatch", angle: "45deg", spacing: "0.6bmm", thickness: ["0.08bmm", "0.16bmm"], blockSize: ["2bmm", "3.5bmm"], linesPerBlock: 4, edge: "soft", ruler: false, pen: { preset: "maru-pen" } },
-  rain: { angle: "100deg", rate: 2.5, length: ["4bmm", "14bmm"], thickness: ["0.1bmm", "0.22bmm"], taper: "both", ruler: true, pen: { preset: "maru-pen" } },
   vignette: { color: "paper", width: "8bmm", shape: "rect", softness: 0.7, screen: "am" },
-  glow: { color: "white", blur: "4bmm" },
-  "light-rays": { color: "white", count: 24, angle: 0, spread: 0.55 },
-  spotlight: { color: "white", source: ["18%", "0%"], target: ["60%", "78%"], width: "45%", shade: 0.8 },
 };
 
 export const BUILTIN_MARK_DEFAULTS: Record<string, Obj> = {
