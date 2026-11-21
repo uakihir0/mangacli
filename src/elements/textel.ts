@@ -2,7 +2,7 @@
 import { BLACK, WHITE, parseColor } from "../core/color.js";
 import { Rng, noise1, noise2 } from "../core/random.js";
 import { parseAngle, toMm, toRange } from "../core/units.js";
-import { type PathData, flattenPath, polyPath, smoothPath, transformPath } from "../geom/path.js";
+import { type PathData, flattenPath, polyPath, transformPath } from "../geom/path.js";
 import { type Rect, type Vec, applyMat, boundsOf, matMul, matRotate, matScale, matTranslate } from "../geom/vec.js";
 import { place, sizeValue } from "../layout/place.js";
 import type { RElement } from "../model/resolve.js";
@@ -12,9 +12,11 @@ import { inkShape } from "../ink/shape.js";
 import { inksToNodes } from "./inkir.js";
 import { glyphNodes } from "./glyphs.js";
 import type { Node, Paint } from "../render/ir.js";
-import { type TextLayout, layoutText } from "../text/layout.js";
+import { type TextLayout, layoutText, parseLayoutText } from "../text/layout.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
+import { fullSizeKana, isSmallKana, sfxScale, sfxShifts, sfxWeightRadius } from "../text/sfx.js";
+import { brushGlyph, emboldenGlyph, type BrushSpec } from "../text/brush.js";
 
 type Obj = Record<string, unknown>;
 
@@ -123,7 +125,9 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const em = style.fontSize;
   const rng = new Rng(el.seed);
   const vertical = style.writing === "vertical";
-  const grow = typeof p.grow === "number" ? p.grow : 0;
+  const grow = typeof p.grow === "number" ? p.grow : undefined;
+  const brush = p.brush as BrushSpec | false | undefined;
+  const pressureStyle = brush && brush.style === "speed" ? "speed" : "impact";
   const pcs = (p.perChar ?? {}) as Obj;
   const rotR = toRange(pcs.rotate as never, (x) => parseAngle(x as string), { min: -0.1, max: 0.1, dist: "uniform" });
   const scR = toRange(pcs.scale as never, (x) => Number(x), { min: 1, max: 1, dist: "uniform" });
@@ -132,13 +136,19 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   // group glyphs by unit (char index order)
   const units = [...new Set(tl.glyphs.map((g) => g.unit))].sort((a, b) => a - b);
   const idxOf = new Map(units.map((uu, i) => [uu, i]));
-  const scales = units.map((_, i) => (1 + grow * i) * rng.range(scR.min, scR.max));
-  const shift: number[] = [];
-  let acc = 0;
-  units.forEach((_, i) => {
-    shift.push(acc + (scales[i] - 1) * em * 0.5);
-    acc += (scales[i] - 1) * em;
+  const parsed = parseLayoutText(text, style);
+  const unitChars = units.map(unit => {
+    const char = parsed.units[unit];
+    return char?.kind === "char" ? char.ch : "";
   });
+  const fullCount = unitChars.filter(char => !isSmallKana(char)).length;
+  let fullIndex = -1;
+  const scales = units.map((_, i) => {
+    if (!isSmallKana(unitChars[i])) fullIndex++;
+    return sfxScale(grow === undefined ? Math.max(0, fullIndex) : i, grow === undefined ? fullCount : units.length, unitChars[i], grow, p.smallKanaScale as number | undefined, pressureStyle) * rng.range(scR.min, scR.max);
+  });
+  const shift = sfxShifts(scales, em);
+  const acc = scales.reduce((sum, scale) => sum + (scale - 1) * em, 0);
   const dist = (p.distort ?? {}) as Obj;
   const roughen = typeof dist.roughen === "number" ? dist.roughen : 0.25;
   const warp = typeof dist.warp === "number" ? dist.warp : 0.15;
@@ -155,8 +165,9 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     const ov = chars.find((c) => c.index === i);
     const r = ov?.rotate !== undefined ? parseAngle(ov.rotate as string) : rng.range(rotR.min, rotR.max);
     const s = scales[i] * (typeof ov?.scale === "number" ? (ov.scale as number) : 1);
-    const jx = rng.range(-jitter, jitter) + (Array.isArray(ov?.offset) ? toMm(ov!.offset[0] as string, u) : 0);
-    const jy = rng.range(-jitter, jitter) + (Array.isArray(ov?.offset) ? toMm(ov!.offset[1] as string, u) : 0);
+    const perpendicular = pcs.jitter === undefined ? rng.range(-0.015, 0.015) * em : 0;
+    const jx = rng.range(-jitter, jitter) + (vertical ? perpendicular : 0) + (Array.isArray(ov?.offset) ? toMm(ov!.offset[0] as string, u) : 0);
+    const jy = rng.range(-jitter, jitter) + (vertical ? 0 : perpendicular) + (Array.isArray(ov?.offset) ? toMm(ov!.offset[1] as string, u) : 0);
     void uu;
     return { r, s, jx, jy, color: (ov?.color as string | undefined) };
   });
@@ -215,7 +226,15 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     const cy = g.cy;
     const cv = curveAt(along(g, i));
     const m = matMul(matTranslate(cx + t.jx + (vertical ? 0 : sh) + cv.dx, cy + t.jy + (vertical ? sh : 0) + cv.dy), matMul(matRotate(t.r + cv.ang), matMul(matScale(t.s), matTranslate(-cx, -cy))));
-    let path = transformPath(g.path, m);
+    const small = isSmallKana(unitChars[i]);
+    let source = g.path;
+    if (small) {
+      const full = layoutText(fullSizeKana(unitChars[i]), { ...style, lettering: null, smallKanaFix: false }, ctx.fonts).glyphs;
+      if (full.length) source = transformPath(full.flatMap(g => g.path), matTranslate(cx - full[0].cx, cy - full[0].cy));
+    }
+    const smallScale = typeof p.smallKanaScale === "number" ? p.smallKanaScale : 0.7;
+    source = emboldenGlyph(source, em, sfxWeightRadius(pressureStyle, small ? smallScale : 1) * em);
+    let path = transformPath(brushGlyph(source, em, el.seed ^ Math.imul(i + 1, 0x45d9f3b), brush), m);
     // skew, perspective and bulge are smooth maps of the plane
     const deform = (x0: number, y0: number) => {
       let x = x0 + (skew ? Math.tan(skew) * (y0 - totalH / 2) : 0);
@@ -260,21 +279,46 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
           const d = deform(q.x + rr, q.y + rr);
           return { x: d.x + wx, y: d.y + wy };
         });
-        out.push(...(pts.length > 3 ? smoothPath(pts, true) : polyPath(pts, true)));
+        out.push(...polyPath(pts, true));
       }
       path = out;
     }
     paths.push(path);
     colorsPer.push(t.color ?? g.color);
   }
-  // letters set on a path: measure the real extent and move it to the origin
-  if (pathSpec) {
+  if (!pathSpec && style.letterSpacing < 0) {
+    let end: number | undefined;
+    let previousUnit = -1;
+    let previousOffset = 0;
+    for (const unit of units) {
+      const indices = tl.glyphs.flatMap((g, i) => g.unit === unit ? [i] : []);
+      const points = indices.flatMap(i => flattenPath(paths[i], 0.05).flatMap(c => c.pts));
+      if (!points.length) continue;
+      const bb = boundsOf(points);
+      const start = vertical ? bb.y : bb.x;
+      const index = idxOf.get(unit)!;
+      const spacing = isSmallKana(unitChars[index]) ? 0.04 : Math.max(0.03, style.letterSpacing);
+      const space = parsed.units.slice(previousUnit + 1, unit).reduce((sum, u) => sum + (u.kind === "space" ? u.em * (u.style.size ?? 1) * em : 0), 0);
+      const offset = vertical ? perCharT[index].jy : perCharT[index].jx;
+      const delta = end === undefined ? 0 : end + spacing * em + space + offset - previousOffset - start;
+      for (const i of indices) paths[i] = transformPath(paths[i], matTranslate(vertical ? 0 : delta, vertical ? delta : 0));
+      end = start + delta + (vertical ? bb.h : bb.w);
+      previousUnit = unit;
+      previousOffset = offset;
+    }
+  }
+  let footprintScale = 1;
+  {
     const pts = flattenPath(paths.flat(), 0.2).flatMap((c) => c.pts);
     if (pts.length) {
       const bb = boundsOf(pts);
-      for (let k = 0; k < paths.length; k++) paths[k] = transformPath(paths[k], [1, 0, 0, 1, -bb.x, -bb.y]);
-      boxW = bb.w;
-      boxH = bb.h;
+      const baseAlong = (vertical ? tl.height : tl.width) + Math.max(0, units.length - 1) * Math.max(0, -0.05 - style.letterSpacing) * em;
+      const baseArea = baseAlong * (vertical ? tl.width : tl.height);
+      const explicitScale = pcs.scale !== undefined || p.smallKanaScale !== undefined || chars.some(c => c.scale !== undefined);
+      if (grow === undefined && !explicitScale && bb.w * bb.h > 0) footprintScale = Math.max(1, Math.sqrt(baseArea * 1.15 / (bb.w * bb.h)));
+      for (let k = 0; k < paths.length; k++) paths[k] = transformPath(paths[k], [footprintScale, 0, 0, footprintScale, -bb.x * footprintScale, -bb.y * footprintScale]);
+      boxW = bb.w * footprintScale;
+      boxH = bb.h * footprintScale;
     }
   }
   const allPath = paths.flat();
@@ -282,7 +326,13 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const pl = place(p, boxW, boxH, pc);
   const placed = transformPath(allPath, pl.matrix);
   const nodes: Node[] = [];
-  nodes.push(...outlineNodes(placed, p.outline, ctx, el));
+  const outlines = paths.map((path, i) => {
+    const scale = perCharT[idxOf.get(tl.glyphs[i].unit) ?? 0].s * footprintScale;
+    return outlineNodes(transformPath(path, pl.matrix), p.outline ?? [{ width: `${em * scale * 0.06}mm`, color: "white" }], ctx, el);
+  });
+  for (let layer = 0; layer < Math.max(0, ...outlines.map(o => o.length)); layer++) {
+    for (const glyph of outlines) if (glyph[layer]) nodes.push(glyph[layer]);
+  }
   const paint = textPaint(p.color, ctx, el, pl.bbox);
   // hollow letters keep only the traced outline (black by default)
   const edge = (p.edge as Obj | undefined) ?? (p.hollow ? { width: "0.35bmm", color: (p.color as string) ?? "black" } : undefined);

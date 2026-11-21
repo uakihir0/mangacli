@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { createRenderer } from "../src/api.js";
 
 const renderer = createRenderer({ profile: "preview" });
@@ -15,6 +15,30 @@ pages:
   filename: "/v/text-safety.yaml",
 });
 const safetyCodes = ["TEXT_OUTSIDE_SAFE_AREA", "TEXT_NEAR_FOLD"];
+let crash: { w: number; left: number; right: number; top: number };
+let cutRight: number;
+const movement = (mm: number) => (Math.ceil(mm * 10 - 1e-9) / 10).toFixed(1);
+const foldMessage = (x: number) => {
+  const left = 182 - (x - crash.left);
+  const right = x + crash.right - 182;
+  const relation = left >= 0 && right >= 0
+    ? `のどをまたいでいます（左側 ${left.toFixed(1)}mm、右側 ${right.toFixed(1)}mm）`
+    : `のどまで ${Math.max(-left, -right).toFixed(1)}mm です`;
+  return `sfx: ${relation}。警告帯（のどから左右 10.0mm）を避けるには左へ ${movement(right + 10)}mm または右へ ${movement(left + 10)}mm 移動してください`;
+};
+
+beforeAll(async () => {
+  const measure = async (text: string) => {
+    const doc = input("page", "60mm, 70mm");
+    doc.yaml = doc.yaml.replace("sfx: CRASH", `sfx: ${text}`);
+    const result = await renderer.render(doc, { format: "svg" });
+    return result.layout[0].elements.find((e) => e.id === "sfx")!.bbox;
+  };
+  const b = await measure("CRASH");
+  crash = { w: b.w, left: 60 - b.x, right: b.x + b.w - 60, top: 70 - b.y };
+  const cut = await measure("CUT");
+  cutRight = cut.x + cut.w - 60;
+});
 
 describe("sfx text safety", () => {
   it("warns without preventing rendering when sfx crosses the trim", async () => {
@@ -54,7 +78,7 @@ describe("sfx text safety", () => {
     expect(result.diagnostics.filter((d) => safetyCodes.includes(d.code))).toEqual([
       expect.objectContaining({
         code: "TEXT_NEAR_FOLD", severity: "warning", elementId: "sfx",
-        message: "sfx: のどをまたいでいます（左側 8.7mm、右側 14.7mm）。警告帯（のどから左右 10.0mm）を避けるには左へ 24.8mm または右へ 18.8mm 移動してください",
+        message: foldMessage(185),
       }),
     ]);
   });
@@ -70,7 +94,7 @@ describe("sfx text safety", () => {
   });
 
   it("reports right trim overflow and the full safe-line movement in mm", async () => {
-    const doc = input("page", "180mm, 70mm");
+    const doc = input("page", `${182 + 4.552 - cutRight}mm, 70mm`);
     doc.yaml = doc.yaml.replace("sfx: CRASH", "sfx: CUT");
     const result = await renderer.render(doc, { format: "svg" });
     expect(result.diagnostics.find((d) => d.code === "TEXT_OUTSIDE_SAFE_AREA")?.message)
@@ -78,13 +102,13 @@ describe("sfx text safety", () => {
   });
 
   it("reports every crossed side", async () => {
-    const result = await renderer.render(input("page", "0mm, 0mm"), { format: "svg" });
+    const result = await renderer.render(input("page", `${crash.left - 11.748}mm, ${crash.top - 6}mm`), { format: "svg" });
     expect(result.diagnostics.find((d) => d.code === "TEXT_OUTSIDE_SAFE_AREA")?.message)
       .toBe("sfx: 上の断裁線を 6.0mm 越えています、安全線まで 11.0mm 内側に入れてください；左の断裁線を 11.7mm 越えています、安全線まで 16.8mm 内側に入れてください");
   });
 
   it("distinguishes safe-line-only overflow", async () => {
-    const result = await renderer.render(input("page", "170mm, 70mm"), { format: "svg" });
+    const result = await renderer.render(input("page", `${177 + 4.748 - crash.right}mm, 70mm`), { format: "svg" });
     expect(result.diagnostics.find((d) => d.code === "TEXT_OUTSIDE_SAFE_AREA")?.message)
       .toBe("sfx: 右の安全線を 4.7mm 越えています、安全線まで 4.8mm 内側に入れてください");
   });
@@ -92,13 +116,14 @@ describe("sfx text safety", () => {
   it("reports fold overlap and both escape directions", async () => {
     const result = await renderer.render(input("spread", "185mm, 90mm"), { format: "svg" });
     expect(result.diagnostics.find((d) => d.code === "TEXT_NEAR_FOLD")?.message)
-      .toBe("sfx: のどをまたいでいます（左側 8.7mm、右側 14.7mm）。警告帯（のどから左右 10.0mm）を避けるには左へ 24.8mm または右へ 18.8mm 移動してください");
+      .toBe(foldMessage(185));
   });
 
   it("reports distance to the fold for sfx entirely on one side", async () => {
-    const result = await renderer.render(input("spread", "165mm, 90mm"), { format: "svg" });
+    const x = 182 - 5.252 - crash.right;
+    const result = await renderer.render(input("spread", `${x}mm, 90mm`), { format: "svg" });
     expect(result.diagnostics.find((d) => d.code === "TEXT_NEAR_FOLD")?.message)
-      .toBe("sfx: のどまで 5.3mm です。警告帯（のどから左右 10.0mm）を避けるには左へ 4.8mm または右へ 38.8mm 移動してください");
+      .toBe(foldMessage(x));
   });
 
   it("clears the fold band when moving by either displayed distance", async () => {
@@ -112,22 +137,23 @@ describe("sfx text safety", () => {
   });
 
   it("does not round an exact tenth up because of floating point noise", async () => {
-    const result = await renderer.render(input("spread", "185.048mm, 90mm"), { format: "svg" });
+    const result = await renderer.render(input("spread", `${182 + 10 + crash.left - 18.7}mm, 90mm`), { format: "svg" });
     expect(result.diagnostics.find((d) => d.code === "TEXT_NEAR_FOLD")?.message)
       .toContain("右へ 18.7mm");
   });
 
   it("moves fully inside the safe line by the displayed distance", async () => {
-    const result = await renderer.render(input("page", "170mm, 70mm"), { format: "svg" });
+    const x = 177 + 4.748 - crash.right;
+    const result = await renderer.render(input("page", `${x}mm, 70mm`), { format: "svg" });
     const message = result.diagnostics.find((d) => d.code === "TEXT_OUTSIDE_SAFE_AREA")!.message;
     const distance = Number(message.match(/安全線まで ([\d.]+)mm/)![1]);
-    expect(170 - distance + 23.496 / 2).toBeLessThanOrEqual(177);
-    const moved = await renderer.render(input("page", `${170 - distance}mm, 70mm`), { format: "svg" });
+    expect(x - distance + crash.right).toBeLessThanOrEqual(177);
+    const moved = await renderer.render(input("page", `${x - distance}mm, 70mm`), { format: "svg" });
     expect(moved.diagnostics.filter((d) => d.code === "TEXT_OUTSIDE_SAFE_AREA")).toEqual([]);
   });
 
   it("reports mm for documents using cm", async () => {
-    const doc = input("page", "18, 7");
+    const doc = input("page", `${(182 + 4.552 - cutRight) / 10}, 7`);
     doc.yaml = doc.yaml.replace("size: B5", "units: cm, size: B5").replace("sfx: CRASH", "sfx: CUT");
     const result = await renderer.render(doc, { format: "svg" });
     expect(result.diagnostics.find((d) => d.code === "TEXT_OUTSIDE_SAFE_AREA")?.message)
@@ -135,22 +161,23 @@ describe("sfx text safety", () => {
   });
 
   it("does not move a nearly full-width sfx past the opposite tolerance", async () => {
-    const doc = input("page", "16.748mm, 30mm");
-    doc.yaml = doc.yaml.replace("size: B5", "size: [32.986mm, 60mm]");
+    const x = 5 + crash.left;
+    const doc = input("page", `${x}mm, 30mm`);
+    doc.yaml = doc.yaml.replace("size: B5", `size: [${crash.w + 9.49}mm, 60mm]`);
     const result = await renderer.render(doc, { format: "svg" });
     const message = result.diagnostics.find((d) => d.code === "TEXT_OUTSIDE_SAFE_AREA")!.message;
     expect(message).toContain("反対側も許容範囲に収めるため");
     const distance = Number(message.match(/ため ([\d.]+)mm/)![1]);
     expect(distance).toBeGreaterThanOrEqual(0.01);
     expect(distance).toBeLessThanOrEqual(0.5);
-    doc.yaml = doc.yaml.replace("16.748mm, 30mm", `${16.748 - distance}mm, 30mm`);
+    doc.yaml = doc.yaml.replace(`${x}mm, 30mm`, `${x - distance}mm, 30mm`);
     const moved = await renderer.render(doc, { format: "svg" });
     expect(moved.diagnostics.filter((d) => d.code === "TEXT_OUTSIDE_SAFE_AREA")).toEqual([]);
   });
 
   it("requests shrinking when no movement can fit within both tolerances", async () => {
-    const doc = input("page", "16.748mm, 30mm");
-    doc.yaml = doc.yaml.replace("size: B5", "size: [32mm, 60mm]");
+    const doc = input("page", `${5 + crash.left}mm, 30mm`);
+    doc.yaml = doc.yaml.replace("size: B5", `size: [${crash.w + 8.504}mm, 60mm]`);
     const result = await renderer.render(doc, { format: "svg" });
     const message = result.diagnostics.find((d) => d.code === "TEXT_OUTSIDE_SAFE_AREA")!.message;
     expect(message).toContain("移動だけでは安全領域の許容範囲に収まりません。幅を 0.5mm 以上小さくしてください");
@@ -165,10 +192,16 @@ describe("sfx text safety", () => {
   });
 
   it("does not warn exactly 0.5mm past the bottom safe line on Letter", async () => {
-    const doc = input("page", "60mm, 261.2mm");
+    const doc = input("page", "60mm, 70mm");
     doc.yaml = doc.yaml.replace("size: B5", "size: [8.5in, 11in], safeArea: { inset: 12.7mm }")
       .replace("panels: []", "panels: [{}]");
-    expect(261.2 + 6 - 12.7 - (11 * 25.4 - 2 * 12.7)).toBeGreaterThan(0.5);
+    const measured = await renderer.render(doc, { format: "svg" });
+    const b = measured.layout[0].elements.find((e) => e.id === "sfx")!.bbox;
+    const height = 12;
+    const y = 11 * 25.4 - 12.7 + 0.5 - height / 2;
+    doc.yaml = doc.yaml.replace("60mm, 70mm", `60mm, ${y}mm`)
+      .replace("fontSize: 12mm", `fontSize: ${12 * height / b.h}mm`);
+    expect(y + height / 2 - 12.7 - (11 * 25.4 - 2 * 12.7)).toBeGreaterThan(0.5);
     const result = await renderer.render(doc, { format: "svg", strict: true });
     expect(result.diagnostics.filter((d) => safetyCodes.includes(d.code))).toEqual([]);
   });

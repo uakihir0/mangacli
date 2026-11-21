@@ -103,7 +103,7 @@ const catalog = {
         font: "zen-kaku-gothic-new@900",
         fallback: ["noto-sans-jp@700"],
       },
-      sfx: { font: "dela-gothic-one@400", fallback: ["noto-sans-jp@700"] },
+      sfx: { font: "zen-kaku-gothic-new@900", fallback: ["noto-sans-jp@700"] },
       hand: { font: "yomogi@400", fallback: ["noto-sans-jp@400"] },
       // cover titles: square-cut extra-bold gothic (Gothic MB101 U / Shin Go U when installed)
       title: { compose: [{ system: ["GothicMB101Pr6N-Ultra", "GothicMB101Pro-Ultra", "GothicMB101Std-Ultra", "A-OTF ゴシックMB101 Pr6N U", "A-OTF Gothic MB101 Pr6N U", "ShinGoPr6N-Ultra", "ShinGoPro-Ultra", "ShinGoStd-Ultra", "A-OTF 新ゴ Pr6N U", "A-OTF Shin Go Pr6N U"] }, { font: "noto-sans-jp@900" }], fallback: ["zen-kaku-gothic-new@900", "noto-sans-jp@700"] },

@@ -655,7 +655,9 @@ export class RasterBackend {
     const p = n.paint;
     if (!p) return;
     if (p.type === "tone" || this.needsScreen(dev, p)) return this.drawTone(dev, n, m, p);
-    if ((dev.offsetX || dev.offsetY) && n.path.some((c) => c[0] === "C" || c[0] === "Q")) {
+    if (dev.offsetX || dev.offsetY) {
+      // Skia's antialiasing depends on the absolute device position, so on a split viewport
+      // every fill is drawn offscreen in logical page pixels to match the joined page.
       const b = pathBounds(n.path, m);
       const r = b && clampRect(b, dev.W, dev.H);
       if (!r) return;
