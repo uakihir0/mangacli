@@ -259,10 +259,14 @@ outline:
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---|---|
-| `width` | Length | 必須 | 輪郭からの距離 |
-| `color` | Paint | `white` | 縁の塗り |
+| `width` | Length \| `auto` | 必須 | 輪郭からの距離。`auto` は文字専用（下記） |
+| `color` | Paint | `white` | 縁の塗り。文字・描き文字・吹き出しの文字では単色のみ（非単色は `PAINT_INVALID`） |
 | `join` | `round` \| `miter` | `round` | 角の形 |
-| `threshold` | 0〜1 | 0.5 | 画像の場合、不透明とみなすアルファのしきい値 |
+| `miterLimit` | number ≥ 1 | `2` | 文字・描き文字・吹き出しの文字のマイター長と線幅半分の比の上限。超える角はベベルにする |
+| `fillHoles` | Length ≥ 0 | `0` | 文字・描き文字・吹き出しの文字の縁レイヤーを閉じる幅。狭い字間や濁点の隙間から絵・外側の黒フチが見えるのを防ぐ |
+| `threshold` | 0〜1 | 画像: `0.5`、`auto`: `0.4` | 画像では不透明とみなすアルファ、文字の `auto` では最大幅に切り替える背景の暗さ |
+| `min` | Length ≥ 0 | `0.8bmm` | `width: auto` の基本幅 |
+| `max` | Length ≥ min | `1.6bmm` | `width: auto` の暗い背景での幅。SVG では常にこの幅 |
 
 - リストの各項目の `width` は輪郭からの距離（累積ではない）で、幅の大きいものから順に描く。上の例は、内側に白 0.8 mm、その外側に黒 0.4 mm の縁になる。
 - 名前で指定できる縁取り（題字向け）:
@@ -285,6 +289,23 @@ outline:
   ```
 
 - 画像の縁取りは、出力解像度でアルファを膨張させて作る。文字・図形の縁取りは、輪郭のオフセットで作る。
+- `fillHoles` は各縁レイヤーのシルエット（文字の内部を含む）に、半径 `fillHoles / 2` の正方形カーネルで膨張→収縮（クロージング）を行う。元の文字の塗りは最後に重ねるため、文字そのものの形は変わらない。ラスタでは出力ピクセルに丸め、SVG では `feMorphology` を使う。`0` は無効。画像には `miterLimit`・`fillHoles` を適用しない。
+
+```yaml
+outline:
+  - { width: 1.2mm, color: black, join: miter, miterLimit: 2 }
+  - { width: 0.8mm, color: white, fillHoles: 0.4mm }
+```
+
+文字・描き文字の `outline: auto`、吹き出しの `textOutline: auto` は `[{ width: auto }]` と同じ。色は `paper`、`threshold` は `0.4` が既定になる。ラスタでは描画時に、最大幅の縁を含む保守的な外接矩形内の、すでに描かれたキャンバスの平均暗さ（0=白、1=黒）を測る。透明部分は背面の内容、何もなければ白として扱う。暗さがしきい値以下なら `min`、超えたら `max` を選ぶ（補間しない）。後から描く絵は参照しない。SVG には背景サンプリングがないため、常に `max` を使う。画像の縁には `auto` を指定できない。
+
+```yaml
+defaults:
+  text: { outline: auto }
+  monologue: { textOutline: auto }
+# 各レイヤーでも色・基本幅・最大幅・しきい値を変更できる
+# outline: [{ width: auto, min: 0.8bmm, max: 1.6bmm, threshold: 0.4, color: paper }]
+```
 
 ### 5.7.2 影（shadow）
 

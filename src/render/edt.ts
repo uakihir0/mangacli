@@ -45,3 +45,30 @@ export function distanceSquared(mask: Uint8Array, w: number, h: number): Float64
   }
   return out;
 }
+
+/** Grayscale closing with a square kernel, matching SVG feMorphology. */
+export function closeAlpha(alpha: Uint8Array, w: number, h: number, radius: number): Uint8Array {
+  const r = Math.min(Math.max(w, h), Math.max(0, Math.round(radius)));
+  if (!r || !alpha.length) return alpha.slice();
+  const pass = (src: Uint8Array, horizontal: boolean, dilate: boolean): Uint8Array => {
+    const dst = new Uint8Array(src.length);
+    const length = horizontal ? w : h;
+    const lines = horizontal ? h : w;
+    const queue = new Int32Array(length + 2 * r);
+    const values = new Uint8Array(length + 2 * r);
+    for (let line = 0; line < lines; line++) {
+      let head = 0;
+      let tail = 0;
+      for (let p = -r; p < length + r; p++) {
+        const value = p < 0 || p >= length ? 0 : src[horizontal ? line * w + p : p * w + line];
+        while (head < tail && queue[head] < p - 2 * r) head++;
+        while (head < tail && (dilate ? values[tail - 1] <= value : values[tail - 1] >= value)) tail--;
+        queue[tail] = p;
+        values[tail++] = value;
+        if (p >= r) dst[horizontal ? line * w + p - r : (p - r) * w + line] = values[head];
+      }
+    }
+    return dst;
+  };
+  return pass(pass(pass(pass(alpha, true, true), false, true), true, false), false, false);
+}

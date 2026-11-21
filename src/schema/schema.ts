@@ -115,7 +115,11 @@ export const Stroke = z
   })
   .strict();
 
-const Outline = z.array(z.object({ width: Length, color: z.union([ColorStr, Paint]).optional(), join: z.enum(["round", "miter"]).optional(), threshold: z.number().optional() }).strict());
+const OutlineLength = z.union([Length, z.string().regex(/^[-+]?(?:\d+(?:\.\d+)?|\.\d+)\s*(bmm|bQ)$/, "invalid outline length")]);
+const NonnegativeLength = OutlineLength.refine((v) => parseFloat(String(v)) >= 0, "length must be nonnegative");
+const OutlineItem = z.object({ width: z.union([OutlineLength, z.literal("auto")]), min: NonnegativeLength.optional(), max: NonnegativeLength.optional(), color: Paint.optional(), join: z.enum(["round", "miter"]).optional(), miterLimit: z.number().min(1).optional(), fillHoles: NonnegativeLength.optional(), threshold: z.number().min(0).max(1).optional() }).strict();
+const Outline = z.array(OutlineItem);
+const ImageOutline = z.array(OutlineItem.omit({ min: true, max: true }).extend({ width: Length }));
 
 const RegionBase: z.ZodType = z.lazy(() =>
   z.union([
@@ -286,7 +290,7 @@ const balloonProps = {
   textOutline: Outline.optional(),
   overflow: z.enum(["shrink", "grow", "clip", "error"]).optional(),
   minFontScale: z.number().min(0).max(1).optional(),
-  halo: z.union([Length, z.literal("none"), z.literal(false)]).optional(),
+  halo: z.union([z.object({ width: NonnegativeLength, color: ColorStr.optional() }).strict(), z.literal("none"), z.literal(false)]).optional(),
   autoConnect: z.boolean().optional(),
   connect: z.union([z.object({ to: z.string(), style: z.enum(["neck", "overlap", "line"]).optional(), width: Length.optional() }).strict(), z.array(z.object({ to: z.string(), style: z.enum(["neck", "overlap", "line"]).optional(), width: Length.optional() }).strict())]).optional(),
   autoPlace: z.union([z.enum(["auto", "flow"]), z.object({ mode: z.enum(["auto", "flow"]).optional(), inset: Length.optional(), weights: z.record(z.string(), z.number()).optional(), threshold: z.number().optional(), reshape: z.boolean().optional() }).strict()]).optional(),
@@ -306,7 +310,7 @@ const imageProps = {
   anchors: z.record(z.string(), z.tuple([z.number(), z.number()])).optional(),
   regions: z.record(z.string(), Rect).optional(),
   filters: z.array(Filter).optional(),
-  outline: Outline.optional(),
+  outline: ImageOutline.optional(),
   shadow: z.object({ offset: z.tuple([Length, Length]).optional(), blur: Length.optional(), color: ColorStr.optional() }).strict().optional(),
   smoothing: z.enum(["high", "medium", "none"]).optional(),
   placeholder: z.string().optional(),

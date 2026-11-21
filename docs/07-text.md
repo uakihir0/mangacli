@@ -522,12 +522,16 @@ ruby:
 | キー | 型 | 対象 | 説明 |
 |---|---|---|---|
 | `color` | Paint | すべて | 文字の塗り |
-| `outline` | Outline[] | `text`、`sfx` | 文字の外側の縁（[5.7.1](05-elements-and-images.md#571-縁取りoutline)）。白フチ文字に使う |
-| `textOutline` | Outline[] | `balloon` | 吹き出しの本文の縁 |
+| `outline` | Outline[] \| `auto` | `text`、`sfx` | 文字の外側の縁（[5.7.1](05-elements-and-images.md#571-縁取りoutline)）。単色、`join: round/miter`、`miterLimit`（既定 2）、`fillHoles`（既定 0）を指定できる。`auto` / `width: auto` は背景の平均暗さが 40% を超えると 0.8bmm → 1.6bmm に広げる |
+| `textOutline` | Outline[] \| `auto` | `balloon` | 吹き出しの本文の縁。`outline` と同じオプション。SVG の `auto` は常に最大幅 |
 | `shadow` | Shadow | `text`、`sfx` | 影（P1） |
 | `opacity` | 0〜1 | すべて | 不透明度 |
 
 白抜き文字（中が白で輪郭が黒）は、`color: white` と `outline: 0.3mm black` の組み合わせで表す。
+
+文字の縁は幅の大きいレイヤーから描き、最後に元の文字を重ねる。`fillHoles: 0.4mm` は、その縁レイヤーだけの小さな隙間を膨張→収縮で埋める。二重フチの内側の白に指定すると、濁点の周りや狭い字間から外側の黒フチが見えるのを防げる。非単色の Paint は `PAINT_INVALID` になる。
+
+`defaults.text.outline`、`defaults.sfx.outline`、`defaults.balloon.textOutline` で種類ごとに一括指定できる。吹き出しのない地のセリフを `as: monologue` で書く場合は `defaults.monologue.textOutline`、ナレーションには `defaults.narration.textOutline` も使える（[3.17](03-document-format.md#317-defaults)）。
 
 ## 7.13 地の文字（text）
 
@@ -609,7 +613,7 @@ ruby:
 | `chars` | CharOverride[] | - | 文字の番号ごとの上書き（`{ index, rotate, scale, offset, color }`） |
 | `distort` | Distort | `{ roughen: 0.25, warp: 0.15 }` | 全体の歪み（下表） |
 | `color` | Paint | `black` | 文字の塗り |
-| `outline` | Outline[] | `[{ width: 0.8mm, color: white }]` | 縁取り。既定は白フチ |
+| `outline` | Outline[] | `[{ width: 0.8bmm, color: white }]` | 縁取り。既定は白フチ。`join`・`miterLimit`・`fillHoles` は 7.12 と共通 |
 | `edge` | Stroke | `none` | 字形の輪郭を手描きの線でなぞる（例: 白抜き文字の黒い輪郭） |
 | `hollow` | 真偽値 | `false` | 中を抜き、`edge` の線だけを描く |
 | `lettering` | Lettering | `hand` | 手書き風の揺らぎ（7.15） |

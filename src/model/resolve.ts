@@ -2,7 +2,7 @@
 import type { DiagnosticBag } from "../core/diagnostics.js";
 import { suggest } from "../core/diagnostics.js";
 import { deriveSeed, Rng } from "../core/random.js";
-import { isObj } from "../load/normalize.js";
+import { isObj, normDefaults, normElementProps } from "../load/normalize.js";
 import { BUILTIN_DEFAULTS, BUILTIN_EFFECT_DEFAULTS, BUILTIN_MARK_DEFAULTS, BUILTIN_STYLES } from "./defaults.js";
 
 type Obj = Record<string, unknown>;
@@ -93,6 +93,45 @@ function overlay(a: Obj, b: Obj | undefined): Obj {
   return out;
 }
 
+function overlayStyleLayers(sources: Record<string, Obj>[], name: string, bag: DiagnosticBag, type: string): Obj {
+  let acc: Obj = {};
+  for (const source of sources) {
+    if (source[name]) acc = overlay(acc, normElementProps(source[name], ["styles", name], bag, type));
+  }
+  return acc;
+}
+
+function resolveStyles(rawStyles: Record<string, Obj>, bag: DiagnosticBag, type?: string, names = Object.keys(rawStyles), sources?: Record<string, Obj>[]): Record<string, Obj> {
+  const styles: Record<string, Obj> = {};
+  const resolving = new Set<string>();
+  const resolveStyle = (name: string, path: Path): Obj | undefined => {
+    if (styles[name]) return styles[name];
+    let raw = rawStyles[name];
+    if (!raw) return undefined;
+    if (sources && type !== undefined) raw = overlayStyleLayers(sources, name, bag, type);
+    if (resolving.has(name)) {
+      bag.error("STYLE_CYCLE", `style "${name}" extends itself`, { path });
+      return {};
+    }
+    resolving.add(name);
+    let acc: Obj = {};
+    const ext = raw.extends;
+    for (const e of Array.isArray(ext) ? ext : ext ? [ext] : []) {
+      const s = resolveStyle(String(e), path);
+      if (!s) bag.error("REF_NOT_FOUND", `unknown style "${e}"`, { path, hint: suggestHint(String(e), Object.keys(rawStyles)) });
+      else acc = overlay(acc, s);
+    }
+    const own = type === undefined ? { ...raw } : normElementProps(raw, ["styles", name], bag, type);
+    delete own.extends;
+    acc = overlay(acc, own);
+    resolving.delete(name);
+    styles[name] = acc;
+    return acc;
+  };
+  for (const k of names) resolveStyle(k, ["styles", k]);
+  return styles;
+}
+
 export interface ResolveOptions {
   configDefaults?: Obj;
   configStyles?: Record<string, Obj>;
@@ -108,35 +147,23 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
 
   // styles: builtin <- config <- doc <- locale
   const rawStyles: Record<string, Obj> = {};
-  for (const src of [BUILTIN_STYLES, opts.configStyles ?? {}, (doc.styles ?? {}) as Record<string, Obj>, ((locale?.styles ?? {}) as Record<string, Obj>)]) {
+  const userStyles: Record<string, Obj> = {};
+  const configStyles = Object.fromEntries(Object.entries(opts.configStyles ?? {}).map(([k, v]) => [k, normElementProps(v, ["styles", k], bag)]));
+  const styleSources = [configStyles, (doc.styles ?? {}) as Record<string, Obj>, ((locale?.styles ?? {}) as Record<string, Obj>)];
+  for (const src of styleSources) {
+    for (const [k, v] of Object.entries(src)) userStyles[k] = userStyles[k] ? overlay(userStyles[k], v) : deepClone(v);
+  }
+  for (const src of [BUILTIN_STYLES, ...styleSources]) {
     for (const [k, v] of Object.entries(src)) rawStyles[k] = rawStyles[k] ? overlay(rawStyles[k], v) : deepClone(v);
   }
-  const styles: Record<string, Obj> = {};
-  const resolving = new Set<string>();
-  const resolveStyle = (name: string, path: Path): Obj | undefined => {
-    if (styles[name]) return styles[name];
-    const raw = rawStyles[name];
-    if (!raw) return undefined;
-    if (resolving.has(name)) {
-      bag.error("STYLE_CYCLE", `style "${name}" extends itself`, { path });
-      return {};
-    }
-    resolving.add(name);
-    let acc: Obj = {};
-    const ext = raw.extends;
-    for (const e of Array.isArray(ext) ? ext : ext ? [ext] : []) {
-      const s = resolveStyle(String(e), path);
-      if (!s) bag.error("REF_NOT_FOUND", `unknown style "${e}"`, { path, hint: suggestHint(String(e), Object.keys(rawStyles)) });
-      else acc = overlay(acc, s);
-    }
-    const own = { ...raw };
-    delete own.extends;
-    acc = overlay(acc, own);
-    resolving.delete(name);
-    styles[name] = acc;
-    return acc;
+  const builtinStyles = resolveStyles(BUILTIN_STYLES, bag);
+  const styles = resolveStyles(rawStyles, bag);
+  const contextualStyles = new Map<string, Record<string, Obj>>();
+  const styleFor = (type: string, name: string): Obj | undefined => {
+    const key = JSON.stringify([type, name]);
+    if (!contextualStyles.has(key)) contextualStyles.set(key, resolveStyles(rawStyles, bag, type, [name], [BUILTIN_STYLES, ...styleSources]));
+    return contextualStyles.get(key)![name];
   };
-  for (const k of Object.keys(rawStyles)) resolveStyle(k, ["styles", k]);
 
   // collect explicit ids
   const ids = new Set<string>();
@@ -174,7 +201,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
   };
 
   const docDefaults = (doc.defaults ?? {}) as Obj;
-  const cfgDefaults = opts.configDefaults ?? {};
+  const cfgDefaults = normDefaults(opts.configDefaults ?? {}, ["defaults"], bag);
   const locDefaults = (locale?.defaults ?? {}) as Obj;
   const docHand = isObj(doc.hand) ? (doc.hand as Obj) : undefined;
 
@@ -209,7 +236,8 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
           : type === "mark"
             ? merge(deepClone(BUILTIN_MARK_DEFAULTS["*"]), kind ? BUILTIN_MARK_DEFAULTS[kind] : undefined)
             : deepClone(BUILTIN_DEFAULTS[type] ?? {});
-      let acc: Obj = deepClone(builtin);
+      const as = type === "balloon" ? (typeof raw.as === "string" ? raw.as : "say") : undefined;
+      let acc: Obj = as ? merge(deepClone(builtin), builtinStyles[as], builtin) : deepClone(builtin);
       const builtinArrays = Object.keys(acc).filter((k) => Array.isArray(acc[k]));
       const builtinProps = new Set(builtinArrays);
       const mergeProps = (props: Obj | undefined) => {
@@ -229,6 +257,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
             if (kind) mergeProps((d as Obj)[kind] as Obj | undefined);
           }
         } else if (isObj(d)) mergeProps(d as Obj);
+        if (as && isObj(lv.d[as])) mergeProps(lv.d[as] as Obj);
       }
       const who = typeof raw.who === "string" ? raw.who : undefined;
       if (who) {
@@ -238,13 +267,18 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
         else if (type === "text" && isObj(ch.text)) mergeProps(ch.text as Obj);
       }
       if (type === "balloon") {
-        const as = typeof raw.as === "string" ? raw.as : "say";
-        const st = styles[as];
-        if (!st) bag.error("REF_NOT_FOUND", `unknown speech type "${as}"`, { path: [...path, "as"], hint: suggestHint(as, Object.keys(BUILTIN_STYLES)) });
-        else mergeProps(st);
+        const name = as!;
+        if (!styles[name]) bag.error("REF_NOT_FOUND", `unknown speech type "${name}"`, { path: [...path, "as"], hint: suggestHint(name, Object.keys(BUILTIN_STYLES)) });
+        const st = userStyles[name] && overlayStyleLayers(styleSources, name, bag, type);
+        if (st) {
+          for (const parent of Array.isArray(st.extends) ? st.extends : st.extends ? [st.extends] : []) mergeProps(styleFor(type, String(parent)));
+          const own = normElementProps(st, path, bag, type);
+          delete own.extends;
+          mergeProps(own);
+        }
         const voice = who ? (characters[who]?.voice as Obj | undefined) : undefined;
-        if (voice && isObj(voice[as])) mergeProps(voice[as] as Obj);
-        acc.as = as;
+        if (voice && isObj(voice[name])) mergeProps(voice[name] as Obj);
+        acc.as = name;
       }
       const styleNames = Array.isArray(raw.style) ? raw.style : raw.style ? [raw.style] : [];
       for (const sn of styleNames) {
@@ -258,13 +292,13 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
           bag.error("STYLE_TYPE_MISMATCH", `style "${sn}" is for ${forT}, not ${type}`, { path: [...path, "style"] });
           continue;
         }
-        const s2 = { ...st };
+        const s2 = { ...styleFor(type, String(sn)) };
         delete s2.for;
         mergeProps(s2);
       }
       const own = { ...raw };
       delete own.style;
-      mergeProps(own);
+      mergeProps(normElementProps(own, path, bag, type));
       acc.id = id;
       const elSeedBase = typeof raw.seed === "number" ? raw.seed : baseSeed;
       const el: RElement = { id, type, props: acc, path, seed: deriveSeed(elSeedBase, id, "element"), fromDialogue, builtinProps: [...builtinProps] };

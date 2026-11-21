@@ -1,12 +1,13 @@
 // SVG backend (spec 10.4.4): the display list as vector paths, mm units.
 import sharp from "sharp";
 import { type RGBA, linearToSrgb, srgbToLinear } from "../core/color.js";
-import type { PathData } from "../geom/path.js";
-import { type Matrix, rectInset } from "../geom/vec.js";
+import { type PathData, flattenPath } from "../geom/path.js";
+import { type Matrix, boundsOf, rectInset } from "../geom/vec.js";
 import type { AssetRegistry } from "./assets.js";
 import { applyFilters } from "./filters.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
 import { cropMarkLines } from "./marks.js";
+import { resolveOutlineLayers } from "./outlines.js";
 
 export interface SvgOptions {
   outputScale?: number;
@@ -137,7 +138,16 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
     if (!dd) return "";
     if (p.stroke) {
       const sc = p.stroke.paint.type === "solid" ? gray(p.stroke.paint.color, o.colorMode) : { r: 0, g: 0, b: 0, a: 1 };
-      parts.push(`<path d="${dd}" fill="none" stroke="${rgb(sc)}" stroke-width="${n(p.stroke.width)}" stroke-linejoin="${p.stroke.join}"${p.stroke.miterLimit ? ` stroke-miterlimit="${p.stroke.miterLimit}"` : ""} stroke-linecap="round"/>`);
+      let filter = "";
+      const closing = (p.stroke.fillHoles ?? 0) / 2;
+      if (closing > 0) {
+        const fid = id("c");
+        const pad = p.stroke.width * (p.stroke.miterLimit ?? 2) + closing * 2;
+        const b = boundsOf(flattenPath(p.path).flatMap((c) => c.pts));
+        defs.push(`<filter id="${fid}" x="${n(b.x - pad)}" y="${n(b.y - pad)}" width="${n(b.w + pad * 2)}" height="${n(b.h + pad * 2)}" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse"><feMorphology in="SourceGraphic" operator="dilate" radius="${n(closing)}"/><feMorphology operator="erode" radius="${n(closing)}"/></filter>`);
+        filter = ` filter="url(#${fid})"`;
+      }
+      parts.push(`<path d="${dd}" fill="${closing > 0 ? rgb(sc) : "none"}"${p.fillRule === "evenodd" ? ' fill-rule="evenodd"' : ""} stroke="${rgb(sc)}" opacity="${n(sc.a)}" stroke-width="${n(p.stroke.width)}" stroke-linejoin="${p.stroke.join}" stroke-miterlimit="${n(p.stroke.miterLimit ?? 2)}" stroke-linecap="round"${filter}/>`);
     }
     if (p.paint) parts.push(`<path d="${dd}" ${fillOf(p.paint)}${p.fillRule === "evenodd" ? ' fill-rule="evenodd"' : ""}${tagAttr(p.tag)}/>`);
     return parts.join("");
@@ -169,6 +179,7 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
   };
 
   const group = async (g: GroupNode): Promise<string> => {
+    if (g.outlineLayers) g = { ...g, children: resolveOutlineLayers(g.children) };
     const attrs: string[] = [];
     if (g.transform) attrs.push(`transform="${matrix(g.transform)}"`);
     if (g.opacity !== undefined && g.opacity < 1) attrs.push(`opacity="${n(g.opacity)}"`);
