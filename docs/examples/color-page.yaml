@@ -26,7 +26,6 @@ pages:
         background: "linear-gradient(to bottom, #6b7d8f, #b8c4cf)"
         layers:
           - { image: room, opacity: 0.5, blend: multiply }
-          - { effect: rain, color: "#e8eef5" }
           - { balloon: その日は朝から雨だった, as: narration, place: top-right }
           - { sfx: ザァァ, at: [25%, 55%], fontSize: 14mm, color: "#2b3a4a", path: { kind: wave, amplitude: 2mm, wavelength: 30mm } }
       - layers:

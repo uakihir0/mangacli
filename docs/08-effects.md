@@ -51,6 +51,8 @@
 
 ### 8.1.2 効果の一覧
 
+効果は、素材の絵の上に重ねて絵を引き立てる漫画の演出に限る。雨・煙・光・炎のような、場面の中の物や光を描く効果は持たない（[1.4.1](01-overview.md#141-絵を描かない)）。それらは素材の絵に描き込む。
+
 | `kind` | 名称 | 主な用途 | 優先度 |
 |---|---|---|---|
 | `focus-lines` | 集中線 | 注目、驚き、決めゴマ | P0 |
@@ -60,19 +62,8 @@
 | `swirl-lines` | 回転流線 | 回転、渦、めまい | P1 |
 | `impact` | 衝撃 | 打撃、衝突、爆発 | P1 |
 | `lightning` | 稲妻 | ショック、ガーン | P1 |
-| `aura` | 闘気 | 人物の輪郭から立ち上る炎状の気 | P1 |
-| `arcs` | 放電 | 人物の周囲の短い稲妻 | P1 |
-| `crack` | 亀裂 | 地面、壁、ガラスの破壊 | P1 |
-| `dust` | 土煙 | 着地、衝突 | P1 |
-| `smoke` | 煙 | 爆発後、漂う煙 | P1 |
 | `gloom-lines` | 縦線 | 落ち込み、絶望（ガーン） | P1 |
-| `hatching` | ハッチング・カケアミ | 陰影、暗さ、背景の質感 | P1 |
-| `rain` | 雨 | 雨 | P1 |
 | `vignette` | ぼかし枠 | 回想、夢、柔らかさ | P1 |
-| `snow` | 雪 | 雪 | P2 |
-| `glow` | 発光 | 光る物体、輪郭の後光 | P1 |
-| `light-rays` | 光線 | 後光、光の筋 | P1 |
-| `spotlight` | スポットライト | 舞台、暗闇の人物 | P1 |
 
 ### 8.1.3 線の分布
 
@@ -247,85 +238,7 @@ passes:
 | `stroke` | Stroke | `{ width: 0.25bmm }` | 黒い輪郭 |
 | `background` | Paint | `black` | 領域の背景 |
 
-### 8.7.2 亀裂（crack）
-
-放射状に割れた主線と枝、隣り合う線をつなぐ割れ目。片側の細い影が奥行きを作る。
-
-| パラメータ | 型 | 既定値 | 説明 |
-|---|---|---|---|
-| `center` | Point | 必須 | 破壊の中心 |
-| `radius` | Length / % | `30%` | 領域の短辺に対する半径 |
-| `count` | 整数 | `7` | 主亀裂の数 |
-| `branching` | 0〜1 | `0.35` | 分岐の頻度 |
-| `rings` | 整数 | `1` | 主亀裂をつなぐ段数 |
-| `thickness` | Range | `[0.15bmm, 0.65bmm]` | 先端へ抜く線幅 |
-| `shade` | Paint | `black` | 片側の影。`none` で無効 |
-| `target` | Region | region | `{ element: x }` など、対象面でクリップ |
-
-### 8.7.3 土煙（dust）
-
-着地点から左右に広がる、大小の波打つ雲塊と飛び散る小石。
-
-| パラメータ | 型 | 既定値 | 説明 |
-|---|---|---|---|
-| `origin` | Point | 領域の下中央 | 着地点 |
-| `direction` | `both` / Angle | `both` | 左右、または指定方向へ広がる |
-| `size` | Length / % | `25%` | 領域の短辺に対する大きさ |
-| `puffs` | 整数 | `7` | 雲塊数。根元ほど大きい |
-| `fill` | Paint | `paper` | 雲の面 |
-| `stroke` | Stroke | `{ width: 0.3bmm }` | Gペン風の輪郭 |
-| `tone` | Paint | `none` | 下面の陰影 |
-| `debris` | 整数 | `10` | 小石と破片の数 |
-
-### 8.7.4 煙（smoke）
-
-爆発後に漂う柔らかい輪郭と、内部の巻き込む線。`origin` の指定で煙柱になる。
-
-| パラメータ | 型 | 既定値 | 説明 |
-|---|---|---|---|
-| `origin` | Point | なし | 省略時は領域全体に分布 |
-| `direction` | Angle | `-90deg` | 煙柱の流れる方向 |
-| `density` | 0〜1 | `0.5` | 煙の数・被覆率。0 で無効 |
-| `fill` | Paint | `paper` | 煙の面 |
-| `stroke` | Stroke | `{ width: 0.2bmm }` | 柔らかい輪郭 |
-| `tone` | Paint | `none` | 下面の陰影 |
-
-全て `seed` で再現可能。共通の `region`、`clear`、`color`、`opacity`、`hand`、`background` を利用できる。
-印刷モノクロでも輪郭（ink）と面（fill / tone）は別ノード。
-実行可能な比較ページ: [impact-effects.yaml](examples/impact-effects.yaml)。
-
-### 8.7.5 闘気・輪郭放電（aura / arcs）
-
-画像のアルファ輪郭に沿う効果。`target` は画像の要素 ID または同じコマのキャラクター参照（必須）。
-未解決の参照、画像以外の対象はエラーになる。透明画像の各外周を約 256px の解像度で抽出し、
-微小な成分は炎・稲妻の生成から除く。完全透明の画像は何も描かない。
-アルファ境界にはアンチエイリアス用の小さな余白を確保するため、極端に細い隙間は閉じることがある。
-
-`aura` は輪郭に沿った炎の舌を 1〜3 層重ねる。`arcs` は `lightning` と同じ稲妻生成器を使う。
-人物の輪郭を偶奇規則の穴として面と線から取り除くので、画像より後に置いても人物内部には入らない
-（PNG・SVG 共通）。内側の透明な穴も人物の外周内として保護する。
-`region` とコマのクリップは通常通り有効。`background` は人物内部を保護するため使用しない。
-
-| 効果 | キー | 型 | 既定値・意味 |
-|---|---|---|---|
-| 共通 | `target` | 画像 ID / キャラクター参照 | 必須 |
-| 共通 | `length` | 正の Length | 炎の長さ `8bmm` / 放電の長さ `5bmm`。% は対象輪郭の長辺基準 |
-| 共通 | `fill` | Paint | `paper`。`tone(20%)` なども可。闘気では最内層の面、放電では稲妻の面 |
-| 共通 | `stroke` | Stroke | 黒、闘気 `0.25bmm` / 放電 `0.2bmm` |
-| 共通 | `seed` | 整数 | 同じ入力・シードで同じ形 |
-| `aura` | `tongues` | 整数 3〜256 | `32`。炎の舌の本数 |
-| `aura` | `upwardBias` | 0〜1 | `0.7`。上向きの炎を伸ばし、先端を上へ曲げる強さ |
-| `aura` | `layers` | 整数 1〜3 | `3`。外側から順に短くなる。外層の面は紙色 |
-| `arcs` | `count` | 整数 0〜1024 | `18`。短い稲妻の本数。0 で空出力 |
-
-```yaml
-layers:
-  - { image: hero-art, id: hero, size: [auto, 70%], at: [50%, 55%] }
-  - { effect: aura, target: hero, tongues: 30, upwardBias: 0.9, fill: 'tone(12%)', seed: 42 }
-  - { effect: arcs, target: hero, count: 16, seed: 17 }
-```
-
-実行例: [aura.yaml](examples/aura.yaml)、[モノクロ画像](images/aura.png)。
+実行例: [impact-effects.yaml](examples/impact-effects.yaml)。
 
 ## 8.8 縦線（gloom-lines）
 
@@ -340,38 +253,13 @@ layers:
 | `taper` | `end` \| `both` | `end` | 下端を抜く |
 | `tone` | Paint | `none` | 線の背後に重ねるトーン（例: `tone-gradient(30%, 0%, 180deg)`。上が濃く下へ薄くなる） |
 
-## 8.9 ハッチングとカケアミ（hatching）
+## 8.9 （欠番）
 
-（P1）
+ハッチング・カケアミ（`hatching`）は、絵の陰影を描く機能なので削除した。面の暗さはトーン（[8.13](#813-トーン)）で表す。
 
-| パラメータ | 型 | 既定値 | 説明 |
-|---|---|---|---|
-| `pattern` | `hatch` \| `cross` \| `kakeami` | `hatch` | 斜線、クロスハッチ、カケアミ |
-| `angle` | Angle | `45deg` | 最初の層の線の向き |
-| `spacing` | Length | `0.6mm` | 線の間隔 |
-| `thickness` | Range | `[0.08mm, 0.16mm]` | 線幅 |
-| `layers` | 整数 | `hatch` は 1、`cross` は 2、`kakeami` は 2 | 重ねる層の数（`kakeami` は 1〜4 で暗さが増す） |
-| `blockSize` | Range | `[2mm, 3.5mm]` | `kakeami` の 1 区画の大きさ |
-| `linesPerBlock` | 整数 | `4` | `kakeami` の 1 区画の線の数 |
-| `gradient` | `{ from, to, angle }` | - | 濃さの変化（1 が最も濃い）。線の長さと層の数で表す |
-| `edge` | `soft` \| `clean` | `soft` | `soft` は範囲の縁で線の長さを不揃いにして自然に途切れさせる |
-| `ruler` | 真偽値 | `false` | フリーハンドの線 |
+## 8.10 （欠番）
 
-**カケアミ**は、短い平行線の区画を、区画ごとに約 90 度（±15 度）回転させながら敷き詰め、層を重ねるたびに区画の位置をずらして作る。
-
-## 8.10 雨と雪（rain / snow）
-
-`rain`（P1）
-
-| パラメータ | 型 | 既定値 | 説明 |
-|---|---|---|---|
-| `angle` | Angle | `100deg` | 降る方向（90 度が真下） |
-| `rate` | 数値 | `2.5` | 1 cm² あたりの線の数（共通プロパティの `density` は、この値に掛ける倍率） |
-| `length` | Range | `[4mm, 14mm]` | 長さ |
-| `thickness` | Range | `[0.1mm, 0.22mm]` | 線幅 |
-| `taper` | `both` | `both` | 両端を抜く |
-
-`snow`（P2）は、大きさの範囲を持つ白い点（黒の細い縁を付けられる）を散布する。
+雨・雪（`rain`・`snow`）は、場面の中の物を描く機能なので削除した。
 
 ## 8.11 ぼかし枠（vignette）
 
@@ -385,32 +273,9 @@ layers:
 | `softness` | 0〜1 | `0.7` | ぼかしの柔らかさ |
 | `screen` | `am` \| `spatter` | `am` | モノクロ出力での表し方。`am` は網点、`spatter` はホワイトの飛沫のような不規則な点 |
 
-## 8.12 発光と光線（glow / light-rays / spotlight）
+## 8.12 （欠番）
 
-`glow` は要素の輪郭をぼかして後光を描く。`light-rays` は光源から放射状の帯を描く。
-`spotlight` は光源から床の光だまりへ伸びる光を描き、光が届かない部分を暗くする。
-既定の光の色は白。1 ビット出力では発光のぼかしを白い網点で表し、光線とスポットライトの明暗も網点化する。
-効果をキャラクター画像より前に配置すると、画像を白く塗りつぶさずに背後を照らせる。[作例](examples/light-effects.yaml)
-
-| 効果 | キー | 型 | 既定値・意味 |
-|---|---|---|---|
-| `glow` | `target` | 要素 ID または Region | 必須。画像 ID は配置済み画像のアルファ、吹き出しは輪郭、その他は外接矩形を使う。`trim` などの領域名が優先される。同名の画像には `{ element: trim, mode: alpha }` を使う |
-| | `blur` | 正の Length | `4bmm`。ぼかしの強さ（ガウスの標準偏差）。% は効果領域の短辺基準 |
-| `light-rays` | `center` | Point | 効果領域の中心。座標・位置キーワード・`hero.face` などの参照を指定可能 |
-| | `count` | 整数 | `24`。放射帯の本数（1〜1024、`density` を掛けた後も最大 1024） |
-| | `angle` | Angle | `0deg`。最初の帯の方向（右が 0 度、時計回り） |
-| | `spread` | 数値 | `0.55`。帯 1 本が隣の帯までの角度に占める割合（0 より大きく 1 以下） |
-| `spotlight` | `source` | Point | `[18%, 0%]`。円錐の頂点 |
-| | `target` | Point | `[60%, 78%]`。床の光だまりの中心 |
-| | `width` | 正の Length | `45%`。光だまりの幅。% は効果領域の幅基準 |
-| | `shade` | 0〜1 | `0.8`。円錐と光だまりの外側に重ねる黒の不透明度。0 で暗くしない |
-
-```yaml
-layers:
-  - { effect: light-rays, center: hero.face, count: 20 }
-  - { effect: glow, target: hero, blur: 4mm }
-  - { image: hero.png, id: hero, anchors: { face: [500, 400] } }
-```
+発光・光線・スポットライト（`glow`・`light-rays`・`spotlight`）は、絵の光を描く機能なので削除した。
 
 ## 8.13 トーン
 
@@ -534,7 +399,7 @@ paint: "radial-gradient(at 50% 40%, #fff8d0 0%, #ffd27a 60%, #f39a3d 100%)"
 ```
 
 - 構文は CSS のサブセットとし、意味も CSS と同じとする（構文は [16](16-grammar.md)）。角度は CSS と同じく、0 度が上向き、90 度が右向き、180 度が下向きで、グラデーションの進む方向を表す。`to top`、`to bottom`、`to left`、`to right`、`to top right` などのキーワードも使える。
-- 本ライブラリの他の角度（0 度が右向き、[3.4.3](03-document-format.md#343-角度angle)）とは基準が異なる。`tone-gradient()`、トーンの `gradient.angle`、ハッチングの `gradient.angle` も、CSS と同じ基準とする。
+- 本ライブラリの他の角度（0 度が右向き、[3.4.3](03-document-format.md#343-角度angle)）とは基準が異なる。`tone-gradient()`、トーンの `gradient.angle`も、CSS と同じ基準とする。
 - 色の補間は sRGB で行う（P2 で OKLab を選べるようにする）。
 - モノクロ出力では、各色を濃度に変換したトーングラデーションにする（変換式は [10.2.1](10-color-and-output.md#1021-輝度)）。
 
@@ -649,9 +514,8 @@ paint: { pattern: { asset: flower-tone, scale: 0.5, rotate: 15deg, offset: [0, 0
 | 場面 | 組み合わせ |
 |---|---|
 | 驚き・ショック | `beta-flash` + 人物 + `mark: surprise` + `as: shout` の吹き出し |
-| ガーン | `lightning` + `gloom-lines`（白線）または `crack` + `sfx: ガーン` |
-| 着地 | `dust` + `impact` + `sfx: ドン` |
-| 爆発後 | `smoke`（`tone` 付き）+ `crack` + `sfx: ゴゴゴ` |
+| ガーン | `lightning` + `gloom-lines`（白線）+ `sfx: ガーン` |
+| 着地 | `impact` + `sfx: ドン` |
 | 絶望 | `gloom-lines`（`tone` 付き）+ `mark: tremble` + `as: tremble` の吹き出し |
 | 決めゴマ | 断ち切りのコマ + `focus-lines`（`passes` で 2 重）+ `sfx` |
 | 走る・飛ぶ | `speed-lines`（`clear` で人物を避ける）+ `mark: motion` + `sfx`（`distort.skew`） |

@@ -1,16 +1,12 @@
 mangacli: 1
 page: { size: [182mm, 257mm] }
 pages:
-  - layout: { rows: [[1, 1], [1, 1], [1]] }
+  - layout: { rows: [[1, 1], [1]] }
     panels:
       - layers:
           - { effect: lightning, seed: 23 }
       - layers:
-          - { effect: crack, center: [48%, 50%], radius: 48%, seed: 42 }
-      - layers:
-          - { effect: dust, origin: [50%, 88%], size: 30%, tone: 'tone(12%)', seed: 32 }
-      - layers:
-          - { effect: smoke, tone: 'tone(8%)', seed: 45 }
+          - { effect: impact, center: [50%, 50%], seed: 42 }
       - layers:
           - { effect: lightning, bolts: 5, seed: 19 }
           - { effect: gloom-lines, color: paper, opacity: 0.35 }
