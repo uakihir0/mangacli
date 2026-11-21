@@ -589,9 +589,9 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.15, 6 * u.k);
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
-    // a wedge's base is a quarter to a third of the body, so the tail reads as a triangle at a glance
+    // a wedge's base is about a sixth of the body
     const bw0 = Math.min(2.8 * u.k, Math.max(1.6 * u.k, minSide * 0.13));
-    const bwAuto = kind === "zigzag" ? bw0 * 1.5 : offSide ? bw0 : Math.max(bw0, Math.min(minSide * 0.3, length * 1.2));
+    const bwAuto = kind === "zigzag" ? bw0 * 1.5 : offSide ? bw0 : Math.max(bw0, Math.min(minSide / 6, length * 0.6));
     const bw = (t.width !== undefined ? toMm(t.width as string, u) : bwAuto) * widthScale;
     // on a spiky body the tail is one more, larger spike of the outline (the shout/scream presets
     // also set bend/sideCurve 0 for straight sides)
@@ -682,8 +682,39 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     // wedge / zigzag: splice into contour
     const s = arcLengths(cur.pts);
     const sR = s[hit.index] + hit.u * (s[hit.index + 1] - s[hit.index]);
-    const A = pointAtChord(cur.pts, s, sR, bw / 2, -1);
-    const B = pointAtChord(cur.pts, s, sR, bw / 2, 1);
+    let A = pointAtChord(cur.pts, s, sR, bw / 2, -1);
+    let B = pointAtChord(cur.pts, s, sR, bw / 2, 1);
+    if (spiky && kind === "wedge" && !offSide && t.width === undefined) {
+      const cap = minSide / 6;
+      const valleys = (cur.corners ?? []).filter((c) => c.kind === "valley");
+      if (valleys.length > 1) {
+        const P = s[s.length - 1];
+        const before = valleys.reduce((a, b) => (sR - s[a.index] + P) % P < (sR - s[b.index] + P) % P ? a : b);
+        const after = valleys.reduce((a, b) => ((s[a.index] - sR + P) % P || P) < ((s[b.index] - sR + P) % P || P) ? a : b);
+        const left = s[before.index];
+        let right = s[after.index];
+        if (right <= left) right += P;
+        const peak = (cur.corners ?? []).find((c) => c.kind === "tip" && (s[c.index] - left + P) % P < right - left);
+        if (peak) {
+          const apex = left + (s[peak.index] - left + P) % P;
+          A = pointAtArc(cur.pts, s, left);
+          B = pointAtArc(cur.pts, s, right);
+          if (Math.hypot(B.p.x - A.p.x, B.p.y - A.p.y) > Math.min(cap, bw)) {
+            let lo = 0;
+            let hi = 1;
+            for (let k = 0; k < 40; k++) {
+              const f = (lo + hi) / 2;
+              const a = pointAtArc(cur.pts, s, left + (apex - left) * f);
+              const b = pointAtArc(cur.pts, s, right + (apex - right) * f);
+              if (Math.hypot(b.p.x - a.p.x, b.p.y - a.p.y) > Math.min(cap, bw)) lo = f;
+              else hi = f;
+            }
+            A = pointAtArc(cur.pts, s, left + (apex - left) * hi);
+            B = pointAtArc(cur.pts, s, right + (apex - right) * hi);
+          }
+        }
+      }
+    }
     const sideA: Vec[] = [];
     const sideB: Vec[] = [];
     const N = Math.max(12, Math.ceil(length / (0.3 * u.k)));
@@ -703,7 +734,8 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     // outward normal at the root (from the body centre); a tail that runs along the outline is "slanted"
     const nl = Math.hypot(R.x - center.x, R.y - center.y) || 1;
     const nOut = { x: (R.x - center.x) / nl, y: (R.y - center.y) / nl };
-    const slanted = !zig && !offSide && nOut.x * dir.x + nOut.y * dir.y < 0.55;
+    const straight = !zig && !offSide && bend === 0 && sideCurve === 0 && !arcFn;
+    const slanted = !straight && !zig && !offSide && nOut.x * dir.x + nOut.y * dir.y < 0.55;
     const boltSign = Math.sign(dot(sub(A.p, B.p), perp)) || 1;
     const zigCorners: number[] = [];
     for (let i = 0; i <= steps; i++) {
@@ -720,6 +752,11 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
           sideB.push({ x: mid.x - perp.x * half, y: mid.y - perp.y * half });
           if (i < steps) zigCorners.push(i);
         }
+        continue;
+      }
+      if (straight) {
+        sideA.push({ x: A.p.x + (tip.x - A.p.x) * tt, y: A.p.y + (tip.y - A.p.y) * tt });
+        sideB.push({ x: B.p.x + (tip.x - B.p.x) * tt, y: B.p.y + (tip.y - B.p.y) * tt });
         continue;
       }
       let cl = arcFn ? arcFn(tt) : quad(R, ctrl, tipBent, tt);
@@ -769,18 +806,20 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     let i = (B.i + 1) % n;
     let guard = 0;
     while (guard++ < n + 2) {
-      idxMap.set(i, out.length);
-      out.push(cur.pts[i]);
+      const prev = out[out.length - 1];
+      if (Math.hypot(cur.pts[i].x - prev.x, cur.pts[i].y - prev.y) > 1e-9) out.push(cur.pts[i]);
+      idxMap.set(i, out.length - 1);
       if (i === A.i) break;
       i = (i + 1) % n;
     }
-    const aIndex = out.length;
-    out.push(A.p);
+    const last = out[out.length - 1];
+    if (Math.hypot(A.p.x - last.x, A.p.y - last.y) > 1e-9) out.push(A.p);
+    const aIndex = out.length - 1;
     for (let k = 1; k < sideA.length; k++) out.push(sideA[k]);
     const tipIndex = out.length - 1;
     const bStart = out.length;
     for (let k = sideB.length - 2; k >= 1; k--) out.push(sideB[k]);
-    const corners = (cur.corners ?? []).filter((c) => idxMap.has(c.index)).map((c) => ({ index: idxMap.get(c.index)!, kind: c.kind }));
+    const corners = (cur.corners ?? []).filter((c) => idxMap.has(c.index)).map((c) => ({ index: idxMap.get(c.index)!, kind: c.kind })).filter((c) => c.index !== 0 && c.index !== aIndex);
     corners.push({ index: 0, kind: "concave" }, { index: aIndex, kind: "concave" }, { index: tipIndex, kind: "point" });
     for (const zc of zigCorners) {
       corners.push({ index: aIndex + zc, kind: "convex" });

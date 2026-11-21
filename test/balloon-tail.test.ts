@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createRenderer } from "../src/api.js";
+import { Rng } from "../src/core/random.js";
 import { type Vec, cross, len, sub } from "../src/geom/vec.js";
+import { HAND_PRESETS, PEN_PRESETS } from "../src/ink/presets.js";
+import { inkShape } from "../src/ink/shape.js";
+import * as shape from "../src/ink/shape.js";
 import type { Node, PathNode } from "../src/render/ir.js";
 
 const r = createRenderer({ profile: "preview" });
@@ -52,6 +56,33 @@ const tip = (pts: Vec[]) => pts.reduce((p, q) => (q.x > p.x ? q : p));
 /** the body's right edge in page mm, mirrored from its left edge about the centre `cx` (the tail points right) */
 const rightOf = (pts: Vec[], cx: number) => 2 * cx - Math.min(...pts.map((p) => p.x));
 
+const reviewYaml = `mangacli: 1
+page: { size: [120mm, 180mm], bleed: 0mm }
+pages:
+  - layout: { template: grid, params: { cols: 1, rows: 3 } }
+    panels:
+      - layers:
+          - { balloon: "あっ！", id: a, as: shout, size: [19mm, 30mm], at: [60mm, 28mm], tail: { to: [110mm, 48mm] } }
+      - layers:
+          - { balloon: "待てっ！", id: b, as: shout, size: [19mm, 30mm], at: [60mm, 28mm], tail: { to: [20mm, 78mm] } }
+      - layers:
+          - { balloon: "父ちゃん！", id: c, as: shout, size: [19mm, 34mm], at: [60mm, 28mm], tail: { to: [10mm, 20mm], width: 4mm } }
+`;
+
+function tailEdges(pts: Vec[]): { a: number; tip: number } {
+  const straight = (i: number) => {
+    const a = pts[(i + pts.length - 1) % pts.length];
+    const b = pts[i];
+    const c = pts[(i + 1) % pts.length];
+    return Math.abs((b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)) < 1e-8;
+  };
+  let tip = pts.length - 1;
+  while (straight(tip)) tip--;
+  let a = tip - 1;
+  while (straight(a)) a--;
+  return { a, tip };
+}
+
 describe("balloon tails", () => {
   it("gives the electronic tail two straight-sided bends before the tip", async () => {
     const balloon = 'balloon: "電話", id: b, as: electronic, hand: clean, at: [40mm, 35mm], size: [24mm, 24mm]';
@@ -68,15 +99,71 @@ describe("balloon tails", () => {
     expect(tailCorners).toHaveLength(5);
   });
 
+  it("keeps one corner per vertex when shout roots meet existing valleys", async () => {
+    const spy = vi.spyOn(shape, "inkShape");
+    try {
+      await r.displayList({ yaml: reviewYaml.replaceAll("as: shout,", "as: shout, hand: clean, shape: { kind: spike, count: 80 },"), filename: "/v/review.yaml" }, 1);
+      const contours = spy.mock.calls.map(([contour]) => contour).filter((contour) => contour.corners?.some((c) => c.kind === "point"));
+      expect(contours).toHaveLength(3);
+      for (const contour of contours) {
+        const indices = contour.corners!.map((c) => c.index);
+        expect(new Set(indices).size).toBe(indices.length);
+        expect(contour.corners!.filter((c) => c.kind === "concave")).toHaveLength(2);
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+  it("joins the review shouts with straight edges and keeps the neighboring spikes", async () => {
+    const cleanYaml = reviewYaml.replaceAll("as: shout,", "as: shout, hand: clean,");
+    const root = (await r.displayList({ yaml: cleanYaml, filename: "/v/review.yaml" }, 1)).root;
+    const body = (await r.displayList({ yaml: cleanYaml.replaceAll(/tail: \{[^}]+\}/g, "tail: { kind: none }"), filename: "/v/review.yaml" }, 1)).root;
+    for (const id of ["a", "b"]) {
+      const pts = vertices(paths(root, (n) => n.tag?.elementId === id && n.tag.role === "fill")[0]);
+      const original = vertices(paths(body, (n) => n.tag?.elementId === id && n.tag.role === "fill")[0]);
+      const { a, tip } = tailEdges(pts);
+      expect(tip - a).toBeGreaterThan(12);
+      expect(pts.length - tip).toBeGreaterThan(12);
+      const shortSide = Math.min(Math.max(...original.map((p) => p.x)) - Math.min(...original.map((p) => p.x)), Math.max(...original.map((p) => p.y)) - Math.min(...original.map((p) => p.y)));
+      expect(Math.hypot(pts[a].x - pts[0].x, pts[a].y - pts[0].y)).toBeLessThanOrEqual(shortSide / 6 + 1e-8);
+      const retained = original.filter((p) => pts.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < 1e-8));
+      expect(retained.length / original.length).toBeGreaterThan(0.9);
+    }
+    const inked = (await r.displayList({ yaml: reviewYaml, filename: "/v/review.yaml" }, 1)).root;
+    expect(paths(inked, (n) => n.tag?.elementId === "c" && n.tag.role === "fill")).toHaveLength(1);
+  });
+
+  it("honors an explicit shout root width instead of the automatic cap", async () => {
+    const { pts } = await outline(`{ balloon: "待てっ！", id: b, as: shout, hand: clean, size: [19mm, 30mm], at: [40mm, 35mm], tail: { direction: 130deg, width: 8mm } }`);
+    const { pts: body } = await outline(`{ balloon: "待てっ！", id: b, as: shout, hand: clean, size: [19mm, 30mm], at: [40mm, 35mm], tail: none }`);
+    const { a } = tailEdges(pts);
+    const shortSide = Math.min(Math.max(...body.map((p) => p.x)) - Math.min(...body.map((p) => p.x)), Math.max(...body.map((p) => p.y)) - Math.min(...body.map((p) => p.y)));
+    expect(Math.hypot(pts[a].x - pts[0].x, pts[a].y - pts[0].y)).toBeGreaterThan(shortSide / 6);
+  });
+  it("uses a sixth of the short side for an ordinary automatic wedge", async () => {
+    const { pts } = await outline(`{ balloon: "おはよう", id: b, hand: clean, size: [30mm, 24mm], at: [40mm, 35mm], tail: { direction: 0deg, length: 10mm, curl: false, bend: 0, sideCurve: 0 } }`);
+    const { a } = tailEdges(pts);
+    const width = Math.hypot(pts[a].x - pts[0].x, pts[a].y - pts[0].y);
+    expect(width).toBeGreaterThan(3.7);
+    expect(width).toBeLessThan(4.2);
+  });
+  it("inks point corners at full line weight through the tail tip", () => {
+    const ink = inkShape({ pts: [{ x: 0, y: 0 }, { x: 10, y: 0 }], closed: false, corners: [{ index: 1, kind: "point" }] }, {
+      line: { width: 0.3, pen: PEN_PRESETS["g-pen"], style: "solid" },
+      hand: { ...HAND_PRESETS.clean, taper: 1 },
+      rng: new Rng(42),
+    });
+    expect(widthAt(ink.inks[0].pts, 9.8, 0)).toBeGreaterThanOrEqual(0.29);
+  });
   const shout = `{ balloon: "父ちゃん！", id: b, as: shout, at: [40mm, 35mm], tail: { to: [125mm, 35mm] } }`;
   it("keeps a shout tail aimed far away to a moderate length", async () => {
     const { pts, origin } = await outline(shout);
     expect(tip(pts).x - rightOf(pts, origin.x + 40)).toBeLessThan(4.2);
   });
-  it("gives a long shout tail a wide base instead of a thin line", async () => {
+  it("keeps a thin shout tail visibly triangular", async () => {
     const { pts } = await outline(shout);
     const t = tip(pts);
-    expect(widthAt(pts, t.x - 3, t.y)).toBeGreaterThan(0.8);
+    expect(widthAt(pts, t.x - 3, t.y)).toBeGreaterThan(0.4);
   });
   it("stops a tail aimed at a bare point halfway, out of the speaker's face", async () => {
     const { pts, origin } = await outline(`{ balloon: "おはよう", id: b, size: [24mm, 24mm], at: [40mm, 35mm], tail: { to: [59mm, 35mm] } }`);
