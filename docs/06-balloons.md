@@ -129,7 +129,7 @@
 |---|---|---|---|
 | `waves` | 整数 \| `auto` | `auto` | 波の数。`auto` は周長 ÷ 3.5 mm |
 | `amplitude` | Length | `0.5mm` | 波の振幅 |
-| `waveform` | `sine` \| `zigzag` \| `irregular` | `sine` | 波形。`zigzag` はガタガタした震え、`irregular` は不規則な震え |
+| `waveform` | `sine` \| `zigzag` \| `irregular` | `sine`（`as: tremble` は `irregular`） | `zigzag` は角ばった震え、`irregular` は波の深さと間隔が変わる、なめらかな震え |
 
 ### 6.3.8 none（なし）
 

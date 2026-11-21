@@ -25,6 +25,13 @@ async function plan(text: string, writing = "vertical", props: Record<string, un
 }
 
 describe("balloon text extent sizing", () => {
+  it("defaults tremble to irregular waves while honoring explicit waveforms", async () => {
+    expect((await plan("ふるえる声", "vertical", { as: "tremble" })).params.waveform).toBe("irregular");
+    const regular = await plan("ふるえる声", "vertical", { as: "tremble", shape: { kind: "wavy", waveform: "sine" } });
+    expect(regular.params.waveform).toBe("sine");
+    expect((await plan("ふるえる声", "vertical", { shape: { kind: "wavy" } })).params.waveform).toBeUndefined();
+  });
+
   it.each(["vertical", "horizontal"])("treats null aspectRange and padding resets as builtins in %s text", async (writing) => {
     const baseline = await plan("あいう", writing);
     for (const key of ["aspectRange", "padding"]) {

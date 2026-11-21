@@ -2,7 +2,7 @@
 import type { Rng } from "../core/random.js";
 import { Rng as RngCls } from "../core/random.js";
 import { flattenPath, parseSvgPath, pointInPolygon, polygonArea, polylineLength } from "../geom/path.js";
-import { type Vec, rot } from "../geom/vec.js";
+import { type Vec, dist, rot } from "../geom/vec.js";
 import type { Corner, ShapeContour } from "../ink/shape.js";
 
 export interface ShapeParams {
@@ -307,6 +307,45 @@ function edgeCtrl(A: Vec, B: Vec, curve: number): Vec {
   return { x: m.x - (m.x / ml) * curve * L * 0.25, y: m.y - (m.y / ml) * curve * L * 0.25 };
 }
 
+const WAVE_VARIATION = 0.3;
+
+function irregularWavePoints(base: (th: number) => number, waves: number, amp: number, tilt: number, rng: Rng): Vec[] {
+  const n = Math.max(240, waves * 16);
+  const guide = sampleRadial(base, n, 0);
+  const lengths = [0];
+  for (let i = 0; i < n; i++) lengths.push(lengths[i] + dist(guide[i], guide[(i + 1) % n]));
+
+  const widths: number[] = [];
+  for (let i = 0; i < waves; i++) {
+    const pitch = rng.range(1 - WAVE_VARIATION, 1 + WAVE_VARIATION);
+    const split = rng.range(0.44, 0.56);
+    widths.push(pitch * split, pitch * (1 - split));
+  }
+  const heights = widths.map((_, i) => (i % 2 === 0 ? 1 : -1) * amp * rng.range(1 - WAVE_VARIATION, 1 + WAVE_VARIATION));
+  const scale = lengths[n] / widths.reduce((sum, width) => sum + width, 0);
+  const samples = Math.ceil(n / widths.length);
+  const pts: Vec[] = [];
+  let start = 0;
+  let edge = 0;
+  for (let i = 0; i < widths.length; i++) {
+    const width = widths[i] * scale;
+    const from = heights[i];
+    const to = heights[(i + 1) % heights.length];
+    for (let j = 0; j < samples; j++) {
+      const t = j / samples;
+      const s = start + width * t;
+      while (edge < n - 1 && lengths[edge + 1] < s) edge++;
+      const fraction = (s - lengths[edge]) / (lengths[edge + 1] - lengths[edge]);
+      const th = ((edge + fraction) / n) * TAU;
+      // Zero slope at each crest and trough keeps the varying half-waves smooth, including the seam.
+      const r = base(th) + from + (to - from) * ((1 - Math.cos(Math.PI * t)) / 2);
+      pts.push(rot({ x: Math.cos(th) * r, y: Math.sin(th) * r }, tilt));
+    }
+    start += width;
+  }
+  return pts;
+}
+
 const wavy: BodyGenerator = (w, h, p, seed) => {
   const rng = new RngCls(seed);
   const a = w / 2;
@@ -316,6 +355,13 @@ const wavy: BodyGenerator = (w, h, p, seed) => {
   const waves = p.waves === undefined || p.waves === "auto" ? Math.max(12, Math.round(per / 3.5)) : Math.max(4, Math.round(p.waves));
   const amp = p.amplitude ?? 0.5;
   const form = p.waveform ?? "sine";
+  if (form === "irregular") {
+    const peakScale = 1 + WAVE_VARIATION;
+    const limitedAmp = Math.min(Math.max(0, amp), Math.min(a, b) / (2 * peakScale));
+    const pts = irregularWavePoints(base, waves, limitedAmp, p.tilt, rng);
+    const inner = sampleRadial((t) => base(t) - limitedAmp * peakScale, 180, p.tilt);
+    return { contour: { pts, closed: true, smooth: true, startRange: [0.62, 0.86] }, inner, kind: "wavy", smooth: true, ruler: false };
+  }
   const amps = Array.from({ length: waves }, () => amp * rng.range(0.75, 1.25));
   const phSeed = rng.range(0, 100);
   const n = Math.max(240, waves * 16);
@@ -325,10 +371,7 @@ const wavy: BodyGenerator = (w, h, p, seed) => {
     const x = (i / n) * waves;
     const wi = Math.floor(x) % waves;
     const f = x - Math.floor(x);
-    let wv: number;
-    if (form === "zigzag") wv = f < 0.5 ? f * 4 - 1 : 3 - f * 4;
-    else wv = Math.sin(f * TAU + 0.3 * Math.sin(phSeed + x));
-    if (form === "irregular") wv *= rng.range(0.6, 1.3);
+    const wv = form === "zigzag" ? (f < 0.5 ? f * 4 - 1 : 3 - f * 4) : Math.sin(f * TAU + 0.3 * Math.sin(phSeed + x));
     const r = base(th) + amps[wi] * wv;
     pts.push(rot({ x: Math.cos(th) * r, y: Math.sin(th) * r }, p.tilt));
   }

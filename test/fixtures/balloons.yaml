@@ -32,3 +32,5 @@ pages:
           - { balloon: 多角, shape: { kind: polygon, points: [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]] } }
       - layers:
           - { balloon: 道, shape: { kind: path, d: "M0 0 L1 0 L1 1 L0 1 Z" } }
+      - layers:
+          - { balloon: "な、なに", as: tremble, tail: { direction: 70deg } }
