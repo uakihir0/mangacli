@@ -1,7 +1,7 @@
 // Balloon body shape generators (spec 6.3, 9.3.1). All shapes centered at origin.
 import type { Rng } from "../core/random.js";
 import { Rng as RngCls } from "../core/random.js";
-import { flattenPath, parseSvgPath, pointInPolygon, polygonArea, polylineLength } from "../geom/path.js";
+import { flattenPath, parseSvgPath, pointInPolygon, polygonArea, polylineLength, resample } from "../geom/path.js";
 import { type Vec, dist, rot } from "../geom/vec.js";
 import type { Corner, ShapeContour } from "../ink/shape.js";
 
@@ -26,6 +26,7 @@ export interface ShapeParams {
   secondary?: boolean;
   corners?: number;
   jag?: number;
+  toothPitch?: number; // mm (electronic)
   points?: [number, number][];
   strokes?: number | "auto";
   join?: "clean" | "overshoot" | "gap";
@@ -379,21 +380,26 @@ const wavy: BodyGenerator = (w, h, p, seed) => {
   return { contour: { pts, closed: true, smooth: form !== "zigzag", startRange: [0.62, 0.86] }, inner, kind: "wavy", smooth: true, ruler: false };
 };
 
-const electronic: BodyGenerator = (w, h, p, seed) => {
-  const rng = new RngCls(seed);
-  const n = Math.max(5, p.corners ?? 8);
-  const jag = p.jag ?? 0.25;
+const electronic: BodyGenerator = (w, h, p) => {
   const a = w / 2;
   const b = h / 2;
-  const pts: Vec[] = [];
-  const ph = rng.range(0, TAU / n);
-  for (let i = 0; i < n; i++) {
-    const th = ph + (i / n) * TAU + rng.range(-jag, jag) * (TAU / n) * 0.4;
-    const r = seRadius(a * 1.08, b * 1.08, 3.2, th) * (1 + rng.range(-jag, jag) * 0.12);
-    pts.push(rot({ x: Math.cos(th) * r, y: Math.sin(th) * r }, p.tilt));
-  }
+  const exponent = 3.2;
+  const base = sampleRadial((t) => seRadius(a, b, exponent, t), 256, 0);
+  const perimeter = polylineLength(base, true);
+  const n = Math.max(5, Math.round(p.corners ?? (p.toothPitch ? perimeter / p.toothPitch : 8)));
+  const pitch = perimeter / n;
+  const depth = Math.min(pitch, Math.min(w, h) * 0.5) * Math.max(0, Math.min(p.jag ?? 0.25, 1));
+  // Equal arc-length steps keep teeth the same width on long and short sides.
+  const pts = resample(base, pitch / 2, true).map((q, i) => {
+    if (i % 2 === 0 || depth === 0) return rot(q, p.tilt);
+    const nx = Math.sign(q.x) * Math.pow(Math.abs(q.x / a), exponent - 1) / a;
+    const ny = Math.sign(q.y) * Math.pow(Math.abs(q.y / b), exponent - 1) / b;
+    const l = Math.hypot(nx, ny);
+    return rot({ x: q.x + depth * nx / l, y: q.y + depth * ny / l }, p.tilt);
+  });
+  const corners: Corner[] = depth > 0 ? pts.map((_, i) => ({ index: i, kind: i % 2 ? "convex" : "concave" })) : [];
   const inner = sampleRadial((t) => seRadius(a, b, 2, t) * 0.92, 120, p.tilt);
-  return { contour: { pts, closed: true, corners: pts.map((_, i) => ({ index: i, kind: "convex" as const })) }, inner, kind: "electronic", smooth: false, ruler: false };
+  return { contour: { pts, closed: true, corners }, inner, kind: "electronic", smooth: false, ruler: false };
 };
 
 /** a squared-off balloon (flat, blunt voices): straight sides, softly rounded corners */
