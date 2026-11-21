@@ -34,6 +34,44 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
+  it.each(["vertical", "horizontal"] as const)("places ruby only over positioned bases in %s text", async (writing) => {
+    for (const text of ["<ruby=ことば>言葉 </ruby>", "<ruby=こ と ば>言葉 </ruby>", "<ruby=ことば>言葉</ruby>"]) {
+      await reg.prepare("dialogue", text);
+      const result = layoutText(text, { ...defaultTextStyle({ font: "dialogue", fontSize: 10 }), writing, maxChars: 2 }, reg);
+      expect(result.lines.map((line) => line.text).join("")).toBe("言葉");
+      expect(result.glyphs.length).toBeGreaterThan(2);
+    }
+  });
+  it("omits ruby whose entire base was trimmed", async () => {
+    const text = "<ruby=あ> </ruby>";
+    await reg.prepare("dialogue", text);
+    const result = layoutText(text, defaultTextStyle({ font: "dialogue", fontSize: 10 }), reg);
+    expect(result.glyphs).toEqual([]);
+    expect(result.lines.map((line) => line.text)).toEqual([""]);
+  });
+  it("uses oikomi rather than leaving a single-character column", async () => {
+    expect(await lines("ダメ！", { maxChars: 2 })).toEqual(["ダメ！"]);
+  });
+  it("distinguishes an independent hiragana verb from okurigana", async () => {
+    expect(await lines("帰る前おごるよ", { maxChars: 4 })).toEqual(["帰る前", "おごるよ"]);
+    expect(await lines("聞いてる？", { maxChars: 5 })).toEqual(["聞いてる？"]);
+  });
+  it("reserves room for prohibited starts when splitting a long word", async () => {
+    const result = await lines("ウルトラマン！", { maxChars: 3 });
+    expect(result.join("")).toBe("ウルトラマン！");
+    for (const line of result) {
+      expect(Array.from(line).length).toBeLessThanOrEqual(3);
+      expect(noStart(Array.from(line)[0] ?? "", "strict")).toBe(false);
+    }
+  });
+  it("prefers phrases to splitting okurigana or starting with n", async () => {
+    expect(await lines("ねえ…聞いてる？", { maxChars: 5 })).toEqual(["ねえ…", "聞いてる？"]);
+    expect(await lines("さすがにひどいんじゃないですか", { maxChars: 7 })).toEqual(["さすがに", "ひどいんじゃ", "ないですか"]);
+  });
+  it("falls back to characters only for an overlong word", async () => {
+    expect(await lines("カタカナ", { maxChars: 2 })).toEqual(["カタ", "カナ"]);
+    expect(await lines("")).toEqual([""]);
+  });
   it.each([
     ["prefers Gothic MB101 U over Shin Go U", ["ShinGoPro-U", "ゴシックMB101 U"], "ゴシックMB101 U"],
     ["uses installed Shin Go U if Gothic MB101 U is absent", ["ShinGoPro-U"], "ShinGoPro-U"],

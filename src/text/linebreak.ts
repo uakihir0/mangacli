@@ -13,7 +13,7 @@ const INSEP = new Set(Array.from("…‥―"));
 
 export function noStart(ch: string, level: KinsokuLevel): boolean {
   if (level === "none") return false;
-  if (CLOSING.has(ch) || MARKS.has(ch)) return true;
+  if (CLOSING.has(ch) || MARKS.has(ch) || ch === "ん" || ch === "ン") return true;
   if (level === "loose") return false;
   if (MIDDLE.has(ch) || ITER.has(ch) || HYPHEN.has(ch)) return true;
   if (level === "strict" && (SMALL.has(ch) || ch === "―" || ch === "…" || ch === "‥")) return true;
@@ -45,7 +45,7 @@ const KANJI_ONLY = /^[一-鿿㐀-䶿々]+$/u;
 const STARTS_KANJI = /^[一-鿿㐀-䶿々]/u;
 /** 連用形 of a single-kanji verb (吹き, 折り, 引き, 取り…) that forms compound verbs/nouns */
 const RENYOU = /^[一-鿿㐀-䶿々][きりちしいみひびけえぎじ]$/u;
-const PUNCT_START = /^[、。，．！？!?」』）】〉》…―─━ーっゃゅょぁぃぅぇぉッャュョァィゥェォ〜]/u;
+const PUNCT_START = /^[、。，．！？‼⁇⁈⁉!?」』）】〉》…‥―─━ーっゃゅょぁぃぅぇぉッャュョァィゥェォ〜]/u;
 const PARTICLES = new Set(["は", "が", "を", "に", "で", "と", "も", "の", "へ", "や", "か", "ね", "よ", "な", "わ", "さ", "ぞ", "ぜ", "て", "た", "だ", "です", "ます", "でし", "まし", "から", "まで", "より", "けど", "って", "ので", "のに", "だけ", "しか", "ばかり", "など", "くらい", "ぐらい", "でも", "じゃ", "なあ", "ねえ", "よね", "かな", "のよ", "わよ", "ん"]);
 
 /** hiragana words that start a phrase even right after a kanji word (今度|なんか, 明日|また) */
@@ -67,11 +67,13 @@ export function phraseBoundaries(text: string, lang = "ja"): Set<number> {
     const prev = phrases[phrases.length - 1];
     if (prev) {
       // a word after punctuation always starts a new phrase; standalone words never attach
-      const afterPunct = /[、。，．！？!?…」』）]$/u.test(prev.s) && !PUNCT_START.test(w.s);
-      const free = STANDALONE.has(w.s) || (HIRA_VERB.test(w.s) && !AUX.has(w.s) && !PARTICLES.has(w.s));
+      const afterPunct = /[、。，．！？‼⁇⁈⁉!?…‥」』）]$/u.test(prev.s) && !PUNCT_START.test(w.s);
+      const teOkurigana = KANJI_ONLY.test(lastWord) && /^(?:いて|いで|って|んで)/u.test(w.s);
+      const free = STANDALONE.has(w.s) || (HIRA_VERB.test(w.s) && !AUX.has(w.s) && !PARTICLES.has(w.s) && !teOkurigana);
+      const afterContrast = /(?:では|じゃ)$/u.test(prev.s) && AUX.has(w.s);
       const attach =
-        !afterPunct &&
-        (PUNCT_START.test(w.s) || w.s === "ん" ||
+        !afterPunct && !afterContrast &&
+        (PUNCT_START.test(w.s) || /^[んン]/u.test(w.s) ||
         // the explanatory ん takes its copula (勝つんだから, 行くんです)
         (HIRA.test(w.s) && /[ぁ-ゟ]ん$/u.test(prev.s) && /^(だ|で|じゃ)/u.test(w.s)) ||
         // a lone hiragana never starts a phrase (中だ|ろ)

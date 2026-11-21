@@ -55,6 +55,10 @@ describe("line breaking", () => {
     expect(noStart("、", "strict")).toBe(true);
     expect(noStart("っ", "strict")).toBe(true);
     expect(noStart("っ", "loose")).toBe(false);
+    for (const ch of ["ん", "ン"]) {
+      for (const level of ["strict", "normal", "loose"] as const) expect(noStart(ch, level)).toBe(true);
+      expect(noStart(ch, "none")).toBe(false);
+    }
     expect(noEnd("「", "strict")).toBe(true);
   });
   it("keeps bunsetsu together", () => {
@@ -71,6 +75,12 @@ describe("line breaking", () => {
     expect(show("今度なんかおごるから")).toBe("今度|なんか|おごるから");
     expect(show("明日また来るね")).toBe("明日|また|来るね");
     expect(show("いや、ないない")).toBe("いや、|ないない");
+    expect(show("ねえ…聞いてる？")).toBe("ねえ…|聞いてる？");
+    expect(show("さすがにひどいんじゃないですか")).toBe("さすがに|ひどいんじゃ|ないですか");
+    for (const mark of ["…", "‥", "！", "？", "‼", "⁇", "⁈", "⁉"]) {
+      expect(show(`本当${mark}聞いてる？`)).toBe(`本当${mark}|聞いてる？`);
+    }
+    expect(show("")).toBe("");
   });
   it("finds phrase boundaries", () => {
     const b = phraseBoundaries("今日はいい天気ですね");

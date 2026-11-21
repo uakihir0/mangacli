@@ -14,7 +14,7 @@ import type { Node, Paint } from "../render/ir.js";
 import polygonClipping from "polygon-clipping";
 import { BODY_GENERATORS, type BodyGeom, type ShapeParams } from "../shapes/balloon.js";
 import { Contour, type PluginBalloonShape, activePlugins } from "../plugin.js";
-import { type TextLayout, breakFaults, layoutText } from "../text/layout.js";
+import { type TextLayout, layoutText } from "../text/layout.js";
 import { type ElemCtx, silhouetteHit, tag } from "./context.js";
 import { fillNode, inksToNodes, polysToPath } from "./inkir.js";
 import { glyphNodes } from "./glyphs.js";
@@ -130,6 +130,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
   const kind = params.kind === "flash" ? "ellipse" : params.kind;
 
   let scale = 1;
+  let constrainAuto = p.as === "aside";
   for (let attempt = 0; attempt < 12; attempt++) {
     const style = resolveTextStyle({ ...p, fontScale: ((p.fontScale as number) ?? 1) * scale }, u, ctx.lang, true, el.seed);
     const emCtx = { ...u, em: style.fontSize };
@@ -149,7 +150,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
         boxLimit = (style.writing === "vertical" ? ib.h * 0.86 : ib.w * 0.86) - 2 * (style.writing === "vertical" ? padV : padH);
       }
     }
-    if (!fixedBase) {
+    if (!fixedBase && constrainAuto) {
       // keep auto-sized balloons within maxSize: wrap before the line outgrows it (organic bodies lose ~30% to curvature)
       const mx = style.writing === "vertical" ? maxH : maxW;
       const lim = mx === "auto" ? Infinity : mx * 0.72 - 2 * (style.writing === "vertical" ? padV : padH) - 2 * margin;
@@ -168,11 +169,6 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       const inset = (extent: number) => Math.max(0, (extent / 2 + style.fontSize * 0.65) / Math.SQRT2 - extent / 2 - margin);
       padV = Math.min(padV, inset(tl.height));
       padH = Math.min(padH, inset(tl.width));
-    }
-    // a size limit that forces breaks inside phrases: set the text smaller before breaking it badly
-    if (boxLimit !== undefined && !fixedBase && scale > minFontScale + 1e-6 && attempt < 11 && breakFaults(tl, ctx.lang) > breakFaults(layoutText(text, style, ctx.fonts), ctx.lang)) {
-      scale = Math.max(minFontScale, scale - 0.05);
-      continue;
     }
     // a full block of text gets a balloon with a squarer core; a short word a round one
     if (kind === "ellipse" && !(isObj(p.shape) && (p.shape as Obj).squareness !== undefined)) {
@@ -216,7 +212,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       if (kind === "rect" || kind === "none") ar = [0.05, 20];
       else if (style.writing === "horizontal" && defaultAspectRange) ar = [ar[0], Math.max(ar[1], 2.6)];
       const fixedAspect = typeof p.aspect === "number" ? p.aspect : undefined;
-      base = fitBody(kind, params, shapeSeed, withMargin, fixedAspect, ar);
+      base = fitBody(kind, params, shapeSeed, withMargin, fixedAspect, ar, maxW, maxH);
       body = genBody(kind, base.w, base.h, params, shapeSeed);
       // balance text inside the organic contour, then tighten
       let ic = bestOffset(withMargin, body.inner, innerCenterOf(body), boundsOf(body.contour.pts));
@@ -249,11 +245,18 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       if ((maxW !== "auto" && ob.w > maxW + 0.01) || (maxH !== "auto" && ob.h > maxH + 0.01)) fits = false;
       centerOverride = ic;
     }
+    if (!fits && !fixedBase && !constrainAuto) {
+      constrainAuto = true;
+      attempt--;
+      continue;
+    }
     if (!fits && overflow !== "grow" && scale > minFontScale + 1e-6 && overflow !== "clip" && overflow !== "error") {
+      constrainAuto = false;
       scale = Math.max(minFontScale, scale - 0.05);
       continue;
     }
     if (!fits && overflow === "grow" && scale > minFontScale + 1e-6) {
+      constrainAuto = false;
       scale = Math.max(minFontScale, scale - 0.05);
       continue;
     }
@@ -311,7 +314,7 @@ function innerCenterOf(body: BodyGeom): Vec {
   return { x: b.x + b.w / 2, y: b.y + b.h / 2 };
 }
 
-function fitBody(kind: string, params: ShapeParams, seed: number, pts: Vec[], fixedAspect: number | undefined, ar: [number, number]): { w: number; h: number } {
+function fitBody(kind: string, params: ShapeParams, seed: number, pts: Vec[], fixedAspect: number | undefined, ar: [number, number], maxW: number | "auto", maxH: number | "auto"): { w: number; h: number } {
   const ext = pts.reduce((m, q) => Math.max(m, Math.abs(q.x), Math.abs(q.y)), 1);
   const fitsAt = (w: number, h: number) => {
     const b = genBody(kind, w, h, params, seed);
@@ -341,7 +344,11 @@ function fitBody(kind: string, params: ShapeParams, seed: number, pts: Vec[], fi
   const area = (lr: number) => {
     const r = Math.exp(lr);
     const s = minScale(r);
-    return s * s * r;
+    const ob = boundsOf(genBody(kind, s * r, s, params, seed).contour.pts);
+    const excess = Math.max(1, maxW === "auto" ? 1 : ob.w / maxW, maxH === "auto" ? 1 : ob.h / maxH);
+    const footprint = s * s * r;
+    // Feasible contours rank below 1, then by area; oversized contours rank by excess.
+    return excess > 1 ? excess : footprint / (1 + footprint);
   };
   let c = b - gr * (b - a);
   let d = a + gr * (b - a);
