@@ -139,9 +139,11 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect, 
   // visible image bbox (page) = element box ∩ image rect
   const [left, right] = [Math.max(0, dx), Math.min(bw, dx + dw)];
   const [top, bottom] = [Math.max(0, dy), Math.min(bh, dy + dh)];
-  const vis = boundsOf([{ x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom }].map((q) => applyMat(pl.matrix, q)));
+  const visibleShape = (isPlaceholder ? [{ x: 0, y: 0 }, { x: bw, y: 0 }, { x: bw, y: bh }, { x: 0, y: bh }] : [{ x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom }]).map((q) => applyMat(isPlaceholder ? pl.matrix : matMul(pl.matrix, flipM), q));
+  const vis = boundsOf(visibleShape);
   const ref: RefTarget = { id: el.id, type: "image", bbox: vis, anchors, regions, character: (p.character as string) ?? info?.character, panelId: ctx.panel?.panel.id, imagePx: info && !info.missing ? { matrix: pxToPage, assetKey: info.key, w: iw, h: ih } : undefined };
   if (role === "art") ctx.refs.add(ref, el.path[el.path.length - 1] as number);
+  ref.shape = visibleShape;
 
   const nodes: Node[] = [];
   if (isPlaceholder) {
