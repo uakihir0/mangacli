@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 // mangacli command line (spec 12).
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { cac } from "cac";
 import { parse as parseYaml } from "yaml";
-import { type RenderOptions, render, validate } from "../api.js";
+import { GUIDE_COLORS, type RenderOptions, render, validate } from "../api.js";
 import { PDF_X_VERSIONS } from "../output/pdfx.js";
 import { type MangaConfig, findConfig, loadConfig } from "../config.js";
 import { type Diagnostic, MangaError, MangaValidationError } from "../core/diagnostics.js";
-import { defaultFontSet, loadCatalog } from "../fonts/catalog.js";
+import { defaultFontSet, findCatalogFont, loadCatalog } from "../fonts/catalog.js";
 import { defaultFontCacheDir, findLocalCatalogFont } from "../fonts/download.js";
 import { installFonts } from "../fonts/install.js";
 import { listSystemFonts } from "../fonts/system.js";
@@ -532,13 +533,26 @@ async function cmdPreview(file: string, o: Obj): Promise<number> {
     const { errors, warnings } = summarize(diags);
     log("info", `${paint("2", new Date().toLocaleTimeString())} ${pages.length} page(s)${errors ? `, ${errors} error(s)` : ""}${warnings ? `, ${warnings} warning(s)` : ""}`);
   };
+  // line samples in the same colours and dash styles as the guides layer
+  const guideLegend = () => {
+    const line = (color: string, dash: string) => `<svg width="28" height="10" aria-hidden="true"><line x1="1" y1="5" x2="27" y2="5" stroke="${color}" stroke-width="2.5"${dash ? ` stroke-dasharray="${dash}"` : ""}/></svg>`;
+    // the band is translucent over white paper, so sample it on white to match the page
+    const band = `<svg width="28" height="10" aria-hidden="true"><rect x="1" y="0" width="26" height="10" fill="#fff"/><rect x="1" y="0" width="26" height="10" fill="${GUIDE_COLORS.foldBand}" stroke="${GUIDE_COLORS.fold}" stroke-dasharray="3 2"/></svg>`;
+    const items: [string, string][] = [
+      [line(GUIDE_COLORS.trim, ""), t("断裁", "trim")],
+      [line(GUIDE_COLORS.bleed, "2.5 2.5"), t("塗り足し", "bleed")],
+      [line(GUIDE_COLORS.safe, "6 3"), t("安全線", "safe")],
+      [band, t("ノド", "fold")]
+    ];
+    return `<span class="legend">${items.map(([sample, name]) => `<span>${sample}${esc(name)}</span>`).join("")}</span>`;
+  };
   const html = () => `<!doctype html><meta charset="utf-8"><title>mangacli preview</title>
-<style>body{margin:0;background:#3a3a3a;font:13px system-ui;color:#ddd}header{padding:8px 12px;background:#222;position:sticky;top:0;display:flex;gap:16px;align-items:center}header label{margin-left:auto;cursor:pointer}
+<style>@font-face{font-family:mangacli-ui;src:url(/ui-font);font-display:swap}body{margin:0;background:#3a3a3a;font:13px system-ui,"Hiragino Sans","Noto Sans CJK JP","Noto Sans JP","Yu Gothic UI",Meiryo,mangacli-ui,sans-serif;color:#ddd}header{padding:8px 12px;background:#222;position:sticky;top:0;display:flex;gap:16px;align-items:center}header label{margin-left:auto;cursor:pointer}.legend{display:flex;gap:10px;align-items:center}.legend span{display:flex;gap:4px;align-items:center}body:not(.guides) .legend{display:none}
 main{display:flex;flex-wrap:wrap;flex-direction:row-reverse;gap:16px;padding:16px;justify-content:center}figure{margin:0;position:relative}
 img{max-height:85vh;box-shadow:0 2px 12px #0008;background:#fff}figcaption{text-align:center;padding:4px}
 .d{padding:2px 12px}.error{color:#ff8080}.warning{color:#ffd480}.d[data-page]{cursor:pointer}.d.selected{background:#665020}header{z-index:2}.highlight{position:absolute;border:3px solid #ff36b1;box-shadow:0 0 0 1px #fff;pointer-events:none;box-sizing:border-box;z-index:1}</style>
 <header>${esc(relative(process.cwd(), entry))} — ${pages.length} page(s)
-<label title="${esc(t("断裁位置・塗り足し・安全領域の線と見開き中央の危険帯を重ねて表示（塗り足しまで表示）", "Overlay the trim, bleed and safe lines and the spread fold danger band (shows the bleed area)"))}"><input type="checkbox" id="guides"> ${esc(t("ガイド（断裁・塗り足し・安全線・ノド）", "Guides (trim, bleed, safe line, fold)"))}</label></header>
+<label title="${esc(t("断裁位置・塗り足し・安全領域の線と見開き中央の危険帯を重ねて表示（塗り足しまで表示）", "Overlay the trim, bleed and safe lines and the spread fold danger band (shows the bleed area)"))}"><input type="checkbox" id="guides"> ${esc(t("ガイド（断裁・塗り足し・安全線・ノド）", "Guides (trim, bleed, safe line, fold)"))}</label>${guideLegend()}</header>
 <section>${diags.filter((d) => d.severity !== "info").map((d) => {
     let i = -1;
     let overlap = 0;
@@ -557,7 +571,7 @@ img{max-height:85vh;box-shadow:0 2px 12px #0008;background:#fff}figcaption{text-
 <main>${pages.map((p, i) => `<figure><img data-width="${p.width}" data-height="${p.height}" data-src="/page/${i}.${p.ext}?v=${version}"><figcaption>${i + 1} · ${esc(p.id)}</figcaption></figure>`).join("")}</main>
 <script>const box=document.getElementById("guides"),saved=localStorage.getItem("mangacli-guides");
 box.checked=saved===null?${o.guides ? "true" : "false"}:saved==="1";
-const show=()=>{for(const img of document.querySelectorAll("img[data-src]"))img.src=img.dataset.src+(box.checked?"&guides=1":"")};
+const show=()=>{document.body.classList.toggle("guides",box.checked);for(const img of document.querySelectorAll("img[data-src]"))img.src=img.dataset.src+(box.checked?"&guides=1":"")};
 box.onchange=()=>{localStorage.setItem("mangacli-guides",box.checked?"1":"0");show()};show();
 const rows=[...document.querySelectorAll('.d[data-page]')],figures=[...document.querySelectorAll('figure')];
 const frame=document.createElement('div');frame.className='highlight';let selected=null;
@@ -596,6 +610,20 @@ new EventSource("/events").onmessage=()=>location.reload()</script>`;
       void guidedFor(Number(bm[1])).then((p) => {
         res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
         res.end(JSON.stringify({ width: p.width, height: p.height, elements: p.elements }));
+      });
+      return;
+    }
+    if (url.pathname === "/ui-font") {
+      // Japanese fallback for the warning list when the system has no CJK font: the cached catalog Noto Sans JP, never downloaded here
+      void (async () => {
+        const config = await configFor(o, entry);
+        const f = findCatalogFont("noto-sans-jp", 400);
+        const path = f && findLocalCatalogFont(f, { fontDir: config?.fontDir, fontCacheDir: config?.fontCacheDir });
+        return path ? await readFile(path) : undefined;
+      })().catch(() => undefined).then((data) => {
+        if (!data) return void res.writeHead(404).end();
+        res.writeHead(200, { "content-type": "font/ttf", "cache-control": "max-age=86400" });
+        res.end(data);
       });
       return;
     }
