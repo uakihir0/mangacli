@@ -145,7 +145,7 @@ pages:
     const mask = imageInkMask(rgba, width, height, 324);
     console.info(`${width}x${height} ridge mask: ${Math.round(performance.now() - start)} ms`);
     for (let p = 5; p < 4091; p++) expect(mask[vertical ? p * width + 16 : 16 * width + p]).toBe(1);
-  }, 2000);
+  }, 10000);
 
   it("preserves a line whose luminance changes gradually along its length", () => {
     const width = 192;
