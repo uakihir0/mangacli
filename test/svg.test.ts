@@ -84,7 +84,7 @@ describe("SVG print output", () => {
     }
   });
 
-  it("still writes a later valid page after a pixel-limit failure", async () => {
+  it("preflights mono limits before writing any raster or SVG companions", async () => {
     const outDir = mkdtempSync(join(tmpdir(), "mangacli-svg-recovery-"));
     try {
       const r = await render({ yaml: `mangacli: 1
@@ -97,15 +97,15 @@ pages:
         format: ["png", "svg"],
         crop: "trim",
         dpi: 25.4,
-        limits: { maxOutputPixels: 500 },
+        limits: { maxOutputBytes: 32 * 1024 * 1024 + 10_000 },
         throwOnError: false,
         failFast: false,
         outDir,
       });
       expect(r.failures.map((f) => f.pageId)).toEqual(["too-large"]);
       expect(r.diagnostics).toContainEqual(expect.objectContaining({ code: "OUTPUT_TOO_LARGE", severity: "error" }));
-      expect(r.pages.map((p) => [p.id, p.format])).toEqual([["valid", "png"], ["valid", "svg"]]);
-      expect(readdirSync(outDir)).toHaveLength(2);
+      expect(r.pages).toEqual([]);
+      expect(readdirSync(outDir)).toEqual([]);
     } finally {
       rmSync(outDir, { recursive: true, force: true });
     }

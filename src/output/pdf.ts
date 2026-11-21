@@ -6,6 +6,7 @@ import { type PdfXOptions, pdfX4Metadata, xmpText } from "./pdfx.js";
 export interface PdfPageImage {
   /** RGBA pixels */
   rgba: Uint8ClampedArray;
+  packed?: Uint8Array;
   width: number;
   height: number;
   dpi: number;
@@ -74,8 +75,8 @@ export class PdfWriter {
     let img: number;
     if (p.colorMode === "mono") {
       const rowBytes = Math.ceil(w / 8);
-      const raw = Buffer.alloc(rowBytes * h);
-      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (p.rgba[(y * w + x) * 4] >= 128) raw[y * rowBytes + (x >> 3)] |= 0x80 >> (x & 7);
+      const raw = p.packed ?? Buffer.alloc(rowBytes * h);
+      if (!p.packed) for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (p.rgba[(y * w + x) * 4] >= 128) raw[y * rowBytes + (x >> 3)] |= 0x80 >> (x & 7);
       // PDF/X maps the same bits to explicit process inks: 100% K or no ink.
       const colorSpace = this.pdfX ? "[/Indexed /DeviceCMYK 1 <000000FF00000000>]" : "/DeviceGray";
       img = this.stream(`/Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace ${colorSpace} /BitsPerComponent 1 /Filter /FlateDecode`, deflateSync(raw, { level: 6 }));

@@ -17,6 +17,7 @@ export interface EncodeOptions {
   compression?: number;
   chroma?: "4:4:4" | "4:2:2" | "4:2:0";
   tiffCompression?: "lzw" | "deflate" | "ccitt4" | "none" | "jpeg";
+  packed?: Uint8Array;
 }
 
 const CRC_TABLE = (() => {
@@ -45,7 +46,7 @@ function chunk(type: string, data: Uint8Array): Buffer {
 }
 
 /** PNG for 1-bit (mono) or 8-bit gray/gray+alpha from RGBA data */
-export function encodeGrayPng(rgba: Uint8ClampedArray, w: number, h: number, mode: "mono" | "gray", dpi: number, alpha: boolean, meta: Record<string, string> = {}, level = 6): Buffer {
+export function encodeGrayPng(rgba: Uint8ClampedArray, w: number, h: number, mode: "mono" | "gray", dpi: number, alpha: boolean, meta: Record<string, string> = {}, level = 6, packed?: Uint8Array): Buffer {
   const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(w, 0);
@@ -59,7 +60,8 @@ export function encodeGrayPng(rgba: Uint8ClampedArray, w: number, h: number, mod
     for (let y = 0; y < h; y++) {
       const o = y * (rowBytes + 1);
       raw[o] = 0;
-      for (let x = 0; x < w; x++) if (rgba[(y * w + x) * 4] >= 128) raw[o + 1 + (x >> 3)] |= 0x80 >> (x & 7);
+      if (packed) raw.set(packed.subarray(y * rowBytes, (y + 1) * rowBytes), o + 1);
+      else for (let x = 0; x < w; x++) if (rgba[(y * w + x) * 4] >= 128) raw[o + 1 + (x >> 3)] |= 0x80 >> (x & 7);
     }
   } else if (alpha) {
     ihdr[8] = 8;
@@ -100,9 +102,15 @@ export function encodeGrayPng(rgba: Uint8ClampedArray, w: number, h: number, mod
 }
 
 export async function encode(rgba: Uint8ClampedArray, w: number, h: number, o: EncodeOptions): Promise<Buffer> {
-  if (o.format === "png" && (o.colorMode === "mono" || o.colorMode === "gray")) return encodeGrayPng(rgba, w, h, o.colorMode, o.dpi, !!o.transparent, o.metadata, o.compression);
+  if (o.format === "png" && (o.colorMode === "mono" || o.colorMode === "gray")) return encodeGrayPng(rgba, w, h, o.colorMode, o.dpi, !!o.transparent, o.metadata, o.compression, o.packed);
   if (o.colorMode === "mono" && (o.format === "jpeg" || o.format === "webp" || o.format === "avif")) throw new Error(`OUTPUT_MODE_UNSUPPORTED: ${o.format} cannot store 1-bit images`);
   if (o.transparent && (o.format === "jpeg" || (o.format === "tiff" && o.colorMode === "mono"))) throw new Error(`OUTPUT_MODE_UNSUPPORTED: ${o.format} cannot store a transparent background`);
+  if (o.packed && o.format === "tiff") {
+    let img = sharp(encodeGrayPng(rgba, w, h, "mono", o.dpi, false, {}, 6, o.packed), { limitInputPixels: false }).toColourspace("b-w");
+    if (o.metadata && Object.keys(o.metadata).length) img = img.withXmp(xmpPacket(o.metadata));
+    const comp = o.tiffCompression ?? "ccitt4";
+    return img.tiff({ compression: comp === "ccitt4" ? "ccittfax4" : comp === "none" ? "none" : comp === "deflate" ? "deflate" : "lzw", bitdepth: 1, xres: o.dpi / 25.4, yres: o.dpi / 25.4 }).toBuffer();
+  }
   // grey and 1-bit images are written single-channel (with alpha when transparent)
   const grey = o.colorMode === "gray" || o.colorMode === "mono";
   const ch = grey ? (o.transparent ? 2 : 1) : o.transparent ? 4 : 3;

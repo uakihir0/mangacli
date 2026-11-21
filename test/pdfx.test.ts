@@ -115,9 +115,8 @@ describe("PDF/X", () => {
   });
 
   it("does not emit a partial submission document after a page fails", async () => {
-    const r = await render({ yaml: source }, { ...options, pdfX, crop: "trim", limits: { maxOutputPixels: 250_000 }, throwOnError: false });
-    expect(r.failures).toHaveLength(1);
-    expect(r.failures[0].pageId).toBe("spread");
+    const r = await render({ yaml: source.replace("type: spread", "type: spread\n    size: [80mm, 50mm]") }, { ...options, pdfX, crop: "trim", limits: { maxOutputBytes: 40 * 1024 * 1024 }, throwOnError: false });
+    expect(r.failures.map((f) => f.pageId)).toEqual(["spread", "spread"]);
     expect(r.pages).toEqual([]);
   });
 

@@ -161,6 +161,7 @@ async function renderOptions(o: Obj, entry: string): Promise<RenderOptions> {
     pdfX,
     colorMode: oneOf(o.color === true ? undefined : o.color, "--color", ["color", "gray", "mono"] as const),
     dpi: parsePositiveNumber(o.dpi, "--dpi"),
+    limits: { ...config?.limits, ...(o.maxOutputPixels === undefined ? {} : { maxOutputPixels: parsePositiveNumber(o.maxOutputPixels, "--max-output-pixels") }), ...(o.maxOutputBytes === undefined ? {} : { maxOutputBytes: parsePositiveNumber(o.maxOutputBytes, "--max-output-bytes") }) },
     output: oneOf(o.outputSize, "--output-size", ["manuscript", "print"] as const),
     scale: parsePositiveNumber(o.scale, "--scale"),
     width: parsePositiveNumber(o.width, "--width"),
@@ -925,6 +926,8 @@ const renderOpts = (c: ReturnType<typeof cli.command>) =>
     .option("--pdf-x-condition <name>", "Printer's output condition for PDF/X")
     .option("--color <mode>", "color | gray | mono")
     .option("--dpi <n>", "Resolution")
+    .option("--max-output-pixels <n>", "Maximum pixels per output page (split spreads: per side)")
+    .option("--max-output-bytes <n>", "Estimated memory budget for packed 1-bit output (default: 402653184 bytes)")
     .option("--output-size <size>", "manuscript | print")
     .option("--scale <n>", "Scale factor on the design resolution")
     .option("--width <px>", "Output width")

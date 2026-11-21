@@ -8,6 +8,8 @@ import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec
 import { makeBinaryRoundToneSampler, makeToneSampler } from "./screen.js";
 import { distanceSquared } from "./edt.js";
 import { applyFilters } from "./filters.js";
+import { MONO_BAND_PIXELS, packBand, type MonoRaster } from "./mono.js";
+import { setImmediate } from "node:timers/promises";
 import { imageInkMask } from "./image-ink.js";
 import { cropMarkLines } from "./marks.js";
 
@@ -48,6 +50,10 @@ interface Dev {
   scale: number; // px per mm
   W: number;
   H: number;
+  /** Logical device frame; only the destination canvas is offset. */
+  offsetX: number;
+  offsetY: number;
+  clipBounds?: Rect;
 }
 
 function buildPath(pd: PathData): Path2D {
@@ -137,6 +143,107 @@ function clampRect(r: Rect, W: number, H: number): { x: number; y: number; w: nu
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
+export function monoNodeWorkingBytes(list: DisplayList, dpi: number, crop: "trim" | "bleed" | "marks", margin = 10): number {
+  const s = dpi / 25.4, bleed = -list.boxes.bleed.x;
+  const w = Math.round(list.boxes.trim.w * s + 1e-6), h = Math.round(list.boxes.trim.h * s + 1e-6);
+  const edge = (crop === "trim" ? 0 : Math.round(bleed * s + 1e-6)) + (crop === "marks" ? Math.round(margin * s + 1e-6) : 0);
+  const base: Matrix = [w / list.boxes.trim.w, 0, 0, h / list.boxes.trim.h, edge - bleed * w / list.boxes.trim.w, edge - bleed * h / list.boxes.trim.h];
+  const visit = (n: Node, m: Matrix): number => {
+    let bounds = nodeBounds(n, m);
+    if (bounds && n.kind === "image" && n.shadow) {
+      const pad = Math.ceil((Math.abs(n.shadow.dx) + Math.abs(n.shadow.dy) + n.shadow.blur * 2) * s) + 4;
+      bounds = { x: bounds.x - pad, y: bounds.y - pad, w: bounds.w + 2 * pad, h: bounds.h + 2 * pad };
+    }
+    const r = bounds && clampRect(bounds, w + 2 * edge, h + 2 * edge);
+    if (!r) return 0;
+    const pixels = r.w * r.h;
+    if (n.kind === "image") return pixels * 64;
+    if (n.kind === "path") {
+      const p = n.paint;
+      const gray = p?.type === "solid" ? linearToSrgb(luminanceLinear(p.color)) : 0;
+      if (p && ((p.type === "tone" && p.tone.softEdge) || (p.type !== "tone" && p.type !== "solid") || (gray > 0.05 && gray < 0.95))) return pixels * 32;
+      return n.path.some((c) => c[0] === "C" || c[0] === "Q") ? pixels * 8 : 0;
+    }
+    const mm = n.transform ? matMul(m, n.transform) : m;
+    const own = (n.opacity !== undefined && n.opacity < 0.999) || (n.blend && n.blend !== "normal") || n.alphaMaskOf || n.softClip || n.isolate || n.glow ? pixels * 32 : 0;
+    return own + Math.max(0, ...n.children.map((c) => visit(c, mm)));
+  };
+  return visit(list.root, base);
+}
+
+function setDeviceM(dev: Dev, m: Matrix = [1, 0, 0, 1, 0, 0]) {
+  dev.ctx.setTransform(m[0], m[1], m[2], m[3], m[4] - dev.offsetX, m[5] - dev.offsetY);
+}
+
+function clipPath(dev: Dev, pd: PathData, m: Matrix, rule: "nonzero" | "evenodd"): Rect {
+  const b = pathBounds(pd, m);
+  const parent = dev.clipBounds ?? { x: 0, y: 0, w: dev.W, h: dev.H };
+  const x = Math.max(parent.x, Math.floor(b?.x ?? 0));
+  const y = Math.max(parent.y, Math.floor(b?.y ?? 0));
+  const right = Math.min(parent.x + parent.w, Math.ceil(b ? b.x + b.w : 0));
+  const bottom = Math.min(parent.y + parent.h, Math.ceil(b ? b.y + b.h : 0));
+  const bounds = { x, y, w: Math.max(0, right - x), h: Math.max(0, bottom - y) };
+  const ctx = dev.ctx;
+  // Skia's supersampled clip falls back to binary at device coordinate 8192.
+  if (!(dev.offsetX || dev.offsetY) || (right < 8192 && bottom < 8192)) {
+    setDeviceM(dev, m);
+    ctx.clip(buildPath(pd), rule);
+    return bounds;
+  }
+  const hard = new Path2D();
+  const points = pd.length === 5 && pd[4][0] === "Z" && pd.slice(0, 4).every((c, i) => c[0] === (i ? "L" : "M"))
+    ? pd.slice(0, 4).map((c) => applyMat(m, { x: c[1]!, y: c[2]! })) : [];
+  if (new Set(points.map((p) => `${p.x},${p.y}`)).size === 4 && points.every((p, i) => p.x === points[(i + 1) % 4].x || p.y === points[(i + 1) % 4].y)) {
+    const left = Math.round(b!.x), top = Math.round(b!.y);
+    hard.rect(left, top, Math.round(b!.x + b!.w) - left, Math.round(b!.y + b!.h) - top);
+  } else {
+    const left = Math.max(x, dev.offsetX), top = Math.max(y, dev.offsetY);
+    const endX = Math.min(right, dev.offsetX + ctx.canvas.width), endY = Math.min(bottom, dev.offsetY + ctx.canvas.height);
+    if (endX <= left || endY <= top) {
+      setDeviceM(dev);
+      ctx.clip(hard);
+      return bounds;
+    }
+    const vertical = bottom >= 8192;
+    const strip = Math.max(1, Math.min(128, Math.floor(MONO_BAND_PIXELS / (vertical ? dev.H : dev.W))));
+    const mask = createCanvas(vertical ? strip : dev.W, vertical ? dev.H : strip);
+    const mc = mask.getContext("2d");
+    for (let start = vertical ? left : top; start < (vertical ? endX : endY); start += strip) {
+      const tx = vertical ? start : left, ty = vertical ? top : start;
+      const w = Math.min(vertical ? strip : endX - left, endX - tx), h = Math.min(vertical ? endY - top : strip, endY - ty);
+      mc.reset();
+      setM(mc, [m[0], m[1], m[2], m[3], m[4] - (vertical ? tx : 0), m[5] - (vertical ? 0 : ty)]);
+      mc.clip(buildPath(pd), rule);
+      mc.setTransform(1, 0, 0, 1, 0, 0);
+      mc.fillStyle = "#fff";
+      mc.fillRect(0, 0, mask.width, mask.height);
+      const data = mc.getImageData(vertical ? 0 : left, vertical ? top : 0, w, h).data;
+      for (let row = 0; row < h; row++) for (let col = 0; col < w;) {
+        if (!data[(row * w + col) * 4 + 3]) { col++; continue; }
+        const start = col++;
+        while (col < w && data[(row * w + col) * 4 + 3]) col++;
+        hard.rect(tx + start, ty + row, col - start, 1);
+      }
+    }
+    mask.width = mask.height = 1;
+  }
+  setDeviceM(dev);
+  ctx.clip(hard);
+  return bounds;
+}
+
+function blit(dev: Dev, canvas: Canvas, x: number, y: number) {
+  const left = Math.max(0, dev.offsetX - x);
+  const right = Math.min(canvas.width, dev.offsetX + dev.ctx.canvas.width - x);
+  const top = Math.max(0, dev.offsetY - y);
+  const bottom = Math.min(canvas.height, dev.offsetY + dev.ctx.canvas.height - y);
+  if (right > left && bottom > top) dev.ctx.drawImage(canvas, left, top, right - left, bottom - top, x + left, y + top, right - left, bottom - top);
+}
+
+function intersectsViewport(dev: Dev, r: Rect): boolean {
+  return r.x + r.w >= dev.offsetX && r.y + r.h >= dev.offsetY && r.x <= dev.offsetX + dev.ctx.canvas.width && r.y <= dev.offsetY + dev.ctx.canvas.height;
+}
+
 function setM(ctx: SKRSContext2D, m: Matrix) {
   ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
 }
@@ -176,7 +283,7 @@ function drawCropMarks(ctx: SKRSContext2D, trim: { x: number; y: number; w: numb
 export class RasterBackend {
   constructor(private opts: RasterOptions) {}
 
-  async render(list: DisplayList): Promise<RasterResult> {
+  async render(list: DisplayList, viewport?: { x: number; y?: number; width: number; height?: number }): Promise<RasterResult> {
     const o = this.opts;
     const s = o.dpi / 25.4;
     const trimW = list.boxes.trim.w;
@@ -188,31 +295,82 @@ export class RasterBackend {
     const markMm = o.marks?.margin ?? 10;
     const markPx = o.crop === "marks" ? Math.round(markMm * s + 1e-6) : 0;
     const bleedPx = bleedOnly + markPx;
-    const W = trimPxW + 2 * bleedPx;
-    const H = trimPxH + 2 * bleedPx;
+    const W = viewport?.width ?? trimPxW + 2 * bleedPx;
+    const H = viewport?.height ?? trimPxH + 2 * bleedPx;
     if (W * H > (o.maxPixels ?? 200_000_000)) throw new Error(`OUTPUT_TOO_LARGE: ${W}x${H} exceeds maxOutputPixels`);
     const sx = trimPxW / trimW;
     const sy = trimPxH / trimH;
     // display list coords are bleed-origin mm: px = (x - bleed) * sx + bleedPx
     const base: Matrix = [sx, 0, 0, sy, bleedPx - bleed * sx, bleedPx - bleed * sy];
-    const canvas = createCanvas(W, H);
+    // Keep vector antialiasing independent of the canvas edge at the fold.
+    const halo = viewport ? 1 : 0;
+    const topHalo = viewport?.y ? 1 : 0;
+    const bottomHalo = viewport && (viewport.y ?? 0) + H < trimPxH + 2 * bleedPx ? 1 : 0;
+    const canvas = createCanvas(W + 2 * halo, H + topHalo + bottomHalo);
     const ctx = canvas.getContext("2d");
     if (!o.transparent) {
       ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, W, H);
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
-    const dev: Dev = { ctx, base, opts: o, scale: (sx + sy) / 2, W, H };
+    const dev: Dev = { ctx, base, offsetX: (viewport?.x ?? 0) - halo, offsetY: (viewport?.y ?? 0) - topHalo, opts: o, scale: (sx + sy) / 2, W: trimPxW + 2 * bleedPx, H: trimPxH + 2 * bleedPx };
     if (markPx) {
       // artwork stops at the bleed line; the margin holds the crop marks
       ctx.save();
       ctx.beginPath();
-      ctx.rect(markPx, markPx, W - 2 * markPx, H - 2 * markPx);
+      setDeviceM(dev);
+      ctx.rect(markPx, markPx, dev.W - 2 * markPx, dev.H - 2 * markPx);
       ctx.clip();
       await this.drawNode(dev, list.root, base, canvas);
       ctx.restore();
+      ctx.save();
+      setDeviceM(dev);
       if (o.drawMarks !== false) drawCropMarks(ctx, { x: bleedPx, y: bleedPx, w: trimPxW, h: trimPxH }, bleedOnly, s, o.marks);
+      ctx.restore();
     } else await this.drawNode(dev, list.root, base, canvas);
-    return this.result(canvas);
+    const result = this.result(canvas, halo, W, topHalo, H);
+    canvas.width = canvas.height = 1;
+    return result;
+  }
+
+  async renderMono(list: DisplayList, viewport: { x: number; y: number; width: number; height: number }, bandPixels = MONO_BAND_PIXELS): Promise<MonoRaster> {
+    const { width, height } = viewport;
+    const packed = new Uint8Array(Math.ceil(width / 8) * height);
+    const rows = Math.max(1, Math.floor(bandPixels / width));
+    for (let y = 0; y < height; y += rows) {
+      const h = Math.min(rows, height - y);
+      const band = await this.render(list, { ...viewport, y: viewport.y + y, height: h });
+      packBand(packed, width, band.data, h, y);
+      await setImmediate();
+    }
+    return { data: new Uint8ClampedArray(0), packed, width, height };
+  }
+
+  async addMonoMarks(raster: MonoRaster, bleed: number): Promise<MonoRaster> {
+    const s = this.opts.dpi / 25.4;
+    const margin = Math.round((this.opts.marks?.margin ?? 10) * s + 1e-6);
+    const b = Math.round(bleed * s + 1e-6);
+    const width = raster.width + 2 * margin, height = raster.height + 2 * margin;
+    const packed = new Uint8Array(Math.ceil(width / 8) * height);
+    const rows = Math.max(1, Math.floor(MONO_BAND_PIXELS / width));
+    for (let y = 0; y < height; y += rows) {
+      const h = Math.min(rows, height - y);
+      const canvas = createCanvas(width, h);
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, width, h);
+      ctx.translate(0, -y);
+      if (margin && this.opts.drawMarks !== false) drawCropMarks(ctx, { x: margin + b, y: margin + b, w: raster.width - 2 * b, h: raster.height - 2 * b }, b, s, this.opts.marks);
+      packBand(packed, width, this.result(canvas).data, h, y);
+      canvas.width = canvas.height = 1;
+      await setImmediate();
+    }
+    const srcStride = Math.ceil(raster.width / 8), stride = Math.ceil(width / 8);
+    for (let y = 0; y < raster.height; y++) for (let x = 0; x < raster.width; x++) {
+      const dst = (y + margin) * stride + ((x + margin) >> 3), bit = 0x80 >> ((x + margin) & 7);
+      if (raster.packed[y * srcStride + (x >> 3)] & (0x80 >> (x & 7))) packed[dst] |= bit;
+      else packed[dst] &= ~bit;
+    }
+    return { data: new Uint8ClampedArray(0), packed, width, height };
   }
 
   addMarks(raster: { data: Uint8ClampedArray; width: number; height: number }, bleed: number): RasterResult {
@@ -237,11 +395,11 @@ export class RasterBackend {
     return result;
   }
 
-  private result(canvas: Canvas): RasterResult {
+  private result(canvas: Canvas, x = 0, width = canvas.width, y = 0, height = canvas.height): RasterResult {
     const o = this.opts;
-    const W = canvas.width;
-    const H = canvas.height;
-    const img = canvas.getContext("2d").getImageData(0, 0, W, H);
+    const W = width;
+    const H = height;
+    const img = canvas.getContext("2d").getImageData(x, y, W, H);
     const data = img.data;
     if (o.colorMode === "mono") {
       for (let i = 0; i < data.length; i += 4) {
@@ -290,9 +448,8 @@ export class RasterBackend {
     if (!needOff) {
       if (g.clip) {
         ctx.save();
-        setM(ctx, mm);
-        ctx.clip(buildPath(g.clip), g.clipRule ?? "nonzero");
-        for (const c of g.children) await this.drawNode(dev, c, mm, canvas);
+        const clipBounds = clipPath(dev, g.clip, mm, g.clipRule ?? "nonzero");
+        for (const c of g.children) await this.drawNode({ ...dev, clipBounds }, c, mm, canvas);
         ctx.restore();
       } else for (const c of g.children) await this.drawNode(dev, c, mm, canvas);
       return;
@@ -303,7 +460,7 @@ export class RasterBackend {
     const off = createCanvas(r.w, r.h);
     const octx = off.getContext("2d");
     const shift: Matrix = [1, 0, 0, 1, -r.x, -r.y];
-    const sub: Dev = { ...dev, ctx: octx, W: r.w, H: r.h, base: matMul(shift, dev.base) };
+    const sub: Dev = { ...dev, ctx: octx, W: r.w, H: r.h, offsetX: 0, offsetY: 0, clipBounds: undefined, base: matMul(shift, dev.base) };
     const subM = matMul(shift, mm);
     if (g.clip) {
       octx.save();
@@ -357,10 +514,10 @@ export class RasterBackend {
       op = 1;
     }
     ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    setDeviceM(dev);
     ctx.globalAlpha = op;
     ctx.globalCompositeOperation = (g.blend && g.blend !== "normal" ? g.blend : "source-over") as never;
-    ctx.drawImage(off, r.x, r.y);
+    blit(dev, off, r.x, r.y);
     ctx.restore();
   }
 
@@ -370,7 +527,7 @@ export class RasterBackend {
     if (!r) return;
     const source = createCanvas(r.w, r.h);
     const shift: Matrix = [1, 0, 0, 1, -r.x, -r.y];
-    const sub: Dev = { ...dev, ctx: source.getContext("2d"), W: r.w, H: r.h, base: matMul(shift, dev.base), opts: { ...dev.opts, colorMode: "color" } };
+    const sub: Dev = { ...dev, ctx: source.getContext("2d"), W: r.w, H: r.h, offsetX: 0, offsetY: 0, clipBounds: undefined, base: matMul(shift, dev.base), opts: { ...dev.opts, colorMode: "color" } };
     for (const child of g.children) await this.drawNode(sub, child, matMul(shift, mm), source);
 
     const out = createCanvas(r.w, r.h);
@@ -403,8 +560,8 @@ export class RasterBackend {
       ctx.fillRect(0, 0, r.w, r.h);
     }
     dev.ctx.save();
-    dev.ctx.setTransform(1, 0, 0, 1, 0, 0);
-    dev.ctx.drawImage(out, r.x, r.y);
+    setDeviceM(dev);
+    blit(dev, out, r.x, r.y);
     dev.ctx.restore();
   }
 
@@ -471,9 +628,11 @@ export class RasterBackend {
 
   private async drawPath(dev: Dev, n: PathNode, m: Matrix): Promise<void> {
     const ctx = dev.ctx;
+    const bounds = nodeBounds(n, m);
+    if (!bounds || !intersectsViewport(dev, { x: bounds.x - 2, y: bounds.y - 2, w: bounds.w + 4, h: bounds.h + 4 })) return;
     if (n.stroke) {
       ctx.save();
-      setM(ctx, m);
+      setDeviceM(dev, m);
       const st = this.paintStyle(dev, n.stroke.paint);
       if (st) ctx.strokeStyle = st as string;
       ctx.lineWidth = n.stroke.width;
@@ -486,21 +645,49 @@ export class RasterBackend {
     const p = n.paint;
     if (!p) return;
     if (p.type === "tone" || this.needsScreen(dev, p)) return this.drawTone(dev, n, m, p);
+    if ((dev.offsetX || dev.offsetY) && n.path.some((c) => c[0] === "C" || c[0] === "Q")) {
+      const b = pathBounds(n.path, m);
+      const r = b && clampRect(b, dev.W, dev.H);
+      if (!r) return;
+      const off = createCanvas(r.w, r.h);
+      const octx = off.getContext("2d");
+      const path = buildPath(n.path).transform({ a: m[0], b: m[1], c: m[2], d: m[3], e: m[4], f: m[5] });
+      setM(octx, [m[0], m[1], m[2], m[3], m[4] - r.x, m[5] - r.y]);
+      octx.fillStyle = this.paintStyle({ ...dev, ctx: octx }, p) as string;
+      octx.setTransform(1, 0, 0, 1, -r.x, -r.y);
+      octx.fill(path, n.fillRule);
+      ctx.save();
+      setDeviceM(dev);
+      blit(dev, off, r.x, r.y);
+      ctx.restore();
+      off.width = off.height = 1;
+      return;
+    }
     ctx.save();
-    setM(ctx, m);
+    setDeviceM(dev, m);
     const st = this.paintStyle(dev, p);
     if (st) ctx.fillStyle = st as string;
     ctx.fill(buildPath(n.path), n.fillRule);
     ctx.restore();
   }
 
-  private async drawTone(dev: Dev, n: PathNode, m: Matrix, p: Paint): Promise<void> {
+  private async drawTone(dev: Dev, n: PathNode, m: Matrix, p: Paint, tile?: Rect): Promise<void> {
     const ctx = dev.ctx;
     const mode = dev.opts.colorMode;
     const b = pathBounds(n.path, m);
     if (!b) return;
-    const r = clampRect(b, dev.W, dev.H);
+    const r = tile ?? clampRect(b, dev.W, dev.H);
     if (!r) return;
+    if (!tile && p.type === "tone" && !p.tone.softEdge && r.w * r.h > 1_000_000) {
+      // Pointwise screens need no neighboring pixels; retain logical coordinates.
+      const x = Math.max(r.x, dev.offsetX);
+      const end = Math.min(r.x + r.w, dev.offsetX + ctx.canvas.width);
+      if (end <= x) return;
+      const top = Math.max(r.y, dev.offsetY), bottom = Math.min(r.y + r.h, dev.offsetY + ctx.canvas.height);
+      for (let y = top; y < bottom; y += 128)
+        await this.drawTone(dev, n, m, p, { x, y, w: end - x, h: Math.min(128, bottom - y) });
+      return;
+    }
     let spec: ToneSpec;
     let color: RGBA = { r: 0, g: 0, b: 0, a: 1 };
     let densityFn: ((x: number, y: number) => number) | undefined;
@@ -549,11 +736,10 @@ export class RasterBackend {
     const cellPx = (25.4 / Math.max(1, spec.lpi)) * dev.scale;
     const flat = mode !== "mono" && (dev.opts.toneRendering === "flat" || (dev.opts.toneRendering === "auto" && cellPx < 6));
     ctx.save();
-    setM(ctx, m);
-    ctx.clip(buildPath(n.path), n.fillRule);
+    clipPath(dev, n.path, m, n.fillRule);
     if (flat && p.type === "tone" && !spec.gradient && !spec.softEdge) {
       ctx.fillStyle = toneFlatColor(spec, color, mode);
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      setDeviceM(dev);
       ctx.fillRect(r.x, r.y, r.w, r.h);
       ctx.restore();
       return;
@@ -616,13 +802,17 @@ export class RasterBackend {
       }
     }
     octx.putImageData(id, 0, 0);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(off, r.x, r.y);
+    setDeviceM(dev);
+    blit(dev, off, r.x, r.y);
     ctx.restore();
+    off.width = off.height = 1;
   }
 
   private async drawImage(dev: Dev, n: ImageNode, m: Matrix): Promise<void> {
     const ctx = dev.ctx;
+    const bounds = nodeBounds(n, m);
+    const pad = n.shadow ? Math.ceil((Math.abs(n.shadow.dx) + Math.abs(n.shadow.dy) + n.shadow.blur * 2) * dev.scale) + 4 : 2;
+    if (!bounds || !intersectsViewport(dev, { x: bounds.x - pad, y: bounds.y - pad, w: bounds.w + 2 * pad, h: bounds.h + 2 * pad })) return;
     const mm = matMul(m, n.transform ?? [1, 0, 0, 1, 0, 0]);
     const scX = Math.hypot(mm[0], mm[1]);
     const scY = Math.hypot(mm[2], mm[3]);
@@ -679,9 +869,9 @@ export class RasterBackend {
           sctx.putImageData(id, 0, 0);
         }
         ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        setDeviceM(dev);
         ctx.globalAlpha = mono ? 1 : c.a;
-        ctx.drawImage(sc, rr.x, rr.y);
+        blit(dev, sc, rr.x, rr.y);
         ctx.restore();
       }
     }
@@ -720,14 +910,14 @@ export class RasterBackend {
         }
         octx2.putImageData(od, 0, 0);
         ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.drawImage(oc, rr.x, rr.y);
+        setDeviceM(dev);
+        blit(dev, oc, rr.x, rr.y);
         ctx.restore();
       }
     }
     if (!mono && dev.opts.colorMode !== "gray") {
       ctx.save();
-      setM(ctx, k);
+      setDeviceM(dev, k);
       ctx.imageSmoothingEnabled = n.smoothing !== "none";
       ctx.imageSmoothingQuality = n.smoothing === "high" ? "high" : "medium";
       ctx.drawImage(tmp, 0, 0);
@@ -802,8 +992,8 @@ export class RasterBackend {
     }
     octx.putImageData(od, 0, 0);
     ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(off, r.x, r.y);
+    setDeviceM(dev);
+    blit(dev, off, r.x, r.y);
     ctx.restore();
   }
 }
