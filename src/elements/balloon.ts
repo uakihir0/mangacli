@@ -548,7 +548,8 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       continue;
     }
     const gap = t.gap !== undefined ? toMm(t.gap as string, u) : 2 * u.k;
-    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : Math.min(9 * u.k, Math.max(4.5 * u.k, minSide * 0.4));
+    const whisperWedge = plan.props.as === "whisper" && kind === "wedge";
+    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : Math.min(9 * u.k, Math.max((whisperWedge ? 6 : 4.5) * u.k, minSide * 0.4));
     let length: number;
     if (t.length !== undefined) length = toMm(t.length as string, u);
     else if (offSide && target) length = Math.min(maxLen, Math.hypot(target.x - R.x, target.y - R.y));
@@ -585,13 +586,14 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       // a tail always reads as a pointer, even when the speaker's face is right beside the body
       length = Math.min(maxLen, Math.max(4.5 * u.k, avail));
     } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
+    if (whisperWedge && !target && !offSide && t.length === undefined) length = Math.min(maxLen, Math.max(length, 6 * u.k));
     // on a spiky body the tail must outreach the spikes to read as the pointer
     if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.15, 6 * u.k);
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
     // a wedge's base is about a sixth of the body
     const bw0 = Math.min(2.8 * u.k, Math.max(1.6 * u.k, minSide * 0.13));
-    const bwAuto = kind === "zigzag" ? bw0 * 1.5 : offSide ? bw0 : Math.max(bw0, Math.min(minSide / 6, length * 0.6));
+    const bwAuto = kind === "zigzag" ? bw0 * 1.5 : offSide ? bw0 : whisperWedge ? minSide / 6 : Math.max(bw0, Math.min(minSide / 6, length * 0.6));
     const bw = (t.width !== undefined ? toMm(t.width as string, u) : bwAuto) * widthScale;
     // on a spiky body the tail is one more, larger spike of the outline (the shout/scream presets
     // also set bend/sideCurve 0 for straight sides)

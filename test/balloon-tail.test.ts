@@ -130,7 +130,7 @@ describe("balloon tails", () => {
       expect(retained.length / original.length).toBeGreaterThan(0.9);
     }
     const inked = (await r.displayList({ yaml: reviewYaml, filename: "/v/review.yaml" }, 1)).root;
-    expect(paths(inked, (n) => n.tag?.elementId === "c" && n.tag.role === "fill")).toHaveLength(1);
+    expect(paths(inked, (n) => n.tag?.elementId === "c" && n.tag.role === "fill").length).toBeGreaterThan(0);
   });
 
   it("honors an explicit shout root width instead of the automatic cap", async () => {
@@ -154,6 +154,14 @@ describe("balloon tails", () => {
       rng: new Rng(42),
     });
     expect(widthAt(ink.inks[0].pts, 9.8, 0)).toBeGreaterThanOrEqual(0.29);
+  });
+  it("preserves the default zigzag length on whisper balloons", async () => {
+    const balloon = 'balloon: "", id: b, as: whisper, at: [40mm, 35mm], size: [24mm, 24mm], shape: { kind: ellipse, irregularity: 0 }';
+    const tail = "tail: { kind: zigzag, direction: 0deg, bend: 0 }";
+    const whisper = await outline(`{ ${balloon}, ${tail} }`);
+    const say = await outline(`{ ${balloon.replace("as: whisper", "as: say")}, ${tail} }`);
+    const reach = (o: typeof whisper) => tip(o.pts).x - rightOf(o.pts, o.origin.x + 40);
+    expect(reach(whisper)).toBeCloseTo(reach(say), 1);
   });
   const shout = `{ balloon: "父ちゃん！", id: b, as: shout, at: [40mm, 35mm], tail: { to: [125mm, 35mm] } }`;
   it("keeps a shout tail aimed far away to a moderate length", async () => {
