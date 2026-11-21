@@ -31,6 +31,27 @@ async function pixels(png: Uint8Array) {
 }
 
 describe("full-page background images", () => {
+  it.each(["image", "override", "transparent"])("preserves page inversion with a background image (%s)", async (mode) => {
+    const { yaml } = document(underlay);
+    const result = await render({ yaml: yaml.replace("  size:", "  invert: true\n  size:") }, {
+      ...options, colorMode: "color", keepLists: true,
+      ...(mode === "override" ? { background: "white" } : {}),
+      ...(mode === "transparent" ? { transparent: true } : {}),
+    });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    const { data, info } = await sharp(result.pages[0].data).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const at = (y: number) => Array.from(data.subarray(((y + 3) * 10 * info.width + 530) * 4, ((y + 3) * 10 * info.width + 530) * 4 + 4));
+    if (mode === "transparent") {
+      expect(at(25)[3]).toBe(0);
+      expect(at(40)[3]).toBe(0);
+    } else {
+      const artColor = mode === "image" ? 255 : 0;
+      expect(at(25)).toEqual([artColor, artColor, artColor, 255]);
+      expect(at(40)).toEqual([0, 0, 0, 255]);
+    }
+    expect(at(50)).toEqual([0, 0, 0, 255]);
+  });
+
   it("covers bleed, shows through the gutter and frameless panel, and renders a measured white knockout in 1-bit", async () => {
     const input = document(underlay, "gutterFill: none");
     const result = await render(input, options);

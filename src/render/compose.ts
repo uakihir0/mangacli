@@ -32,6 +32,7 @@ import { parseMarkup } from "../text/markup.js";
 import { type AssetRegistry, resolveAssetBlend } from "./assets.js";
 import { cleanClippedBalloonInk } from "./balloon-clip.js";
 import type { DisplayList, GroupNode, Node } from "./ir.js";
+import { FILTER_NAMES, parseFilter } from "./filters.js";
 
 type Obj = Record<string, unknown>;
 
@@ -73,6 +74,7 @@ interface Item {
   listIdx: number;
   free: boolean;
   openClip?: Node["kind"] extends never ? never : import("../geom/path.js").PathData;
+  filterClips?: import("../geom/path.js").PathData[];
   stackUnder?: boolean;
 }
 
@@ -368,6 +370,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       const envelopePoly = [rectPts(envelope).map((p) => [p.x, p.y] as [number, number])];
       const withoutGutters = multiPolyPath(polygonClipping.union(polygonClipping.difference(bleedPoly, envelopePoly), panelUnion));
       it.nodes = [{ kind: "group", clip: withoutGutters, clipRule: "nonzero", children: it.nodes }];
+      (it.filterClips ??= []).push(withoutGutters);
     }
     if (it.el.props.stack !== "art") continue;
     for (const pg of targets) {
@@ -391,6 +394,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       const outside = multiPolyPath(polygonClipping.difference(bleedPoly, interiorUnion));
       const needsBackdrop = (node: Node): boolean => node.kind === "group" && (!!node.blend && node.blend !== "normal" || node.children.some(needsBackdrop));
       it.nodes = [{ kind: "group", clip: outside, clipRule: "nonzero", children: [{ kind: "group", isolate: !it.nodes.some(needsBackdrop), children: it.nodes }] }];
+      (it.filterClips ??= []).push(outside);
     } else it.nodes = [];
   }
 
@@ -423,11 +427,21 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   const free = items.filter((i) => !i.stackUnder);
   free.sort((a, b) => a.z - b.z || a.layer - b.layer || a.source - b.source || a.panelIdx - b.panelIdx || (a.layer === 1 && b.layer === 1 ? b.listIdx - a.listIdx : a.listIdx - b.listIdx));
   for (const it of free) {
-    if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.el.type === "balloon" ? cleanClippedBalloonInk(it.openClip)(it.nodes) : it.nodes });
-    else root.children.push(...it.nodes);
+    let nodes = it.nodes;
+    if (it.source === 0) {
+      const pg = drawOrder[it.panelIdx];
+      if (pg) nodes = compositeNodes(nodes, pg.panel.props, bag, pg.panel.path);
+    }
+    if (nodes !== it.nodes) {
+      for (const clip of it.filterClips ?? []) nodes = [{ kind: "group", clip, clipRule: "nonzero", children: nodes }];
+    }
+    if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.el.type === "balloon" ? cleanClippedBalloonInk(it.openClip)(nodes) : nodes });
+    else root.children.push(...nodes);
   }
   // page numbers
-  root.children.push(...(await nombreNodes(doc, page, geom, o, panels)));
+  const nombre = await nombreNodes(doc, page, geom, o, panels);
+  const pageFiltered = page.settings.invert === true || (Array.isArray(page.settings.filters) && page.settings.filters.length > 0);
+  if (!pageFiltered) root.children.push(...nombre);
   const list: DisplayList = {
     version: 1,
     page: { id: page.id, index: page.index },
@@ -436,6 +450,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     background: bgPaint,
     root: { kind: "group", transform: [1, 0, 0, 1, geom.bleed, geom.bleed], children: [...pageBackground, root] },
   };
+  if (pageFiltered) list.root.children = [...compositeNodes(list.root.children, page.settings, bag, page.path), ...nombre];
   // safe area / fold checks
   checkTextSafety(items.concat(panelNodes.flatMap((p) => p.clipped)), geom, bag, page);
   for (const d of bag.items.slice(diagnosticStart)) d.pageId ??= page.id;
@@ -446,10 +461,36 @@ function rectPts(r: Rect): Vec[] {
   return [{ x: r.x, y: r.y }, { x: r.x + r.w, y: r.y }, { x: r.x + r.w, y: r.y + r.h }, { x: r.x, y: r.y + r.h }];
 }
 
+function compositeNodes(nodes: Node[], props: Obj, bag: DiagnosticBag, path: (string | number)[]): Node[] {
+  const filters = ((props.filters ?? []) as unknown[]).flatMap((f, i) => {
+    const parsed = parseFilter(f);
+    if (parsed && FILTER_NAMES.has(parsed.name)) return [parsed];
+    bag.error("SCHEMA_ENUM", `unknown composite filter ${JSON.stringify(f)}`, { path: [...path, "filters", i] });
+    return [];
+  });
+  if (props.invert === true) filters.push({ name: "invert", args: [] });
+  if (!filters.length) return nodes;
+  const exclude = (props.exclude ?? ["balloons", "text"]) as string[];
+  const kinds: Record<string, string> = { balloon: "balloons", text: "text", sfx: "sfx", effect: "effects", image: "images" };
+  const split = (ns: Node[]): [Node[], Node[]] => {
+    const yes: Node[] = [], no: Node[] = [];
+    for (const node of ns) {
+      if (node.tag && exclude.includes(kinds[node.tag.elementType])) no.push(node);
+      else if (node.kind === "group" && !node.filters?.length) {
+        const [a, b] = split(node.children);
+        if (a.length) yes.push({ ...node, children: a });
+        if (b.length) no.push({ ...node, children: b });
+      } else yes.push(node);
+    }
+    return [yes, no];
+  };
+  const [included, excluded] = split(nodes);
+  return [{ kind: "group", filters, children: included }, ...excluded];
+}
+
 function multiPolyPath(polys: polygonClipping.MultiPolygon) {
   return polys.flatMap((poly) => poly.flatMap((ring) => polyPath(ring.map(([x, y]) => ({ x, y })), true)));
 }
-
 function gutterPath(area: Rect, panels: PanelGeom[], geom: PageGeom) {
   const ring = (poly: Vec[]): polygonClipping.Ring => poly.map(({ x, y }) => [x, y]);
   const outlines = panels.filter(({ panel }) => panel.props.visible !== false).flatMap((pg) => {
@@ -462,7 +503,6 @@ function gutterPath(area: Rect, panels: PanelGeom[], geom: PageGeom) {
   const gaps = polygonClipping.difference([ring(rectPts(area))], ...outlines);
   return gaps.flatMap((poly) => poly.flatMap((r) => polyPath(r.slice(0, -1).map(([x, y]) => ({ x, y })), true)));
 }
-
 function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listIdx: number, source: number, ctx: ElemCtx): Item {
   const clip = el.props.clip;
   const free = source === 1 || clip === "none" || clip === "trim" || isObj(clip) || (el.type === "balloon" && clip !== "panel" && !hasOffscreenTail(el.props));
@@ -559,7 +599,7 @@ function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: Retur
   if (bg) inner.push({ kind: "path", path: polyPath(poly, true), fillRule: "nonzero", paint: bg, tag: { elementId: pg.panel.id, elementType: "panel", role: "background", separation: "background" } });
   const cleanBalloonInk = cleanClippedBalloonInk(clip);
   for (const it of clipped) inner.push(...(it.el.type === "balloon" ? cleanBalloonInk(it.nodes) : it.nodes));
-  out.push({ kind: "group", clip, children: inner, tag: { elementId: pg.panel.id, elementType: "panel", role: "art", separation: "art" } });
+  out.push({ kind: "group", clip, children: compositeNodes(inner, p, bag, pg.panel.path), tag: { elementId: pg.panel.id, elementType: "panel", role: "art", separation: "art" } });
   out.push(...borderNodes(pg, poly, isShaped, geom, bag));
   return out;
 }

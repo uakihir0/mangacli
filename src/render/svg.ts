@@ -1,5 +1,6 @@
 // SVG backend (spec 10.4.4): the display list as vector paths, mm units.
 import sharp from "sharp";
+import type { DiagnosticBag } from "../core/diagnostics.js";
 import { type RGBA, linearToSrgb, srgbToLinear } from "../core/color.js";
 import type { PathData } from "../geom/path.js";
 import { type Matrix, rectInset } from "../geom/vec.js";
@@ -9,6 +10,7 @@ import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec
 import { cropMarkLines } from "./marks.js";
 
 export interface SvgOptions {
+  bag?: DiagnosticBag;
   outputScale?: number;
   marks?: { margin?: number; length?: number; width?: number };
   crop: "trim" | "bleed" | "marks";
@@ -170,6 +172,38 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
 
   const group = async (g: GroupNode): Promise<string> => {
     const attrs: string[] = [];
+    if (g.filters?.length) {
+      const primitives: string[] = [];
+      for (const f of g.filters) {
+        const a = (i: number, key: string, fallback: number) => Number(f.opts?.[key] ?? f.args[i] ?? fallback);
+        const transfer = (attributes: string) => `<feComponentTransfer>${["R", "G", "B"].map((c) => `<feFunc${c} ${attributes}/>`).join("")}</feComponentTransfer>`;
+        switch (f.name) {
+          case "invert": primitives.push(transfer('type="table" tableValues="1 0"')); break;
+          case "grayscale": primitives.push('<feColorMatrix type="saturate" values="0"/>'); break;
+          case "brightness": primitives.push(transfer(`type="linear" slope="${n(a(0, "amount", 1))}"`)); break;
+          case "contrast": {
+            const k = a(0, "amount", 1);
+            primitives.push(transfer(`type="linear" slope="${n(k)}" intercept="${n((128 / 255) * (1 - k))}"`)); break;
+          }
+          case "threshold": {
+            const t = a(0, "level", 0.5);
+            primitives.push('<feColorMatrix type="saturate" values="0"/>');
+            primitives.push(transfer(`type="discrete" tableValues="${Array.from({ length: 256 }, (_, i) => i < t * 255 ? 0 : 1).join(" ")}"`)); break;
+          }
+          case "levels": {
+            const black = a(0, "black", 0), white = a(1, "white", 1), gamma = a(2, "gamma", 1);
+            const values = Array.from({ length: 256 }, (_, i) => n(Math.pow(Math.max(0, Math.min(1, (i / 255 - black) / Math.max(1 / 255, white - black))), 1 / gamma)));
+            primitives.push(transfer(`type="table" tableValues="${values.join(" ")}"`)); break;
+          }
+          default: o.bag?.warn("SVG_FILTER_UNSUPPORTED", `SVG skips composite filter ${f.name}`);
+        }
+      }
+      if (primitives.length) {
+        const fid = id("post");
+        defs.push(`<filter id="${fid}" x="0%" y="0%" width="100%" height="100%" color-interpolation-filters="sRGB">${primitives.join("")}</filter>`);
+        attrs.push(`filter="url(#${fid})"`);
+      }
+    }
     if (g.transform) attrs.push(`transform="${matrix(g.transform)}"`);
     if (g.opacity !== undefined && g.opacity < 1) attrs.push(`opacity="${n(g.opacity)}"`);
     if (g.blend && g.blend !== "normal") attrs.push(`style="mix-blend-mode:${g.blend}"`);
