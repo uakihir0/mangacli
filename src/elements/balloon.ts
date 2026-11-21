@@ -2,7 +2,7 @@
 import { BLACK, WHITE, parseColor } from "../core/color.js";
 import { Rng } from "../core/random.js";
 import { type UnitContext, parseAngle, toMm } from "../core/units.js";
-import { type PathData, distToPolyline, flattenPath, pointInPolygon, polyPath, polygonArea, rayPolygon, transformPath } from "../geom/path.js";
+import { type PathData, distToPolyline, flattenPath, offsetPolygon, pointInPolygon, polyPath, polygonArea, rayPolygon, transformPath } from "../geom/path.js";
 import { type Rect, type Vec, boundsOf, matTranslate, rot } from "../geom/vec.js";
 import type { HandSpec } from "../ink/presets.js";
 import { type ShapeContour, inkShape } from "../ink/shape.js";
@@ -629,6 +629,35 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     const frameSign = offSide === "left" || offSide === "top" ? -1 : 1;
     const frameCut = offSide && target && t.length === undefined && (tipBent[frameAxis] - target[frameAxis]) * frameSign > -offscreenOvershoot;
 
+    const fitTail = (sides: Vec[][], bases: Vec[][], closed: boolean) => {
+      if (!ctx.panelPoly || offSide || t.length !== undefined) return sides;
+      const panel = offsetPolygon(ctx.panelPoly, -0.6 * u.k);
+      const ring = (pts: Vec[]) => [pts.map((p) => [p.x, p.y] as [number, number])];
+      const at = (scale: number) => sides.map((side, j) => side.map((p, i) => ({
+        x: bases[j][i].x + (p.x - bases[j][i].x) * scale,
+        y: bases[j][i].y + (p.y - bases[j][i].y) * scale,
+      })));
+      const fits = (candidate: Vec[][]) => {
+        const pts = candidate.length === 2 ? [...candidate[0], ...candidate[1].slice().reverse()] : candidate[0];
+        if (!pts.every((p) => pointInPolygon(p, panel))) return false;
+        if (closed) return polygonClipping.difference(ring(pts), ring(panel)).length === 0;
+        return pts.every((p, i) => {
+          if (!i) return true;
+          const hit = rayPolygon(pts[i - 1], { x: p.x - pts[i - 1].x, y: p.y - pts[i - 1].y }, panel);
+          return !hit || hit.t >= 1;
+        });
+      };
+      if (fits(sides)) return sides;
+      let lo = 0;
+      let hi = 1;
+      for (let i = 0; i < 20; i++) {
+        const mid = (lo + hi) / 2;
+        if (fits(at(mid))) lo = mid;
+        else hi = mid;
+      }
+      return at(lo);
+    };
+
     if (kind === "bubbles") {
       const count = typeof t.count === "number" ? t.count : 3;
       let size = t.bubbleSize !== undefined ? toMm(t.bubbleSize as string, u) : Math.min(5 * u.k, Math.max(1.5 * u.k, minSide * 0.2));
@@ -661,7 +690,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         const c = quad(R, ctrl, tipBent, tt);
         const r = size / 2;
         const pts = blobPoly(c, r, tc.rng, 28, 0.06).map((q) => ({ x: c.x + (q.x - c.x) * 1, y: c.y + (q.y - c.y) * 0.88 }));
-        extra.push({ pts, closed: true, kind: "bubble" });
+        extra.push({ pts: fitTail([pts], [pts.map(() => R)], true)[0], closed: true, kind: "bubble" });
         if (spread) {
           size *= shrink;
           continue;
@@ -675,7 +704,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     if (kind === "line") {
       const pts: Vec[] = [];
       for (let i = 0; i <= 20; i++) pts.push(quad(R, ctrl, tipBent, i / 20));
-      extra.push({ pts, closed: false, kind: "line" });
+      extra.push({ pts: fitTail([pts], [pts.map(() => R)], false)[0], closed: false, kind: "line" });
       continue;
     }
     // wedge / zigzag: splice into contour
@@ -747,6 +776,13 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       sideA.push({ x: cl.x + (A.p.x - R.x) * f, y: cl.y + (A.p.y - R.y) * f });
       sideB.push({ x: cl.x + (B.p.x - R.x) * f, y: cl.y + (B.p.y - R.y) * f });
     }
+    const base = (side: Vec[], root: Vec) => side.map((_, i) => {
+      const t = i / (side.length - 1);
+      return { x: root.x * (1 - t) + R.x * t, y: root.y * (1 - t) + R.y * t };
+    });
+    const fitted = fitTail([sideA, sideB], [base(sideA, A.p), base(sideB, B.p)], true);
+    sideA.splice(0, sideA.length, ...fitted[0]);
+    sideB.splice(0, sideB.length, ...fitted[1]);
     // new contour: from B forward around to A, then A->tip, tip->B
     const n = cur.pts.length;
     const out: Vec[] = [B.p];
