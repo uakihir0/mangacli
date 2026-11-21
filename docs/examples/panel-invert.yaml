@@ -1,0 +1,19 @@
+mangacli: 1
+meta: { title: 合成後の反転, lang: ja }
+page: { size: [120mm, 80mm], bleed: 0, baseFrame: trim, color: color }
+assets:
+  taro: ./assets/taro/normal.png
+pages:
+  - layout: { rows: [{ cols: [1, 2] }] }
+    panels:
+      - layers:
+          - { image: taro, size: [auto, 80%], at: [50%, 100%], anchor: bottom }
+          - { effect: focus-lines, inner: [35%, 35%] }
+          - { sfx: ドン, at: [30%, 65%], fontSize: 10mm }
+          - { balloon: 通常のコマ, place: top-right, fontSize: 3mm }
+      - invert: true
+        layers:
+          - { image: taro, size: [auto, 80%], at: [50%, 100%], anchor: bottom }
+          - { effect: focus-lines, inner: [35%, 35%] }
+          - { sfx: ドン, at: [30%, 65%], fontSize: 10mm }
+          - { balloon: 吹き出しはそのまま, place: top-right, fontSize: 3mm }

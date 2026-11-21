@@ -294,6 +294,11 @@ const balloonProps = {
 };
 
 const Filter = z.union([z.string(), z.record(z.string(), z.unknown())]);
+const CompositeFilters = {
+  invert: z.boolean().optional(),
+  filters: z.array(Filter).optional(),
+  exclude: z.array(z.enum(["balloons", "text", "sfx", "effects", "images"])).optional(),
+};
 
 const imageProps = {
   ...common,
@@ -330,6 +335,8 @@ const sfxProps = {
   bleed: z.boolean().optional(),
   path: z.object({ kind: z.enum(["line", "arc", "wave", "points"]), angle: Angle.optional(), radius: Length.optional(), amplitude: Length.optional(), wavelength: Length.optional(), points: z.array(z.tuple([Length, Length])).optional() }).strict().optional(),
   grow: z.number().optional(),
+  smallKanaScale: z.number().min(0.1).max(1).optional(),
+  brush: z.union([z.literal(false), z.object({ style: z.enum(["impact", "speed"]).optional(), taper: z.number().min(0).max(2).optional(), entry: z.number().min(0).max(2).optional(), wobble: z.number().min(0).max(0.2).optional() }).strict()]).optional(),
   perChar: z.object({ rotate: RangeOf(Angle).optional(), scale: RangeOf(z.number()).optional(), jitter: Length.optional() }).strict().optional(),
   chars: z.array(z.object({ index: z.number().int(), rotate: Angle.optional(), scale: z.number().optional(), offset: z.tuple([Length, Length]).optional(), color: ColorStr.optional() }).strict()).optional(),
   distort: z.object({ roughen: z.number().optional(), warp: z.number().optional(), skew: Angle.optional(), perspective: z.tuple([z.number(), z.number()]).optional(), bulge: z.number().optional() }).strict().optional(),
@@ -441,6 +448,7 @@ const BorderShape = z.object({ kind: z.enum(["rect", "ellipse", "cloud", "rounde
 
 const Panel = z
   .object({
+    ...CompositeFilters,
     id: z.string().optional(),
     box: Rect.optional(),
     polygon: z.array(z.tuple([Length, Length])).optional(),
@@ -512,6 +520,7 @@ const PageBackground = z.union([
 ]);
 
 const pageSettings = {
+  ...CompositeFilters,
   size: z.union([z.string(), z.tuple([Length, Length])]).optional(),
   orientation: z.enum(["portrait", "landscape"]).optional(),
   units: z.enum(["mm", "px", "pt", "in", "cm"]).optional(),
@@ -532,6 +541,7 @@ const printSettingsValid = (value: { printScale?: number; printSize?: unknown })
 
 const Page = z
   .object({
+    ...CompositeFilters,
     ...pageSettings,
     id: z.string().optional(),
     type: z.enum(["page", "spread", "blank", "strip"]).optional(),

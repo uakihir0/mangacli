@@ -488,14 +488,11 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   const outputRuns = hasPsd ? [...regularRuns, { name: undefined, formats: psdFormats }] : regularRuns;
   // Transparent output omits the page ground (panel grounds stay; spec 10.15).
   const bgOverride = options.background ?? (typeof docOutput.background === "string" ? docOutput.background : undefined);
-  const notPageBackground = (node: Node) => !(node.tag?.elementType === "page" && node.tag.role === "background");
   const withBackground = (list: DisplayList, geom: import("./layout/page.js").PageGeom): DisplayList => {
     if (!bgOverride || bgOverride === "transparent") return list;
     const paint = parsePaint(bgOverride, { u: geom.units, box: list.boxes.bleed, seed: resolved.seed, bag, path: ["output", "background"] });
     if (!paint) return list;
-    const kids = list.root.children.filter(notPageBackground);
-    const bgNode: Node = { kind: "path", path: polyPath([{ x: list.boxes.bleed.x, y: list.boxes.bleed.y }, { x: list.boxes.bleed.x + list.boxes.bleed.w, y: list.boxes.bleed.y }, { x: list.boxes.bleed.x + list.boxes.bleed.w, y: list.boxes.bleed.y + list.boxes.bleed.h }, { x: list.boxes.bleed.x, y: list.boxes.bleed.y + list.boxes.bleed.h }], true), fillRule: "nonzero", paint, tag: { elementId: list.page.id, elementType: "page", role: "background", separation: "background" } };
-    return { ...list, background: paint, root: { ...list.root, children: [bgNode, ...kids] } };
+    return withPageBackground(list, paint);
   };
   const transparentOut = options.transparent ?? (bgOverride === "transparent" ? true : undefined) ?? prof.transparent ?? false;
   let pdfX: ConstructorParameters<typeof PdfWriter>[1];
@@ -674,7 +671,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       if (!prepared.has(pl.idx)) list = withBackground(list, info.geom);
       if (transparentOut && regularFormats.length && (options.colorMode ?? prof.colorMode) === "mono") bag.error("OUTPUT_MODE_UNSUPPORTED", "1-bit output cannot have a transparent background", { pageId: page.id });
       if (transparentOut && formats.some((f) => f === "jpeg")) bag.error("OUTPUT_MODE_UNSUPPORTED", "jpeg cannot store a transparent background", { pageId: page.id });
-      if (transparentOut) list = { ...list, background: null, root: { ...list.root, children: list.root.children.filter(notPageBackground) } };
+      if (transparentOut) list = withPageBackground(list, null);
       result.layout.push(info);
       if (options.keepLists) (result.lists ??= []).push(list);
       if (bag.hasErrors && throwOnError) throw errorFor(bag.items);
@@ -796,7 +793,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
               continue;
             }
             const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, compression: prof.compression, chroma: prof.chroma, tiffCompression: prof.tiffCompression, transparent: transparentOut || !!run.list, metadata: prof.metadata === false ? {} : { Software: `mangacli ${PKG_VERSION}`, Title: String(meta.title ?? ""), ...(meta.author ? { Author: String(meta.author) } : {}), ...(meta.copyright ? { Copyright: String(meta.copyright) } : {}), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed), ...(sourceHash ? { "mangacli:source-hash": sourceHash } : {}) } };
-            const svgOptions = { crop, marks, splitSide: splitSvg ? part.side as "left" | "right" : undefined, assets, colorMode, imageDpi: rasterDpi, maxImageDpi: 300, outputScale };
+            const svgOptions = { bag, crop, marks, splitSide: splitSvg ? part.side as "left" | "right" : undefined, assets, colorMode, imageDpi: rasterDpi, maxImageDpi: 300, outputScale };
             const data = fmt === "psd" ? psds.get(part.side)!.build()
               : fmt === "svg" ? Buffer.from(await renderSvg(list, svgOptions))
               : await encode(raster.data, raster.width, raster.height, { ...enc, packed: raster.packed });
@@ -893,6 +890,28 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
     throw new MangaRenderError(codes[0] ?? "RENDER_FAILED", msg, bag.items, result.failures);
   }
   return result;
+}
+
+function withPageBackground(list: DisplayList, paint: DisplayList["background"]): DisplayList {
+  let found = false;
+  const replace = (nodes: Node[]): Node[] => nodes.flatMap((node): Node[] => {
+    if (node.tag?.elementType === "page" && node.tag.role === "background") {
+      if (found) return [];
+      found = true;
+      return paint && node.kind === "path" ? [{ ...node, paint }] : [];
+    }
+    return [node.kind === "group" ? { ...node, children: replace(node.children) } : node];
+  });
+  let children = replace(list.root.children);
+  if (paint && !found) {
+    const { x, y, w, h } = list.boxes.bleed;
+    const background: Node = { kind: "path", path: polyPath([{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }], true), fillRule: "nonzero", paint, tag: { elementId: list.page.id, elementType: "page", role: "background", separation: "background" } };
+    const first = children[0];
+    children = first?.kind === "group" && first.filters?.length
+      ? [{ ...first, children: [background, ...first.children] }, ...children.slice(1)]
+      : [background, ...children];
+  }
+  return { ...list, background: paint, root: { ...list.root, children } };
 }
 
 /** the exception class for a set of error diagnostics (spec 11.9.1) */

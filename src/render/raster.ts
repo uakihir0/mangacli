@@ -444,7 +444,7 @@ export class RasterBackend {
       if (this.visible(g)) await this.drawGlow(dev, g, g.glow, m, mm);
       return;
     }
-    const needOff = (g.opacity !== undefined && g.opacity < 0.999) || (g.blend && g.blend !== "normal") || !!g.alphaMaskOf || !!g.softClip || !!g.isolate;
+    const needOff = !!g.filters?.length || (g.opacity !== undefined && g.opacity < 0.999) || (g.blend && g.blend !== "normal") || !!g.alphaMaskOf || !!g.softClip || !!g.isolate;
     if (!needOff) {
       if (g.clip) {
         ctx.save();
@@ -488,6 +488,12 @@ export class RasterBackend {
         octx.restore();
       }
     }
+    if (g.filters?.length) {
+      const pixels = octx.getImageData(0, 0, r.w, r.h);
+      const filtered = await applyFilters({ data: pixels.data, width: r.w, height: r.h }, g.filters, 1 / dev.scale);
+      pixels.data.set(filtered.data);
+      octx.putImageData(pixels, 0, 0);
+    }
     let op = g.opacity ?? 1;
     if (dev.opts.colorMode === "mono" && (op < 0.999 || g.softClip)) {
       // screen the (partial) coverage into dots instead of grey edges
@@ -514,6 +520,10 @@ export class RasterBackend {
       op = 1;
     }
     ctx.save();
+    if (g.clip && g.filters?.length) {
+      setDeviceM(dev, mm);
+      ctx.clip(buildPath(g.clip), g.clipRule ?? "nonzero");
+    }
     setDeviceM(dev);
     ctx.globalAlpha = op;
     ctx.globalCompositeOperation = (g.blend && g.blend !== "normal" ? g.blend : "source-over") as never;
@@ -645,7 +655,9 @@ export class RasterBackend {
     const p = n.paint;
     if (!p) return;
     if (p.type === "tone" || this.needsScreen(dev, p)) return this.drawTone(dev, n, m, p);
-    if ((dev.offsetX || dev.offsetY) && n.path.some((c) => c[0] === "C" || c[0] === "Q")) {
+    if (dev.offsetX || dev.offsetY) {
+      // Skia's antialiasing depends on the absolute device position, so on a split viewport
+      // every fill is drawn offscreen in logical page pixels to match the joined page.
       const b = pathBounds(n.path, m);
       const r = b && clampRect(b, dev.W, dev.H);
       if (!r) return;

@@ -83,6 +83,30 @@ describe("spanning elements", () => {
     }
   });
 
+  it.each([
+    { filters: [], stack: "over" },
+    { filters: ["blur(20)"], stack: "over" },
+    { filters: [], stack: "art" },
+    { filters: ["blur(20)"], stack: "art" },
+  ])("keeps open panel spans out of gutters with $stack stacking and filters $filters", async ({ filters, stack }) => {
+    const doc = parse(scene("left, right", stack));
+    delete doc.pages[0].layout;
+    doc.page.baseFrame = "trim";
+    doc.pages[0].panels = [
+      { id: "a", box: ["10mm", "10mm", "35mm", "60mm"], border: "none", filters },
+      { id: "b", box: ["55mm", "10mm", "35mm", "60mm"], border: "none" },
+    ];
+    doc.pages[0].panels[0].layers = doc.pages[0].layers;
+    delete doc.pages[0].layers;
+    const result = await render(doc, { format: "png", dpi: 127, colorMode: "gray", crop: "trim" });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    const { data, info } = await sharp(result.pages[0].data).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const at = (x: number) => data[(200 * info.width + Math.round(x * 5)) * info.channels];
+    expect(at(25)).toBeLessThan(10);
+    expect(at(5)).toBeLessThan(128);
+    for (const x of [46, 50, 54]) expect(at(x), `gutter x=${x}`).toBeGreaterThan(250);
+  });
+
   it.each(["png", "svg"] as const)("keeps curved top breakouts continuous in %s", async (format) => {
     const doc = parse(scene("top", "over", "a"));
     doc.pages[0].panels[0].shape = { kind: "ellipse" };
