@@ -1,0 +1,29 @@
+mangacli: 1
+page:
+  size: B5
+  color: mono
+  baseFrame: { margins: { top: 32mm, bottom: 16mm, inner: 16mm, outer: 16mm } }
+  gutter: { row: 5mm, col: 3mm }
+output: { metadata: false }
+assets:
+  figure: { src: assets/span-figure.png }
+pages:
+  - layout:
+      rows:
+        - { cols: [1], height: 1.1 }
+        - { cols: [1], height: 0.8 }
+        - { cols: [1], height: 1.1 }
+    layers:
+      - image: figure
+        id: spanning-figure
+        size: [auto, 260mm]
+        fit: contain
+        at: [65%, 250mm]
+        anchor: bottom
+        clip: { to: [p-top, p-middle, p-bottom], open: [top] }
+        stack: art
+        outline: 0.8mm white
+    panels:
+      - { id: p-top }
+      - { id: p-middle }
+      - { id: p-bottom }
