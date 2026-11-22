@@ -161,6 +161,9 @@ export function parseLayoutText(text: string, style: TextStyle, balloonPhraseBre
         parsed.units.push(units[i++]);
       }
     }
+    if (style.normalize.dropTrailingPeriod) {
+      parsed.units = parsed.units.filter((unit, i, units) => !(unit.kind === "char" && unit.ruby === undefined && unit.ch === "。" && (i === units.length - 1 || units[i + 1].kind === "break")));
+    }
   }
   if (style.writing === "vertical") assignTcy(parsed.units, style.tcy, style.latin);
   return parsed;

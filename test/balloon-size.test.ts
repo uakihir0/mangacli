@@ -108,6 +108,13 @@ describe("balloon text extent sizing", () => {
   it("preserves half-width word spaces", async () => {
     expect((await plan("hello world", "horizontal", { wrap: "none" })).text.lines).toHaveLength(1);
   });
+  it.each(["はい。　次。", "はい。　次。　", "はい。　　次。　　"])("drops trailing periods at phrase breaks: %s", async (text) => {
+    const actual = await plan(text, "vertical", { normalize: { dropTrailingPeriod: true } });
+    expect(actual.text).toEqual((await plan("はい\n次")).text);
+  });
+  it("preserves periods at phrase breaks when dropping is disabled", async () => {
+    expect((await plan("はい。　次。　", "vertical", { normalize: { dropTrailingPeriod: false } })).text.lines.map(line => line.text)).toEqual(["はい。", "次。"]);
+  });
   it.each([
     '<ruby="よみ　かた">漢字</ruby>',
     '<ruby text="よみ　かた">漢字</ruby>',
