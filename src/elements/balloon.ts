@@ -75,6 +75,7 @@ function shapeParams(props: Obj, rng: Rng, hand: HandSpec, u: UnitContext): Shap
   const irr = (typeof s.irregularity === "number" ? s.irregularity : 0.35) / 0.35 * hand.irregularity;
   return {
     kind: String(s.kind ?? "ellipse"),
+    unitScale: u.k,
     irregularity: irr * (hand.irregularity > 0 ? 1 : 0),
     tilt: hand.irregularity > 0 ? tilt : 0,
     squareness: s.squareness as number | undefined,
@@ -136,7 +137,7 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
   const rng = new Rng(el.seed);
   const hand = resolveHand(p.hand, u, ctx.draft);
   const params = shapeParams(p, rng, hand, u);
-  if (fallback?.depth !== undefined) params.depth = fallback.depth;
+  if (fallback?.depth !== undefined) params.spikeScale = Math.min(1, fallback.depth / (params.kind === "burst" ? 0.4 : 0.2));
   if (fallback && (params.count === undefined || params.count === "auto")) params.count = 40;
   if (fallback) params.compactCore = true;
   if (!BODY_GENERATORS[params.kind] && !activePlugins()?.shapes.has(params.kind)) ctx.bag.error("SCHEMA_ENUM", `unknown balloon shape "${params.kind}"`, { path: [...el.path, "shape"] });
@@ -729,8 +730,11 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
       length = Math.min(maxLen, Math.max(4.5 * u.k, avail));
     } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
     if (whisperWedge && !target && !offSide && t.length === undefined) length = Math.min(maxLen, Math.max(length, 6 * u.k));
-    // on a spiky body the tail must outreach the spikes to read as the pointer
-    if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.15, 6 * u.k);
+    if (!offSide && kind === "wedge" && t.length === undefined && plan.body.spikeLength !== undefined) {
+      const coreHit = rayPolygon({ x: 0, y: 0 }, rootDir, plan.body.spikeCore ?? plan.body.inner);
+      const extension = coreHit ? hit.t - coreHit.t : 0;
+      length = Math.min(maxLen, Math.max(0.5 * plan.body.spikeLength, 1.5 * plan.body.spikeLength - extension));
+    }
     tailLength = length;
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
