@@ -473,7 +473,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     const flashbackPanels = panels.filter((pg) => pg.panel.props.mood === "flashback" && pg.panel.props.visible !== false && pg.polygon.length >= 3 && Math.abs(polygonArea(pg.polygon)) > 1e-8);
     const regions = flashbackPanels.flatMap((pg) => flashbackRegion(pg, panels, area, page, geom));
     if (regions.length) {
-      const interiors = flashbackPanels.map((pg) => [pg.polygon.map(({ x, y }) => [x, y] as [number, number])]);
+      const interiors = panelOutlines(panels, geom);
       const surround = polygonClipping.difference(polygonClipping.union(regions[0], ...regions.slice(1)), ...interiors);
       pageBackground.push({ kind: "path", path: multiPolyPath(surround), fillRule: "nonzero", paint: { type: "solid", color: BLACK }, tag: bgTag });
     }
@@ -612,14 +612,18 @@ function flashbackRegion(pg: PanelGeom, panels: PanelGeom[], area: Rect, page: R
   }
   return polygonClipping.intersection(polygonClipping.union(pieces[0], ...pieces.slice(1)), [ring(rectPts(geom.bleedBox))]);
 }
-function gutterPath(area: Rect, panels: PanelGeom[], geom: PageGeom) {
+function panelOutlines(panels: PanelGeom[], geom: PageGeom): polygonClipping.Polygon[] {
   const ring = (poly: Vec[]): polygonClipping.Ring => poly.map(({ x, y }) => [x, y]);
-  const outlines = panels.filter(({ panel }) => panel.props.visible !== false).flatMap((pg) => {
+  return panels.filter(({ panel }) => panel.props.visible !== false).flatMap((pg) => {
     const poly = panelShapePoly(pg, geom);
     if (poly.length < 3) return [];
     const contour = poly === pg.polygon ? poly : flattenPath(panelClip(pg, poly), 0.05)[0].pts;
     return [[ring(contour)]];
   });
+}
+function gutterPath(area: Rect, panels: PanelGeom[], geom: PageGeom) {
+  const ring = (poly: Vec[]): polygonClipping.Ring => poly.map(({ x, y }) => [x, y]);
+  const outlines = panelOutlines(panels, geom);
   if (outlines.length === 0) return [];
   const gaps = polygonClipping.difference([ring(rectPts(area))], ...outlines);
   return gaps.flatMap((poly) => poly.flatMap((r) => polyPath(r.slice(0, -1).map(([x, y]) => ({ x, y })), true)));

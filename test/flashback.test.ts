@@ -2,7 +2,7 @@ import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { render } from "../src/api.js";
 import { DiagnosticBag } from "../src/core/diagnostics.js";
-import { polygonArea } from "../src/geom/path.js";
+import { pointInPolygon, polygonArea } from "../src/geom/path.js";
 import { resolveDocument } from "../src/model/resolve.js";
 import { Document } from "../src/schema/schema.js";
 
@@ -19,6 +19,27 @@ async function sample(input: Record<string, unknown>, dpi = 254) {
 }
 
 describe("flashback mood", () => {
+  it.each(["ellipse", "cloud", "rounded"])("paints black up to the rendered %s flashback outline", async (shape) => {
+    const { at } = await sample({ mangacli: 1, page: settings, pages: [{ layout, panels: [{ mood: "flashback", shape: { kind: shape, radius: "6mm" } }, {}, {}, {}] }] });
+    expect(at(44, 11)).toBe(0);
+    expect(at(56, 23)).toBe(255);
+  });
+
+  it.each(["12mm", "-12mm"])("preserves underlay inside a normal panel bled across a %s slant", async (slant) => {
+    const art = await sharp({ create: { width: 80, height: 80, channels: 3, background: "white" } }).png().toBuffer();
+    const result = await render({ mangacli: 1, page: { ...settings, gutterFill: "none", background: { image: "art", fit: "cover", bleed: "all" } }, assets: { art: { src: "art.png", kind: "background" } }, pages: [{ layout: { rows: [{ cols: [1, 1], colSlant: [slant] }] }, panels: [{ mood: "flashback" }, { bleed: ["top"], background: "none", border: "none" }] }] }, { ...options, assets: { art } });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    const normal = result.layout[0].panels[1].polygon;
+    const { data, info } = await sharp(result.pages[0].data).extractChannel(0).raw().toBuffer({ resolveWithObject: true });
+    let checked = 0;
+    for (let y = -1; y < 10; y++) for (let x = 11; x < 69; x++) {
+      if (![[-0.4, -0.4], [0.4, -0.4], [-0.4, 0.4], [0.4, 0.4]].every(([dx, dy]) => pointInPolygon({ x: x + dx, y: y + dy }, normal))) continue;
+      expect(data[(y + 3) * 10 * info.width + (x + 3) * 10], `underlay at ${x},${y}`).toBe(255);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(100);
+  });
+
   it.each(["split", "rows", "page"])("covers the full unitless numeric %s gutter", async (source) => {
     const numericLayout = source === "split" ? { split: "cols", gutter: 8, children: ["panel", "panel"] } : { rows: [{ cols: [1, 1], ...(source === "rows" ? { gutter: { col: 8 } } : {}) }] };
     const { at } = await sample({ mangacli: 1, page: { ...settings, ...(source === "page" ? { gutter: 8 } : {}) }, pages: [{ layout: numericLayout, panels: [{ mood: "flashback" }, {}] }] });
