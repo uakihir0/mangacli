@@ -138,6 +138,24 @@ pages:
     expect(bbox.y + bbox.h).toBeLessThanOrEqual(47);
     expect(r.diagnostics.some(d => d.code === "BALLOON_NO_SPACE")).toBe(false);
   });
+
+  it("preserves the flow gap when grown dialogue cannot fit below the previous row", async () => {
+    const r = await validate(yaml(`mangacli: 1
+defaults:
+  balloon: { fontSize: 5mm, autoPlace: flow }
+pages:
+  - panels:
+      - coords: page
+        box: [20mm, 25mm, 65mm, 65mm]
+        layers:
+          - { balloon: やあ, id: upper, size: [60mm, 26mm], shape: rect, tails: [] }
+          - { balloon: "この吹き出しは指定された大きさに収まりません", id: lower, clip: panel, maxSize: [10mm, 10mm], tails: [] }
+`));
+    expect(r.ok).toBe(true);
+    const [upper, lower] = ["upper", "lower"].map(id => r.layout[0].elements.find(el => el.id === id)!.bbox);
+    expect(lower.y).toBeGreaterThanOrEqual(upper.y + upper.h + 0.8);
+    expect(r.diagnostics).toContainEqual(expect.objectContaining({ code: "BALLOON_NO_SPACE", elementId: "lower" }));
+  });
 });
 
 describe("rendering", () => {
