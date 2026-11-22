@@ -25,6 +25,12 @@ const warnings = async (doc: ReturnType<typeof input>) => {
 };
 
 describe("panel occlusion", () => {
+  it("checks lettering in nested transformed groups", async () => {
+    const group = `{ type: group, id: outer, size: [100mm, 100mm], at: [50mm, 50mm], anchor: top-left, clip: panel, children: [{ type: group, children: [${sfx.replace("60mm, 60mm", "10mm, 10mm")}] }] }`;
+    expect(await warnings(input(group))).toEqual([expect.objectContaining({ elementId: "sound" })]);
+    expect(await warnings(input(group.replace("50mm, 50mm", "120mm, 120mm")))).toEqual([]);
+    expect(await warnings(input(group, "inset"))).toEqual([]);
+  });
   it.each(["sfx", "text", "balloon"])("warns for %s beneath an inset", async (type) => {
     expect(await warnings(input(sfx.replace("sfx:", `${type}:`)))).toEqual([
       expect.objectContaining({ severity: "warning", elementId: "sound", pageId: "p1", path: ["pages", 0, "panels", 0, "layers", 0], message: "sound is covered by panel inset" }),
