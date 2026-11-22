@@ -1,5 +1,6 @@
 // Balloons: sizing, tails, inking (spec 6).
 import { BLACK, WHITE, parseColor } from "../core/color.js";
+import { DiagnosticBag } from "../core/diagnostics.js";
 import { Rng } from "../core/random.js";
 import { type UnitContext, parseAngle, toMm } from "../core/units.js";
 import { type PathData, distToPolyline, flattenPath, pointInPolygon, polyPath, polygonArea, rayPolygon, transformPath } from "../geom/path.js";
@@ -103,11 +104,16 @@ function pluginBody(kind: string, def: PluginBalloonShape, w: number, h: number,
 
 /** Plan a balloon: layout text & fit body (no position yet). */
 export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
+  return planBalloonWithFit(el, ctx);
+}
+
+function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: number; depth?: number }): BalloonPlan {
   const p = el.props;
   const u = ctx.u;
   const rng = new Rng(el.seed);
   const hand = resolveHand(p.hand, u, ctx.draft);
   const params = shapeParams(p, rng, hand, u);
+  if (fallback?.depth !== undefined) params.depth = fallback.depth;
   if (!BODY_GENERATORS[params.kind] && !activePlugins()?.shapes.has(params.kind)) ctx.bag.error("SCHEMA_ENUM", `unknown balloon shape "${params.kind}"`, { path: [...el.path, "shape"] });
   const shapeSeed = rng.nextU32();
   const text = textValue(p.text, ctx.lang, ctx.defaultLang, () => ctx.bag.warn("TEXT_MISSING_TRANSLATION", `no "${ctx.lang}" text`, { path: el.path, elementId: el.id }));
@@ -157,6 +163,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       const lim = mx === "auto" ? Infinity : mx * 0.72 - 2 * (style.writing === "vertical" ? padV : padH) - 2 * margin;
       if (isFinite(lim)) boxLimit = Math.min(boxLimit ?? Infinity, Math.max(lim, style.fontSize * 4.5));
     }
+    if (fallback) boxLimit = Math.min(boxLimit ?? Infinity, style.fontSize * fallback.lineEm + 1e-6);
     let tl = layoutText(text, style, ctx.fonts, boxLimit);
     if (p.as === "aside") {
       const pts = tl.glyphs.flatMap(g => flattenPath(g.path).flatMap(q => q.pts));
@@ -208,6 +215,7 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
     } else {
       let ar = (p.aspectRange as [number, number]) ?? [0.55, 1.8];
       const defaultAspectRange = el.builtinProps?.includes("aspectRange") ?? p.aspectRange === undefined;
+      if (fallback && defaultAspectRange) ar = [0.1, 10];
       if (compact && defaultAspectRange) ar = [0.15, 6.7];
       // a box follows its text block; horizontal lines make wider balloons than vertical columns
       if (kind === "rect" || kind === "none") ar = [0.05, 20];
@@ -260,6 +268,17 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
       constrainAuto = false;
       scale = Math.max(minFontScale, scale - 0.05);
       continue;
+    }
+    if (!fits && !fallback && !fixedSize && p.overflow === undefined && (kind === "spike" || kind === "burst")) {
+      const depths = params.depth === undefined ? [undefined, 0.22, 0.14] : [undefined];
+      for (const depth of depths) for (const lineEm of [3, 2, 1]) {
+        const bag = new DiagnosticBag();
+        const candidate = planBalloonWithFit(el, { ...ctx, bag }, { lineEm, depth });
+        if ((maxW === "auto" || candidate.outer.w <= maxW + 0.01) && (maxH === "auto" || candidate.outer.h <= maxH + 0.01)) {
+          for (const diagnostic of bag.items) ctx.bag.add(diagnostic);
+          return candidate;
+        }
+      }
     }
     if (!fits) {
       if (overflow === "grow") ctx.bag.warn("BALLOON_TOO_LARGE", `balloon ${el.id} exceeds maxSize`, { path: el.path, elementId: el.id });
