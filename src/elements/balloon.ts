@@ -1022,6 +1022,10 @@ function buildBody(plan: BalloonPlan, ctx: ElemCtx, skipTails = false): BodyBuil
   const tr = applyTails(tailContour, tails, { ctx, plan, center, rng });
   if (tr.contour && p.as !== "aside") contour = tr.contour;
   const stroke = resolveStroke(p.stroke, plan.hand, ctx.u, ctx.bag, [...el.path, "stroke"]);
+  if (stroke.style === "dashed") {
+    stroke.width *= 0.65;
+    stroke.dash ??= [stroke.width * 4, stroke.width * 2.5];
+  }
   const ruler = !!(plan.params.ruler ?? body.ruler) && !contour.corners?.some((c) => c.kind === "tip" || c.kind === "point");
   return { contour, extra: tr.extra, stroke, ruler, rng };
 }
