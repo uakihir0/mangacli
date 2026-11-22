@@ -18,7 +18,7 @@ import { textValue } from "../elements/textstyle.js";
 import type { FontRegistry } from "../fonts/registry.js";
 import { miterFrameEdges } from "../geom/miter.js";
 import { type PathData, flattenPath, offsetPolygon, parseSvgPath, pointInPolygon, polygonArea, polyPath, smoothPath, transformPath } from "../geom/path.js";
-import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, matMul, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
+import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, lerp, matMul, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
 import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
@@ -1285,6 +1285,31 @@ function silhouetteCover(r: Rect, sils: Silhouette[]): number {
   return Math.min(1, cov);
 }
 
+function keepFlashInsidePanel(pl: BalloonPlan): boolean {
+  return pl.reactionRayLength !== undefined && (pl.props.clip === "auto" || pl.props.clip === "panel") && !hasOffscreenTail(pl.props);
+}
+
+function fitFlashPlacement(box: Rect, panel: Rect, poly: Vec[], margin: number): Rect | null {
+  const area = rectInset(panel, margin);
+  if (box.w > area.w || box.h > area.h) return null;
+  const at = {
+    x: Math.min(Math.max(box.x, area.x), area.x + area.w - box.w),
+    y: Math.min(Math.max(box.y, area.y), area.y + area.h - box.h),
+  };
+  const fits = (p: Vec) => rectPts(rectInset({ ...box, ...p }, -margin / 2)).every(q => pointInPolygon(q, poly));
+  if (fits(at)) return { ...box, ...at };
+  const middle = { x: panel.x + (panel.w - box.w) / 2, y: panel.y + (panel.h - box.h) / 2 };
+  if (!fits(middle)) return null;
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 12; i++) {
+    const mid = (lo + hi) / 2;
+    if (fits(lerp(at, middle, mid))) hi = mid;
+    else lo = mid;
+  }
+  return { ...box, ...lerp(at, middle, hi) };
+}
+
 function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, processed: Map<string, { bbox: Rect }>, sils: Silhouette[] = [], replan?: (pl: BalloonPlan, props: Obj) => BalloonPlan | null) {
   plans = [...plans].sort((a, b) => Number(a.props.as === "aside") - Number(b.props.as === "aside"));
   const u = ctx.u;
@@ -1324,6 +1349,13 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     // a balloon must not run off the trimmed page (it may cross gutters and panel borders)
     const lim = rectInset(geom.trim, 1 * u.k);
     const offscreen = hasOffscreenTail(pl.props);
+    if (ctx.panelPoly && keepFlashInsidePanel(pl)) {
+      const fitted = fitFlashPlacement(tl, panelBox, ctx.panelPoly, u.k);
+      if (fitted) {
+        setCenter(pl, { x: fitted.x - pl.outer.x, y: fitted.y - pl.outer.y });
+        continue;
+      }
+    }
     if (!offscreen && (tl.x < lim.x - 0.01 || tl.y < lim.y - 0.01 || tl.x + tl.w > lim.x + lim.w + 0.01 || tl.y + tl.h > lim.y + lim.h + 0.01)) {
       tl.x = Math.min(Math.max(tl.x, lim.x), Math.max(lim.x, lim.x + lim.w - tl.w));
       tl.y = Math.min(Math.max(tl.y, lim.y), Math.max(lim.y, lim.y + lim.h - tl.h));
@@ -1450,6 +1482,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     for (const { vp, extra } of variants) {
       const w = vp.outer.w;
       const h = vp.outer.h;
+      const flashPanel = keepFlashInsidePanel(vp) ? ctx.panelPoly : undefined;
       const R = (w + h) / 4;
       const xs: number[] = [];
       const ys: number[] = [];
@@ -1466,6 +1499,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
           const rect = { x: x - w / 2, y: y - h / 2, w, h };
           const A = w * h;
           let cost = extra;
+          if (flashPanel && !rectPts(rectInset(rect, -u.k / 2)).every(q => pointInPolygon(q, flashPanel))) cost += 1000;
           const clearance = aside ? rectInset(rect, -Math.max(w, h) * 0.05 - 0.35 * u.k) : rect;
           if (aside) {
             for (const ob of obstacles) if (rectOverlapArea(clearance, ob.r) > 0) cost += 10000;
