@@ -735,7 +735,7 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
         // a clear gap before the face box (hair, beard and glasses spill past the face ellipse);
         // the ellipse only when the balloon already sits on the box
         const box = rayRectEntry(R, dir, face);
-        const tf = box !== null && box > gap ? box : rayEllipseEntry(R, dir, face);
+        const tf = box !== null && box > 0 ? box : rayEllipseEntry(R, dir, face);
         if (tf !== null) {
           avail = Math.min(avail, tf - gap);
           stopped = true;
