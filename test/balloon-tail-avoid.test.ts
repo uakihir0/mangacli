@@ -36,6 +36,15 @@ function overlap(source: PathNode[], neighbor: PathNode[]): number {
 }
 
 describe("tail avoidance", () => {
+  it("routes a negative direction whose alternative root rounds to zero", async () => {
+    const original = await scene("direction: -15deg", "100mm, 65mm");
+    const routed = await scene("direction: -15deg", "53mm, 32mm");
+    expect(overlap(original.source, routed.neighbor)).toBeGreaterThan(0.1);
+    expect(routed.source.length).toBeGreaterThan(0);
+    expect(overlap(routed.source, routed.neighbor)).toBeLessThan(1e-6);
+    expect(routed.warnings).toEqual([]);
+  });
+
   it.each(["say", "think", "electronic"])("preserves unobstructed %s output byte for byte", async as => {
     const a = await scene(undefined, "100mm, 65mm", as);
     const b = await scene(undefined, "110mm, 65mm", as);

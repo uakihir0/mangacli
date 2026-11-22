@@ -540,7 +540,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       const own = explicit ? balloonTails(explicit)[index] ?? {} : tail;
       const roots: Obj[] = [{}];
       if (own.root === undefined || own.root === "auto") {
-        for (const degrees of [15, -15, 30, -30, 45, -45, 60, -60]) roots.push({ root: `${(initial.rootAngle ?? 0) * 180 / Math.PI + degrees}deg` });
+        for (const degrees of [15, -15, 30, -30, 45, -45, 60, -60]) roots.push({ root: `${((initial.rootAngle ?? 0) * 180 / Math.PI + degrees).toFixed(10)}deg` });
       }
       const candidates = roots.slice(1);
       if (own.curl === undefined && (tail.kind === undefined || tail.kind === "wedge")) for (const root of roots) for (const curl of [false, true]) candidates.push({ ...root, curl });
