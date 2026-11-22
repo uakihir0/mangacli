@@ -494,6 +494,8 @@ dialogue:
 
 ## 6.14 検証
 
+最終配置で、本体の外接矩形が縦横とも 1 bmm を超えて重なる場合は `BALLOON_OVERLAP` を警告する（しっぽは含めない）。同じコマの全ペアで、後の吹き出しの中心が 1 bmm を超えて上、かつ右側または同じ横位置（`readingDirection: ltr` では左側）なら `BALLOON_READING_ORDER` を警告する。重なるペアでは、同じ高さで読み始め側に 1 bmm を超えて寄っている場合も対象になる。コマをまたぐペアは重なる場合だけ読み順を確認する。手動配置・自動配置の両方が対象で、連結した両端、`aside`、本体のない `shape: none` は除外する。警告には両方の ID とコマを含める。既存の情報診断や本文の被覆診断はそのまま残る。
+
 | コード | 重大度 | 条件 |
 |---|---|---|
 | `TEXT_OVERFLOW` | 警告 / エラー | 本文が収まらない（`overflow` による） |
@@ -506,6 +508,8 @@ dialogue:
 | `BALLOON_TAIL_UNSUPPORTED` | 警告 | 形状が対応しないしっぽの種類を指定した |
 | `BALLOON_CONNECT_DISJOINT` | 警告 | `overlap` で連結した本体が重なっていない |
 | `BALLOON_TEXT_HIDDEN` | 警告 | 他の吹き出しで本文が隠れる |
+| `BALLOON_OVERLAP` | 警告 | 連結していない吹き出しの本体の外接矩形が重なる |
+| `BALLOON_READING_ORDER` | 警告 | 後の吹き出しが位置から明らかに先に読まれる |
 | `BALLOON_ORDER_MISMATCH` | 情報 | リストの順と位置から推定した読み順が異なる |
 | `TEXT_OUTSIDE_SAFE_AREA` | 警告 | 本文が安全領域の外にある |
 | `TEXT_CLIPPED` | 警告 | 本文がクリップで切れる |
