@@ -48,6 +48,20 @@ describe("flashback mood", () => {
     expect(partial.pages[0].panels[1].elements[0].props.fill).toBe("paper");
   });
 
+  it.each(["element-fill", "element-color", "style", "document", "page", "panel"])("keeps normal narration colors when authored by %s", (source) => {
+    const balloon = { type: "balloon", as: "narration", text: "記憶", ...(source === "style" ? { style: "flashback" } : {}), ...(source === "element-fill" ? { fill: "tone(8%)" } : {}), ...(source === "element-color" ? { color: "navy" } : {}) };
+    const defaults = { balloon: { fill: "tone(8%)" } };
+    const input = {
+      styles: { flashback: { fill: "tone(8%)", stroke: { width: "0.4mm", style: "double" } } },
+      ...(source === "document" ? { defaults } : {}),
+      pages: [{ ...(source === "page" ? { defaults } : {}), panels: [{ ...(source === "panel" ? { defaults } : {}), layers: [balloon] }] }],
+    };
+    const normal = resolveDocument(input, new DiagnosticBag()).pages[0].panels[0].elements[0].props;
+    const flashback = resolveDocument({ ...input, page: { mood: "flashback" } }, new DiagnosticBag()).pages[0].panels[0].elements[0].props;
+    for (const key of ["fill", "color", "stroke"]) expect(flashback[key]).toEqual(normal[key]);
+    expect(flashback.color).not.toBe("white");
+  });
+
   it("expands slanted edges by the full gutter width", async () => {
     const { at, layout: info } = await sample({ mangacli: 1, page: settings, pages: [{ layout: { rows: [{ cols: [1, 1], colSlant: ["8mm"] }, { cols: [1, 1] }] }, panels: [{ mood: "flashback" }, {}, {}, {}] }] });
     const poly = info.panels[0].polygon;

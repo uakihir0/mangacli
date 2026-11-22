@@ -227,13 +227,14 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
             ? merge(deepClone(BUILTIN_MARK_DEFAULTS["*"]), kind ? BUILTIN_MARK_DEFAULTS[kind] : undefined)
             : deepClone(BUILTIN_DEFAULTS[type] ?? {});
       let acc: Obj = deepClone(builtin);
-      if (flashback && type === "balloon" && raw.as === "narration") {
-        acc = merge(acc, { fill: "black", color: "white", stroke: { color: "white" } });
-      }
+      let explicitColors = false;
+      let explicitStroke: Obj = {};
       const builtinArrays = Object.keys(acc).filter((k) => Array.isArray(acc[k]));
       const builtinProps = new Set(builtinArrays);
       let tailExplicit: Obj = {};
       const mergeProps = (props: Obj | undefined, explicit = props) => {
+        if (explicit?.fill !== undefined || explicit?.color !== undefined) explicitColors = true;
+        if (isObj(explicit?.stroke)) explicitStroke = merge(explicitStroke, explicit.stroke);
         for (const k of ["tail", "tails"]) {
           if (explicit?.[k] !== undefined) tailExplicit = merge(tailExplicit, { [k]: explicit[k] });
         }
@@ -289,6 +290,9 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       const own = { ...raw };
       delete own.style;
       mergeProps(own);
+      if (flashback && type === "balloon" && acc.as === "narration" && !explicitColors) {
+        acc = merge(acc, { fill: "black", color: "white", stroke: merge(merge((acc.stroke ?? {}) as Obj, { color: "white" }), explicitStroke) });
+      }
       acc.id = id;
       const elSeedBase = typeof raw.seed === "number" ? raw.seed : baseSeed;
       const el: RElement = { id, type, props: acc, path, seed: deriveSeed(elSeedBase, id, "element"), fromDialogue, builtinProps: [...builtinProps], tailExplicit };

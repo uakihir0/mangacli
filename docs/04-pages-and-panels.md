@@ -213,6 +213,8 @@ pages:
 
 `gutterFill: black` や `gutterFill: tone(30%)` は、画像のない通常ページでも使える。`none` は間白を塗らず、`paper` は従来どおり画像のあるページだけを白く覆う。
 
+ナレーションの `fill` または文字の `color` を、吹き出し自身・`style`・文書やページやコマの `defaults` で指定した場合は、回想による配色の変更を行わない。塗り・文字色・枠線をまとめて通常の指定どおりに保つ。
+
 [YAML 作例](examples/flashback.yaml) · [出力画像](images/flashback.png)
 
 ## 4.6 コマ割り（layout）
