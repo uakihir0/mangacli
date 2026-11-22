@@ -99,6 +99,18 @@ describe("diagonal splits", () => {
   });
 });
 describe("monotone run boundaries", () => {
+  it("returns diagnostics when monotone layout recomputation fails", async () => {
+    const renderer = createRenderer({ profile: "preview" });
+    const flat = { panels: [{ layers: [{ effect: "focus-lines", count: 2 }] }] };
+    const broken = { layout: { rows: [{ slant: "1em" }, {}] }, panels: [{}, {}] };
+    const doc = { mangacli: 1, pages: [flat, flat, broken, flat, flat] };
+    const validation = await renderer.validate(doc);
+    expect(validation.diagnostics.some((d) => d.severity === "error")).toBe(true);
+    expect(validation.diagnostics.some((d) => d.code === "LAYOUT_MONOTONE")).toBe(false);
+    const rendering = await renderer.render(doc, { throwOnError: false, format: "svg" });
+    expect(rendering.diagnostics.some((d) => d.severity === "error")).toBe(true);
+    expect(rendering.diagnostics.some((d) => d.code === "LAYOUT_MONOTONE")).toBe(false);
+  });
   it("breaks on curved or panel-less pages and reports separate ranges", async () => {
     const renderer = createRenderer({ profile: "preview" });
     const flat = { panels: [{ shape: "rect", layers: [{ effect: "focus-lines", count: 2 }] }] };
