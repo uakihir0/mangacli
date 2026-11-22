@@ -222,6 +222,8 @@ macOS では `~/Library/Fonts`、`/Library/Fonts`、`/System/Library/Fonts`、Wi
 | `yomogi` | Yomogi | 400 | 手書き風 |
 | `klee-one` | Klee One | 400、600 | 手書き風（硬筆） |
 | `yusei-magic` | Yusei Magic | 400 | マジックペン風の手書き |
+| `yuji-boku` | Yuji Boku | 400 | 毛筆体（墨の太い筆。題字、筆で書いた大きな字） |
+| `yuji-syuku` | Yuji Syuku | 400 | 毛筆体（端正な楷書。筆で書いた名前、看板、書道の作品） |
 | `noto-sans-jp` | Noto Sans JP | 400、600、700 | 字形の欠落を補うフォールバック |
 
 #### 参照の書き方
