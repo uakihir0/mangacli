@@ -12,6 +12,7 @@ export interface ShapeParams {
   irregularity: number;
   tilt: number; // radians (resolved)
   squareness?: number;
+  compactCore?: boolean;
   egg?: number;
   radius?: number; // mm (round-rect/rect)
   lobes?: number | "auto";
@@ -244,7 +245,7 @@ function spiky(w: number, h: number, p: ShapeParams, seed: number, burst: boolea
   const rng = new RngCls(seed);
   const a = w / 2;
   const b = h / 2;
-  const base = organicEllipse(a, b, { ...p, squareness: 0.05, egg: p.egg ?? 0.03 }, rng);
+  const base = organicEllipse(a, b, { ...p, squareness: p.compactCore ? 0.6 : 0.05, egg: p.egg ?? 0.03 }, rng);
   const per = ellipsePerimeter(a, b);
   const pitch = burst ? 6.5 : 5;
   const n = p.count === undefined || p.count === "auto" ? Math.max(burst ? 8 : 10, Math.round(per / pitch)) : Math.max(5, Math.round(p.count));
