@@ -157,57 +157,57 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   for (const pg of drawOrder) await layoutGroup(pg.panel.elements, baseCtx(pg), drawOrder.indexOf(pg), 0);
   await layoutGroup(page.layers, baseCtx(), 0, 1);
   const checkArtCoverage = () => {
-  for (const pg of panels) {
-    const shape = panelShapePoly(pg, geom);
-    const poly = shape === pg.polygon ? shape : flattenPath(smoothPath(shape, true), 0.02)[0].pts;
-    const eligible = (el: RElement) => {
-      if (el.props.visible === false || el.props.opacity === 0) return false;
-      const clip = el.props.clip;
-      return !isObj(clip) || !Array.isArray(clip.to) || clip.to.includes(pg.panel.id);
-    };
-    const layers = [...pg.panel.elements, ...page.layers].filter(eligible);
-    const images = layers.filter((el) => {
-      const target = refs.get(el.id);
-      if (el.type !== "image" || !target?.imagePx) return false;
-      if (pg.panel.elements.includes(el)) return true;
-      const visible = target.shape ?? rectPts(target.bbox);
-      const ring = (pts: Vec[]): polygonClipping.Ring => pts.map((p) => [p.x, p.y]);
-      return polygonClipping.intersection([ring(visible)], [ring(poly)]).length > 0;
-    });
-    if (!images.length) continue;
-    // Only an explicit panel background counts, not the implicit paper canvas.
-    if (pg.panel.props.__explicitBackground && parsePaint(pg.panel.props.background, { u, box: pg.box, seed: pg.panel.seed })) continue;
-    const shapes = images.map((el) => refs.get(el.id)!.shape!).filter((shape) => shape?.length >= 3);
-    const fills = layers.flatMap((el) => {
-      const p = el.props;
-      if ((p.opacity !== undefined && p.opacity !== 1) || p.mask !== undefined) return [];
-      let ground: unknown;
-      if (el.type === "fill" && (p.edge === undefined || p.edge === "clean")) ground = p.paint ?? "black";
-      if (el.type === "effect" && p.clear === undefined) {
-        if (p.kind === "beta-flash") ground = p.core ?? "paper";
-        else if (["focus-lines", "speed-lines", "gloom-lines", "swirl-lines"].includes(String(p.kind))) ground = p.background;
+    for (const pg of panels) {
+      const shape = panelShapePoly(pg, geom);
+      const poly = shape === pg.polygon ? shape : flattenPath(smoothPath(shape, true), 0.02)[0].pts;
+      const eligible = (el: RElement) => {
+        if (el.props.visible === false || el.props.opacity === 0) return false;
+        const clip = el.props.clip;
+        return !isObj(clip) || !Array.isArray(clip.to) || clip.to.includes(pg.panel.id);
+      };
+      const layers = [...pg.panel.elements, ...page.layers].filter(eligible);
+      const images = layers.filter((el) => {
+        const target = refs.get(el.id);
+        if (el.type !== "image" || !target?.imagePx) return false;
+        if (pg.panel.elements.includes(el)) return true;
+        const visible = target.shape ?? rectPts(target.bbox);
+        const ring = (pts: Vec[]): polygonClipping.Ring => pts.map((p) => [p.x, p.y]);
+        return polygonClipping.intersection([ring(visible)], [ring(poly)]).length > 0;
+      });
+      if (!images.length) continue;
+      // Only an explicit panel background counts, not the implicit paper canvas.
+      if (pg.panel.props.__explicitBackground && parsePaint(pg.panel.props.background, { u, box: pg.box, seed: pg.panel.seed })) continue;
+      const shapes = images.map((el) => refs.get(el.id)!.shape!).filter((shape) => shape?.length >= 3);
+      const fills = layers.flatMap((el) => {
+        const p = el.props;
+        if ((p.opacity !== undefined && p.opacity !== 1) || p.mask !== undefined) return [];
+        let ground: unknown;
+        if (el.type === "fill" && (p.edge === undefined || p.edge === "clean")) ground = p.paint ?? "black";
+        if (el.type === "effect" && p.clear === undefined) {
+          if (p.kind === "beta-flash") ground = p.core ?? "paper";
+          else if (["focus-lines", "speed-lines", "gloom-lines", "swirl-lines"].includes(String(p.kind))) ground = p.background;
+        }
+        const paint = parsePaint(ground, { u, box: pg.box, seed: el.seed });
+        if (!paint || (paint.type === "solid" || paint.type === "tone" ? paint.color.a < 1 : paint.stops.some((s) => s.color.a < 1))) return [];
+        const ctx = { ...baseCtx(pg.panel.elements.includes(el) ? pg : undefined), bag: new DiagnosticBag() };
+        ctx.coordsBox = coordsFor(el, ctx, geom);
+        const reg = resolveRegion(p.region, ctx, ctx.panel ? "panel" : "page", [...el.path, "region"]);
+        return ctx.bag.hasErrors || reg.feather || reg.alphaOf ? [] : [reg];
+      });
+      const box = boundsOf(poly);
+      let interior = 0;
+      let uncovered = 0;
+      for (let y = 0; y < 100; y++) for (let x = 0; x < 100; x++) {
+        const p = { x: box.x + (x + 0.5) * box.w / 100, y: box.y + (y + 0.5) * box.h / 100 };
+        if (!pointInPolygon(p, poly)) continue;
+        interior++;
+        if (!shapes.some((s) => pointInPolygon(p, s)) && !fills.some((reg) => reg.contains(p))) uncovered++;
       }
-      const paint = parsePaint(ground, { u, box: pg.box, seed: el.seed });
-      if (!paint || (paint.type === "solid" || paint.type === "tone" ? paint.color.a < 1 : paint.stops.some((s) => s.color.a < 1))) return [];
-      const ctx = { ...baseCtx(pg), bag: new DiagnosticBag() };
-      ctx.coordsBox = coordsFor(el, ctx, geom);
-      const reg = resolveRegion(p.region, ctx, "panel", [...el.path, "region"]);
-      return ctx.bag.hasErrors || reg.feather || reg.alphaOf ? [] : [reg];
-    });
-    const box = boundsOf(poly);
-    let interior = 0;
-    let uncovered = 0;
-    for (let y = 0; y < 100; y++) for (let x = 0; x < 100; x++) {
-      const p = { x: box.x + (x + 0.5) * box.w / 100, y: box.y + (y + 0.5) * box.h / 100 };
-      if (!pointInPolygon(p, poly)) continue;
-      interior++;
-      if (!shapes.some((s) => pointInPolygon(p, s)) && !fills.some((reg) => reg.contains(p))) uncovered++;
+      if (interior && uncovered / interior > 0.05) {
+        const hint = "Drop size / use fit: cover with focus so the art fills the frame.";
+        bag.warn("ART_LEAVES_VOID", `panel ${pg.panel.id}: ${(100 * uncovered / interior).toFixed(1)}% uncovered. ${hint}`, { elementId: pg.panel.id, pageId: page.id, path: pg.panel.path, hint });
+      }
     }
-    if (interior && uncovered / interior > 0.05) {
-      const hint = "Drop size / use fit: cover with focus so the art fills the frame.";
-      bag.warn("ART_LEAVES_VOID", `panel ${pg.panel.id}: ${(100 * uncovered / interior).toFixed(1)}% uncovered. ${hint}`, { elementId: pg.panel.id, pageId: page.id, path: pg.panel.path, hint });
-    }
-  }
   };
   for (const el of [...page.layers, ...panels.flatMap((pg) => pg.panel.elements)]) {
     if (el.type !== "image") continue;

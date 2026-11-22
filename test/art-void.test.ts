@@ -83,4 +83,11 @@ describe("art coverage", () => {
     const partial = await validate(splitInput(`[${image("size: [25%, 100%], fit: cover, at: [12.5%, 50%], clip: none")}]`));
     expect(voids(partial).map((d) => d.elementId)).toEqual(["panel-left"]);
   });
+  it("resolves percentage regions of page fills and effect grounds in page coordinates", async () => {
+    for (const ground of ["type: fill, paint: black", "effect: focus-lines, background: paper"]) {
+      const v = await validate(splitInput(`[{ ${ground}, region: { rect: [0, 0, 50%, 100%] } }]`, `[${image("fit: contain")}]`));
+      expect(v.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+      expect(voids(v).map((d) => d.elementId)).toEqual(["panel-right"]);
+    }
+  });
 });
