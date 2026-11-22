@@ -927,7 +927,7 @@ const renderOpts = (c: ReturnType<typeof cli.command>) =>
     .option("--color <mode>", "color | gray | mono")
     .option("--dpi <n>", "Resolution")
     .option("--max-output-pixels <n>", "Maximum pixels per output page (split spreads: per side)")
-    .option("--max-output-bytes <n>", "Estimated memory budget for packed 1-bit output (default: 402653184 bytes)")
+    .option("--max-output-bytes <n>", "Estimated memory budget for packed 1-bit output (default: 384 MiB; 4 GiB including node buffers for print spreads)")
     .option("--output-size <size>", "manuscript | print")
     .option("--scale <n>", "Scale factor on the design resolution")
     .option("--width <px>", "Output width")

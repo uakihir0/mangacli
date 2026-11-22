@@ -26,7 +26,7 @@ import { parsePaint } from "./model/values.js";
 import { polyPath } from "./geom/path.js";
 import type { RElement, RPage } from "./model/resolve.js";
 import { RasterBackend, monoNodeWorkingBytes } from "./render/raster.js";
-import { DEFAULT_OUTPUT_BYTES, monoWorkingBytes } from "./render/mono.js";
+import { DEFAULT_OUTPUT_BYTES, DEFAULT_PRINT_SPREAD_OUTPUT_BYTES, monoWorkingBytes } from "./render/mono.js";
 import { createCanvas } from "@napi-rs/canvas";
 import { renderSvg, svgBox } from "./render/svg.js";
 import { type MangaPlugin, PluginSet, withPlugins } from "./plugin.js";
@@ -164,9 +164,9 @@ function cfgOf(o: RenderOptions): Obj | undefined {
   return o.config === true ? undefined : o.config;
 }
 
-const DEFAULT_LIMITS: Required<Limits> = { maxSourceBytes: 10e6, maxPages: 1000, maxElementsPerPage: 5000, maxTextLength: 2000, maxOutputPixels: 200e6, maxOutputBytes: DEFAULT_OUTPUT_BYTES, maxDpi: 2400 };
+const DEFAULT_LIMITS = { maxSourceBytes: 10e6, maxPages: 1000, maxElementsPerPage: 5000, maxTextLength: 2000, maxOutputPixels: 200e6, maxDpi: 2400 };
 
-function limitsOf(o: RenderOptions): Required<Limits> {
+function limitsOf(o: RenderOptions): typeof DEFAULT_LIMITS & Limits {
   return { ...DEFAULT_LIMITS, ...((cfgOf(o)?.limits as Limits | undefined) ?? {}), ...(o.limits ?? {}) };
 }
 
@@ -548,7 +548,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const dpi = resolution(page, g);
       for (const size of outputSizes(g, dpi)) {
         const cost = (w: number, h: number) => packedMono ? monoWorkingBytes(w, h) : w * h;
-        const limit = packedMono ? lim.maxOutputBytes : lim.maxOutputPixels;
+        const limit = packedMono ? (lim.maxOutputBytes ?? DEFAULT_OUTPUT_BYTES) : lim.maxOutputPixels;
         if (cost(size.w, size.h) <= limit) continue;
         let lo = 0, hi = Math.floor(dpi);
         while (lo < hi) {
@@ -592,14 +592,16 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const rasterCrop = g.type === "spread" && spreadMode === "split" && crop === "marks" ? "bleed" : crop;
       const outputScale = options.output === "print" ? g.printScale : 1;
       const cost = (d: number) => Math.max(...outputSizes(g, d).map((s) => monoWorkingBytes(s.w, s.h))) + monoNodeWorkingBytes(composed.list, d * outputScale, rasterCrop, (prof.marks?.margin ?? 10) / outputScale);
-      if (cost(dpi) <= lim.maxOutputBytes) continue;
+      const limit = lim.maxOutputBytes ?? (prof.print && g.type === "spread" ? DEFAULT_PRINT_SPREAD_OUTPUT_BYTES : DEFAULT_OUTPUT_BYTES);
+      const estimated = cost(dpi);
+      if (estimated <= limit) continue;
       let lo = 0, hi = Math.floor(dpi);
       while (lo < hi) {
         const mid = Math.ceil((lo + hi) / 2);
-        if (cost(mid) <= lim.maxOutputBytes) lo = mid;
+        if (cost(mid) <= limit) lo = mid;
         else hi = mid - 1;
       }
-      const message = `page ${page.id}: estimated ${cost(dpi)} bytes including node buffers exceeds maxOutputBytes (${lim.maxOutputBytes}); highest whole dpi that fits: ${lo}; use --dpi ${lo} or raise --max-output-bytes (API: limits.maxOutputBytes) to at least ${cost(dpi)}`;
+      const message = `page ${page.id}: estimated ${estimated} bytes including node buffers exceeds maxOutputBytes (${limit}); highest whole dpi that fits: ${lo}; use --dpi ${lo} or raise --max-output-bytes (API: limits.maxOutputBytes) to at least ${estimated}`;
       bag.error("OUTPUT_TOO_LARGE", message, { pageId: page.id });
       result.failures.push({ pageId: page.id, index: pl.idx + 1, error: new Error(`OUTPUT_TOO_LARGE: ${message}`) });
     }
