@@ -630,6 +630,23 @@ function rayEllipseEntry(o: Vec, d: Vec, r: Rect): number | null {
   return t > 0 ? t : null;
 }
 
+/** distance along `d` from `o` to where the ray enters `r`; 0 when `o` lies inside, null when it misses */
+function rayRectEntry(o: Vec, d: Vec, r: Rect): number | null {
+  let lo = 0;
+  let hi = Infinity;
+  for (const [p, v, min, max] of [[o.x, d.x, r.x, r.x + r.w], [o.y, d.y, r.y, r.y + r.h]] as const) {
+    if (Math.abs(v) < 1e-12) {
+      if (p < min || p > max) return null;
+      continue;
+    }
+    const a = (min - p) / v;
+    const b = (max - p) / v;
+    lo = Math.max(lo, Math.min(a, b));
+    hi = Math.min(hi, Math.max(a, b));
+  }
+  return lo <= hi ? lo : null;
+}
+
 function nearestSide(c: Vec, b: Rect): string {
   const d = { left: c.x - b.x, right: b.x + b.w - c.x, top: c.y - b.y, bottom: b.y + b.h - c.y };
   return (Object.entries(d).sort((x, y) => x[1] - y[1])[0] ?? ["right"])[0];
@@ -794,15 +811,20 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     if (t.root !== undefined && t.root !== "auto") {
       const a = parseAngle(t.root as string);
       rootDir = { x: Math.cos(a), y: Math.sin(a) };
+    } else if (clamped && target) {
+      // the root moves to the side, but the tip still heads for the speaker
+      rootDir = { ...dir };
     }
     const hit = rayPolygon(center, rootDir, cur.pts);
     if (!hit) continue;
     const R = { x: center.x + rootDir.x * hit.t, y: center.y + rootDir.y * hit.t };
     rootAngle = Math.atan2(rootDir.y, rootDir.x);
-    if (rootDir !== dir && target && !clamped) {
+    if (rootDir !== dir && target) {
       const d2 = { x: target.x - R.x, y: target.y - R.y };
       const l2 = Math.hypot(d2.x, d2.y) || 1;
-      dir = { x: d2.x / l2, y: d2.y / l2 };
+      const aim = { x: d2.x / l2, y: d2.y / l2 };
+      // a speaker right under the body would pull the tail back across it: keep the side direction
+      dir = pointInPolygon({ x: R.x + aim.x * 0.5 * u.k, y: R.y + aim.y * 0.5 * u.k }, cur.pts) ? rootDir : aim;
     }
     if (target && pointInPolygon(target, cur.pts)) {
       ctx.bag.warn("BALLOON_TAIL_TARGET_INSIDE", `tail target of ${plan.el.id} is inside the balloon`, { path: plan.el.path, elementId: plan.el.id });
@@ -810,8 +832,13 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     }
     const gap = t.gap !== undefined ? toMm(t.gap as string, u) : 2 * u.k;
     const whisperWedge = plan.props.as === "whisper" && kind === "wedge";
-    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : Math.min(9 * u.k, Math.max((whisperWedge ? 6 : 4.5) * u.k, minSide * 0.4));
+    // a tail with a speaker reaches a little further than a bare pointer, enough to read as aimed at
+    // the mouth, but stays a short wedge: a balloon far from its speaker is moved, not given a needle
+    const spikyBody = plan.params.kind === "spike" || plan.params.kind === "burst";
+    const pointerMax = Math.min(9 * u.k, Math.max((whisperWedge ? 6 : 4.5) * u.k, minSide * 0.4));
+    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : target && !offSide && !spikyBody ? Math.min(12 * u.k, Math.max(6 * u.k, minSide * 0.5)) : pointerMax;
     let length: number;
+    let reach = 0;
     if (t.length !== undefined) length = toMm(t.length as string, u);
     else if (offSide && target) length = Math.min(maxLen, Math.hypot(target.x - R.x, target.y - R.y));
     else if (target) {
@@ -824,9 +851,12 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
       // anchors for other characters: `close.hayato`)
       const face = faceOf(tgtRef?.regions.face?.bbox, target);
       if (face) {
-        const tf = rayEllipseEntry(R, dir, face);
+        // a clear gap before the face box (hair, beard and glasses spill past the face ellipse);
+        // the ellipse only when the balloon already sits on the box
+        const box = rayRectEntry(R, dir, face);
+        const tf = box !== null && box > 0 ? box : rayEllipseEntry(R, dir, face);
         if (tf !== null) {
-          avail = Math.min(avail, tf - gap * 0.5);
+          avail = Math.min(avail, tf - gap);
           stopped = true;
         }
       }
@@ -842,10 +872,11 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
           }
       }
       // a bare point (a mouth or face anchor, no face region to stop at) is the middle of the face:
-      // the tail points at it from at most halfway so it never reaches into the face
-      if (!stopped) avail = Math.min(avail, dist * 0.5);
+      // the tip stops a face's half-width short of it (halfway when the speaker is close)
+      if (!stopped) avail = Math.min(avail, dist - Math.max(gap, Math.min(dist * 0.5, 6 * u.k)));
       // a tail always reads as a pointer, even when the speaker's face is right beside the body
       length = Math.min(maxLen, Math.max(4.5 * u.k, avail));
+      reach = avail;
     } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
     if (whisperWedge && !target && !offSide && t.length === undefined) length = Math.min(maxLen, Math.max(length, 6 * u.k));
     if (!offSide && kind === "wedge" && t.length === undefined && plan.body.spikeLength !== undefined) {
@@ -855,6 +886,9 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
       length = Math.min(maxLen, target ? length : Infinity, Math.max(0.5 * plan.body.spikeLength, 1.5 * plan.body.spikeLength - extension));
     }
     tailLength = length;
+    const shortBy = reach - length;
+    if (shortBy > 20 * u.k && t.length === undefined)
+      ctx.bag.warn("BALLOON_TAIL_SHORT", `the tail of ${plan.el.id} ends ${shortBy.toFixed(1)} mm short of its speaker; move the balloon closer to them`, { path: plan.el.path, elementId: plan.el.id });
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
     // a wedge's base is about a ninth of the body
