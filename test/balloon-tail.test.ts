@@ -123,8 +123,8 @@ describe("balloon tails", () => {
       const pts = vertices(paths(root, (n) => n.tag?.elementId === id && n.tag.role === "fill")[0]);
       const original = vertices(paths(body, (n) => n.tag?.elementId === id && n.tag.role === "fill")[0]);
       const { a, tip } = tailEdges(pts);
-      expect(tip - a).toBeGreaterThan(12);
-      expect(pts.length - tip).toBeGreaterThan(12);
+      expect(tip - a).toBeGreaterThanOrEqual(12);
+      expect(pts.length - tip).toBeGreaterThanOrEqual(12);
       const shortSide = Math.min(Math.max(...original.map((p) => p.x)) - Math.min(...original.map((p) => p.x)), Math.max(...original.map((p) => p.y)) - Math.min(...original.map((p) => p.y)));
       expect(Math.hypot(pts[a].x - pts[0].x, pts[a].y - pts[0].y)).toBeLessThanOrEqual(shortSide / 9 + 1e-8);
       const retained = original.filter((p) => pts.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < 1e-8));

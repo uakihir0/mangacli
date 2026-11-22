@@ -746,7 +746,7 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     if (!offSide && kind === "wedge" && t.length === undefined && plan.body.spikeLength !== undefined) {
       const coreHit = rayPolygon({ x: 0, y: 0 }, rootDir, plan.body.spikeCore ?? plan.body.inner);
       const extension = coreHit ? hit.t - coreHit.t : 0;
-      length = Math.min(maxLen, Math.max(0.5 * plan.body.spikeLength, 1.5 * plan.body.spikeLength - extension));
+      length = Math.min(maxLen, target ? length : Infinity, Math.max(0.5 * plan.body.spikeLength, 1.5 * plan.body.spikeLength - extension));
     }
     tailLength = length;
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
