@@ -730,10 +730,10 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     tailLength = length;
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
-    // a wedge's base is about a sixth of the body
+    // a wedge's base is about a ninth of the body
     const bw0 = Math.min(2.8 * u.k, Math.max(1.6 * u.k, minSide * 0.13));
     const bwAuto = kind === "zigzag" ? bw0 * 1.5 : offSide ? bw0 : whisperWedge ? minSide / 6 : Math.max(bw0, Math.min(minSide / 6, length * 0.6));
-    const bw = (t.width !== undefined ? toMm(t.width as string, u) : bwAuto) * widthScale;
+    const bw = (t.width !== undefined ? toMm(t.width as string, u) : bwAuto * (2 / 3)) * widthScale;
     // on a spiky body the tail is one more, larger spike of the outline (the shout/scream presets
     // also set bend/sideCurve 0 for straight sides)
     const spiky = plan.params.kind === "spike" || plan.params.kind === "burst";
@@ -828,7 +828,7 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     let A = pointAtChord(cur.pts, s, sR, bw / 2, -1);
     let B = pointAtChord(cur.pts, s, sR, bw / 2, 1);
     if (spiky && kind === "wedge" && !offSide && t.width === undefined) {
-      const cap = minSide / 6;
+      const cap = minSide / 9;
       const valleys = (cur.corners ?? []).filter((c) => c.kind === "valley");
       if (valleys.length > 1) {
         const P = s[s.length - 1];
