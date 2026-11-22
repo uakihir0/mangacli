@@ -19,6 +19,18 @@ async function sample(input: Record<string, unknown>, dpi = 254) {
 }
 
 describe("flashback mood", () => {
+  it("preserves page art inside transparent flashback panels", async () => {
+    const art = await sharp({ create: { width: 80, height: 80, channels: 3, background: "white" } }).png().toBuffer();
+    const result = await render({ mangacli: 1, page: { ...settings, background: { image: "art", fit: "cover" } }, assets: { art: { src: "art.png", kind: "background" } }, pages: [{ layout, panels: [{ mood: "flashback", background: "none" }, {}, {}, {}] }] }, { ...options, assets: { art } });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    const { data, info } = await sharp(result.pages[0].data).extractChannel(0).raw().toBuffer({ resolveWithObject: true });
+    const at = (x: number, y: number) => data[(y + 3) * 10 * info.width + (x + 3) * 10];
+    expect(at(60, 20)).toBe(255);
+    expect(at(40, 20)).toBe(0);
+    expect(at(60, 0)).toBe(0);
+    expect(at(40, 60)).toBe(255);
+  });
+
   it("renders concave free-placed flashback polygons", async () => {
     const { at } = await sample({ mangacli: 1, page: settings, pages: [{ layout: "free", panels: [{ mood: "flashback", coords: "page", polygon: [[10, 10], [60, 10], [60, 20], [20, 20], [20, 60], [60, 60], [60, 70], [10, 70]] }] }] });
     expect(at(64, 15)).toBe(0);

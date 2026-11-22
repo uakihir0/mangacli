@@ -470,9 +470,13 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     if (path.length && paint) pageBackground.push({ kind: "path", path, fillRule: "evenodd", paint, tag: bgTag });
   }
   if (page.settings.mood !== "flashback") {
-    const regions = panels.filter((pg) => pg.panel.props.mood === "flashback" && pg.panel.props.visible !== false)
-      .flatMap((pg) => flashbackRegion(pg, panels, area, page, geom));
-    if (regions.length) pageBackground.push({ kind: "path", path: multiPolyPath(polygonClipping.union(regions[0], ...regions.slice(1))), fillRule: "nonzero", paint: { type: "solid", color: BLACK }, tag: bgTag });
+    const flashbackPanels = panels.filter((pg) => pg.panel.props.mood === "flashback" && pg.panel.props.visible !== false && pg.polygon.length >= 3 && Math.abs(polygonArea(pg.polygon)) > 1e-8);
+    const regions = flashbackPanels.flatMap((pg) => flashbackRegion(pg, panels, area, page, geom));
+    if (regions.length) {
+      const interiors = flashbackPanels.map((pg) => [pg.polygon.map(({ x, y }) => [x, y] as [number, number])]);
+      const surround = polygonClipping.difference(polygonClipping.union(regions[0], ...regions.slice(1)), ...interiors);
+      pageBackground.push({ kind: "path", path: multiPolyPath(surround), fillRule: "nonzero", paint: { type: "solid", color: BLACK }, tag: bgTag });
+    }
   }
   for (const it of items.filter((i) => i.stackUnder)) root.children.push(it.openClip ? { kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.nodes } : { kind: "group", children: it.nodes });
   for (const { pg, clipped } of panelNodes) {
