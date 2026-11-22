@@ -15,7 +15,7 @@ import type { Node, Paint } from "../render/ir.js";
 import { type TextLayout, layoutText, parseLayoutText } from "../text/layout.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
-import { fullSizeKana, isSmallKana, sfxScale, sfxShifts, sfxWeightRadius } from "../text/sfx.js";
+import { fullSizeKana, isSmallKana, sfxScale, sfxShifts, sfxStretch, sfxWeightRadius } from "../text/sfx.js";
 import { brushGlyph, emboldenGlyph, type BrushSpec } from "../text/brush.js";
 
 type Obj = Record<string, unknown>;
@@ -150,7 +150,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const shift = sfxShifts(scales, em);
   const acc = scales.reduce((sum, scale) => sum + (scale - 1) * em, 0);
   const dist = (p.distort ?? {}) as Obj;
-  const roughen = typeof dist.roughen === "number" ? dist.roughen : 0.25;
+  const roughen = typeof dist.roughen === "number" ? dist.roughen : 0.4;
   const warp = typeof dist.warp === "number" ? dist.warp : 0.15;
   const skew = dist.skew !== undefined ? parseAngle(dist.skew as string) : 0;
   const persp = Array.isArray(dist.perspective) ? (dist.perspective as number[]).map(Number) : null;
@@ -225,14 +225,15 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     const cx = g.cx;
     const cy = g.cy;
     const cv = curveAt(along(g, i));
-    const m = matMul(matTranslate(cx + t.jx + (vertical ? 0 : sh) + cv.dx, cy + t.jy + (vertical ? sh : 0) + cv.dy), matMul(matRotate(t.r + cv.ang), matMul(matScale(t.s), matTranslate(-cx, -cy))));
+    const stretch = sfxStretch(unitChars[i], vertical);
+    const m = matMul(matTranslate(cx + t.jx + (vertical ? 0 : sh) + cv.dx, cy + t.jy + (vertical ? sh : 0) + cv.dy), matMul(matRotate(t.r + cv.ang), matMul(matScale(t.s * stretch[0], t.s * stretch[1]), matTranslate(-cx, -cy))));
     const small = isSmallKana(unitChars[i]);
     let source = g.path;
     if (small) {
       const full = layoutText(fullSizeKana(unitChars[i]), { ...style, lettering: null, smallKanaFix: false }, ctx.fonts).glyphs;
       if (full.length) source = transformPath(full.flatMap(g => g.path), matTranslate(cx - full[0].cx, cy - full[0].cy));
     }
-    const smallScale = typeof p.smallKanaScale === "number" ? p.smallKanaScale : 0.7;
+    const smallScale = typeof p.smallKanaScale === "number" ? p.smallKanaScale : 0.6;
     source = emboldenGlyph(source, em, sfxWeightRadius(pressureStyle, small ? smallScale : 1) * em);
     let path = transformPath(brushGlyph(source, em, el.seed ^ Math.imul(i + 1, 0x45d9f3b), brush), m);
     // skew, perspective and bulge are smooth maps of the plane
@@ -328,7 +329,8 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const nodes: Node[] = [];
   const outlines = paths.map((path, i) => {
     const scale = perCharT[idxOf.get(tl.glyphs[i].unit) ?? 0].s * footprintScale;
-    return outlineNodes(transformPath(path, pl.matrix), p.outline ?? [{ width: `${em * scale * 0.06}mm`, color: "white" }], ctx, el);
+    const whiteWidth = em * scale * 0.12;
+    return outlineNodes(transformPath(path, pl.matrix), p.outline ?? [{ width: `${whiteWidth}mm`, color: "white" }, { width: `${whiteWidth + toMm("0.25bmm", u)}mm`, color: "black" }], ctx, el);
   });
   for (let layer = 0; layer < Math.max(0, ...outlines.map(o => o.length)); layer++) {
     for (const glyph of outlines) if (glyph[layer]) nodes.push(glyph[layer]);

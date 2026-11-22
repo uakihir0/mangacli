@@ -4,13 +4,18 @@ const SMALL_KANA = new Set(Array.from("ぁぃぅぇぉっゃゅょゎゕゖァ�
 
 export const isSmallKana = (char: string): boolean => SMALL_KANA.has(char);
 
+export function sfxStretch(char: string, vertical: boolean): [number, number] {
+  const along = "ー〜～ｰ︱︲︴".includes(char) && char.length > 0 ? 1.6 : 1;
+  return vertical ? [1, along] : [along, 1];
+}
+
 export function fullSizeKana(char: string): string {
   const small = Array.from("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ");
   const full = Array.from("あいうえおつやゆよわかけアイウエオツヤユヨワカケクシストヌハヒフヘホムラリルレロ");
   return full[small.indexOf(char)] ?? char;
 }
 
-export function sfxScale(index: number, count: number, char: string, grow?: number, smallKanaScale = 0.7, style: "impact" | "speed" = "impact"): number {
+export function sfxScale(index: number, count: number, char: string, grow?: number, smallKanaScale = 0.6, style: "impact" | "speed" = "impact"): number {
   const t = count > 1 ? index / (count - 1) : style === "impact" ? 0 : 1;
   const ramp = grow === undefined ? style === "impact" ? 1.3 * (1 - t) + 1.05 * t : 0.95 * (1 - t) + 1.3 * t : 1 + grow * index;
   return ramp * (SMALL_KANA.has(char) ? smallKanaScale : 1);

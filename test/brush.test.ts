@@ -30,10 +30,22 @@ const widthAt = (pts: typeof rectangle, y: number) => {
 };
 
 describe("brush pressure", () => {
-  it.each(["ツ", "シ"])("keeps all three compensated %s strokes disjoint with visible gaps", async char => {
+  it.each(["ツ", "シ"])("keeps compensated Dela Gothic One %s strokes disjoint", async char => {
     const fonts = new FontRegistry(new Map(), "manga-basic", [], {});
     await fonts.prepare("sfx", char);
     const source = layoutText(char, defaultTextStyle({ font: "sfx", fontSize: 10 }), fonts).glyphs[0].path;
+    const compensated = emboldenGlyph(source, 10, sfxWeightRadius("impact", 0.6) * 10);
+    for (const path of [compensated, brushGlyph(compensated, 10, 42)]) {
+      const contours = flattenPath(path, 0.01);
+      expect(contours).toHaveLength(3);
+      for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) expect(contourGap(contours[i].pts, contours[j].pts)).toBeGreaterThan(0);
+    }
+  });
+  it.each(["ツ", "シ"])("keeps all three compensated Zen Kaku Gothic New %s strokes disjoint with visible gaps", async char => {
+    const fonts = new FontRegistry(new Map(), "manga-basic", [], {});
+    const font = "catalog:zen-kaku-gothic-new@900";
+    await fonts.prepare(font, char);
+    const source = layoutText(char, defaultTextStyle({ font, fontSize: 10 }), fonts).glyphs[0].path;
     const before = flattenPath(source, 0.01);
     for (const smallScale of [0.6, 0.7]) {
       const compensated = emboldenGlyph(source, 10, sfxWeightRadius("impact", smallScale) * 10);
@@ -136,14 +148,22 @@ describe("brush pressure", () => {
     expect(brushGlyph([], 10, 42)).toEqual([]);
     expect(brushGlyph(path, 0, 42)).toBe(path);
   });
-  it("uses Black 900 as the Japanese SFX skeleton and finds real kana terminals", async () => {
+  it("uses Dela Gothic One for manga SFX and offers Mochiy Pop One without changing comic SFX", async () => {
     const catalog = JSON.parse(readFileSync(new URL("../catalog/fonts.json", import.meta.url), "utf8"));
-    expect(catalog.sets["manga-basic"].sfx.font).toBe("zen-kaku-gothic-new@900");
-    expect(catalog.fonts.some((f: { id: string; weight: number }) => f.id === "zen-kaku-gothic-new" && f.weight === 900)).toBe(true);
+    expect(catalog.sets["manga-basic"].sfx.font).toBe("dela-gothic-one@400");
+    expect(catalog.fonts.some((f: { id: string; weight: number }) => f.id === "dela-gothic-one" && f.weight === 400)).toBe(true);
+    expect(catalog.fonts.some((f: { id: string; weight: number }) => f.id === "mochiy-pop-one" && f.weight === 400)).toBe(true);
+    expect(catalog.sets["comic-basic"].sfx.font).toBe("bangers@400");
     const fonts = new FontRegistry(new Map(), "manga-basic", [], {});
     await fonts.prepare("sfx", "ン");
     const layout = layoutText("ン", defaultTextStyle({ font: "sfx", fontSize: 10 }), fonts);
-    expect(layout.fonts).toContain("Zen Kaku Gothic New 900");
+    expect(layout.fonts).toContain("Dela Gothic One 400");
+  });
+  it("finds real kana terminals in Zen Kaku Gothic New", async () => {
+    const fonts = new FontRegistry(new Map(), "manga-basic", [], {});
+    const font = "catalog:zen-kaku-gothic-new@900";
+    await fonts.prepare(font, "ン");
+    const layout = layoutText("ン", defaultTextStyle({ font, fontSize: 10 }), fonts);
     const terminals = flattenPath(layout.glyphs[0].path, 0.02).flatMap(c => detectBrushTerminals(c.pts, 10));
     expect(terminals.some(t => t.kind === "exit")).toBe(true);
     expect(brushGlyph(layout.glyphs[0].path, 10, 42)).not.toEqual(layout.glyphs[0].path);

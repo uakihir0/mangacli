@@ -30,7 +30,7 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
     letterSpacing: "-0.03em",
     rotate: "-6deg",
     perChar: { rotate: ["-3deg", "3deg"] },
-    distort: { roughen: 0, warp: 0, skew: "0deg" },
+    distort: { roughen: 0.4, warp: 0, skew: "0deg" },
     color: "black",
     lettering: { mode: "hand" },
     clip: "none",

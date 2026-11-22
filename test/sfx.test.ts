@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createRenderer } from "../src/api.js";
 import { BUILTIN_DEFAULTS } from "../src/model/defaults.js";
-import { fullSizeKana, sfxScale, sfxShifts, sfxWeightRadius } from "../src/text/sfx.js";
+import { fullSizeKana, sfxScale, sfxShifts, sfxStretch, sfxWeightRadius } from "../src/text/sfx.js";
 import { emboldenGlyph } from "../src/text/brush.js";
 import { flattenPath, polyPath, transformPath } from "../src/geom/path.js";
 import { boundsOf } from "../src/geom/vec.js";
@@ -17,6 +17,26 @@ pages:
 `, filename: "/v/sfx.yaml" });
 
 describe("SFX lettering", () => {
+  it.each(Array.from("ー〜～ｰ︱︲︴"))("stretches long mark %s only along the writing direction", char => {
+    expect(sfxStretch(char, true)).toEqual([1, 1.6]);
+    expect(sfxStretch(char, false)).toEqual([1.6, 1]);
+  });
+  it.each(["", "ド", "ッ", "A"])("does not stretch ordinary or empty units %s", char => {
+    expect(sfxStretch(char, true)).toEqual([1, 1]);
+    expect(sfxStretch(char, false)).toEqual([1, 1]);
+  });
+  it.each(["vertical", "horizontal"])("renders seeded long marks and waves in %s", async writing => {
+    const source = input(`writing: ${writing}`, "ズオーッ〜～");
+    const first = await renderer.render(source, { format: "svg" });
+    expect(first.diagnostics.filter(d => d.severity === "error")).toEqual([]);
+    expect((await renderer.render(source, { format: "svg" })).pages[0].data).toEqual(first.pages[0].data);
+  });
+  it("roughens default contours deterministically and permits smooth overrides", async () => {
+    expect(BUILTIN_DEFAULTS.sfx.distort).toEqual({ roughen: 0.4, warp: 0, skew: "0deg" });
+    const first = await renderer.render(input(), { format: "svg" });
+    expect((await renderer.render(input(), { format: "svg" })).pages[0].data).toEqual(first.pages[0].data);
+    expect((await renderer.render(input("distort: { roughen: 0 }"), { format: "svg" })).pages[0].data).not.toEqual(first.pages[0].data);
+  });
   it("accents the head for impact and grows toward the stop for speed without random scale", () => {
     expect([0, 1, 2].map(i => sfxScale(i, 3, "ド"))).toEqual([1.3, 1.175, 1.05]);
     expect([0, 1, 2].map(i => sfxScale(i, 3, "ド", undefined, 0.7, "speed"))).toEqual([0.95, 1.125, 1.3]);
@@ -34,7 +54,7 @@ describe("SFX lettering", () => {
     expect(BUILTIN_DEFAULTS.sfx.perChar).toEqual({ rotate: ["-3deg", "3deg"] });
   });
   it.each(Array.from("ッっャュョゃゅょァィゥェォヵヶ"))("shrinks small kana %s", char => {
-    expect(sfxScale(0, 1, char)).toBeCloseTo(0.91);
+    expect(sfxScale(0, 1, char)).toBeCloseTo(0.78);
     expect(sfxScale(0, 1, char, undefined, 1)).toBe(1.3);
   });
   it("packs scaled glyphs with overlapping negative tracking", () => {
@@ -54,15 +74,17 @@ describe("SFX lettering", () => {
     expect(await render('perChar: { rotate: 0deg }')).not.toEqual(a);
     expect(await render('perChar: { jitter: 0mm }')).not.toEqual(a);
   });
-  it("scales the default white outline with font size and accepts overrides", async () => {
+  it("scales the default double outline with font size and accepts overrides", async () => {
     const svg = async (extra: string) => Buffer.from((await renderer.render(input(`perChar: { scale: 1 }, ${extra}`), { format: "svg" })).pages[0].data).toString();
-    expect(await svg("grow: 0")).toContain('stroke-width="1.2"');
-    expect(await svg("grow: 0")).toContain('stroke-width="0.84"');
+    expect(await svg("grow: 0")).toContain('stroke-width="2.4"');
+    expect(await svg("grow: 0")).toContain('stroke-width="2.9"');
+    expect(await svg("grow: 0")).toContain('stroke-width="1.44"');
     const large = input("grow: 0, perChar: { scale: 1 }");
     large.yaml = large.yaml.replace("fontSize: 10mm", "fontSize: 20mm");
-    expect(Buffer.from((await renderer.render(large, { format: "svg" })).pages[0].data).toString()).toContain('stroke-width="2.4"');
+    expect(Buffer.from((await renderer.render(large, { format: "svg" })).pages[0].data).toString()).toContain('stroke-width="4.8"');
     expect(await svg('outline: [{ width: 2mm, color: white }]')).toContain('stroke-width="4"');
-    expect(await svg('outline: none')).not.toContain('stroke="#ffffff"');
+    expect(await svg('outline: none')).not.toContain('stroke-width=');
+    expect((await svg('outline: [{ width: 2mm, color: white }]')).match(/stroke-width=/g)).toHaveLength(3);
   });
   it("paints every white glyph outline behind every glyph fill", async () => {
     const result = await renderer.render(input('perChar: { scale: 1 }, chars: [{ index: 1, color: red }, { index: 2, color: blue }]'), { format: "svg" });
@@ -75,7 +97,11 @@ describe("SFX lettering", () => {
     expect(Math.max(...outlines)).toBeLessThan(Math.min(...fills));
     const widths = outlines.map(i => Number(paths[i].match(/stroke-width="([^"]+)"/)![1]));
     expect(widths[1] / widths[0]).toBeCloseTo(1.05 / 1.3, 2);
-    expect(widths[2] / widths[1]).toBeCloseTo(0.7, 2);
+    expect(widths[2] / widths[1]).toBeCloseTo(0.6, 2);
+    const black = paths.flatMap((p, i) => p.includes('stroke="#000000"') ? [i] : []);
+    expect(black).toHaveLength(3);
+    expect(Math.max(...black)).toBeLessThan(Math.min(...outlines));
+    black.forEach((index, i) => expect(Number(paths[index].match(/stroke-width="([^"]+)"/)![1]) - widths[i]).toBeCloseTo(0.5));
   });
   it("paints multi-color outlines by layer across all glyphs", async () => {
     const result = await renderer.render(input("outline: [{ width: 0.5mm, color: white }, { width: 2mm, color: red }]"), { format: "svg" });
@@ -89,7 +115,7 @@ describe("SFX lettering", () => {
     const paths: PathNode[] = [];
     const walk = (node: Node) => {
       if (node.kind === "group") node.children.forEach(walk);
-      if (node.kind === "path" && node.tag?.elementId === "sfx" && node.stroke) paths.push(node);
+      if (node.kind === "path" && node.tag?.elementId === "sfx" && node.stroke?.paint.type === "solid" && node.stroke.paint.color.r === 1) paths.push(node);
     };
     walk(list.root);
     expect(paths).toHaveLength(Array.from(text).length);
@@ -119,15 +145,15 @@ describe("SFX lettering", () => {
       const source = input("grow: 0, rotate: 0deg, brush: false, perChar: { rotate: 0deg, jitter: 0mm }", text);
       source.yaml = source.yaml.replace("mangacli: 1", `mangacli: 1\nmeta: { lang: ${lang} }`);
       const svg = Buffer.from((await renderer.render(source, { format: "svg" })).pages[0].data).toString();
-      return [...svg.matchAll(/stroke-width="([^"]+)"/g)].map(m => Number(m[1]));
+      return [...svg.matchAll(/<path\b[^>]*stroke="#ffffff"[^>]*>/g)].map(m => Number(m[0].match(/stroke-width="([^"]+)"/)![1]));
     };
     const result = await widths("...ッ");
     expect(result).toHaveLength(lang === "ja" ? 2 : 4);
-    expect(result.at(-1)).toBeCloseTo(0.84);
-    expect((await widths("--ッ")).at(-1)).toBeCloseTo(0.84);
+    expect(result.at(-1)).toBeCloseTo(1.44);
+    expect((await widths("--ッ")).at(-1)).toBeCloseTo(1.44);
   });
   it("does not undo explicit shrink controls when grow is omitted", async () => {
-    const box = async (extra: string, text = "ド") => (await renderer.render(input(`rotate: 0deg, brush: false, perChar: { rotate: 0deg, jitter: 0mm }, ${extra}`, text), { format: "svg" })).layout[0].elements.find(e => e.id === "sfx")!.bbox;
+    const box = async (extra: string, text = "ド") => (await renderer.render(input(`rotate: 0deg, brush: false, distort: { roughen: 0 }, perChar: { rotate: 0deg, jitter: 0mm }, ${extra}`, text), { format: "svg" })).layout[0].elements.find(e => e.id === "sfx")!.bbox;
     const baseline = await box("chars: [{ index: 0, scale: 1 }]");
     const shrunk = await box("chars: [{ index: 0, scale: 0.5 }]");
     expect(shrunk.w / baseline.w).toBeCloseTo(0.5);
@@ -139,7 +165,7 @@ describe("SFX lettering", () => {
   });
   it.each(["vertical", "horizontal"])("preserves explicit spaces and along-axis character offsets in %s SFX", async writing => {
     const boxes = async (text: string, chars = "[]") => {
-      const list = await renderer.displayList(input(`writing: ${writing}, rotate: 0deg, grow: 0, brush: false, perChar: { rotate: 0deg, jitter: 0mm }, chars: ${chars}`, text), 1);
+      const list = await renderer.displayList(input(`writing: ${writing}, rotate: 0deg, grow: 0, brush: false, outline: [{ width: 1mm, color: white }], perChar: { rotate: 0deg, jitter: 0mm }, chars: ${chars}`, text), 1);
       const result: ReturnType<typeof boundsOf>[] = [];
       const walk = (node: Node) => {
         if (node.kind === "group") node.children.forEach(walk);

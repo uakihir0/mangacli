@@ -217,6 +217,7 @@ macOS では `~/Library/Fonts`、`/Library/Fonts`、`/System/Library/Fonts`、Wi
 | `zen-kaku-gothic-new` | Zen Kaku Gothic New | 400、500、700、900 | ゴシック体（アンチゴチの漢字） |
 | `shippori-mincho` | Shippori Mincho | 400、500、700 | 明朝体（ナレーション） |
 | `dela-gothic-one` | Dela Gothic One | 400 | 極太ゴシック体（描き文字） |
+| `mochiy-pop-one` | Mochiy Pop One | 400 | 軽めで丸みのある描き文字 |
 | `zen-maru-gothic` | Zen Maru Gothic | 500、700、900 | 丸ゴシック体（題、やわらかいセリフ） |
 | `rampart-one` | Rampart One | 400 | 立体的な描き文字 |
 | `yomogi` | Yomogi | 400 | 手書き風 |
@@ -252,7 +253,7 @@ fonts:
 | `thought`、`whisper` | `dialogue` と同じ |
 | `narration` | `shippori-mincho@500` |
 | `shout` | ゴシックMB101 U（インストール済み）→ 新ゴ U（インストール済み）→ `zen-kaku-gothic-new@900`（`as: shout`、`as: scream`） |
-| `sfx` | `zen-kaku-gothic-new@900`（Black。筆圧加工前の骨格） |
+| `sfx` | `dela-gothic-one@400`（極太の描き文字。筆圧加工前の骨格） |
 | `hand` | `yomogi` |
 | `title` | システムのゴシックMB101 U・新ゴ U、なければ `noto-sans-jp@900`（扉の題字向けの、画の端が四角い極太ゴシック。ない字は `zen-kaku-gothic-new@900`） |
 
@@ -607,18 +608,20 @@ ruby:
 | `letterSpacing` | Length（`em`） | `-0.03em` | 負の字間は字送りを詰めた後、インク外接矩形の間に最低 0.03em、小書き仮名の前は 0.04em 空け、点画が隣の文字と融合しないようにする |
 | `path` | SfxPath | - | 文字を並べる経路（下表） |
 | `grow` | 数値 | 自動 | `impact` は先頭 130% → 末尾 105%、`speed` は先頭 95% → 末尾 130%（1 文字なら 130%）。大きさにランダムなノイズを加えず、頭または止めを強調する。指定時は 1 + `grow` × (n − 1)。`0` で等サイズ・面積補正なし |
-| `smallKanaScale` | 数値（0.1〜1） | `0.7` | 促音・拗音は対応する通常サイズの仮名の骨格を一度だけ縮小し、隣の文字に近い絶対筆画幅になるよう太さを補正する。`1` で縮小を無効 |
+| `smallKanaScale` | 数値（0.1〜1） | `0.6` | 促音・拗音は対応する通常サイズの仮名の骨格を一度だけ縮小し、隣の文字に近い絶対筆画幅になるよう太さを補正する。`1` で縮小を無効 |
 | `rotate` | Angle | `-6deg` | 単語全体の動く向き。個々の文字の傾きではなく、全体を一緒に回転する |
 | `perChar` | `{ rotate, scale, jitter }` | `{ rotate: [-3deg, 3deg], scale: 1 }` | シードから再現可能な微小変形。既定の直交方向の位置揺れは ±0.015em。`rotate`（Angle の Range）、`scale`（倍率の Range）、`jitter`（両軸のずれ、Length。`0mm` で位置揺れなし） |
 | `chars` | CharOverride[] | - | 文字の番号ごとの上書き（`{ index, rotate, scale, offset, color }`） |
 | `brush` | `false` \| `{ style, taper, entry, wobble }` | `{ style: impact, taper: 1, entry: 1, wobble: 0.01 }` | `impact` は太い胴体と短い抜き、押し込んだ入り。`speed` は長めの抜きと軽い入り（`entry: 0.35, wobble: 0.04`）。`taper`（0〜2）、`entry`（0〜2）、`wobble`（0〜0.2）を上書き可能。`false` で筆圧加工なし（太さ補正は維持） |
-| `distort` | Distort | `{ roughen: 0, warp: 0, skew: 0deg }` | 全体の歪み（下表）。既定では骨格の向きと筆先の形を保持する |
+| `distort` | Distort | `{ roughen: 0.4, warp: 0, skew: 0deg }` | 全体の歪み（下表）。輪郭の揺れの係数は `roughen × fontSize × 0.02`。既定の 12bmm では 0.096bmm（約 0.1bmm）にシード付きノイズを掛け、x・y に同じ変位を加える |
 | `color` | Paint | `black` | 文字の塗り |
-| `outline` | Outline[] | 白、各文字サイズの 6% | 太い白フチ（太字の筆画幅の約 35%）。大小変形・面積補正後の文字サイズに比例し、全ての縁を全ての塗りより先に描く。`none` で無効、明示した幅で上書き可能 |
+| `outline` | Outline[] | 白、各文字サイズの 12% ＋ その外側に黒 0.25bmm | 大小変形・面積補正後の文字サイズに比例する二重フチ。幅は累積ではなく字形からの絶対距離なので、黒の幅は白の幅 + 0.25bmm。全ての黒フチ、全ての白フチ、塗りの順に描く。`none` で無効、明示した配列で両方を上書き可能 |
 | `edge` | Stroke | `none` | 字形の輪郭を手描きの線でなぞる（例: 白抜き文字の黒い輪郭） |
 | `hollow` | 真偽値 | `false` | 中を抜き、`edge` の線だけを描く |
 | `lettering` | Lettering | `hand` | 手書き風の揺らぎ（7.15） |
 | `motion` | `{ trail, direction }` | - | 残像（P2） |
+
+長音・波線 `ー`・`〜`・`～`（半角 `ｰ` と縦書き用の `︱`・`︲`・`︴` も）は、進行方向だけを 1.6 倍に伸ばす。横幅（縦書き）・高さ（横書き）は変えず、既存の回転・経路変形を適用する。倍率は固定。
 
 | `path.kind` | パラメータ | 説明 |
 |---|---|---|
