@@ -381,8 +381,9 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
         clipped.push(it);
         if (it.glyphRuns?.length) {
           const clip = glyphClip ??= panelGlyphClip(pg, geom);
+          const mask = it.mask && pathArea(it.mask.path, it.mask.rule);
           for (const run of it.glyphRuns) {
-            const glyph = run.glyphs.find((g) => glyphLeavesPanel(g.path, run.transform, clip));
+            const glyph = run.glyphs.find((g) => glyphLeavesPanel(g.path, run.transform, clip, mask));
             if (glyph) bag.warn("TEXT_CLIPPED", `${run.el.id}: 「${glyph.char}」 is cut by the panel frame`, { path: run.el.path, elementId: run.el.id, pageId: page.id });
           }
         }
@@ -638,14 +639,30 @@ function panelClip(pg: PanelGeom, poly: Vec[]) {
 function panelGlyphClip(pg: PanelGeom, geom: PageGeom): polygonClipping.Polygon {
   const poly = panelShapePoly(pg, geom);
   const contour = poly === pg.polygon ? poly : flattenPath(panelClip(pg, poly), 0.02)[0]?.pts ?? [];
-  return [offsetPolygon(contour, 0.3).map(({ x, y }) => [x, y])];
+  return pointPolygon(offsetPolygon(contour, 0.3));
 }
 
-function glyphLeavesPanel(path: PathData, transform: Matrix, clip: polygonClipping.Polygon): boolean {
+function pointPolygon(pts: Vec[]): polygonClipping.Polygon {
+  return [pts.map(({ x, y }) => [x, y])];
+}
+
+function pathArea(path: PathData, rule: "nonzero" | "evenodd"): polygonClipping.MultiPolygon {
+  const contours = flattenPath(path, 0.05).filter((p) => p.pts.length >= 3).map((p) => pointPolygon(p.pts));
+  if (!contours.length) return [];
+  if (rule === "evenodd") return polygonClipping.xor(contours[0], ...contours.slice(1));
+  const signedArea = (p: polygonClipping.Polygon) => polygonArea(p[0].map(([x, y]) => ({ x, y })));
+  contours.sort((a, b) => Math.abs(signedArea(b)) - Math.abs(signedArea(a)));
+  const sign = Math.sign(signedArea(contours[0]));
+  let area: polygonClipping.MultiPolygon = [];
+  for (const poly of contours) area = Math.sign(signedArea(poly)) === sign ? polygonClipping.union(area, poly) : polygonClipping.difference(area, poly);
+  return area;
+}
+
+function glyphLeavesPanel(path: PathData, transform: Matrix, clip: polygonClipping.Polygon, mask?: polygonClipping.MultiPolygon): boolean {
   const points = flattenPath(transformPath(path, transform), 0.02).flatMap((c) => c.pts);
   if (!points.length) return false;
-  const rect = rectPts(boundsOf(points)).map(({ x, y }): [number, number] => [x, y]);
-  return polygonClipping.difference([rect], clip).length > 0;
+  const outside = polygonClipping.difference(pointPolygon(rectPts(boundsOf(points))), clip);
+  return outside.length > 0 && (!mask || polygonClipping.intersection(outside, mask).length > 0);
 }
 
 function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: ReturnType<typeof parsePaint>, hasPageArt: boolean, bag: DiagnosticBag): Node[] {
@@ -1676,22 +1693,10 @@ function collectTranscript(el: RElement, panel: string | undefined, info: PageLa
 }
 
 function checkPanelOcclusion(items: Item[], panels: { pg: PanelGeom; clipped: Item[] }[], geom: PageGeom, bag: DiagnosticBag, page: RPage) {
-  const ring = (pts: Vec[]): polygonClipping.Polygon => [pts.map(({ x, y }) => [x, y])];
-  const contour = (pg: PanelGeom) => ring(flattenPath(panelClip(pg, panelShapePoly(pg, geom)), 0.05)[0].pts);
+  const contour = (pg: PanelGeom) => pointPolygon(flattenPath(panelClip(pg, panelShapePoly(pg, geom)), 0.05)[0].pts);
   const lettering = (item: Item) => item.lettering?.length ? item.lettering.map(({ el, bbox }) => ({ ...item, el, bbox })) : [item];
-  const pathArea = (path: import("../geom/path.js").PathData, rule: "nonzero" | "evenodd"): polygonClipping.MultiPolygon => {
-    const contours = flattenPath(path, 0.05).filter((p) => p.pts.length >= 3).map((p) => ring(p.pts));
-    if (!contours.length) return [];
-    if (rule === "evenodd") return polygonClipping.xor(contours[0], ...contours.slice(1));
-    const signedArea = (p: polygonClipping.Polygon) => polygonArea(p[0].map(([x, y]) => ({ x, y })));
-    contours.sort((a, b) => Math.abs(signedArea(b)) - Math.abs(signedArea(a)));
-    const sign = Math.sign(signedArea(contours[0]));
-    let area: polygonClipping.MultiPolygon = [];
-    for (const poly of contours) area = Math.sign(signedArea(poly)) === sign ? polygonClipping.union(area, poly) : polygonClipping.difference(area, poly);
-    return area;
-  };
   const visibleArea = (item: Item) => {
-    let area: polygonClipping.MultiPolygon = [ring(rectPts(item.bbox))];
+    let area: polygonClipping.MultiPolygon = [pointPolygon(rectPts(item.bbox))];
     if (item.mask) area = polygonClipping.intersection(area, pathArea(item.mask.path, item.mask.rule));
     if (item.openClip) area = polygonClipping.intersection(area, pathArea(item.openClip, "nonzero"));
     return area;

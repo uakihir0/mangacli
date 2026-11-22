@@ -63,6 +63,15 @@ it("names the ruby glyph clipped after its parent group is transformed", async (
   })]);
 });
 
+it("does not warn for parts of a grouped glyph already hidden by a hard mask", async () => {
+  const doc = (maskX: string) => input(`- type: group
+            mask: {rect: [${maskX}, 0mm, 100%, 100%]}
+            children:
+              - {text: O, id: label, writing: horizontal, fontSize: 5mm, at: [1mm, 50%]}`);
+  expect(frameWarnings(await renderer.validate(doc("-3mm")))).toHaveLength(1);
+  expect(frameWarnings(await renderer.validate(doc("0mm")))).toEqual([]);
+});
+
 it("attributes a clipped connected balloon glyph to the balloon that owns it", async () => {
   const doc = input(`- {balloon: A, id: first-part, clip: panel, tail: none, writing: horizontal, fontSize: 5mm, at: [8mm, 50%]}
           - {balloon: O, id: second-part, clip: panel, tail: none, writing: horizontal, fontSize: 5mm, at: [0mm, 60%], connect: {to: first-part, style: line}}`);
