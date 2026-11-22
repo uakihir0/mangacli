@@ -130,6 +130,10 @@ function pluginBody(kind: string, def: PluginBalloonShape, w: number, h: number,
 }
 
 /** Plan a balloon: layout text & fit body (no position yet). */
+function balloonSize(p: Obj): unknown[] | undefined {
+  return Array.isArray(p.size) && (p.size[0] !== "auto" || p.size[1] !== "auto") ? p.size : undefined;
+}
+
 export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
   return planBalloonWithFit(el, ctx);
 }
@@ -151,7 +155,7 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
   const lum = paintAvgLuminance(fill);
   const textColor = (p.color as string) ?? (lum < 0.5 ? "white" : "black");
   const minFontScale = typeof p.minFontScale === "number" ? p.minFontScale : 0.75;
-  const fixedSize = Array.isArray(p.size) ? p.size : undefined;
+  const fixedSize = balloonSize(p);
   const pc = { u, coordsBox: ctx.coordsBox, refs: ctx.refs, bag: ctx.bag, path: el.path };
   const maxSz = Array.isArray(p.maxSize) ? p.maxSize : ["70%", "70%"];
   const maxW = sizeValue(maxSz[0], ctx.coordsBox.w, pc);
