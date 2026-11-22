@@ -104,8 +104,10 @@ export function renderMark(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
   }
   // `at: taro1.face` also tells face-aware marks (blush) the face box
   if (!tbox && typeof p.at === "string" && p.at.includes(".")) {
-    const [rid, rname] = p.at.split(".");
-    const t = ctx.refs.target(rid, ctx.panel?.panel.id);
+    const parts = p.at.split(".");
+    const base = ctx.refs.get(parts[0]);
+    const rname = base?.speakers?.[parts[1]] && !base.anchors[parts[1]] && !base.regions[parts[1]] ? parts[2] : parts[1];
+    const t = ctx.refs.target(p.at, ctx.panel?.panel.id);
     const rg = t?.regions[rname];
     if (rg) tbox = rg.bbox;
   }

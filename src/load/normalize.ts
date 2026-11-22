@@ -35,7 +35,7 @@ export function isObj(x: unknown): x is Obj {
 }
 
 /** maps whose keys are user-chosen names, not schema keys: `x-` is a valid name there */
-const NAME_MAPS = new Set(["profiles", "styles", "assets", "characters", "fonts", "locales", "anchors", "regions", "diagnostics", "weights"]);
+export const NAME_MAPS = new Set(["profiles", "styles", "assets", "characters", "fonts", "locales", "anchors", "regions", "diagnostics", "weights"]);
 
 function stripExt(o: unknown, parent = ""): unknown {
   if (Array.isArray(o)) return o.map((x) => stripExt(x));
@@ -324,10 +324,12 @@ export function normalizeDocument(input: unknown, bag: DiagnosticBag): Obj {
   // a character named only by an asset (`character: taro`) is declared implicitly
   if (isObj(out.assets)) {
     for (const v of Object.values(out.assets as Obj)) {
-      const name = isObj(v) ? (v as Obj).character : undefined;
-      if (typeof name !== "string" || !name || chars.has(name)) continue;
-      chars.add(name);
-      out.characters = { ...((out.characters as Obj | undefined) ?? {}), [name]: {} };
+      if (!isObj(v)) continue;
+      for (const name of [v.character, ...Object.keys(isObj(v.characters) ? v.characters : {})]) {
+        if (typeof name !== "string" || !name || chars.has(name)) continue;
+        chars.add(name);
+        out.characters = { ...((out.characters as Obj | undefined) ?? {}), [name]: {} };
+      }
     }
   }
   if (Array.isArray(doc.pages)) {

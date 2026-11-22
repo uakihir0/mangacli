@@ -1,6 +1,6 @@
 // Image elements (spec 5.5).
 import { FILTER_NAMES, parseFilter } from "../render/filters.js";
-import { resolveAssetBlend } from "../render/assets.js";
+import { type AssetInfo, resolveAssetBlend } from "../render/assets.js";
 import { isObj } from "../load/normalize.js";
 import { parseColor } from "../core/color.js";
 import { toMm } from "../core/units.js";
@@ -125,16 +125,23 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect, 
   const flipM: Matrix = [flipX ? -1 : 1, 0, 0, flipY ? -1 : 1, flipX ? bw : 0, flipY ? bh : 0];
   const pxToPage = matMul(pl.matrix, matMul(flipM, matMul(pxToLocal, matTranslate(-crop[0], -crop[1]))));
   // refs
-  const anchors: Record<string, Vec> = {};
-  const regions: Record<string, { poly: Vec[]; bbox: Rect }> = {};
-  const extraAnchors = (p.anchors ?? {}) as Record<string, [number, number]>;
-  const extraRegions = (p.regions ?? {}) as Record<string, [number, number, number, number]>;
-  for (const [k, v] of Object.entries({ ...(info?.anchors ?? {}), ...extraAnchors })) anchors[k] = applyMat(pxToPage, { x: v[0], y: v[1] });
-  for (const [k, r] of Object.entries({ ...(info?.regions ?? {}), ...extraRegions })) {
-    const poly = [applyMat(pxToPage, { x: r[0], y: r[1] }), applyMat(pxToPage, { x: r[0] + r[2], y: r[1] }), applyMat(pxToPage, { x: r[0] + r[2], y: r[1] + r[3] }), applyMat(pxToPage, { x: r[0], y: r[1] + r[3] })];
-    const xs = poly.map((q) => q.x);
-    const ys = poly.map((q) => q.y);
-    regions[k] = { poly, bbox: { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) } };
+  const transformRefs = (a: Record<string, [number, number]>, rs: Record<string, [number, number, number, number]>) => {
+    const anchors: Record<string, Vec> = {};
+    const regions: Record<string, { poly: Vec[]; bbox: Rect }> = {};
+    for (const [k, v] of Object.entries(a)) anchors[k] = applyMat(pxToPage, { x: v[0], y: v[1] });
+    for (const [k, r] of Object.entries(rs)) {
+      const poly = [applyMat(pxToPage, { x: r[0], y: r[1] }), applyMat(pxToPage, { x: r[0] + r[2], y: r[1] }), applyMat(pxToPage, { x: r[0] + r[2], y: r[1] + r[3] }), applyMat(pxToPage, { x: r[0], y: r[1] + r[3] })];
+      const xs = poly.map((q) => q.x);
+      const ys = poly.map((q) => q.y);
+      regions[k] = { poly, bbox: { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) } };
+    }
+    return { anchors, regions };
+  };
+  const { anchors, regions } = transformRefs({ ...info?.anchors, ...(p.anchors as Record<string, [number, number]>) }, { ...info?.regions, ...(p.regions as Record<string, [number, number, number, number]>) });
+  const speakers: NonNullable<RefTarget["speakers"]> = {};
+  const extraCharacters = (p.characters ?? {}) as NonNullable<AssetInfo["characters"]>;
+  for (const name of new Set([...Object.keys(info?.characters ?? {}), ...Object.keys(extraCharacters)])) {
+    speakers[name] = transformRefs({ ...info?.characters?.[name]?.anchors, ...extraCharacters[name]?.anchors }, { ...info?.characters?.[name]?.regions, ...extraCharacters[name]?.regions });
   }
   // visible image bbox (page) = element box ∩ image rect
   const [left, right] = [Math.max(0, dx), Math.min(bw, dx + dw)];
@@ -142,8 +149,9 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect, 
   const visibleShape = (isPlaceholder ? [{ x: 0, y: 0 }, { x: bw, y: 0 }, { x: bw, y: bh }, { x: 0, y: bh }] : [{ x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom }]).map((q) => applyMat(isPlaceholder ? pl.matrix : matMul(pl.matrix, flipM), q));
   const vis = boundsOf(visibleShape);
   const ref: RefTarget = { id: el.id, type: "image", bbox: vis, anchors, regions, character: (p.character as string) ?? info?.character, panelId: ctx.panel?.panel.id, imagePx: info && !info.missing ? { matrix: pxToPage, assetKey: info.key, w: iw, h: ih } : undefined };
-  if (role === "art") ctx.refs.add(ref, el.path[el.path.length - 1] as number);
+  ref.speakers = speakers;
   ref.shape = visibleShape;
+  if (role === "art") ctx.refs.add(ref, el.path[el.path.length - 1] as number);
 
   const nodes: Node[] = [];
   if (isPlaceholder) {

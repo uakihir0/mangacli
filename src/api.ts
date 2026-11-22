@@ -11,7 +11,7 @@ const PKG_VERSION = (JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"),
 import { type Diagnostic, DiagnosticBag, MangaAbortError, MangaError, MangaRenderError, MangaResourceError, MangaSecurityError, MangaValidationError, suggest } from "./core/diagnostics.js";
 import { FontRegistry, type FontDef } from "./fonts/registry.js";
 import { type LoadedDocument, loadDocumentFile, loadDocumentFromObject, loadDocumentFromString } from "./load/document.js";
-import { isObj, normalizeDocument } from "./load/normalize.js";
+import { isObj, NAME_MAPS, normalizeDocument } from "./load/normalize.js";
 import { type ResolvedDoc, resolveDocument } from "./model/resolve.js";
 import { type EncodeOptions, EXT, MIME, type OutputFormat, encode } from "./output/encode.js";
 import { PROFILES, type Profile, applyOutput, resolveProfile } from "./output/profiles.js";
@@ -263,6 +263,24 @@ function validateSchema(doc: Obj, bag: DiagnosticBag) {
     for (const kind of ["anchors", "regions"] as const)
       for (const k of Object.keys(isObj(a?.[kind]) ? (a[kind] as Obj) : {})) if (k in KEYWORDS) bag.error("ID_RESERVED", `"${k}" is a position keyword and cannot name an asset ${kind.slice(0, -1)}`, { path: ["assets", an, kind, k] });
   }
+  // `names`: the keys of `value` are user names (style, asset, ... ids), not properties
+  const checkSpeakers = (value: unknown, path: (string | number)[], names = false) => {
+    if (Array.isArray(value)) value.forEach((v, i) => checkSpeakers(v, [...path, i]));
+    else if (isObj(value)) {
+      if (isObj(value.characters) && path.length > 0 && !names) {
+        for (const [name, data] of Object.entries(value.characters)) {
+          if (name in KEYWORDS) bag.error("ID_RESERVED", `"${name}" is a position keyword and cannot name a speaker`, { path: [...path, "characters", name] });
+          if (isObj(data)) for (const kind of ["anchors", "regions"]) {
+            for (const key of Object.keys(isObj(data[kind]) ? data[kind] : {})) {
+              if (key in KEYWORDS) bag.error("ID_RESERVED", `"${key}" is a position keyword and cannot name an image ${kind.slice(0, -1)}`, { path: [...path, "characters", name, kind, key] });
+            }
+          }
+        }
+      }
+      for (const [key, v] of Object.entries(value)) checkSpeakers(v, [...path, key], !names && NAME_MAPS.has(key));
+    }
+  };
+  checkSpeakers(doc, []);
   const r = Document.safeParse(doc);
   if (r.success) return;
   for (const iss of r.error.issues.slice(0, 100)) {

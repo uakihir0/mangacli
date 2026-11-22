@@ -25,6 +25,7 @@ export interface RefTarget {
   anchors: Record<string, Vec>;
   regions: Record<string, { poly: Vec[]; bbox: Rect }>;
   character?: string;
+  speakers?: Record<string, Pick<RefTarget, "anchors" | "regions">>;
   panelId?: string;
   shape?: Vec[];
   /** for images: page matrix mapping image px -> page mm and asset key (alpha regions) */
@@ -39,7 +40,16 @@ export class RefRegistry {
   constructor(private anchorPriority: (char: string) => string[]) {}
   add(t: RefTarget, order = 0) {
     this.map.set(t.id, t);
-    if (t.character) this.chars.push({ char: t.character, panelId: t.panelId, target: t, order });
+    for (const target of this.speakerTargets(t)) {
+      if (target.character) this.chars.push({ char: target.character, panelId: target.panelId, target, order });
+    }
+  }
+  speakerTargets(t: RefTarget): RefTarget[] {
+    const speakers = Object.entries(t.speakers ?? {}).map(([character, data]) => ({ ...t, ...data, character, speakers: undefined }));
+    return t.character && t.speakers?.[t.character] ? speakers : [t, ...speakers];
+  }
+  allSpeakers(): RefTarget[] {
+    return this.all().flatMap((t) => this.speakerTargets(t));
   }
   get(id: string): RefTarget | undefined {
     return this.map.get(id);
@@ -60,7 +70,8 @@ export class RefRegistry {
   }
   /** resolve "id", "id.name" or character id to a point */
   point(ref: string, panelId: string | undefined): Vec | null {
-    const [id, name, sub] = ref.split(".", 3);
+    const [id, ...parts] = ref.split(".");
+    let [name, sub] = parts;
     let t = this.map.get(id);
     let isChar = false;
     if (!t) {
@@ -68,6 +79,11 @@ export class RefRegistry {
       isChar = !!t;
     }
     if (!t) return null;
+    if (name && !t.anchors[name] && !t.regions[name] && t.speakers?.[name]) {
+      t = { ...t, ...t.speakers[name], character: name, speakers: undefined };
+      [name, sub] = parts.slice(1);
+      isChar = true;
+    }
     if (name) {
       if (t.anchors[name]) return t.anchors[name];
       if (t.regions[name]) return sub && KEYWORDS[sub] ? boxPoint(t.regions[name].bbox, KEYWORDS[sub]) : center(t.regions[name].bbox);
@@ -84,8 +100,9 @@ export class RefRegistry {
     return center(t.bbox);
   }
   target(ref: string, panelId?: string): RefTarget | undefined {
-    const [id] = ref.split(".", 2);
-    return this.map.get(id) ?? this.character(id, panelId);
+    const [id, speaker] = ref.split(".", 2);
+    const t = this.map.get(id) ?? this.character(id, panelId);
+    return t && speaker && !t.anchors[speaker] && !t.regions[speaker] && t.speakers?.[speaker] ? { ...t, ...t.speakers[speaker], character: speaker, speakers: undefined } : t;
   }
   all(): RefTarget[] {
     return [...this.map.values()];

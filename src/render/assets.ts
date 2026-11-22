@@ -18,6 +18,7 @@ export interface AssetInfo {
   height: number;
   ppi: number;
   character?: string;
+  characters?: Record<string, { anchors?: Record<string, [number, number]>; regions?: Record<string, [number, number, number, number]> }>;
   anchors: Record<string, [number, number]>;
   regions: Record<string, [number, number, number, number]>;
   crop?: [number, number, number, number];
@@ -140,6 +141,7 @@ export class AssetRegistry {
       height: meta.height ?? 1,
       ppi: typeof o.ppi === "number" ? o.ppi : meta.density && meta.density > 72 ? meta.density : this.defaultPpi,
       character: o.character as string | undefined,
+      characters: o.characters as AssetInfo["characters"],
       anchors: (isObj(o.anchors) ? o.anchors : {}) as AssetInfo["anchors"],
       regions: (isObj(o.regions) ? o.regions : {}) as AssetInfo["regions"],
       crop,

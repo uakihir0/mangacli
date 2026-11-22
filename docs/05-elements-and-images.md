@@ -181,6 +181,7 @@ M = translate(at + offset) · rotate(rotate) · scale(scale) · translate(−anc
 | `zoom` | 数値 | `1` | `fit` の後に `focus` を中心として拡大する倍率。寄りの構図に使う |
 | `crop` | Rect | 素材の値 | 素材の一部だけを使う（画素） |
 | `character` | キャラクター ID | 素材の値 | 描かれている人物 |
+| `characters` | Map\<キャラクター ID, { anchors?, regions? }\> | 素材の値 | 人物ごとにアンカー・領域を上書き・追加する。座標は素材の画素単位 |
 | `anchors` | Map | 素材の値 | アンカーの上書き・追加 |
 | `regions` | Map | 素材の値 | 領域の上書き・追加 |
 | `filters` | Filter[] | 素材の値 | フィルタ（素材のフィルタの後に適用） |
@@ -193,6 +194,7 @@ M = translate(at + offset) · rotate(rotate) · scale(scale) · translate(−anc
 - `fit` の基準となる箱は、`size` を指定した場合はその箱、省略した場合はコマ全体（塗り足しを含む外接矩形）である。ページの `layers` では塗り足し全体である。
 - `fit: cover` では、箱を覆いつつ `focus` が箱の中心に近づくように位置を決める（箱を覆えなくなる位置へは動かさない）。
 - 画像は描画順のとおりに合成する。白背景の線画を背景の上に重ねる場合は `blend: multiply` または素材の `kind: lineart` を使う。
+- `characters` は素材の定義に人物ごと・名前ごとに重ねる。たとえば `characters: { hana: { anchors: { mouth: [1210, 580] } } }` で花の口だけを変え、素材の顔領域は残せる。`who: hana` や `img.hana.mouth` はその人物の点を参照する。
 
 ### 5.5.1 解像度の確認
 
