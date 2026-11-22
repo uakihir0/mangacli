@@ -16,7 +16,6 @@ import { activePlugins } from "../plugin.js";
 import { runPluginDrawable } from "./plugindraw.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { inksToNodes } from "./inkir.js";
-import { lightningPoints, lightningOutline } from "./lightning.js";
 import { type ResolvedRegion, resolveRegion } from "./region.js";
 import { type EffectAlphaCache, effectSilhouette, splitClearLine } from "./effect-clear.js";
 
@@ -505,87 +504,6 @@ function swirl(f: FxCtx): InkPoly[] {
   return out;
 }
 
-// ---- impact ------------------------------------------------------------------
-
-function impact(f: FxCtx): Node[] {
-  const p = f.p;
-  const pc = placeCtx(f.ctx, f.el);
-  const c = resolvePoint(p.center ?? "center", pc) ?? { x: 0, y: 0 };
-  const b = f.region.bbox;
-  const radius = L(f, p.radius ?? "18%", Math.min(b.w, b.h));
-  const spikes = Number(p.spikes ?? 14);
-  const irr = (p.irregularity as number) ?? 0.5;
-  const star = (r: number, seedShift: number): Vec[] => {
-    const pts: Vec[] = [];
-    const rr = new Rng(f.el.seed + seedShift);
-    for (let i = 0; i < spikes * 2; i++) {
-      const a = (i / (spikes * 2)) * Math.PI * 2 + rr.range(-0.1, 0.1);
-      const rad = i % 2 === 0 ? r * (1 + irr * rr.range(0, 0.8)) : r * (0.55 + rr.range(-0.08, 0.08));
-      pts.push({ x: c.x + Math.cos(a) * rad, y: c.y + Math.sin(a) * rad });
-    }
-    return pts;
-  };
-  const outer = star(radius, 1);
-  const nodes: Node[] = [];
-  const fill = parsePaint(p.fill ?? "paper", { u: f.ctx.u, box: b, seed: f.el.seed });
-  if (fill) nodes.push({ kind: "path", path: polyPath(outer, true), fillRule: "nonzero", paint: fill, tag: tag(f.el, "fill") });
-  const w = toMm((((p.stroke as Obj)?.width as string) ?? `${0.3 * f.k}mm`), f.ctx.u);
-  const inks: InkPoly[] = [];
-  for (let i = 0; i < outer.length; i++) {
-    const a = outer[i];
-    const bb = outer[(i + 1) % outer.length];
-    inks.push(...effectLine(f, [a, bb], lineStyle(f, w), f.hand, f.rng.fork("im"), { taperIn: i % 2 === 1, taperOut: i % 2 === 0, inkPool: false }));
-  }
-  if (p.double !== false) {
-    const inner = star(radius * 0.6, 2);
-    for (let i = 0; i < inner.length; i++) inks.push(...effectLine(f, [inner[i], inner[(i + 1) % inner.length]], lineStyle(f, w * 0.7), f.hand, f.rng.fork("im2"), { inkPool: false }));
-  }
-  const rays = (isObj(p.rays) ? p.rays : { count: 24 }) as Obj;
-  const rc = Number(rays.count ?? 24);
-  const rl = R(f, rays.length, { min: 2 * f.k, max: 8 * f.k, dist: "uniform" });
-  const rt = R(f, rays.thickness, { min: 0.15 * f.k, max: 0.4 * f.k, dist: "low" });
-  for (let i = 0; i < rc; i++) {
-    const a = (i / rc) * Math.PI * 2 + f.rng.range(-0.1, 0.1);
-    const r0 = radius * (1.5 + f.rng.range(0, 0.3));
-    const l = sampleR(f, rl);
-    const d = { x: Math.cos(a), y: Math.sin(a) };
-    inks.push(...effectLine(f, [{ x: c.x + d.x * r0, y: c.y + d.y * r0 }, { x: c.x + d.x * (r0 + l), y: c.y + d.y * (r0 + l) }], lineStyle(f, sampleR(f, rt)), f.hand, f.rng.fork("ray"), { ruler: true, taperIn: true, taperOut: true, inkPool: false }));
-  }
-  nodes.push(...inksToNodes(inks, f.color, tag(f.el, "ink")));
-  return wrap(f, nodes);
-}
-
-// ---- lightning ---------------------------------------------------------------
-
-function lightningEffect(f: FxCtx): Node[] {
-  const { p, rng } = f;
-  const b = f.region.bbox;
-  const nodes: Node[] = [];
-  const stroke = resolveStroke({ pen: p.pen, color: p.color, ...(isObj(p.stroke) ? p.stroke : {}) }, f.hand, f.ctx.u, f.ctx.bag, [...f.el.path, "stroke"]);
-  const shape = (pts: Vec[], paint: unknown) => {
-    const s = inkShape({ pts, closed: true, smooth: false }, { hand: stroke.hand, rng: rng.fork("shape"), join: "clean", line: stroke });
-    const resolved = parsePaint(paint, { u: f.ctx.u, box: b, seed: f.el.seed });
-    if (resolved) nodes.push({ kind: "path", path: polyPath(s.fill, true), fillRule: "nonzero", paint: resolved, tag: tag(f.el, "fill") });
-    nodes.push(...inksToNodes(s.inks, stroke?.color ?? f.color, tag(f.el, "ink")));
-  };
-  const point = (v: unknown, fallback: Vec) => v === undefined ? fallback : resolvePoint(v, placeCtx(f.ctx, f.el)) ?? fallback;
-  const jag = (o: Vec, angle: number, length: number, jaggedness: number) => lightningPoints(rng, o, angle, length, jaggedness);
-  const angle = parseAngle(p.direction as string);
-  const thickness = R(f, p.thickness, { min: 3 * f.k, max: 6 * f.k, dist: "uniform" });
-  for (let i = 0; i < Number(p.bolts); i++) {
-    const o = point(p.origin, { x: b.x + b.w * (i + rng.range(0.2, 0.8)) / Number(p.bolts), y: b.y });
-    const length = L(f, p.length, b.h) * rng.range(0.8, 1.1);
-    const pts = jag(o, angle, length, Number(p.jaggedness));
-    const width = sampleR(f, thickness);
-    shape(lightningOutline(pts, width), p.fill);
-    for (let j = 0; j < Number(p.branches); j++) {
-      const at = rng.int(2, 6);
-      shape(lightningOutline(jag(pts[at], angle + (j % 2 ? -1 : 1) * rng.range(0.5, 1), length * rng.range(0.2, 0.4), Number(p.jaggedness)), width * 0.3), p.fill);
-    }
-  }
-  return wrap(f, nodes, backgroundNode(f));
-}
-
 // ---- vignette ----------------------------------------------------------------
 
 function vignette(f: FxCtx): Node[] {
@@ -685,10 +603,6 @@ async function renderEffectInner(el: RElement, ctx: ElemCtx, hold: { f?: FxCtx }
     }
     case "swirl-lines":
       return ink(swirl(f));
-    case "impact":
-      return impact(f);
-    case "lightning":
-      return lightningEffect(f);
     case "vignette":
       return vignette(f);
     default: {

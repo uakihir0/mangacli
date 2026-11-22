@@ -349,17 +349,10 @@ const effectProps = z
   .object({ ...common, type: z.literal("effect"), kind: z.string(),
     clear: z.union([Region, z.array(Region)]).optional(), clearFigures: z.boolean().optional(), minLength: Length.optional(), followPath: z.union([z.array(Point).min(2), z.object({ path: z.string() }).strict()]).optional(),
     size: z.union([Length, Size]).optional(),
-    origin: Point.optional(), direction: z.union([Angle, z.enum(["cw", "ccw"])]).optional(),
-    bolts: z.number().int().nonnegative().optional(), branches: z.number().int().nonnegative().optional(),
-    jaggedness: z.number().min(0).max(1).optional(),
+    direction: z.union([Angle, z.enum(["cw", "ccw"])]).optional(),
   })
   .catchall(z.unknown()).superRefine((v, ctx) => {
-    const direction = v.kind === "swirl-lines" ? z.enum(["cw", "ccw"]) : v.kind === "lightning" ? Angle : undefined;
-    if (direction && v.direction !== undefined && !direction.safeParse(v.direction).success) ctx.addIssue({ code: "custom", path: ["direction"], message: `invalid direction for ${v.kind}` });
-    if (v.kind === "lightning") {
-      const fields: Record<string, z.ZodType> = { length: Length, thickness: RangeOf(Length), fill: Paint, stroke: Stroke, background: Paint };
-      for (const [key, schema] of Object.entries(fields)) if (v[key] !== undefined && !schema.safeParse(v[key]).success) ctx.addIssue({ code: "custom", path: [key], message: `invalid ${key}` });
-    }
+    if (v.kind === "swirl-lines" && v.direction !== undefined && !z.enum(["cw", "ccw"]).safeParse(v.direction).success) ctx.addIssue({ code: "custom", path: ["direction"], message: `invalid direction for ${v.kind}` });
   });
 
 const fillProps = {

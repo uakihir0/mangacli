@@ -19,10 +19,10 @@ pages:
       - layers:
           - { effect: swirl-lines }
       - layers:
-          - { effect: lightning }
+          - { effect: speed-lines, angle: 90deg }
       - layers:
-          - { effect: impact }
+          - { effect: focus-lines, center: [30%, 40%] }
       - layers:
-          - { effect: lightning, background: paper, fill: black }
+          - { effect: gloom-lines, tone: tone(20%) }
       - layers:
           - { effect: vignette }
