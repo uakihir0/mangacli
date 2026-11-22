@@ -1,0 +1,39 @@
+# 角度指定と2点直線による分割。右から左へ読む。
+# npm run dev -- render docs/examples/diagonal-splits.yaml --profile preview --format png --width 710 --crop bleed --out ~/scratch/diag/gallery
+mangacli: 1
+seed: 42
+page:
+  size: B5
+  color: mono
+  bleed: 3mm
+  gutter: { row: 5mm, col: 3mm }
+defaults:
+  text: { font: ui, writing: horizontal, fontSize: 18pt, at: [50%, 50%] }
+pages:
+  - id: diagonal-splits
+    layout:
+      split: rows
+      sizes: [1, 1, 1]
+      slant: [8deg, -6deg]
+      children:
+        # 段内の斜め境界（角度指定）。
+        - split: cols
+          slant: [-10deg]
+          children: [panel, panel]
+        # 左上の角から右辺へ延ばす直線。
+        - split: { line: [[0%, 0%], [100%, 70%]] }
+          children: [panel, panel]
+        # 右側のセルだけを斜めに分け、T 字に接続する。
+        - split: cols
+          children:
+            - split: { line: [[0%, 0%], [100%, 70%]] }
+              children: [panel, panel]
+            - panel
+    panels:
+      - { background: '#cccccc', layers: [{ text: '1' }] }
+      - { background: '#999999', layers: [{ text: '2' }] }
+      - { background: '#bbbbbb', layers: [{ text: '3', at: [70%, 35%] }] }
+      - { background: '#dddddd', layers: [{ text: '4' }] }
+      - { background: '#bbbbbb', layers: [{ text: '5', at: [75%, 30%] }] }
+      - { background: '#cccccc', layers: [{ text: '6' }] }
+      - { background: '#999999', layers: [{ text: '7' }] }

@@ -36,7 +36,7 @@ import { BUILTIN_STYLES, PAGE_PRESETS } from "./model/defaults.js";
 import { MARK_KINDS } from "./load/normalize.js";
 import { Document, ELEMENT_KEYS } from "./schema/schema.js";
 import { KEYWORDS } from "./layout/place.js";
-import { bookOf, computePageGeom } from "./layout/page.js";
+import { bookOf, computePageGeom, layoutPanels, warnMonotone } from "./layout/page.js";
 import { pageSize } from "./layout/page.js";
 
 type Obj = Record<string, unknown>;
@@ -882,6 +882,12 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
     timings[page.id] = performance.now() - tp;
     options.onProgress?.({ phase: "render", pageId: page.id, done: ++done, total });
   }
+  warnMonotone(resolved.pages.map((page, i) => {
+    const info = result.layout.find((l) => l.geom.id === page.id);
+    const probe = new DiagnosticBag();
+    const panels = info?.panels ?? (page.type === "blank" ? [] : layoutPanels(page, computePageGeom(page, plan.find((pl) => pl.idx === i)?.physical ?? i + 1, bookOf(p.doc), probe), probe));
+    return { page, panels };
+  }), bag);
   // A submission PDF must not silently omit pages if rendering failed.
   if (pdfX && (bag.hasErrors || result.failures.length || (options.strict && bag.items.some((d) => d.severity === "warning")))) pdfs.clear();
   for (const [sep, pw] of pdfs) {

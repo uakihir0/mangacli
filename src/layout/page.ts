@@ -2,7 +2,7 @@
 import { activePlugins } from "../plugin.js";
 import { deriveSeed, Rng } from "../core/random.js";
 import type { DiagnosticBag } from "../core/diagnostics.js";
-import { type UnitContext, parseLength, quantityToMm, toMm } from "../core/units.js";
+import { type UnitContext, parseAngle, parseLength, quantityToMm, toMm } from "../core/units.js";
 import polygonClipping from "polygon-clipping";
 import { polygonArea } from "../geom/path.js";
 import { type Rect, type Vec, boundsOf, rectIntersect } from "../geom/vec.js";
@@ -11,6 +11,28 @@ import { PAGE_PRESETS } from "../model/defaults.js";
 import type { RPage, RPanel } from "../model/resolve.js";
 
 type Obj = Record<string, unknown>;
+
+export function warnMonotone(pages: { page: RPage; panels: { polygon: Vec[] }[] }[], bag: DiagnosticBag): void {
+  let start = 0;
+  let active = false;
+  const flush = (end: number) => {
+    if (end - start >= 3 && active) bag.warn("LAYOUT_MONOTONE", `pages ${start + 1}–${end}: rectangular layouts continue despite SFX or line effects`, { pageId: pages[start].page.id, path: pages[start].page.path });
+    active = false;
+  };
+  const dynamic = (el: import("../model/resolve.js").RElement): boolean => el.type === "sfx" || (el.type === "effect" && ["speed-lines", "focus-lines", "gloom-lines", "swirl-lines", "beta-flash", "uni-flash"].includes(String(el.props.kind))) || !!el.children?.some(dynamic);
+  pages.forEach(({ page, panels }, i) => {
+    const varied = page.type === "blank" || !page.panels.length || !panels.length || page.panels.some((p) => {
+      const shape = isObj(p.props.shape) ? p.props.shape.kind : p.props.shape;
+      return shape !== undefined && shape !== "rect";
+    }) || panels.some(({ polygon }) => polygon.some((a, j) => {
+      const b = polygon[(j + 1) % polygon.length];
+      return Math.abs(a.x - b.x) > 1e-6 && Math.abs(a.y - b.y) > 1e-6;
+    }));
+    if (varied) { flush(i); start = i + 1; }
+    else active ||= page.layers.some(dynamic) || page.panels.some((p) => p.elements.some(dynamic));
+  });
+  flush(pages.length);
+}
 
 export interface PageGeom {
   id: string;
@@ -313,7 +335,7 @@ export function layoutPagePanels(page: RPage, geom: PageGeom, bag: DiagnosticBag
       let rowPoly: Vec[];
       if (i < rows.length - 1) {
         const yb = y + heights[i] + gRow / 2;
-        const sl = rows[i].slant !== undefined ? toMm(rows[i].slant as string, u) : 0;
+        const sl = slantMm(rows[i].slant as string | undefined, area.w, u);
         const a = { x: area.x - 200, y: yb - (sl * (W / area.w)) / 2 };
         const b = { x: area.x + area.w + 200, y: yb + (sl * (W / area.w)) / 2 };
         // positive side of a->b (left->right line): side>0 for points below (y-down)
@@ -388,6 +410,10 @@ export function layoutPagePanels(page: RPage, geom: PageGeom, bag: DiagnosticBag
       const bleed = Object.entries(edges).filter(([, [edge, trim]]) => Math.abs(edge - trim) < 0.01).map(([side]) => side);
       p = { ...p, props: { ...p.props, ...(lf.overlay ? { overlay: true } : { bleed }) } };
     }
+    if (lf.poly.length < 3 || Math.abs(polygonArea(lf.poly)) < 1e-9) {
+      bag.error("LAYOUT_DEGENERATE_PANEL", `panel ${p.id} is too small or degenerate`, { path: p.path, pageId: page.id });
+      return;
+    }
     out.push(makePanelGeom(p, lf.poly, geom, area, bag, i));
   });
   for (const ov of overlays) out.push(makePanelGeom(ov, freePoly(ov, geom, area, u), geom, area, bag, out.length));
@@ -413,6 +439,10 @@ export function layoutPagePanels(page: RPage, geom: PageGeom, bag: DiagnosticBag
   return { area, panels: out };
 }
 
+function slantMm(value: string | undefined, span: number, u: UnitContext): number {
+  return value === undefined ? 0 : typeof value === "string" && /(?:deg|rad|turn)\s*$/.test(value) ? Math.tan(parseAngle(value)) * span : toMm(value, u);
+}
+
 function splitCols(rowPoly: Vec[], cols: number[], colSlant: string[], g: number, rtl: boolean, u: UnitContext, area: Rect): Leaf[] {
   const bb = boundsOf(rowPoly);
   const x0 = area.x;
@@ -426,7 +456,7 @@ function splitCols(rowPoly: Vec[], cols: number[], colSlant: string[], g: number
     acc += widths[i] + (i > 0 ? g : 0);
     const pos = acc + g / 2; // distance from reading start
     const xb = rtl ? x0 + w - pos : x0 + pos;
-    const sl = colSlant[i] !== undefined ? toMm(colSlant[i], u) : 0;
+    const sl = slantMm(colSlant[i], bb.h, u);
     const top = { x: xb - sl / 2, y: bb.y };
     const bot = { x: xb + sl / 2, y: bb.y + bb.h };
     const ext = 200;
@@ -449,12 +479,35 @@ function splitCols(rowPoly: Vec[], cols: number[], colSlant: string[], g: number
 }
 
 function splitTree(node: Obj, poly: Vec[], gCol: number, gRow: number, rtl: boolean, u: UnitContext): Leaf[] {
+  if (poly.length < 3) return [{ poly: [] }];
   if (node === ("panel" as unknown)) return [{ poly }];
   if (isObj(node) && typeof node.panel === "string") return [{ poly, bind: node.panel as string }];
   if (!isObj(node) || !node.split) return [{ poly }];
   const children = (node.children as Obj[]) ?? [];
   const n = children.length;
   const bb = boundsOf(poly);
+  if (isObj(node.split)) {
+    const points = node.split.line as (string | number)[][];
+    const [a, b] = points.map(([x, y]) => ({ x: bb.x + toMm(x, { ...u, base: bb.w }), y: bb.y + toMm(y, { ...u, base: bb.h }) }));
+    const horizontal = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y);
+    const g = node.gutter !== undefined ? toMm(node.gutter as string, u) : horizontal ? gRow : gCol;
+    if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-9) return children.flatMap(() => [{ poly: [] }]);
+    const sides = splitPoly(poly, a, b, g);
+    const center = (p: Vec[]) => {
+      const area = polygonArea(p);
+      let x = 0, y = 0;
+      for (let i = 0; i < p.length; i++) {
+        const a = p[i], b = p[(i + 1) % p.length];
+        const cross = a.x * b.y - b.x * a.y;
+        x += (a.x + b.x) * cross;
+        y += (a.y + b.y) * cross;
+      }
+      return { x: x / (6 * area), y: y / (6 * area) };
+    };
+    const [c, d] = sides.map(center);
+    if (horizontal ? c.y > d.y : rtl ? c.x < d.x : c.x > d.x) sides.reverse();
+    return children.flatMap((child, i) => splitTree(child, sides[i] ?? [], gCol, gRow, rtl, u));
+  }
   const isRows = node.split === "rows";
   const g = node.gutter !== undefined ? toMm(node.gutter as string, u) : isRows ? gRow : gCol;
   const total = isRows ? bb.h : bb.w;
@@ -466,7 +519,7 @@ function splitTree(node: Obj, poly: Vec[], gCol: number, gRow: number, rtl: bool
   for (let i = 0; i < n - 1; i++) {
     acc += sizes[i] + (i > 0 ? g : 0);
     const pos = acc + g / 2;
-    const sl = slants[i] !== undefined ? toMm(slants[i], u) : 0;
+    const sl = slantMm(slants[i], isRows ? bb.w : bb.h, u);
     if (isRows) {
       const yb = bb.y + pos;
       const W = bb.w + 400;
