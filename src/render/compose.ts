@@ -4,7 +4,7 @@ import { BLACK, WHITE, parseColor } from "../core/color.js";
 import { DiagnosticBag } from "../core/diagnostics.js";
 import { Rng } from "../core/random.js";
 import { breakFaults } from "../text/layout.js";
-import { parseAngle, toMm } from "../core/units.js";
+import { parseAngle, toMm, UnitError } from "../core/units.js";
 import { type ElemCtx, type Silhouette, placeCtx, tag } from "../elements/context.js";
 import { type BalloonPlan, hasOffscreenTail, planBalloon, prepareBalloonObstacles, renderBalloon, renderConnected } from "../elements/balloon.js";
 import { renderEffect } from "../elements/effects.js";
@@ -486,10 +486,12 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.el.type === "balloon" ? cleanClippedBalloonInk(it.openClip)(nodes) : nodes });
     else root.children.push(...nodes);
   }
-  // page numbers
-  const nombre = await nombreNodes(doc, page, geom, o, panels);
+  const furniture = [
+    ...await hashiraNodes(page, geom, o, panels),
+    ...await nombreNodes(doc, page, geom, o, panels),
+  ];
   const pageFiltered = page.settings.invert === true || (Array.isArray(page.settings.filters) && page.settings.filters.length > 0);
-  if (!pageFiltered) root.children.push(...nombre);
+  if (!pageFiltered) root.children.push(...furniture);
   const list: DisplayList = {
     version: 1,
     page: { id: page.id, index: page.index },
@@ -498,7 +500,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     background: bgPaint,
     root: { kind: "group", transform: [1, 0, 0, 1, geom.bleed, geom.bleed], children: [...pageBackground, root] },
   };
-  if (pageFiltered) list.root.children = [...compositeNodes(list.root.children, page.settings, bag, page.path), ...nombre];
+  if (pageFiltered) list.root.children = [...compositeNodes(list.root.children, page.settings, bag, page.path), ...furniture];
   // safe area / fold checks
   checkPanelOcclusion(items, panelNodes, geom, bag, page);
   checkTextSafety(items.concat(panelNodes.flatMap((p) => p.clipped)), geom, bag, page);
@@ -1479,7 +1481,67 @@ function segRect(a: Vec, b: Vec, r: Rect): boolean {
   return false;
 }
 
-// ---- page numbers -----------------------------------------------------------------
+// ---- page furniture ---------------------------------------------------------------
+
+async function hashiraNodes(page: RPage, geom: PageGeom, o: ComposeOptions, panels: PanelGeom[]): Promise<Node[]> {
+  const opts = typeof page.hashira === "string" ? { text: page.hashira } : page.hashira;
+  if (!opts) return [];
+  const text = textValue(opts.text, o.lang, o.defaultLang);
+  if (!text.trim()) return [];
+
+  const id = `${page.id}-hashira`;
+  const where = { path: [...page.path, "hashira"], pageId: page.id, elementId: id };
+  let fontSize: number;
+  try {
+    fontSize = toMm(opts.fontSize ?? "8pt", geom.units);
+  } catch (e) {
+    if (!(e instanceof UnitError)) throw e;
+    o.bag.error("UNIT_INVALID", e.message, { ...where, path: [...where.path, "fontSize"] });
+    return [];
+  }
+  if (!(fontSize > 0 && Number.isFinite(fontSize))) {
+    o.bag.error("SCHEMA_RANGE", "hashira font size must be positive and finite", { ...where, path: [...where.path, "fontSize"] });
+    return [];
+  }
+  const color = parseColor(opts.color ?? "black");
+  if (!color) {
+    o.bag.error("COLOR_INVALID", `invalid color "${opts.color}"`, { ...where, path: [...where.path, "color"] });
+    return [];
+  }
+
+  const { safe, baseFrame } = geom;
+  const left = geom.side === "left" || (geom.side === "spread" && !geom.rtl);
+  const x0 = left ? safe.x : baseFrame.x + baseFrame.w;
+  const x1 = left ? baseFrame.x : safe.x + safe.w;
+  const noSpace = () => {
+    o.bag.warn("HASHIRA_NO_SPACE", "hashira omitted: it does not fit between the outer safe line and the base frame; shorten it, reduce fontSize, or widen the outer margin", where);
+    return [];
+  };
+  if (fontSize > x1 - x0 || safe.h <= 0) return noSpace();
+
+  const font = opts.font ?? "narration";
+  await o.fonts.prepare(font, text);
+  const tl = layoutText(text, defaultTextStyle({ font, fontSize, writing: "vertical", wrap: "none", markup: false, lang: o.lang }), o.fonts);
+  if (tl.missing.length) o.bag.warn("FONT_MISSING_GLYPH", `missing glyphs: ${[...new Set(tl.missing)].join("")}`, where);
+  if (tl.width > x1 - x0 || tl.height > safe.h) return noSpace();
+  const path = tl.glyphs.flatMap((g) => g.path);
+  if (!path.length) return [];
+  const ink = boundsOf(flattenPath(path, 0.02).flatMap(({ pts }) => pts));
+  if (ink.w > x1 - x0 || ink.h > safe.h) return noSpace();
+  const x = x0 + (x1 - x0 - ink.w) / 2;
+  const y = safe.y + (safe.h - ink.h) * (opts.align === "top" ? 0 : opts.align === "bottom" ? 1 : 0.5);
+  const box = { x, y, w: ink.w, h: ink.h };
+  const ring = (pts: Vec[]): [number, number][] => pts.map(({ x, y }) => [x, y]);
+  const overlap = panels.find((p) => p.panel.props.visible !== false && rectIntersect(p.box, box) && polygonClipping.intersection([ring(panelShapePoly(p, geom))], [ring(rectPts(box))]).length > 0);
+  if (overlap) o.bag.warn("HASHIRA_PANEL_OVERLAP", `hashira overlaps panel ${overlap.panel.id}`, where);
+  return [{
+    kind: "path",
+    path: transformPath(path, [1, 0, 0, 1, x - ink.x, y - ink.y]),
+    fillRule: "nonzero",
+    paint: { type: "solid", color },
+    tag: { elementId: id, elementType: "hashira", role: "furniture", separation: "furniture" },
+  }];
+}
 
 async function nombreNodes(doc: ResolvedDoc, page: RPage, geom: PageGeom, o: ComposeOptions, panels: PanelGeom[]): Promise<Node[]> {
   const book = (doc.doc.book ?? {}) as Obj;
