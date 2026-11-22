@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { validate } from "../src/api.js";
 
-async function check(a: number[], b: number[], direction = "rtl", extra = "") {
+async function check(a: number[], b: number[], direction = "rtl", extra = "", size = [20, 20]) {
   const result = await validate({ yaml: `mangacli: 1
 page: { size: [100mm, 100mm], bleed: 0mm }
 book: { readingDirection: ${direction} }
@@ -10,14 +10,22 @@ pages:
     panels:
       - id: pn1
         layers:
-          - { balloon: "", id: first, at: [${a[0]}mm, ${a[1]}mm], size: [20mm, 20mm], hand: clean, tail: none }
-          - { balloon: "", id: second, at: [${b[0]}mm, ${b[1]}mm], size: [20mm, 20mm], hand: clean, tail: none ${extra} }
+          - { balloon: "", id: first, at: [${a[0]}mm, ${a[1]}mm], size: [${size[0]}mm, ${size[1]}mm], hand: clean, tail: none }
+          - { balloon: "", id: second, at: [${b[0]}mm, ${b[1]}mm], size: [${size[0]}mm, ${size[1]}mm], hand: clean, tail: none ${extra} }
 ` });
   expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
   return result.diagnostics.filter((d) => ["BALLOON_OVERLAP", "BALLOON_READING_ORDER"].includes(d.code));
 }
 
 describe("final balloon readability diagnostics", () => {
+  it("detects overlap and reading-order reversal created by body rotation", async () => {
+    expect((await check([40, 40], [55, 38], "rtl", "", [8, 32])).map((d) => d.code)).toEqual(["BALLOON_READING_ORDER"]);
+    expect((await check([40, 40], [55, 38], "rtl", ", rotate: 90deg", [8, 32])).map((d) => d.code)).toEqual(["BALLOON_OVERLAP", "BALLOON_READING_ORDER"]);
+  });
+  it("does not warn when body rotation removes an overlap", async () => {
+    expect((await check([40, 40], [40, 60], "rtl", "", [8, 32])).map((d) => d.code)).toEqual(["BALLOON_OVERLAP"]);
+    expect(await check([40, 40], [40, 60], "rtl", ", rotate: 90deg", [8, 32])).toEqual([]);
+  });
   it("warns about overlapping bodies with both ids and panel context", async () => {
     const diagnostics = await check([40, 30], [30, 40]);
     expect(diagnostics.map((d) => d.code)).toEqual(["BALLOON_OVERLAP"]);

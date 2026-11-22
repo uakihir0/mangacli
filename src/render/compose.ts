@@ -323,13 +323,21 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   }
   const bodies = pageBalloons
     .filter(({ plan }) => plan.center && !linkedBalloons.has(plan.el.id) && plan.props.as !== "aside" && plan.props.shape !== "none" && (!isObj(plan.props.shape) || plan.props.shape.kind !== "none"))
-    .sort((a, b) => a.order - b.order || a.idx - b.idx);
+    .sort((a, b) => a.order - b.order || a.idx - b.idx)
+    .map((balloon) => {
+      const { plan } = balloon;
+      const angle = plan.props.rotate !== undefined ? parseAngle(plan.props.rotate as string) : 0;
+      const cr = Math.cos(angle);
+      const sr = Math.sin(angle);
+      const bounds = boundsOf(plan.body.contour.pts.map((q) => ({ x: q.x * cr - q.y * sr + plan.center!.x, y: q.x * sr + q.y * cr + plan.center!.y })));
+      return { ...balloon, bounds };
+    });
   const tolerance = 1 * u.k;
   for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) {
     const a = bodies[i];
     const b = bodies[j];
-    const ar = { ...a.plan.outer, x: a.plan.center!.x + a.plan.outer.x, y: a.plan.center!.y + a.plan.outer.y };
-    const br = { ...b.plan.outer, x: b.plan.center!.x + b.plan.outer.x, y: b.plan.center!.y + b.plan.outer.y };
+    const ar = a.bounds;
+    const br = b.bounds;
     const overlap = Math.min(ar.x + ar.w, br.x + br.w) - Math.max(ar.x, br.x) > tolerance && Math.min(ar.y + ar.h, br.y + br.h) - Math.max(ar.y, br.y) > tolerance;
     const where = (v: typeof a) => `${v.plan.el.id} (panel ${v.panel ?? "page"})`;
     const at = { path: b.plan.el.path, elementId: b.plan.el.id };
