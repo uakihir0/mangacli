@@ -156,6 +156,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   };
   for (const pg of drawOrder) await layoutGroup(pg.panel.elements, baseCtx(pg), drawOrder.indexOf(pg), 0);
   await layoutGroup(page.layers, baseCtx(), 0, 1);
+  const checkArtCoverage = () => {
   for (const pg of panels) {
     const eligible = (el: RElement) => {
       if (el.props.visible === false || el.props.opacity === 0) return false;
@@ -179,9 +180,10 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       }
       const paint = parsePaint(ground, { u, box: pg.box, seed: el.seed });
       if (!paint || (paint.type === "solid" || paint.type === "tone" ? paint.color.a < 1 : paint.stops.some((s) => s.color.a < 1))) return [];
-      const ctx = { ...baseCtx(pg), coordsBox: coordsFor(el, baseCtx(pg), geom) };
+      const ctx = { ...baseCtx(pg), bag: new DiagnosticBag() };
+      ctx.coordsBox = coordsFor(el, ctx, geom);
       const reg = resolveRegion(p.region, ctx, "panel", [...el.path, "region"]);
-      return reg.feather || reg.alphaOf ? [] : [reg];
+      return ctx.bag.hasErrors || reg.feather || reg.alphaOf ? [] : [reg];
     });
     const shape = panelShapePoly(pg, geom);
     const poly = shape === pg.polygon ? shape : flattenPath(smoothPath(shape, true), 0.02)[0].pts;
@@ -199,6 +201,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       bag.warn("ART_LEAVES_VOID", `panel ${pg.panel.id}: ${(100 * uncovered / interior).toFixed(1)}% uncovered. ${hint}`, { elementId: pg.panel.id, pageId: page.id, path: pg.panel.path, hint });
     }
   }
+  };
   for (const el of [...page.layers, ...panels.flatMap((pg) => pg.panel.elements)]) {
     if (el.type !== "image") continue;
     const target = refs.get(el.id);
@@ -365,6 +368,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   };
   for (const pg of drawOrder) await renderOthers(pg.panel.elements, baseCtx(pg), drawOrder.indexOf(pg), 0);
   await renderOthers(page.layers, baseCtx(), 0, 1);
+  checkArtCoverage();
   const linkedBalloons = new Set<string>();
   for (const { plan } of pageBalloons) {
     const cn = plan.props.connect;

@@ -59,4 +59,11 @@ describe("art coverage", () => {
     const r = await render(doc, { strict: true, throwOnError: false, profile: "preview" });
     expect(r.diagnostics.some((d) => d.code === "ART_LEAVES_VOID" && d.severity === "error")).toBe(true);
   });
+  it("resolves fill regions after balloon and text references are registered", async () => {
+    for (const target of ["{ balloon: Hi, id: lettering }", "{ text: Hi, id: lettering }"]) {
+      const v = await validate(input(`[${image("fit: contain")}, ${target}, { type: fill, region: { element: lettering }, paint: black }]`));
+      expect(v.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+      expect(voids(v)).toHaveLength(1);
+    }
+  });
 });
