@@ -198,7 +198,7 @@ base      = base-char { base-char } ;              (* 1〜20 文字 *)
 base-char = 任意の文字（"《"、"》"、"｜"、"|"、LF を除く） ;
 implicit-ruby = kanji { kanji } "《" ruby-text "》" ;   (* 直前の漢字の最長の連続を親文字とする *)
 kanji     = 範囲名 kanji（7.3.4）に含まれる文字 ;
-ruby-text = ruby-char { ruby-char } ;              (* 半角の空白で区切るとモノルビ *)
+ruby-text = ruby-char { ruby-char } ;              (* 半角空白はモノルビ。親文字とルビを全角の ／ で区切ると語ごとのルビ *)
 ruby-char = 任意の文字（"》"、LF を除く） ;
 
 tag       = open-tag | close-tag | void-tag ;

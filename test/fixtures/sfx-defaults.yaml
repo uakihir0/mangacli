@@ -1,0 +1,11 @@
+mangacli: 1
+meta: { lang: ja }
+page: { size: [120mm, 140mm], bleed: 0, color: color }
+output: { metadata: false }
+pages:
+  - layout: { template: grid, params: { cols: 2, rows: 1 } }
+    panels:
+      - layers:
+          - { sfx: ズオオオオッ, writing: vertical, at: [50%, 50%] }
+      - layers:
+          - { sfx: ズオーッ〜～, writing: vertical, at: [50%, 50%] }

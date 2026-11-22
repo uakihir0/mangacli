@@ -4,7 +4,7 @@ import { DiagnosticBag } from "../core/diagnostics.js";
 import { Rng } from "../core/random.js";
 import { type UnitContext, parseAngle, toMm } from "../core/units.js";
 import { type PathData, distToPolyline, flattenPath, offsetPolygon, pointInPolygon, polyPath, polygonArea, rayPolygon, transformPath } from "../geom/path.js";
-import { type Rect, type Vec, boundsOf, dot, lerp, matTranslate, rot, sub } from "../geom/vec.js";
+import { type Matrix, type Rect, type Vec, boundsOf, dot, lerp, matMul, matTranslate, rectUnion, rot, sub } from "../geom/vec.js";
 import type { HandSpec } from "../ink/presets.js";
 import { type ShapeContour, inkShape } from "../ink/shape.js";
 import { isObj } from "../load/normalize.js";
@@ -17,7 +17,7 @@ import { Contour, type PluginBalloonShape, activePlugins } from "../plugin.js";
 import { type TextLayout, layoutText } from "../text/layout.js";
 import { type ElemCtx, silhouetteHit, tag } from "./context.js";
 import { fillNode, inksToNodes, polysToPath } from "./inkir.js";
-import { glyphNodes, glyphOutlineNodes } from "./glyphs.js";
+import { type GlyphRun, glyphNodes, glyphOutlineNodes } from "./glyphs.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
 import { resolvePoint, sizeValue } from "../layout/place.js";
 
@@ -40,6 +40,7 @@ export interface BalloonPlan {
   props: Obj;
   textOffset: Vec;
   fontScaleApplied: number;
+  reactionRayLength?: number;
   tailObstacles?: { id: string; contour: Vec[] }[];
 }
 
@@ -75,6 +76,7 @@ function shapeParams(props: Obj, rng: Rng, hand: HandSpec, u: UnitContext): Shap
   const irr = (typeof s.irregularity === "number" ? s.irregularity : 0.35) / 0.35 * hand.irregularity;
   return {
     kind: String(s.kind ?? "ellipse"),
+    unitScale: u.k,
     irregularity: irr * (hand.irregularity > 0 ? 1 : 0),
     tilt: hand.irregularity > 0 ? tilt : 0,
     squareness: s.squareness as number | undefined,
@@ -136,7 +138,7 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
   const rng = new Rng(el.seed);
   const hand = resolveHand(p.hand, u, ctx.draft);
   const params = shapeParams(p, rng, hand, u);
-  if (fallback?.depth !== undefined) params.depth = fallback.depth;
+  if (fallback?.depth !== undefined) params.spikeScale = Math.min(1, fallback.depth / (params.kind === "burst" ? 0.4 : 0.2));
   if (fallback && (params.count === undefined || params.count === "auto")) params.count = 40;
   if (fallback) params.compactCore = true;
   if (!BODY_GENERATORS[params.kind] && !activePlugins()?.shapes.has(params.kind)) ctx.bag.error("SCHEMA_ENUM", `unknown balloon shape "${params.kind}"`, { path: [...el.path, "shape"] });
@@ -179,9 +181,22 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       const fw = sizeValue(fixedSize[0], ctx.coordsBox.w, pc);
       const fh = sizeValue(fixedSize[1], ctx.coordsBox.h, pc);
       if (fw !== "auto" && fh !== "auto") {
+        const physicalSpikes = (kind === "spike" || kind === "burst") && params.depth === undefined;
+        if (physicalSpikes) params.spikeScale = Math.min(1, Math.min(fw, fh) * 0.9 / (2.2 * (kind === "burst" ? 5 : 3) * u.k));
         const probe = genBody(kind, fw, fh, params, shapeSeed);
         const ob = boundsOf(probe.contour.pts);
         fixedBase = { w: fw * (fw / ob.w), h: fh * (fh / ob.h) };
+        if (physicalSpikes) {
+          let lo = 0;
+          let hi = 1;
+          for (let i = 0; i < 20; i++) {
+            const s = (lo + hi) / 2;
+            const bounds = boundsOf(genBody(kind, fixedBase.w * s, fixedBase.h * s, params, shapeSeed).contour.pts);
+            if (bounds.w <= fw && bounds.h <= fh) lo = s;
+            else hi = s;
+          }
+          fixedBase = { w: fixedBase.w * lo, h: fixedBase.h * lo };
+        }
         const ib = boundsOf(genBody(kind, fixedBase.w, fixedBase.h, params, shapeSeed).inner);
         boxLimit = (style.writing === "vertical" ? ib.h * 0.86 : ib.w * 0.86) - 2 * (style.writing === "vertical" ? padV : padH);
       }
@@ -321,11 +336,39 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
     if (tl.missing.length) ctx.bag.warn("FONT_MISSING_GLYPH", `missing glyphs: ${[...new Set(tl.missing)].join("")}`, { path: el.path, elementId: el.id });
     for (const e of tl.errors) ctx.bag.error(e.code, e.message, { path: [...el.path, "text"], elementId: el.id });
     for (const e of tl.infos) ctx.bag.add({ code: e.code, message: e.message, severity: e.severity ?? "info", path: [...el.path, "text"], elementId: el.id });
-    const outer = boundsOf(body.contour.pts);
+    let outer = boundsOf(body.contour.pts);
+    let innerCenter = centerOverride ?? innerCenterOf(body);
+    let reactionRayLength: number | undefined;
+    if (params.kind === "flash" && tl.lines.length === 1 && /^[!?！？‼⁉⁈⁇]+$/u.test(tl.plain.trim())) {
+      tl = reactionLettering(tl, boundsOf(body.inner), p.fontScale === undefined, p.weight === undefined);
+      innerCenter = innerCenterOf(body);
+      reactionRayLength = Math.min(6 * u.k, Math.min(outer.w, outer.h) * 0.3);
+      const angle = p.rotate === undefined ? 0 : parseAngle(p.rotate as string);
+      if (angle) outer = boundsOf(body.contour.pts.map(q => rot(q, angle)));
+      const air = reactionRayLength + hand.wobbleAmp;
+      outer = { x: outer.x - air, y: outer.y - air, w: outer.w + 2 * air, h: outer.h + 2 * air };
+    }
     const to = Array.isArray(p.textOffset) ? { x: toMm(p.textOffset[0] as string, u), y: toMm(p.textOffset[1] as string, u) } : { x: 0, y: 0 };
-    return { el, text: tl, textColor, params, seed: shapeSeed, base, body, outer, explicit: p.at !== undefined || p.place !== undefined, fill, hand, innerCenter: centerOverride ?? innerCenterOf(body), props: p, textOffset: to, fontScaleApplied: scale };
+    return { el, text: tl, textColor, params, seed: shapeSeed, base, body, outer, explicit: p.at !== undefined || p.place !== undefined, fill, hand, innerCenter, props: p, textOffset: to, fontScaleApplied: scale, reactionRayLength };
   }
   throw new Error("unreachable");
+}
+
+function reactionLettering(tl: TextLayout, core: Rect, autoScale: boolean, bold: boolean): TextLayout {
+  const points = tl.glyphs.flatMap(g => flattenPath(g.path).flatMap(q => q.pts));
+  if (!points.length) return tl;
+  const ink = boundsOf(points);
+  if (ink.w <= 0 || ink.h <= 0) return tl;
+  // Use visible ink rather than advances: TCY often leaves most of its em box blank.
+  const scale = autoScale ? Math.max(1, 0.72 * Math.min(core.w / ink.w, core.h / ink.h)) : 1;
+  const glyphs = tl.glyphs.map(g => ({
+    ...g, bold: bold || g.bold,
+    cx: (g.cx - ink.x) * scale, cy: (g.cy - ink.y) * scale,
+    path: transformPath(g.path, [scale, 0, 0, scale, -ink.x * scale, -ink.y * scale]),
+  }));
+  const width = ink.w * scale;
+  const height = ink.h * scale;
+  return { ...tl, glyphs, width, height, fontSize: tl.fontSize * scale, lines: [{ ...tl.lines[0], length: tl.lines[0].length * scale, rect: { x: 0, y: 0, w: width, h: height } }] };
 }
 
 function signedDist(q: Vec, poly: Vec[]): number {
@@ -529,6 +572,11 @@ function faceOf(face: Rect | undefined, target: Vec): Rect | undefined {
   return target.x >= face.x - mx && target.x <= face.x + face.w + mx && target.y >= face.y - my && target.y <= face.y + face.h + my ? face : undefined;
 }
 
+export function automaticTailWidth(minSide: number, length: number, k: number, kind: string, offscreen = false, whisper = false): number {
+  const bw0 = Math.min(1.87 * k, Math.max(1.07 * k, minSide * 0.087));
+  return kind === "zigzag" ? bw0 * 1.5 : offscreen ? bw0 : whisper ? minSide / 9 : Math.max(bw0, Math.min(minSide / 9, length * 0.4));
+}
+
 function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult {
   let cur = contour;
   const extra: TailResult["extra"] = [];
@@ -724,14 +772,17 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
       length = Math.min(maxLen, Math.max(4.5 * u.k, avail));
     } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
     if (whisperWedge && !target && !offSide && t.length === undefined) length = Math.min(maxLen, Math.max(length, 6 * u.k));
-    // on a spiky body the tail must outreach the spikes to read as the pointer
-    if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.15, 6 * u.k);
+    if (!offSide && kind === "wedge" && t.length === undefined && plan.body.spikeLength !== undefined) {
+      const rotation = plan.props.rotate === undefined ? 0 : parseAngle(plan.props.rotate as string);
+      const coreHit = rayPolygon({ x: 0, y: 0 }, rot(rootDir, -rotation), plan.body.spikeCore ?? plan.body.inner);
+      const extension = coreHit ? hit.t - coreHit.t : 0;
+      length = Math.min(maxLen, target ? length : Infinity, Math.max(0.5 * plan.body.spikeLength, 1.5 * plan.body.spikeLength - extension));
+    }
     tailLength = length;
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
-    // a wedge's base is about a sixth of the body
-    const bw0 = Math.min(2.8 * u.k, Math.max(1.6 * u.k, minSide * 0.13));
-    const bwAuto = kind === "zigzag" ? bw0 * 1.5 : offSide ? bw0 : whisperWedge ? minSide / 6 : Math.max(bw0, Math.min(minSide / 6, length * 0.6));
+    // a wedge's base is about a ninth of the body
+    const bwAuto = automaticTailWidth(minSide, length, u.k, kind, !!offSide, whisperWedge);
     const bw = (t.width !== undefined ? toMm(t.width as string, u) : bwAuto) * widthScale;
     // on a spiky body the tail is one more, larger spike of the outline (the shout/scream presets
     // also set bend/sideCurve 0 for straight sides)
@@ -833,7 +884,7 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     let A = pointAtChord(cur.pts, s, sR, bw / 2, -1);
     let B = pointAtChord(cur.pts, s, sR, bw / 2, 1);
     if (spiky && kind === "wedge" && !offSide && t.width === undefined) {
-      const cap = minSide / 6;
+      const cap = minSide / 9;
       const valleys = (cur.corners ?? []).filter((c) => c.kind === "valley");
       if (valleys.length > 1) {
         const P = s[s.length - 1];
@@ -1018,6 +1069,10 @@ function buildBody(plan: BalloonPlan, ctx: ElemCtx, skipTails = false): BodyBuil
   const tr = applyTails(tailContour, tails, { ctx, plan, center, rng });
   if (tr.contour && p.as !== "aside") contour = tr.contour;
   const stroke = resolveStroke(p.stroke, plan.hand, ctx.u, ctx.bag, [...el.path, "stroke"]);
+  if (stroke.style === "dashed") {
+    stroke.width *= 0.65;
+    stroke.dash ??= [stroke.width * 4, stroke.width * 2.5];
+  }
   const ruler = !!(plan.params.ruler ?? body.ruler) && !contour.corners?.some((c) => c.kind === "tip" || c.kind === "point");
   return { contour, extra: tr.extra, stroke, ruler, rng };
 }
@@ -1029,16 +1084,17 @@ function balloonFill(poly: Vec[], plan: BalloonPlan): Node | null {
   return { kind: "group", children: [paper, fill], tag: fill.tag };
 }
 
-function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeContour): { nodes: Node[]; fill: Vec[] } {
+function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeContour): { nodes: Node[]; fill: Vec[]; flashBounds?: Rect } {
   const el = plan.el;
   const nodes: Node[] = [];
   const t = tag(el, "ink");
   const isNone = plan.params.kind === "none";
   const isFlash = plan.params.kind === "flash";
   let fillPoly: Vec[] = contour.pts;
+  let flashBounds: Rect | undefined;
   if (!isNone) {
     const cleanJoin = bb.ruler || plan.body.kind === "electronic";
-    const res = inkShape(contour, { line: isFlash ? { ...bb.stroke, style: "none" } : bb.stroke, hand: plan.hand, rng: bb.rng.fork("body"), ruler: bb.ruler, join: plan.params.join ?? (cleanJoin ? "clean" : "overshoot"), strokes: plan.params.strokes, sizeHint: Math.min(plan.outer.w, plan.outer.h) });
+    const res = inkShape(contour, { line: isFlash ? { ...bb.stroke, style: "none" } : bb.stroke, hand: plan.hand, rng: bb.rng.fork("body"), ruler: bb.ruler, join: plan.params.join ?? (cleanJoin ? "clean" : "overshoot"), strokes: plan.params.strokes, sizeHint: Math.min(plan.outer.w, plan.outer.h), pointWidth: 0 });
     fillPoly = res.fill;
     const fn = balloonFill(res.fill, plan);
     // a thin rim of the fill colour outside the outline keeps it readable over black art
@@ -1047,7 +1103,10 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
     if (fn) nodes.push(fn);
     if (isFlash) {
       const compact = plan.text.lines.length <= 1 && Math.max(plan.text.width, plan.text.height) <= plan.text.fontSize * 3.5 && !Array.isArray(plan.props.size);
-      nodes.push(...flashLines(res.fill, plan.center!, ctx, bb.rng, el, compact ? plan.text.fontSize * 0.12 : Infinity));
+      const maxInset = plan.reactionRayLength !== undefined ? plan.reactionRayLength * 0.2 : compact ? plan.text.fontSize * 0.12 : Infinity;
+      const rays = flashRays(res.fill, plan.center!, ctx, bb.rng, maxInset, plan.reactionRayLength);
+      nodes.push({ kind: "path", path: polysToPath(rays), fillRule: "nonzero", paint: { type: "solid", color: BLACK }, tag: t });
+      if (plan.reactionRayLength !== undefined && rays.length) flashBounds = boundsOf(rays.flat());
     }
     nodes.push(...inksToNodes(res.inks, bb.stroke.color, t));
   }
@@ -1062,27 +1121,41 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
       nodes.push(...inksToNodes(res.inks, bb.stroke.color, t));
     }
   }
-  return { nodes, fill: fillPoly };
+  return { nodes, fill: fillPoly, flashBounds };
 }
 
-function textNodes(plan: BalloonPlan, ctx: ElemCtx): Node[] {
+function textRotation(plan: BalloonPlan): Matrix | undefined {
   const ra = plan.props.rotate !== undefined ? parseAngle(plan.props.rotate as string) : 0;
-  const nodes = textNodesFlat(plan, ctx);
-  if (!ra) return nodes;
+  if (!ra) return;
   const c = plan.center!;
   const cr = Math.cos(ra);
   const sr = Math.sin(ra);
-  return [{ kind: "group", transform: [cr, sr, -sr, cr, c.x - cr * c.x + sr * c.y, c.y - sr * c.x - cr * c.y], children: nodes }];
+  return [cr, sr, -sr, cr, c.x - cr * c.x + sr * c.y, c.y - sr * c.x - cr * c.y];
+}
+
+function textOrigin({ center, innerCenter, text, textOffset }: BalloonPlan): Vec {
+  return { x: center!.x + innerCenter.x - text.width / 2 + textOffset.x, y: center!.y + innerCenter.y - text.height / 2 + textOffset.y };
+}
+
+export function balloonGlyphRun(plan: BalloonPlan): GlyphRun {
+  const { x, y } = textOrigin(plan);
+  const translation = matTranslate(x, y);
+  const rotation = textRotation(plan);
+  return { el: plan.el, glyphs: plan.text.glyphs, transform: rotation ? matMul(rotation, translation) : translation };
+}
+
+function textNodes(plan: BalloonPlan, ctx: ElemCtx): Node[] {
+  const transform = textRotation(plan);
+  const nodes = textNodesFlat(plan, ctx);
+  return transform ? [{ kind: "group", transform, children: nodes }] : nodes;
 }
 
 function textNodesFlat(plan: BalloonPlan, ctx: ElemCtx): Node[] {
   const el = plan.el;
   const p = plan.props;
   const u = ctx.u;
-  const center = plan.center!;
   const tl = plan.text;
-  const ox = center.x + plan.innerCenter.x - tl.width / 2 + plan.textOffset.x;
-  const oy = center.y + plan.innerCenter.y - tl.height / 2 + plan.textOffset.y;
+  const { x: ox, y: oy } = textOrigin(plan);
   const color = parseColor(plan.textColor) ?? BLACK;
   const shift = (path: PathData): PathData => path.map((c) => (c[0] === "Z" ? c : (c.map((v, i) => (i === 0 ? v : i % 2 === 1 ? (v as number) + ox : (v as number) + oy)) as typeof c)));
   const glyphs = tl.glyphs.map((g) => shift(g.path));
@@ -1119,7 +1192,9 @@ export function renderBalloon(plan: BalloonPlan, ctx: ElemCtx): { nodes: Node[];
       /* keep unclipped */
     }
   }
-  return { nodes, bbox: boundsOf(body.fill), contour: body.fill };
+  const bounds = boundsOf(body.fill);
+  const bbox = body.flashBounds ? rectUnion(bounds, body.flashBounds) : bounds;
+  return { nodes, bbox, contour: body.fill };
 }
 
 /** two balloons joined by a neck or merged outline (spec 6.9.1) */
@@ -1225,10 +1300,8 @@ function resampleClosed(pts: Vec[], step: number): Vec[] {
   return out;
 }
 
-function flashLines(poly: Vec[], center: Vec, ctx: ElemCtx, rng: Rng, el: RElement, maxInset = Infinity): Node[] {
+function flashRays(poly: Vec[], center: Vec, ctx: ElemCtx, rng: Rng, maxInset: number, maxLength?: number): Vec[][] {
   const u = ctx.u;
-  const hand = resolveHand(el.props.hand, u, ctx.draft);
-  const pen = { ...resolveStroke({ pen: { preset: "maru-pen" } }, hand, u).pen };
   const s = arcLengths(poly);
   const P = s[s.length - 1];
   const n = Math.round(P / (1.2 * u.k));
@@ -1238,7 +1311,7 @@ function flashLines(poly: Vec[], center: Vec, ctx: ElemCtx, rng: Rng, el: REleme
     const d = { x: at.p.x - center.x, y: at.p.y - center.y };
     const l = Math.hypot(d.x, d.y) || 1;
     const dir = { x: d.x / l, y: d.y / l };
-    const len = rng.range(2, 6) * u.k;
+    const len = rng.range(2, 6) * (maxLength === undefined ? u.k : maxLength / 6);
     const inset = Math.min(rng.range(0.2, 1.2) * u.k, maxInset);
     const a = { x: at.p.x - dir.x * inset, y: at.p.y - dir.y * inset };
     const b = { x: at.p.x + dir.x * (len - inset), y: at.p.y + dir.y * (len - inset) };
@@ -1249,8 +1322,7 @@ function flashLines(poly: Vec[], center: Vec, ctx: ElemCtx, rng: Rng, el: REleme
     const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     polys.push([a, { x: m.x + nx * w, y: m.y + ny * w }, b, { x: m.x - nx * w, y: m.y - ny * w }]);
   }
-  void pen;
-  return [{ kind: "path", path: polysToPath(polys), fillRule: "nonzero", paint: { type: "solid", color: BLACK }, tag: tag(el, "ink") }];
+  return polys;
 }
 
 /** centered bbox of a plan (for placement) */

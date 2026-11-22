@@ -49,6 +49,26 @@ describe("typesetting", () => {
     expect(result.glyphs).toEqual([]);
     expect(result.lines.map((line) => line.text)).toEqual([""]);
   });
+  it.each(["vertical", "horizontal"] as const)("centers compact ruby over each word in %s text", async (writing) => {
+    const text = "<ruby=しらいし／ひより>白石／陽和</ruby>";
+    await reg.prepare("dialogue", text);
+    const style = defaultTextStyle({ font: "dialogue", fontSize: 10, writing });
+    const layout = layoutText(text, style, reg);
+    const reference = layoutText("白石《しらいし》陽和《ひより》", style, reg);
+    const unsplit = layoutText("白石陽和《しらいしひより》", style, reg);
+    const along = ({ cx, cy }: (typeof layout.glyphs)[number]) => writing === "vertical" ? cy : cx;
+    const positions = layout.glyphs.map(along);
+    expect(layout.plain).toBe("白石陽和");
+    expect(positions).toEqual(reference.glyphs.map(along));
+    expect(positions.slice(4)).not.toEqual(unsplit.glyphs.slice(4).map(along));
+    expect(layoutText(text, { ...style, wrap: "char", maxExtent: 15 }, reg).lines.map((line) => line.text)).toEqual(["白石陽和"]);
+  });
+  it("expands only the base underneath a long compound reading", async () => {
+    const text = "｜白石／陽和《しらいしー／ひより》";
+    await reg.prepare("dialogue", text);
+    const result = layoutText(text, defaultTextStyle({ font: "dialogue", fontSize: 10 }), reg);
+    expect(result.glyphs.map(({ cy }) => cy)).toEqual([6.25, 18.75, 30, 40, 0, 5, 10, 15, 20, 27.5, 32.5, 37.5]);
+  });
   it("uses oikomi rather than leaving a single-character column", async () => {
     expect(await lines("ダメ！", { maxChars: 2 })).toEqual(["ダメ！"]);
   });
@@ -109,7 +129,7 @@ pages:
         expect([...text].map((ch) => fonts.pick(font, ch.codePointAt(0)!)?.font.label)).toEqual(Array(text.length).fill(expected));
       }
       await fonts.prepare("sfx", text);
-      expect(fonts.primary("sfx")?.key).toBe("cat:zen-kaku-gothic-new@900");
+      expect(fonts.primary("sfx")?.key).toBe("cat:dela-gothic-one@400");
       expect(onError).not.toHaveBeenCalled();
       expect(list).toHaveBeenCalledTimes(1);
       expect(onSystemFont.mock.calls).toEqual(expected === "Zen Kaku Gothic New 900" ? [] : [[path]]);

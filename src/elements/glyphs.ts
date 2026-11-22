@@ -1,8 +1,16 @@
 // Glyph runs to display list nodes: inline colour and bold markup (spec 7.7).
 import { BLACK, parseColor } from "../core/color.js";
 import type { PathData } from "../geom/path.js";
+import type { Matrix } from "../geom/vec.js";
+import type { RElement } from "../model/resolve.js";
 import type { NodeTag, Paint, PathNode } from "../render/ir.js";
 import type { GlyphOut } from "../text/layout.js";
+
+export interface GlyphRun {
+  el: RElement;
+  glyphs: GlyphOut[];
+  transform: Matrix;
+}
 
 /** one node per (colour, bold) run; `<b>` without a bold font face is emboldened with a stroke */
 export function glyphNodes(glyphs: GlyphOut[], xform: (p: PathData) => PathData, base: Paint, fontSize: number, t: NodeTag): PathNode[] {

@@ -1,0 +1,69 @@
+# yaml-language-server: $schema=../../schema.json
+# 描き文字の既定・サイズ推移・重なり・経路・代替フォント。
+#   npx mangacli render docs/examples/gallery-sfx.yaml -p web
+mangacli: 1
+engine: 1
+meta: { title: 描き文字の一覧, lang: ja }
+page: { size: [182mm, 400mm], color: mono }
+fonts:
+  pop: catalog:mochiy-pop-one
+defaults:
+  text:
+    font: ui
+    fontSize: 7pt
+    writing: horizontal
+    place: bottom
+    inset: 1.5mm
+    background: paper
+pages:
+  - id: gallery-sfx
+    layout: { template: grid, params: { cols: 4, rows: 4 } }
+    panels:
+      - layers:
+          - { sfx: ズオオオオッ, at: [50%, 43%] }
+          - { text: default / shrink }
+      - layers:
+          - { sfx: ドンッ, at: [50%, 43%] }
+          - { text: default }
+      - layers:
+          - { sfx: ゴゴゴゴ, at: [50%, 43%] }
+          - { text: default }
+      - layers:
+          - { sfx: バキィッ, at: [50%, 43%] }
+          - { text: default }
+      - layers:
+          - { sfx: ドドド, at: [50%, 43%], perChar: { scale: grow } }
+          - { text: "scale: grow" }
+      - layers:
+          - { sfx: ドドド, at: [50%, 43%], perChar: { scale: shrink } }
+          - { text: "scale: shrink" }
+      - layers:
+          - { sfx: ドドド, at: [50%, 43%], perChar: { scale: burst } }
+          - { text: "scale: burst" }
+      - layers:
+          - { sfx: ドドド, at: [50%, 43%], perChar: { scale: flat } }
+          - { text: "scale: flat" }
+      - layers:
+          - { sfx: ゴゴゴ, at: [50%, 43%], perChar: { scale: flat, overlap: 0em } }
+          - { text: "overlap: 0em" }
+      - layers:
+          - { sfx: ゴゴゴ, at: [50%, 43%], perChar: { scale: flat } }
+          - { text: "overlap: 0.15em" }
+      - layers:
+          - { sfx: ズオーッ, at: [50%, 43%], font: pop }
+          - { text: Mochiy Pop One }
+      - layers:
+          - { sfx: ドドド, at: [50%, 43%], perChar: { scale: { from: 0.7, to: 1.4 } } }
+          - { text: "scale: from / to" }
+      - layers:
+          - { sfx: ゴゴゴ, at: [50%, 43%], path: { kind: arc, angle: 40deg } }
+          - { text: path / arc }
+      - layers:
+          - { sfx: ズオオッ, at: [50%, 43%], path: { kind: wave, amplitude: 2mm, wavelength: 50mm } }
+          - { text: path / wave }
+      - layers:
+          - { sfx: ドドド, at: [50%, 43%], path: { kind: line, angle: 15deg } }
+          - { text: path / line }
+      - layers:
+          - { sfx: ドドド, at: [50%, 43%], path: { kind: points, points: [[0mm, 0mm], [0mm, 12mm], [5mm, 24mm]] } }
+          - { text: path / points }

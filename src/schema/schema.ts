@@ -6,6 +6,8 @@ export const Length = z.union([z.number(), z.string().regex(LENGTH_PATTERN, { er
 export const LengthAuto = z.union([Length, z.literal("auto")]);
 export const Angle = z.union([z.number(), z.string().regex(ANGLE_PATTERN, { error: (issue) => unitParseError("angle", issue.input, ANGLE_UNITS) })]).describe(`Angle in degrees or '<n>${ANGLE_UNITS.join("|")}'`);
 export const Num = z.number();
+const Slant = z.union([Length, Angle]);
+const LineSplit = z.object({ line: z.tuple([z.tuple([Length, Length]), z.tuple([Length, Length])]) }).strict();
 const RangeOf = <T extends z.ZodTypeAny>(t: T) =>
   z.union([t, z.tuple([t, t]), z.object({ min: t, max: t, dist: z.enum(["uniform", "normal", "low", "high"]).optional() }).strict()]);
 export const PointKeyword = z.enum(["top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"]);
@@ -269,6 +271,7 @@ const balloonProps = {
   text: TextValue.optional(),
   who: z.string().optional(),
   as: z.string().optional(),
+  attach: z.enum(["top-right", "top-left", "bottom-right", "bottom-left", "top", "right", "bottom", "left", "none"]).optional(),
   shape: ShapeObj.optional(),
   stroke: Stroke.optional(),
   fill: Paint.optional(),
@@ -341,7 +344,7 @@ const sfxProps = {
   grow: z.number().optional(),
   smallKanaScale: z.number().min(0.1).max(1).optional(),
   brush: z.union([z.literal(false), z.object({ style: z.enum(["impact", "speed"]).optional(), taper: z.number().min(0).max(2).optional(), entry: z.number().min(0).max(2).optional(), wobble: z.number().min(0).max(0.2).optional() }).strict()]).optional(),
-  perChar: z.object({ rotate: RangeOf(Angle).optional(), scale: RangeOf(z.number()).optional(), jitter: Length.optional() }).strict().optional(),
+  perChar: z.object({ rotate: RangeOf(Angle).optional(), scale: z.union([RangeOf(z.number()), z.enum(["grow", "shrink", "burst", "flat"]), z.object({ from: z.number().positive(), to: z.number().positive() }).strict()]).optional(), overlap: Length.optional(), jitter: Length.optional() }).strict().optional(),
   chars: z.array(z.object({ index: z.number().int(), rotate: Angle.optional(), scale: z.number().optional(), offset: z.tuple([Length, Length]).optional(), color: ColorStr.optional() }).strict()).optional(),
   distort: z.object({ roughen: z.number().optional(), warp: z.number().optional(), skew: Angle.optional(), perspective: z.tuple([z.number(), z.number()]).optional(), bulge: z.number().optional() }).strict().optional(),
   edge: Stroke.optional(),
@@ -445,6 +448,8 @@ const Panel = z
     border: Stroke.optional(),
     bleed: z.union([z.array(z.enum(["top", "right", "bottom", "left"])), z.literal(false)]).optional(),
     background: Paint.optional(),
+    mood: z.enum(["flashback"]).meta({ id: "FlashbackMoodValue" }).optional().meta({ id: "FlashbackMood" }),
+    flashbackBorder: z.enum(["none", "white"]).meta({ id: "FlashbackBorderValue" }).optional().meta({ id: "FlashbackBorder" }),
     layers: z.array(Element).optional(),
     dialogue: z.array(DialogueLine).optional(),
     defaults: Defaults.optional(),
@@ -465,13 +470,13 @@ const SplitNode: z.ZodType = z.lazy(() =>
     z.object({ panel: z.string() }).strict(),
     z
       .object({
-        split: z.enum(["rows", "cols"]),
+        split: z.union([z.enum(["rows", "cols"]), LineSplit]),
         sizes: z.array(z.union([z.number(), Length])).optional(),
-        slant: z.array(Length).optional(),
+        slant: z.array(Slant).optional(),
         gutter: Length.optional(),
         children: z.array(SplitNode),
       })
-      .strict(),
+      .strict().refine((v) => typeof v.split === "string" || v.children.length === 2, { message: "line split requires exactly two children", path: ["children"] }),
   ]),
 );
 
@@ -479,10 +484,10 @@ const Layout = z.union([
   z.literal("free"),
   z
     .object({
-      rows: z.array(z.object({ cols: z.array(z.number()).optional(), height: z.union([z.number(), Length]).optional(), slant: Length.optional(), colSlant: z.array(Length).optional(), gutter: z.object({ col: Length.optional() }).strict().optional() }).strict()).optional(),
-      split: z.enum(["rows", "cols"]).optional(),
+      rows: z.array(z.object({ cols: z.array(z.number()).optional(), height: z.union([z.number(), Length]).optional(), slant: Slant.optional(), colSlant: z.array(Slant).optional(), gutter: z.object({ col: Length.optional() }).strict().optional() }).strict()).optional(),
+      split: z.union([z.enum(["rows", "cols"]), LineSplit]).optional(),
       sizes: z.array(z.union([z.number(), Length])).optional(),
-      slant: z.array(Length).optional(),
+      slant: z.array(Slant).optional(),
       children: z.array(SplitNode).optional(),
       template: z.string().optional(),
       params: z.record(z.string(), z.unknown()).optional(),
@@ -490,7 +495,7 @@ const Layout = z.union([
       gutter: z.union([Length, z.object({ col: Length.optional(), row: Length.optional() }).strict()]).optional(),
       area: z.union([z.enum(["baseFrame", "trim", "bleed"]), Rect]).optional(),
     })
-    .strict(),
+    .strict().refine((v) => !v.split || typeof v.split === "string" || v.children?.length === 2, { message: "line split requires exactly two children", path: ["children"] }),
 ]);
 
 const BaseFrame = z.union([
@@ -518,11 +523,13 @@ const pageSettings = {
   safeArea: z.object({ inset: Length }).strict().optional(),
   gutter: z.union([Length, z.object({ col: Length.optional(), row: Length.optional() }).strict()]).optional(),
   background: PageBackground.optional(),
-  gutterFill: z.enum(["none", "paper"]).optional(),
+  gutterFill: z.union([z.literal("none"), Paint]).optional(),
   color: z.enum(["mono", "color"]).optional(),
   foldMargin: Length.optional(),
   printScale: z.number().positive().max(1).optional(),
   printSize: z.union([z.string(), z.tuple([Length, Length])]).optional(),
+  mood: z.enum(["flashback"]).meta({ id: "PageMoodValue" }).optional().meta({ id: "PageMood" }),
+  flashbackBorder: z.enum(["none", "white"]).meta({ id: "PageFlashbackBorderValue" }).optional().meta({ id: "PageFlashbackBorder" }),
 };
 
 const printSettingsValid = (value: { printScale?: number; printSize?: unknown }) => value.printScale === undefined || value.printSize === undefined;

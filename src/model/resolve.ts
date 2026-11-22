@@ -194,6 +194,8 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
   const docHand = isObj(doc.hand) ? (doc.hand as Obj) : undefined;
 
   const outPages: RPage[] = pages.map((pg, pi) => {
+    const pageMood = pg.mood ?? (doc.page as Obj | undefined)?.mood;
+    const pageFlashbackBorder = pg.flashbackBorder ?? (doc.page as Obj | undefined)?.flashbackBorder;
     const pageId = typeof pg.id === "string" ? pg.id : autoId(`p${pi + 1}`);
     const pageSeedBase = typeof pg.seed === "number" ? pg.seed : seed;
     const incDefaults = ((pg as { __includeDefaults?: Obj }).__includeDefaults ?? {}) as Obj;
@@ -207,7 +209,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       { d: pageDefaults, hand: pageHand },
       { d: panelDefaults ?? {}, hand: panelHand },
     ];
-    const resolveEl = (raw0: Obj, path: Path, parentId: string, counters: Record<string, number>, levels: ReturnType<typeof layersFor>, baseSeed: number, fromDialogue = false, dialogueIndex = 0): RElement => {
+    const resolveEl = (raw0: Obj, path: Path, parentId: string, counters: Record<string, number>, levels: ReturnType<typeof layersFor>, baseSeed: number, fromDialogue = false, dialogueIndex = 0, flashback = pageMood === "flashback"): RElement => {
       let raw = raw0;
       // `from:` on a balloon is the off-panel speaker's side (spec 6.6.2)
       if (raw.type === "balloon" && typeof raw.from === "string") {
@@ -225,10 +227,14 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
             ? merge(deepClone(BUILTIN_MARK_DEFAULTS["*"]), kind ? BUILTIN_MARK_DEFAULTS[kind] : undefined)
             : deepClone(BUILTIN_DEFAULTS[type] ?? {});
       let acc: Obj = deepClone(builtin);
+      let explicitColors = false;
+      let explicitStroke: Obj = {};
       const builtinArrays = Object.keys(acc).filter((k) => Array.isArray(acc[k]));
       const builtinProps = new Set(builtinArrays);
       let tailExplicit: Obj = {};
       const mergeProps = (props: Obj | undefined, explicit = props) => {
+        if (explicit?.fill !== undefined || explicit?.color !== undefined) explicitColors = true;
+        if (isObj(explicit?.stroke)) explicitStroke = merge(explicitStroke, explicit.stroke);
         for (const k of ["tail", "tails"]) {
           if (explicit?.[k] !== undefined) tailExplicit = merge(tailExplicit, { [k]: explicit[k] });
         }
@@ -284,6 +290,9 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       const own = { ...raw };
       delete own.style;
       mergeProps(own);
+      if (flashback && type === "balloon" && acc.as === "narration" && !explicitColors) {
+        acc = merge(acc, { fill: "black", color: "white", stroke: merge(merge((acc.stroke ?? {}) as Obj, { color: "white" }), explicitStroke) });
+      }
       acc.id = id;
       const elSeedBase = typeof raw.seed === "number" ? raw.seed : baseSeed;
       const el: RElement = { id, type, props: acc, path, seed: deriveSeed(elSeedBase, id, "element"), fromDialogue, builtinProps: [...builtinProps], tailExplicit };
@@ -295,7 +304,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
         const gDefaults = isObj(raw.defaults) ? (raw.defaults as Obj) : undefined;
         const lv2 = gDefaults ? [...levels, { d: gDefaults, hand: undefined }] : levels;
         const cc: Record<string, number> = {};
-        el.children = (raw.children as Obj[]).map((c, i) => resolveEl(c, [...path, "children", i], id, cc, lv2, elSeedBase));
+        el.children = (raw.children as Obj[]).map((c, i) => resolveEl(c, [...path, "children", i], id, cc, lv2, elSeedBase, false, 0, flashback));
       }
       return el;
     };
@@ -306,6 +315,16 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       const levels = layersFor(pn.defaults as Obj | undefined, isObj(pn.hand) ? (pn.hand as Obj) : undefined);
       // panel props cascade
       let pprops: Obj = deepClone(BUILTIN_DEFAULTS.panel);
+      const mood = pn.mood ?? pageMood;
+      if (mood === "flashback") {
+        pprops.mood = mood;
+        const explicitBorder = pn.border !== undefined || levels.some((lv) => isObj(lv.d.panel) && lv.d.panel.border !== undefined);
+        if (!explicitBorder) {
+          pprops.border = (pn.flashbackBorder ?? pageFlashbackBorder) === "white"
+            ? { ...(pprops.border as Obj), color: "white", width: "0.3mm@print" }
+            : { style: "none" };
+        }
+      }
       for (const lv of levels) {
         if (lv.hand) pprops = merge(pprops, { hand: lv.hand });
         if (isObj(lv.d.panel)) pprops = merge(pprops, lv.d.panel as Obj, BUILTIN_DEFAULTS.panel);
@@ -316,12 +335,12 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       delete own.defaults;
       pprops = merge(pprops, own, BUILTIN_DEFAULTS.panel);
       const counters: Record<string, number> = {};
-      const els = ((pn.layers ?? []) as Obj[]).map((e, i) => resolveEl(e, ["pages", pi, "panels", ki, "layers", i], pid, counters, levels, pSeed));
+      const els = ((pn.layers ?? []) as Obj[]).map((e, i) => resolveEl(e, ["pages", pi, "panels", ki, "layers", i], pid, counters, levels, pSeed, false, 0, mood === "flashback"));
       ((pn.dialogue ?? []) as Obj[]).forEach((d, di) => {
         const raw: Obj = { type: "balloon", ...d };
         if (d.as === "offscreen" && typeof d.from === "string") raw.tail = merge((raw.tail as Obj) ?? {}, { offscreen: d.from });
         delete raw.from;
-        els.push(resolveEl(raw, ["pages", pi, "panels", ki, "dialogue", di], pid, counters, levels, pSeed, true, di + 1));
+        els.push(resolveEl(raw, ["pages", pi, "panels", ki, "dialogue", di], pid, counters, levels, pSeed, true, di + 1, mood === "flashback"));
       });
       return { id: pid, index: ki, props: pprops, elements: els, path: ["pages", pi, "panels", ki], seed: deriveSeed(pSeed, pid, "panel") };
     });
@@ -352,6 +371,10 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
     const defaultSettings = deepClone((doc.page ?? {}) as Obj);
     const localSettings = pickPageSettings(pg);
     const settings = merge(defaultSettings, localSettings);
+    if (settings.mood === "flashback") {
+      settings.background ??= "black";
+      settings.gutterFill ??= "black";
+    }
     if (isObj(localSettings.background) && isObj(defaultSettings.background) &&
         ("image" in localSettings.background) !== ("image" in defaultSettings.background)) {
       settings.background = localSettings.background;
@@ -381,7 +404,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
 }
 
 function pickPageSettings(pg: Obj): Obj {
-  const keys = ["size", "orientation", "units", "dpi", "bleed", "baseFrame", "safeArea", "gutter", "background", "gutterFill", "color", "foldMargin", "printScale", "printSize", "invert", "filters", "exclude"];
+  const keys = ["size", "orientation", "units", "dpi", "bleed", "baseFrame", "safeArea", "gutter", "background", "gutterFill", "mood", "flashbackBorder", "color", "foldMargin", "printScale", "printSize", "invert", "filters", "exclude"];
   const o: Obj = {};
   for (const k of keys) if (pg[k] !== undefined) o[k] = pg[k];
   return o;
