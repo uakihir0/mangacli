@@ -6,6 +6,8 @@ import { FontRegistry } from "../src/fonts/registry.js";
 import { pointInPolygon } from "../src/geom/path.js";
 import { resolveDocument } from "../src/model/resolve.js";
 import { BODY_GENERATORS } from "../src/shapes/balloon.js";
+import { layoutText } from "../src/text/layout.js";
+import { resolveTextStyle } from "../src/elements/textstyle.js";
 
 const fonts = new FontRegistry(new Map() as never, "manga-basic", [], {});
 
@@ -79,6 +81,81 @@ describe("balloon text extent sizing", () => {
       expect(p.outer.h).toBeLessThanOrEqual(h + 1e-6);
     }
   });
+  it.each(["vertical", "horizontal"])("uses full-width spaces as phrase breaks in %s balloons", async (writing) => {
+    const expected = await plan("いや〜\n字が\n勝手に\nデカく", writing);
+    const actual = await plan("いや〜　字が\n勝手に　デカく", writing);
+    expect(actual.text).toEqual(expected.text);
+    expect(actual.outer).toEqual(expected.outer);
+    expect(actual.base).toEqual(expected.base);
+  });
+  it.each([
+    "　あ　　い　", "あ　\nい", "あ\n　い", "あ　\r\n　い",
+    "あ　<br>い", "あ<br>　い", "あ　\n　\n　い",
+  ])("collapses space breaks without adding empty columns: %j", async (text) => {
+    expect((await plan(text)).text).toEqual((await plan("あ\nい")).text);
+  });
+  it.each(["", "　", "　　"])("keeps empty phrase text finite: %j", async (text) => {
+    const actual = await plan(text);
+    const empty = await plan("");
+    expect(actual.text).toEqual(empty.text);
+    expect(actual.outer).toEqual(empty.outer);
+    expect(Number.isFinite(actual.outer.w + actual.outer.h)).toBe(true);
+  });
+  it("respects phrase breaks with wrapping disabled and localized text", async () => {
+    const actual = await plan("unused", "vertical", { text: { ja: "あ　い", en: "other" }, wrap: "none" });
+    expect(actual.text.lines.map(line => line.text)).toEqual(["あ", "い"]);
+  });
+  it("preserves half-width word spaces", async () => {
+    expect((await plan("hello world", "horizontal", { wrap: "none" })).text.lines).toHaveLength(1);
+  });
+  it.each(["はい。　次。", "はい。　次。　", "はい。　　次。　　"])("drops trailing periods at phrase breaks: %s", async (text) => {
+    const actual = await plan(text, "vertical", { normalize: { dropTrailingPeriod: true } });
+    expect(actual.text).toEqual((await plan("はい\n次")).text);
+  });
+  it("preserves periods at phrase breaks when dropping is disabled", async () => {
+    expect((await plan("はい。　次。　", "vertical", { normalize: { dropTrailingPeriod: false } })).text.lines.map(line => line.text)).toEqual(["はい。", "次。"]);
+  });
+  it.each([
+    '<ruby="よみ　かた">漢字</ruby>',
+    '<ruby text="よみ　かた">漢字</ruby>',
+    "｜漢字《よみ　かた》",
+    "漢字《よみ　かた》",
+  ])("preserves full-width spaces in ruby metadata: %s", async (text) => {
+    const actual = await plan(text, "vertical", { wrap: "none" });
+    const style = resolveTextStyle({ ...actual.el.props, text }, { units: "mm", dpi: 96, k: 1 }, "ja", true, actual.el.seed);
+    expect(actual.text).toEqual(layoutText(text, style, fonts));
+    expect(actual.text.errors).toEqual([]);
+    const phrases = await plan(`${text}　次`, "vertical", { wrap: "none" });
+    expect(phrases.text.lines.map(line => line.text)).toEqual(["漢字", "次"]);
+    expect(phrases.text.errors).toEqual([]);
+  });
+  it("breaks full-width base-text spaces inside formatting tags", async () => {
+    expect((await plan("<b>あ　い</b>")).text).toEqual((await plan("<b>あ\nい</b>")).text);
+  });
+  it.each([
+    { text: "あ<br>　い", expected: "あ<br>\nい", markup: false },
+    { text: "あ\\<br>　い", expected: "あ\\<br>\nい", markup: true },
+  ])("preserves literal line-break tags: $text", async ({ text, expected, markup }) => {
+    const actual = await plan(text, "vertical", { markup, wrap: "none" });
+    expect(actual.text).toEqual((await plan(expected, "vertical", { markup, wrap: "none" })).text);
+    expect(actual.text.lines.map(line => line.text)).toEqual(["あ<br>", "い"]);
+  });
+  it.each([
+    "｜山　川《やまかわ》", '<ruby="やまかわ">山　川</ruby>',
+    "<b>　</b>｜山　川《やまかわ》<b>　</b>",
+  ])("preserves full-width spaces within ruby bases: %s", async (text) => {
+    const actual = await plan(text, "vertical", { wrap: "none" });
+    const reference = text.replace(/<b>　<\/b>/g, "");
+    const style = resolveTextStyle({ ...actual.el.props, text: reference }, { units: "mm", dpi: 96, k: 1 }, "ja", true, actual.el.seed);
+    expect(actual.text).toEqual(layoutText(reference, style, fonts));
+    expect(actual.text.errors).toEqual([]);
+    expect(actual.text.lines.map(line => line.text)).toEqual(["山　川"]);
+  });
+  it.each(["narration", "aside"])("does not change full-width spaces in %s", async (as) => {
+    const actual = await plan("あ　い", "vertical", { as, wrap: "none" });
+    expect(actual.text.lines).toHaveLength(1);
+  });
+
   it("defaults tremble to irregular waves while honoring explicit waveforms", async () => {
     expect((await plan("ふるえる声", "vertical", { as: "tremble" })).params.waveform).toBe("irregular");
     const regular = await plan("ふるえる声", "vertical", { as: "tremble", shape: { kind: "wavy", waveform: "sine" } });
