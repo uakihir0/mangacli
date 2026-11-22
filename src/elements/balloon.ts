@@ -675,12 +675,15 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     if (t.root !== undefined && t.root !== "auto") {
       const a = parseAngle(t.root as string);
       rootDir = { x: Math.cos(a), y: Math.sin(a) };
+    } else if (clamped && target) {
+      // the root moves to the side, but the tip still heads for the speaker
+      rootDir = { ...dir };
     }
     const hit = rayPolygon(center, rootDir, cur.pts);
     if (!hit) continue;
     const R = { x: center.x + rootDir.x * hit.t, y: center.y + rootDir.y * hit.t };
     rootAngle = Math.atan2(rootDir.y, rootDir.x);
-    if (rootDir !== dir && target && !clamped) {
+    if (rootDir !== dir && target) {
       const d2 = { x: target.x - R.x, y: target.y - R.y };
       const l2 = Math.hypot(d2.x, d2.y) || 1;
       dir = { x: d2.x / l2, y: d2.y / l2 };
@@ -691,8 +694,13 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     }
     const gap = t.gap !== undefined ? toMm(t.gap as string, u) : 2 * u.k;
     const whisperWedge = plan.props.as === "whisper" && kind === "wedge";
-    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : Math.min(9 * u.k, Math.max((whisperWedge ? 6 : 4.5) * u.k, minSide * 0.4));
+    // a tail with a speaker runs on until it nearly reaches them; one with only a direction stays short
+    const reachMax = 30 * u.k;
+    // a shout's tail is one more spike of the outline, so it stays short whatever it points at
+    const spikyBody = plan.params.kind === "spike" || plan.params.kind === "burst";
+    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : target && !offSide && !spikyBody ? reachMax : Math.min(9 * u.k, Math.max((whisperWedge ? 6 : 4.5) * u.k, minSide * 0.4));
     let length: number;
+    let shortBy = 0;
     if (t.length !== undefined) length = toMm(t.length as string, u);
     else if (offSide && target) length = Math.min(maxLen, Math.hypot(target.x - R.x, target.y - R.y));
     else if (target) {
@@ -723,15 +731,18 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
           }
       }
       // a bare point (a mouth or face anchor, no face region to stop at) is the middle of the face:
-      // the tail points at it from at most halfway so it never reaches into the face
-      if (!stopped) avail = Math.min(avail, dist * 0.5);
+      // the tip stops a face's half-width short of it (halfway when the speaker is close)
+      if (!stopped) avail = Math.min(avail, dist - Math.max(gap, Math.min(dist * 0.5, 6 * u.k)));
       // a tail always reads as a pointer, even when the speaker's face is right beside the body
       length = Math.min(maxLen, Math.max(4.5 * u.k, avail));
+      shortBy = avail - length;
     } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
     if (whisperWedge && !target && !offSide && t.length === undefined) length = Math.min(maxLen, Math.max(length, 6 * u.k));
     // on a spiky body the tail must outreach the spikes to read as the pointer
     if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.15, 6 * u.k);
     tailLength = length;
+    if (shortBy > 10 * u.k && t.length === undefined)
+      ctx.bag.warn("BALLOON_TAIL_SHORT", `the tail of ${plan.el.id} ends ${shortBy.toFixed(1)} mm short of its speaker; move the balloon closer or raise maxLength (${maxLen.toFixed(1)} mm)`, { path: plan.el.path, elementId: plan.el.id });
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
     // a wedge's base is about a ninth of the body
