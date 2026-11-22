@@ -14,7 +14,7 @@ assets:
 pages:
   - panels:
       - layers:
-          - { image: taro, fit: contain }
+          - { image: taro, fit: cover, focus: [0.5, 0.38] }
           - { aside: ボソッ, who: taro, fontScale: 0.85, tail: { kind: line } }
         dialogue:
           - { taro: まかせて！, at: [80%, 18%] }

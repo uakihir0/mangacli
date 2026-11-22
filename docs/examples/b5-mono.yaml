@@ -173,6 +173,7 @@ pages:
       - id: p1-shock
         bleed: [bottom, left, right]
         layers:
+          - tone: 15%
           - effect: beta-flash
             center: taro2.face
           - image: taro-shock
@@ -216,6 +217,7 @@ pages:
 
       - id: p2-back
         layers:
+          - tone: 10%
           - image: hanako-back
             size: [auto, 90%]
             at: [50%, 100%]
@@ -226,6 +228,7 @@ pages:
 
       - id: p2-think
         layers:
+          - tone: 10%
           - effect: focus-lines
             center: [50%, 45%]
             inner: [30%, 24%]

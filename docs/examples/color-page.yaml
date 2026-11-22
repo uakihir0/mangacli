@@ -41,6 +41,7 @@ pages:
         dialogue:
           - hanako: 入っていく？
       - layers:
+          - { type: fill, paint: "#fff0f5" }
           - { effect: uni-flash, color: "#ff9db3" }
           - { image: taro-s, size: [auto, 120%], at: [35%, 125%], anchor: bottom, outline: 0.8mm white }
           - { mark: blush, at: taro.face, color: "#ff6f91" }
