@@ -16,7 +16,7 @@ import { renderSfx, renderText } from "../elements/textel.js";
 import { textValue } from "../elements/textstyle.js";
 import type { FontRegistry } from "../fonts/registry.js";
 import { miterFrameEdges } from "../geom/miter.js";
-import { flattenPath, offsetPolygon, parseSvgPath, pointInPolygon, polyPath, smoothPath, transformPath } from "../geom/path.js";
+import { flattenPath, offsetPolygon, parseSvgPath, pointInPolygon, polygonArea, polyPath, smoothPath, transformPath } from "../geom/path.js";
 import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, matMul, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
 import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
@@ -451,6 +451,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   };
   if (pageFiltered) list.root.children = [...compositeNodes(list.root.children, page.settings, bag, page.path), ...nombre];
   // safe area / fold checks
+  checkPanelOcclusion(items, panelNodes, geom, bag, page);
   checkTextSafety(items.concat(panelNodes.flatMap((p) => p.clipped)), geom, bag, page);
   for (const d of bag.items.slice(diagnosticStart)) d.pageId ??= page.id;
   return { list, info };
@@ -1528,6 +1529,26 @@ function collectTranscript(el: RElement, panel: string | undefined, info: PageLa
     });
     const who = el.props.who as string | undefined;
     info.transcript.push({ panel, id: el.id, type: el.type, who, name: who ? ((o.characters?.[who]?.name as string | undefined) ?? who) : undefined, as: el.props.as as string | undefined, text, raw });
+  }
+}
+
+function checkPanelOcclusion(items: Item[], panels: { pg: PanelGeom; clipped: Item[] }[], geom: PageGeom, bag: DiagnosticBag, page: RPage) {
+  const ring = (pts: Vec[]): polygonClipping.Polygon => [pts.map(({ x, y }) => [x, y])];
+  const contour = (pg: PanelGeom) => ring(flattenPath(panelClip(pg, panelShapePoly(pg, geom)), 0.05)[0].pts);
+  const underneath: { item: Item; area: polygonClipping.MultiPolygon }[] = items.filter((it) => it.stackUnder).map((item) => ({ item, area: [ring(rectPts(item.bbox))] }));
+  for (const { pg, clipped } of panels) {
+    if (pg.panel.props.visible === false) continue;
+    const poly = contour(pg);
+    for (const { item, area } of underneath) {
+      if (!["balloon", "text", "sfx"].includes(item.el.type) || clipped.some((it) => it.el === item.el)) continue;
+      const overlap = polygonClipping.intersection(area, poly);
+      const size = overlap.reduce((sum, polygon) => sum + polygon.reduce((total, points, i) => {
+        const a = Math.abs(polygonArea(points.map(([x, y]) => ({ x, y }))));
+        return total + (i === 0 ? a : -a);
+      }, 0), 0);
+      if (size > 1) bag.warn("TEXT_OCCLUDED_BY_PANEL", `${item.el.id} is covered by panel ${pg.panel.id}`, { path: item.el.path, elementId: item.el.id, pageId: page.id });
+    }
+    for (const item of clipped) underneath.push({ item, area: polygonClipping.intersection(ring(rectPts(item.bbox)), poly) });
   }
 }
 
