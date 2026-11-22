@@ -14,7 +14,7 @@ import type { Node, Paint } from "../render/ir.js";
 import polygonClipping from "polygon-clipping";
 import { BODY_GENERATORS, type BodyGeom, type ShapeParams } from "../shapes/balloon.js";
 import { Contour, type PluginBalloonShape, activePlugins } from "../plugin.js";
-import { type TextLayout, layoutText, parseLayoutText } from "../text/layout.js";
+import { type TextLayout, breakFaults, layoutText, parseLayoutText } from "../text/layout.js";
 import { type ElemCtx, silhouetteHit, tag } from "./context.js";
 import { fillNode, inksToNodes, polysToPath } from "./inkir.js";
 import { type GlyphRun, glyphNodes, glyphOutlineNodes } from "./glyphs.js";
@@ -135,11 +135,43 @@ function balloonSize(p: Obj): unknown[] | undefined {
 }
 
 export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
-  return planBalloonWithFit(el, ctx);
+  const p = el.props;
+  const keepDialogueSize = !balloonSize(p) && (p.overflow ?? "grow") === "grow" && (p.as ?? "say") === "say" && !el.balloonFontSizeOverride;
+  if (!keepDialogueSize) return planBalloonWithFit(el, ctx);
+
+  const attempt = (wrap: "natural" | "maxSize", lineEm?: number) => {
+    const bag = new DiagnosticBag();
+    const plan = planBalloonWithFit(el, { ...ctx, bag }, undefined, { wrap, lineEm });
+    return { plan, bag, faults: breakFaults(plan.text, ctx.lang) };
+  };
+  const natural = attempt("natural");
+  let best = natural;
+  if (natural.plan.dialogueExceedsMaxSize) {
+    const variants = [attempt("maxSize")];
+    if (variants[0].plan.dialogueExceedsMaxSize && natural.plan.dialogueExceedsMaxSize) {
+      for (const lineEm of [4, 3, 2, 1]) {
+        const shorter = attempt("maxSize", lineEm);
+        if (!shorter.plan.dialogueExceedsMaxSize && shorter.faults <= natural.faults) {
+          variants.push(shorter);
+          break;
+        }
+      }
+    }
+    for (const candidate of variants) {
+      if (candidate.faults > natural.faults) continue;
+      if ((!candidate.plan.dialogueExceedsMaxSize && best.plan.dialogueExceedsMaxSize) ||
+        (candidate.plan.dialogueExceedsMaxSize === best.plan.dialogueExceedsMaxSize && candidate.faults < best.faults)) {
+        best = candidate;
+      }
+    }
+  }
+  for (const d of best.bag.items) ctx.bag.add(d);
+  return best.plan;
 }
 
-function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: number; depth?: number }): BalloonPlan {
+function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: number; depth?: number }, dialogue?: { wrap: "natural" | "maxSize"; lineEm?: number }): BalloonPlan {
   const p = el.props;
+  const dialogueWrap = dialogue?.wrap;
   const u = ctx.u;
   const rng = new Rng(el.seed);
   const hand = resolveHand(p.hand, u, ctx.draft);
@@ -170,7 +202,7 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
   const kind = params.kind === "flash" ? "ellipse" : params.kind;
 
   let scale = 1;
-  let constrainAuto = p.as === "aside";
+  let constrainAuto = p.as === "aside" || dialogueWrap === "maxSize";
   for (let attempt = 0; attempt < 12; attempt++) {
     const styleProps = { ...p, text, fontScale: ((p.fontScale as number) ?? 1) * scale };
     const initialStyle = resolveTextStyle(styleProps, u, ctx.lang, true, el.seed);
@@ -217,7 +249,8 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       const lim = mx === "auto" ? Infinity : mx * 0.72 - 2 * (style.writing === "vertical" ? padV : padH) - 2 * margin;
       if (isFinite(lim)) boxLimit = Math.min(boxLimit ?? Infinity, Math.max(lim, style.fontSize * 4.5));
     }
-    if (fallback) boxLimit = Math.min(boxLimit ?? Infinity, style.fontSize * fallback.lineEm + 1e-6);
+    const lineEm = fallback?.lineEm ?? dialogue?.lineEm;
+    if (lineEm !== undefined) boxLimit = Math.min(boxLimit ?? Infinity, style.fontSize * lineEm + 1e-6);
     let tl = layoutText(text, style, ctx.fonts, boxLimit, balloonPhraseBreaks);
     if (p.as === "aside") {
       const pts = tl.glyphs.flatMap(g => flattenPath(g.path).flatMap(q => q.pts));
@@ -308,12 +341,12 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       if ((maxW !== "auto" && ob.w > maxW + 0.01) || (maxH !== "auto" && ob.h > maxH + 0.01)) fits = false;
       centerOverride = ic;
     }
-    if (!fits && !fixedBase && !constrainAuto) {
+    if (!fits && !fixedBase && !constrainAuto && !dialogueWrap) {
       constrainAuto = true;
       attempt--;
       continue;
     }
-    const keepDialogueSize = !fixedBase && overflow === "grow" && (p.as ?? "say") === "say" && !el.balloonFontSizeOverride;
+    const keepDialogueSize = dialogueWrap !== undefined;
     if (!fits && !keepDialogueSize && (overflow === "grow" || overflow === "shrink") && scale > minFontScale + 1e-6) {
       constrainAuto = false;
       scale = Math.max(minFontScale, scale - 0.05);

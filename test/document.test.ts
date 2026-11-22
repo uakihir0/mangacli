@@ -89,6 +89,21 @@ pages:
       expect.objectContaining({ code: "BALLOON_TOO_LARGE", severity: "warning", elementId: "crowded", message: expect.stringContaining("crowded") }),
     ]);
   });
+  it("tries shorter lines before growing explicitly positioned dialogue", async () => {
+    const r = await validate(yaml(`mangacli: 1
+meta: { lang: en }
+defaults:
+  balloon: { fontSize: 5mm, writing: horizontal, shape: rect, padding: [0mm, 0mm] }
+pages:
+  - panels:
+      - layers:
+          - { balloon: "That works", id: positioned, at: [50%, 50%], maxSize: [17mm, 40mm], tail: none }
+`));
+    expect(r.ok).toBe(true);
+    expect(r.layout[0].text[0]).toMatchObject({ fontSize: 5, lines: ["THAT", "WORKS"] });
+    expect(r.layout[0].elements[0].bbox.w).toBeLessThanOrEqual(17);
+    expect(r.diagnostics.some(d => d.code === "BALLOON_TOO_LARGE")).toBe(false);
+  });
 });
 
 describe("rendering", () => {
