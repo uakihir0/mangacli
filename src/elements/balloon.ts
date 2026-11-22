@@ -43,6 +43,7 @@ export interface BalloonPlan {
   fontScaleApplied: number;
   reactionRayLength?: number;
   dialogueExceedsMaxSize?: boolean;
+  fitDialogueInPanel?: boolean;
   tailObstacles?: { id: string; contour: Vec[] }[];
 }
 
@@ -139,19 +140,36 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
   const keepDialogueSize = !balloonSize(p) && (p.overflow ?? "grow") === "grow" && (p.as ?? "say") === "say" && !el.balloonFontSizeOverride;
   if (!keepDialogueSize) return planBalloonWithFit(el, ctx);
 
-  const attempt = (wrap: "natural" | "maxSize", lineEm?: number) => {
+  const attempt = (wrap: "natural" | "maxSize" | "panel", lineEm?: number) => {
     const bag = new DiagnosticBag();
     const plan = planBalloonWithFit(el, { ...ctx, bag }, undefined, { wrap, lineEm });
     return { plan, bag, faults: breakFaults(plan.text, ctx.lang) };
   };
+  const panel = (p.coords === undefined || p.coords === "panel") && !hasOffscreenTail(p) ? ctx.panel?.box : undefined;
+  const fitsPanel = ({ plan }: { plan: BalloonPlan }) => {
+    if (!panel) return true;
+    const a = p.rotate === undefined ? 0 : parseAngle(p.rotate as string);
+    const b = a ? boundsOf(plan.body.contour.pts.map(q => rot(q, a))) : plan.outer;
+    return b.w + 0.5 * ctx.u.k <= panel.w && b.h + 0.5 * ctx.u.k <= panel.h;
+  };
   const natural = attempt("natural");
   let best = natural;
-  if (natural.plan.dialogueExceedsMaxSize) {
+  const growing = !!natural.plan.dialogueExceedsMaxSize || !fitsPanel(natural);
+  if (growing) {
     const variants = [attempt("maxSize")];
+    if (panel && !fitsPanel(natural) && !fitsPanel(variants[0])) {
+      for (const lineEm of [10, 14, undefined]) {
+        const candidate = attempt("panel", lineEm);
+        if (fitsPanel(candidate) && candidate.faults <= natural.faults) {
+          variants.push(candidate);
+          break;
+        }
+      }
+    }
     if (variants[0].plan.dialogueExceedsMaxSize && natural.plan.dialogueExceedsMaxSize) {
       for (const lineEm of [4, 3, 2, 1]) {
         const shorter = attempt("maxSize", lineEm);
-        if (!shorter.plan.dialogueExceedsMaxSize && shorter.faults <= natural.faults) {
+        if (!shorter.plan.dialogueExceedsMaxSize && shorter.faults <= natural.faults && fitsPanel(shorter)) {
           variants.push(shorter);
           break;
         }
@@ -159,17 +177,20 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
     }
     for (const candidate of variants) {
       if (candidate.faults > natural.faults) continue;
-      if ((!candidate.plan.dialogueExceedsMaxSize && best.plan.dialogueExceedsMaxSize) ||
+      if (fitsPanel(candidate) !== fitsPanel(best)) {
+        if (fitsPanel(candidate)) best = candidate;
+      } else if ((!candidate.plan.dialogueExceedsMaxSize && best.plan.dialogueExceedsMaxSize) ||
         (candidate.plan.dialogueExceedsMaxSize === best.plan.dialogueExceedsMaxSize && candidate.faults < best.faults)) {
         best = candidate;
       }
     }
   }
   for (const d of best.bag.items) ctx.bag.add(d);
+  best.plan.fitDialogueInPanel = !!panel && growing;
   return best.plan;
 }
 
-function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: number; depth?: number }, dialogue?: { wrap: "natural" | "maxSize"; lineEm?: number }): BalloonPlan {
+function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: number; depth?: number }, dialogue?: { wrap: "natural" | "maxSize" | "panel"; lineEm?: number }): BalloonPlan {
   const p = el.props;
   const dialogueWrap = dialogue?.wrap;
   const u = ctx.u;
@@ -249,6 +270,13 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       const lim = mx === "auto" ? Infinity : mx * 0.72 - 2 * (style.writing === "vertical" ? padV : padH) - 2 * margin;
       if (isFinite(lim)) boxLimit = Math.min(boxLimit ?? Infinity, Math.max(lim, style.fontSize * 4.5));
     }
+    if (dialogueWrap === "panel") {
+      const vertical = style.writing === "vertical";
+      const panel = ctx.panel!.box;
+      boxLimit = (vertical ? panel.h : panel.w) * 0.72 - 2 * (vertical ? padV : padH) - 2 * margin;
+      boxLimit = Math.max(boxLimit, style.fontSize);
+      if (p.maxChars === undefined) style.maxChars = undefined;
+    }
     const lineEm = fallback?.lineEm ?? dialogue?.lineEm;
     if (lineEm !== undefined) boxLimit = Math.min(boxLimit ?? Infinity, style.fontSize * lineEm + 1e-6);
     let tl = layoutText(text, style, ctx.fonts, boxLimit, balloonPhraseBreaks);
@@ -304,11 +332,13 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       const defaultAspectRange = el.builtinProps?.includes("aspectRange") ?? p.aspectRange === undefined;
       if (fallback && defaultAspectRange) ar = [1 / 3.5, 3.5];
       if (compact && defaultAspectRange) ar = [0.15, 6.7];
+      if (dialogueWrap === "panel" && defaultAspectRange) ar = [0.25, 4];
       // a box follows its text block; horizontal lines make wider balloons than vertical columns
       if (kind === "rect" || kind === "none") ar = [0.05, 20];
       else if (style.writing === "horizontal" && defaultAspectRange) ar = [ar[0], Math.max(ar[1], 2.6)];
       const fixedAspect = typeof p.aspect === "number" ? p.aspect : undefined;
-      base = fitBody(kind, params, shapeSeed, withMargin, fixedAspect, ar, maxW, maxH);
+      const panel = dialogueWrap === "panel" ? ctx.panel?.box : undefined;
+      base = fitBody(kind, params, shapeSeed, withMargin, fixedAspect, ar, panel ? panel.w - 0.5 * u.k : maxW, panel ? panel.h - 0.5 * u.k : maxH);
       body = genBody(kind, base.w, base.h, params, shapeSeed);
       // balance text inside the organic contour, then tighten
       let ic = bestOffset(withMargin, body.inner, innerCenterOf(body), boundsOf(body.contour.pts));

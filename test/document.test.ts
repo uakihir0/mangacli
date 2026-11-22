@@ -73,22 +73,34 @@ pages:
 defaults:
   balloon: { fontSize: 5mm }
 pages:
-  - layers:
-      - { balloon: やあ, id: short }
   - panels:
-      - dialogue:
-          - { text: "この吹き出しは指定された大きさに収まりません", id: crowded, maxSize: [10mm, 10mm] }
+      - layers:
+          - { balloon: やあ, id: short }
+  - panels:
+      - box: [15mm, 25mm, 50mm, 145mm]
+        coords: page
+        dialogue:
+          - { text: "この吹き出しは指定された大きさに収まりません", id: crowded, at: [0%, 5%], maxSize: [10mm, 10mm], tail: none }
   - layers:
-      - { balloon: "この吹き出しは指定された大きさに収まりません", id: explicit, fontSize: 5mm, maxSize: [10mm, 10mm] }
-      - { balloon: "この吹き出しは指定された大きさに収まりません", id: shrink, overflow: shrink, maxSize: [10mm, 10mm] }
+      - { balloon: こんにちは, id: explicit, at: [25%, 25%], fontSize: 5mm, maxSize: [10mm, 10mm] }
+      - { balloon: こんにちは, id: shrink, at: [75%, 25%], overflow: shrink, maxSize: [10mm, 10mm] }
 `));
     expect(r.ok).toBe(true);
     const sizes = Object.fromEntries(r.layout.flatMap((page) => page.text.map(({ id, fontSize }) => [id, fontSize])));
     expect(sizes).toMatchObject({ short: 5, crowded: 5, explicit: 3.75, shrink: 3.75 });
+    const crowded = r.layout[1].text.find(t => t.id === "crowded")!;
+    expect(crowded.lines.every(line => Array.from(line).length >= 2)).toBe(true);
+    const { bbox } = r.layout[1].elements.find(el => el.id === "crowded")!;
+    expect(bbox.x).toBeGreaterThanOrEqual(15);
+    expect(bbox.x + bbox.w).toBeLessThanOrEqual(65);
+    expect(bbox.y).toBeGreaterThanOrEqual(25);
+    expect(bbox.y + bbox.h).toBeLessThanOrEqual(170);
+    expect(r.diagnostics.some(d => d.elementId === "crowded" && d.code === "BALLOON_NO_SPACE")).toBe(false);
     expect(r.diagnostics.filter((d) => d.elementId === "crowded" && ["TEXT_SHRUNK", "TEXT_OVERFLOW", "BALLOON_TOO_LARGE"].includes(d.code))).toEqual([
       expect.objectContaining({ code: "BALLOON_TOO_LARGE", severity: "warning", elementId: "crowded", message: expect.stringContaining("crowded") }),
     ]);
   });
+
   it("tries shorter lines before growing explicitly positioned dialogue", async () => {
     const r = await validate(yaml(`mangacli: 1
 meta: { lang: en }

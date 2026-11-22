@@ -18,7 +18,7 @@ import { textValue } from "../elements/textstyle.js";
 import type { FontRegistry } from "../fonts/registry.js";
 import { miterFrameEdges } from "../geom/miter.js";
 import { type PathData, flattenPath, offsetPolygon, parseSvgPath, pointInPolygon, polygonArea, polyPath, smoothPath, transformPath } from "../geom/path.js";
-import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, lerp, matMul, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
+import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, lerp, matMul, rectInset, rectIntersect, rectOverlapArea, rot } from "../geom/vec.js";
 import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
@@ -1476,6 +1476,20 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   const geom = ctx.geom;
   const rtl = geom.rtl;
   const panelBox = ctx.panel ? ctx.panel.box : geom.baseFrame;
+  const fitDialogue = (pl: BalloonPlan, c: Vec): Vec => {
+    if (!pl.fitDialogueInPanel) return c;
+    const a = pl.props.rotate === undefined ? 0 : parseAngle(pl.props.rotate as string);
+    const b = a ? boundsOf(pl.body.contour.pts.map(q => rot(q, a))) : pl.outer;
+    const box = rectInset(panelBox, 0.25 * u.k);
+    if (b.w > box.w || b.h > box.h) {
+      ctx.bag.warn("BALLOON_NO_SPACE", `balloon ${pl.el.id} cannot fit within its panel at the dialogue font size`, { path: pl.el.path, elementId: pl.el.id });
+      return c;
+    }
+    return {
+      x: Math.max(box.x - b.x, Math.min(c.x, box.x + box.w - b.x - b.w)),
+      y: Math.max(box.y - b.y, Math.min(c.y, box.y + box.h - b.y - b.h)),
+    };
+  };
   const obstacles: { r: Rect; w: number; ellipse?: boolean }[] = [];
   for (const it of processed.values()) {
     const el = (it as { el?: RElement }).el;
@@ -1571,7 +1585,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
       if (isFinite(dx)) tl.x += dx;
       if (isFinite(dy)) tl.y += dy;
     }
-    setCenter(pl, { x: tl.x - pl.outer.x, y: tl.y - pl.outer.y });
+    setCenter(pl, fitDialogue(pl, { x: tl.x - pl.outer.x, y: tl.y - pl.outer.y }));
   }
   const apOf = (pl: BalloonPlan) => (isObj(pl.props.autoPlace) ? (pl.props.autoPlace as Obj) : {});
   const ap0 = plans.map(apOf).find((a) => a.inset !== undefined);
@@ -1670,7 +1684,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     if (aside) Object.assign(W, { order: 0, rise: 0, flow: 0, start: 0, top: 0, figure: 0, speaker: face ? 0 : 1.5, overlap: 10000, avoid: 10000, outside: 10000 });
     // the balloon may also be set with shorter or longer lines when that finds it a free place
     const variants: { vp: BalloonPlan; extra: number }[] = [{ vp: pl, extra: 0 }];
-    if (!aside && replan && apOf(pl).reshape !== false && pl.props.maxChars === undefined && Array.from(pl.text.plain ?? "").length > 5) {
+    if (!aside && !pl.fitDialogueInPanel && replan && apOf(pl).reshape !== false && pl.props.maxChars === undefined && Array.from(pl.text.plain ?? "").length > 5) {
       const base = pl.text.lines.length ? Math.max(...pl.text.lines.map((l) => Array.from(l.text ?? "").length)) : 8;
       for (const m of [Math.max(3, Math.round(base * 0.6)), Math.round(base * 1.5)]) {
         if (m === base) continue;
@@ -1823,8 +1837,9 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     if ((chosen.costs.get(pl) ?? 0) > threshold) ctx.bag.warn("BALLOON_NO_SPACE", `no good position for balloon ${pl.el.id}`, { path: pl.el.path, elementId: pl.el.id });
     const vp = chosen.shapes.get(pl);
     if (vp && vp !== pl) Object.assign(pl, { ...vp, el: pl.el, props: pl.props });
-    pl.center = { x: c.x - (pl.outer.x + pl.outer.w / 2), y: c.y - (pl.outer.y + pl.outer.h / 2) };
     if (edgeCandidates.get(pl)?.some(p => Math.hypot(p.x - c.x, p.y - c.y) < 1e-6)) pl.edgeCut = true;
+    const origin = { x: c.x - (pl.outer.x + pl.outer.w / 2), y: c.y - (pl.outer.y + pl.outer.h / 2) };
+    pl.center = pl.edgeCut ? origin : fitDialogue(pl, origin);
   }
   // reading-order and overlap checks over the final positions
   const rects = plans.filter((pl) => pl.center).map((pl) => ({ pl, r: { x: pl.center!.x + pl.outer.x, y: pl.center!.y + pl.outer.y, w: pl.outer.w, h: pl.outer.h } }));
