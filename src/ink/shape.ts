@@ -426,6 +426,7 @@ function dashed(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, 
   const hand = o.hand;
   const [on, off] = line.dash ?? [1.6, 1.0];
   if (!(on > 0 && off > 0) || !Number.isFinite(on + off)) return solid(d, c, { ...line, style: "solid" }, o, rng);
+  if (!(d.total > 0) || !Number.isFinite(d.total)) return [];
   const inks: InkPoly[] = [];
   const point = c.closed ? c.corners?.find((k) => k.kind === "point") : undefined;
   if (point) {
@@ -442,6 +443,20 @@ function dashed(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, 
         const pts = slice(d, anchor + direction * s, anchor + direction * e, step);
         inks.push(...strokeOutline(pts, { width: line.width, pen: line.pen, hand, rng: rng.fork("d"), taperInLen: i === 0 ? 0 : on * scale * 0.3, taperOutLen: on * scale * 0.35, ruler, inkPool: false }));
       }
+    }
+    return inks;
+  }
+  if (d.closed) {
+    const count = Math.max(1, Math.round(d.total / (on + off)));
+    const lengths = Array.from({ length: count }, () => [on * rng.range(0.8, 1.2), off * rng.range(0.8, 1.2)]);
+    const scale = d.total / lengths.reduce((sum, [a, b]) => sum + a + b, 0);
+    let start = lengths[count - 1][1] * scale / 2;
+    const step = Math.max(0.08, hand.resolution * 0.5);
+    for (const [a, b] of lengths) {
+      const length = a * scale;
+      const pts = slice(d, start, start + length, step);
+      inks.push(...strokeOutline(pts, { width: line.width, pen: line.pen, hand, rng: rng.fork("d"), taperInLen: length * 0.3, taperOutLen: length * 0.35, ruler, inkPool: false }));
+      start += (a + b) * scale;
     }
     return inks;
   }

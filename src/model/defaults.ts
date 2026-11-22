@@ -10,7 +10,7 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
   },
   balloon: {
     shape: { kind: "ellipse", irregularity: 0.12, tilt: ["-1.5deg", "1.5deg"] },
-    stroke: { width: "0.25bmm", color: "black", pen: { preset: "g-pen" }, style: "solid", dash: ["1.6bmm", "1.0bmm"], dot: { size: "0.45bmm", gap: "0.9bmm" }, double: { gap: "0.6bmm", inner: "0.2bmm" } },
+    stroke: { width: "0.25bmm", color: "black", pen: { preset: "g-pen" }, style: "solid", dot: { size: "0.45bmm", gap: "0.9bmm" }, double: { gap: "0.6bmm", inner: "0.2bmm" } },
     fill: "paper",
     tail: { kind: "wedge", gap: "2bmm", bend: 0.15, sideCurve: 0.25, root: "auto", count: 3, shrink: 0.62, segments: 3 },
     maxSize: ["75%", "80%"],

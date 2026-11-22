@@ -1,13 +1,73 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createRenderer } from "../src/api.js";
 import { Rng } from "../src/core/random.js";
 import { pointInPolygon } from "../src/geom/path.js";
 import { HAND_PRESETS, PEN_PRESETS } from "../src/ink/presets.js";
 import { inkShape } from "../src/ink/shape.js";
 import * as stroke from "../src/ink/stroke.js";
+import * as shape from "../src/ink/shape.js";
 
 afterEach(() => vi.restoreAllMocks());
 
 describe("dashed tail outlines", () => {
+  it.each([1, 42, 9876])("closes smooth contours with a full seam gap (seed %i)", (seed) => {
+    const spy = vi.spyOn(stroke, "strokeOutline");
+    inkShape({ pts: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }], closed: true, smooth: true }, {
+      hand: HAND_PRESETS.clean, rng: new Rng(seed), ruler: true,
+      line: { width: 0.13, pen: PEN_PRESETS.marker, style: "dashed", dash: [0.52, 0.325] },
+    });
+    const arc = (p: { x: number; y: number }) => p.y === 0 ? p.x : p.x === 10 ? 10 + p.y : p.y === 10 ? 30 - p.x : 40 - p.y;
+    const intervals = spy.mock.calls.map(([pts]) => [arc(pts[0]), arc(pts.at(-1)!)]);
+    intervals.forEach(([a, b], i) => {
+      expect(b - a).toBeGreaterThan(0.4);
+      expect(b - a).toBeLessThan(0.65);
+      const gap = intervals[(i + 1) % intervals.length][0] + (i === intervals.length - 1 ? 40 : 0) - b;
+      expect(gap).toBeGreaterThan(0.25);
+      expect(gap).toBeLessThan(0.41);
+    });
+  });
+
+  it.each(["ellipse", "rect", "cloud"])("uses fine proportional balloon dashes for %s", async (kind) => {
+    const spy = vi.spyOn(shape, "inkShape");
+    const renderer = createRenderer({ profile: "web" });
+    for (const width of [0.2, 0.4]) {
+      await renderer.displayList({ yaml: `mangacli: 1
+pages:
+  - panels:
+      - layers:
+          - balloon: quiet
+            shape: { kind: ${kind} }
+            stroke: { style: dashed, width: ${width}mm }
+            tail: { kind: none }
+`, filename: "/v/dashes.yaml" }, 1);
+      const line = spy.mock.calls.filter(([, o]) => o.line?.style === "dashed").at(-1)![1].line!;
+      expect(line.width).toBeCloseTo(width * 0.65);
+      expect(line.dash![0]).toBeCloseTo(line.width * 4);
+      expect(line.dash![1]).toBeCloseTo(line.width * 2.5);
+    }
+  });
+
+  it("leaves degenerate dashed contours empty", () => {
+    expect(inkShape({ pts: [{ x: 0, y: 0 }], closed: true }, {
+      hand: HAND_PRESETS.clean, rng: new Rng(1),
+      line: { width: 0.2, pen: PEN_PRESETS.marker, style: "dashed" },
+    }).inks).toEqual([]);
+  });
+
+  it("preserves explicitly configured balloon dash lengths", async () => {
+    const spy = vi.spyOn(shape, "inkShape");
+    await createRenderer({ profile: "web" }).displayList({ yaml: `mangacli: 1
+pages:
+  - panels:
+      - layers:
+          - balloon: quiet
+            stroke: { style: dashed, width: 0.2mm, dash: [1mm, 0.5mm] }
+            tail: { kind: none }
+`, filename: "/v/dashes.yaml" }, 1);
+    const line = spy.mock.calls.filter(([, o]) => o.line?.style === "dashed").at(-1)![1].line!;
+    expect(line.width).toBeCloseTo(0.13);
+    expect(line.dash).toEqual([1, 0.5]);
+  });
   it.each([[100, 100], [1.6, 100], [100, 1]])("inks pointed contours even with oversized dashes %j", (on, off) => {
     const result = inkShape({ pts: [{ x: 0, y: 0 }, { x: 2, y: 1 }, { x: 0, y: 2 }], closed: true, corners: [{ index: 1, kind: "point" }] }, {
       hand: HAND_PRESETS.clean, rng: new Rng(1),

@@ -186,12 +186,12 @@
 | `color` | Color | `black` | 線の色 |
 | `pen` | Pen | `g-pen` | ペン（[9.7](09-hand-drawn.md#97-ペンプリセット)） |
 | `style` | `solid` \| `dashed` \| `dotted` \| `double` \| `none` | `solid` | 線の種類。`dotted`、`double` は P1 |
-| `dash` | `[線, 隙間]` | `[1.6mm, 1.0mm]` | `dashed` の長さ |
+| `dash` | `[線, 隙間]` | `[線幅 × 4, 線幅 × 2.5]` | `dashed` の長さ。明示した長さはそのまま使う |
 | `dot` | `{ size, gap }` | `{ size: 0.45mm, gap: 0.9mm }` | `dotted` の点 |
 | `double` | `{ gap, inner }` | `{ gap: 0.6mm, inner: 0.2mm }` | `double` の間隔と内側の線幅 |
 | `hand` | Hand | - | 線だけの手描き設定 |
 
-- `dashed` の各線は、入り抜きのある短いストロークとして描き、長さを ±20 % ばらつかせる。小声（ひそひそ声）の表現に使う。
+- `dashed` は指定線幅の 65 % の細さで描く。省略時の線と隙間は、この描画線幅の 4 倍と 2.5 倍。各線は入り抜きのある短いストロークとし、長さを ±20 % ばらつかせ、閉じた輪郭全体に収まるよう調整する（始点にも同じ隙間を保つ）。尖ったしっぽは先端から両側へ対称に配分する。小声（ひそひそ声）の表現に使う。
 - `dotted` の各点は、わずかに歪んだ小さな塗りの円として描く。
 - `double` は、外側の線と、内側へ `gap` だけ離した細い線の 2 本で描く。強い強調や館内放送などの表現に使う。
 
@@ -476,7 +476,7 @@ panels:
 | `say` | 通常のセリフ | `ellipse` | 0.25 mm、G ペン | `wedge` | `dialogue` | | P0 |
 | `think` | 心の声 | `cloud` | 0.2 mm、丸ペン | `bubbles` | `thought` | | P0 |
 | `shout` | 叫び | `spike` | 0.3 mm、G ペン | `wedge`（`widthScale: 1.3`、`bend: 0`、`sideCurve: 0`） | `shout` | `fontScale: 1.4` | P0 |
-| `whisper` | 小声 | `ellipse` | 0.2 mm、`dashed` | `wedge`（`widthScale: 0.7`） | `whisper` | `fontScale: 0.85` | P0 |
+| `whisper` | 小声 | `ellipse` | 0.2 mm、`dashed`（描画線幅 0.13 mm） | `wedge`（`widthScale: 0.7`） | `whisper` | `fontScale: 0.85` | P0 |
 | `tremble` | 震える声 | `wavy` | 0.22 mm | `wedge` | `dialogue` | | P0 |
 | `narration` | ナレーション | `rect` | 0.2 mm、定規 | `none` | `narration` | 既定の位置 `place: top-<読み始め側>` | P0 |
 | `monologue` | モノローグ | `none` | - | `none` | `narration` | `textOutline: 0.8mm white` | P0 |
