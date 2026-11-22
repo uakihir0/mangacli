@@ -271,6 +271,7 @@ const balloonProps = {
   text: TextValue.optional(),
   who: z.string().optional(),
   as: z.string().optional(),
+  attach: z.enum(["top-right", "top-left", "bottom-right", "bottom-left", "top", "right", "bottom", "left", "none"]).optional(),
   shape: ShapeObj.optional(),
   stroke: Stroke.optional(),
   fill: Paint.optional(),

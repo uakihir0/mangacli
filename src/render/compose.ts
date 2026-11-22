@@ -24,6 +24,7 @@ import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
 import { type PageGeom, type PanelGeom, bookOf, computePageGeom, layoutPagePanels } from "../layout/page.js";
 import { type RefTarget, RefRegistry, center, place, resolvePoint, sizeValue } from "../layout/place.js";
+import { attachedBalloonCenter } from "../layout/balloon-attach.js";
 import type { RElement, RPage, ResolvedDoc } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolvePen, resolveStroke } from "../model/values.js";
 import { BODY_GENERATORS } from "../shapes/balloon.js";
@@ -1234,12 +1235,38 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     }
   }
   const placedRects: Rect[] = [];
+  const attachedRects: Rect[] = [];
   const setCenter = (pl: BalloonPlan, c: Vec) => {
     pl.center = c;
     placedRects.push({ x: c.x + pl.outer.x, y: c.y + pl.outer.y, w: pl.outer.w, h: pl.outer.h });
   };
   // explicit first
   for (const pl of plans) {
+    const attach = pl.props.attach as string | undefined;
+    if (ctx.panel && attach !== "none" && (attach || pl.props.as === "narration")) {
+      const pc = { u, coordsBox: ctx.coordsBox, refs, panelId: pid, bag: ctx.bag, path: pl.el.path };
+      const at = pl.props.at !== undefined ? resolvePoint(pl.props.at, pc) ?? undefined : undefined;
+      const border = (ctx.panel?.panel.props.border ?? {}) as Obj;
+      const hand = resolveHand(ctx.panel?.panel.props.hand, u);
+      const sides = isObj(border.sides) ? border.sides as Obj : {};
+      const frame = { ...panelBox };
+      for (const side of ["top", "right", "bottom", "left"]) {
+        const override = sides[side];
+        const b = { ...border, ...(isObj(override) ? override : {}) };
+        const width = override === "none" || b.style === "none" || ctx.panel?.bledSides.includes(side) ? 0 : resolveStroke(b, hand, u).width / 2;
+        if (side === "left") { frame.x += width; frame.w -= width; }
+        if (side === "right") frame.w -= width;
+        if (side === "top") { frame.y += width; frame.h -= width; }
+        if (side === "bottom") frame.h -= width;
+      }
+      const c = attachedBalloonCenter(attach, pl.props.as === "narration", frame, pl.outer, resolveStroke(pl.props.stroke, pl.hand, u).width, at);
+      if (c) {
+        pl.explicit = true;
+        setCenter(pl, c);
+        attachedRects.push(placedRects[placedRects.length - 1]);
+        continue;
+      }
+    }
     if (!pl.explicit) continue;
     const pc = { u, coordsBox: ctx.coordsBox, refs, panelId: pid, bag: ctx.bag, path: pl.el.path, safeBox: u.units !== "px" ? geom.safe : undefined };
     // rotation is applied around the body centre when drawing, not to the placement box
@@ -1338,6 +1365,12 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
           st.rowH = 0;
         }
         const cx = rtl ? st.flowX - w / 2 : st.flowX + w / 2;
+        for (const r of attachedRects.slice().sort((a, b) => a.y - b.y)) {
+          if (rectOverlapArea({ x: cx - w / 2, y: st.flowY, w, h }, r) > 0) {
+            st.flowY = r.y + r.h + 1 * u.k;
+            st.rowH = 0;
+          }
+        }
         const cy = st.flowY + h / 2;
         st.centers.set(pl, { x: cx, y: cy });
         st.rects.push({ x: cx - w / 2, y: cy - h / 2, w, h });
