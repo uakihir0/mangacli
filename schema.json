@@ -263,6 +263,12 @@
             },
             "printSize": {
               "$ref": "#/$defs/__schema26"
+            },
+            "mood": {
+              "$ref": "#/$defs/PageMood"
+            },
+            "flashbackBorder": {
+              "$ref": "#/$defs/PageFlashbackBorder"
             }
           },
           "additionalProperties": false
@@ -1397,10 +1403,14 @@
       ]
     },
     "__schema22": {
-      "type": "string",
-      "enum": [
-        "none",
-        "paper"
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "none"
+        },
+        {
+          "$ref": "#/$defs/__schema16"
+        }
       ]
     },
     "__schema23": {
@@ -1437,6 +1447,25 @@
           "minItems": 2,
           "maxItems": 2
         }
+      ]
+    },
+    "PageMood": {
+      "$ref": "#/$defs/PageMoodValue"
+    },
+    "PageMoodValue": {
+      "type": "string",
+      "enum": [
+        "flashback"
+      ]
+    },
+    "PageFlashbackBorder": {
+      "$ref": "#/$defs/PageFlashbackBorderValue"
+    },
+    "PageFlashbackBorderValue": {
+      "type": "string",
+      "enum": [
+        "none",
+        "white"
       ]
     },
     "__schema27": {
@@ -2173,6 +2202,12 @@
         "printSize": {
           "$ref": "#/$defs/__schema26"
         },
+        "mood": {
+          "$ref": "#/$defs/PageMood"
+        },
+        "flashbackBorder": {
+          "$ref": "#/$defs/PageFlashbackBorder"
+        },
         "id": {
           "$ref": "#/$defs/__schema33"
         },
@@ -2715,6 +2750,12 @@
               },
               "background": {
                 "$ref": "#/$defs/__schema16"
+              },
+              "mood": {
+                "$ref": "#/$defs/FlashbackMood"
+              },
+              "flashbackBorder": {
+                "$ref": "#/$defs/FlashbackBorder"
               },
               "layers": {
                 "type": "array",
@@ -3352,6 +3393,25 @@
         }
       },
       "additionalProperties": false
+    },
+    "FlashbackMood": {
+      "$ref": "#/$defs/FlashbackMoodValue"
+    },
+    "FlashbackMoodValue": {
+      "type": "string",
+      "enum": [
+        "flashback"
+      ]
+    },
+    "FlashbackBorder": {
+      "$ref": "#/$defs/FlashbackBorderValue"
+    },
+    "FlashbackBorderValue": {
+      "type": "string",
+      "enum": [
+        "none",
+        "white"
+      ]
     },
     "__schema56": {
       "anyOf": [

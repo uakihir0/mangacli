@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=../../schema.json
+mangacli: 1
+meta: { title: 回想, lang: ja }
+page:
+  size: [100mm, 140mm]
+  bleed: 3mm
+  baseFrame: { margins: { top: 10mm, bottom: 10mm, inner: 10mm, outer: 10mm } }
+  gutter: { col: 4mm, row: 5mm }
+defaults:
+  balloon: { fontSize: 10Q, writing: horizontal }
+  text: { fontSize: 10Q, writing: horizontal, place: center }
+pages:
+  - layout: { rows: [{ cols: [1, 1] }, { cols: [1, 1] }, { cols: [1] }] }
+    panels:
+      - layers: [{ text: 現在 }]
+      - layers: [{ text: 古い手紙を見つけた。 }]
+      - mood: flashback
+        dialogue: [{ as: narration, text: あの夏のことだった。 }]
+      - mood: flashback
+        dialogue: [{ as: say, text: また明日ね。 }]
+      - dialogue: [{ as: say, text: そうか、思い出した。 }]
+  - mood: flashback
+    flashbackBorder: white
+    layout: { rows: [{ cols: [1] }, { cols: [1, 1] }] }
+    panels:
+      - dialogue: [{ as: narration, text: 約束は、今も覚えている。 }]
+      - dialogue: [{ as: say, text: きっと会えるよ。 }]
+      - background: black
+        layers: [{ text: 遠い日の記憶, color: white, outline: none }]

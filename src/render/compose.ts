@@ -469,9 +469,20 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     };
     const { nodes } = await layoutImage(el, baseCtx(), box, "background");
     pageBackground.push({ kind: "group", clip: polyPath(rectPts(box), true), children: nodes, tag: bgTag });
-    if (page.settings.gutterFill !== "none") {
-      const path = gutterPath(area, panels, geom);
-      if (path.length) pageBackground.push({ kind: "path", path, fillRule: "evenodd", paint: { type: "solid", color: WHITE }, tag: bgTag });
+  }
+  const gutterFill = page.settings.gutterFill ?? "paper";
+  if (gutterFill !== "none" && (bgImage || gutterFill !== "paper")) {
+    const path = gutterPath(area, panels, geom);
+    const paint = parsePaint(gutterFill, { u, box: area, seed: page.seed, bag, path: [...page.path, "gutterFill"] });
+    if (path.length && paint) pageBackground.push({ kind: "path", path, fillRule: "evenodd", paint, tag: bgTag });
+  }
+  if (page.settings.mood !== "flashback") {
+    const flashbackPanels = panels.filter((pg) => pg.panel.props.mood === "flashback" && pg.panel.props.visible !== false && pg.polygon.length >= 3 && Math.abs(polygonArea(pg.polygon)) > 1e-8);
+    const regions = flashbackPanels.flatMap((pg) => flashbackRegion(pg, panels, area, page, geom));
+    if (regions.length) {
+      const interiors = panelOutlines(panels, geom);
+      const surround = polygonClipping.difference(polygonClipping.union(regions[0], ...regions.slice(1)), ...interiors);
+      pageBackground.push({ kind: "path", path: multiPolyPath(surround), fillRule: "nonzero", paint: { type: "solid", color: BLACK }, tag: bgTag });
     }
   }
   for (const it of items.filter((i) => i.stackUnder)) root.children.push(it.openClip ? { kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.nodes } : { kind: "group", children: it.nodes });
@@ -547,14 +558,79 @@ function compositeNodes(nodes: Node[], props: Obj, bag: DiagnosticBag, path: (st
 function multiPolyPath(polys: polygonClipping.MultiPolygon) {
   return polys.flatMap((poly) => poly.flatMap((ring) => polyPath(ring.map(([x, y]) => ({ x, y })), true)));
 }
-function gutterPath(area: Rect, panels: PanelGeom[], geom: PageGeom) {
+function flashbackRegion(pg: PanelGeom, panels: PanelGeom[], area: Rect, page: RPage, geom: PageGeom): polygonClipping.MultiPolygon {
+  if (pg.polygon.length < 3 || Math.abs(polygonArea(pg.polygon)) < 1e-8) return [];
+  const layout = isObj(page.layout) ? page.layout : {};
+  const spec = layout.split ? page.settings.gutter : layout.gutter ?? page.settings.gutter;
+  const col = spec === undefined ? 2.5 * geom.k : toMm((isObj(spec) ? spec.col ?? "2.5bmm" : spec) as string | number, geom.units);
+  const row = spec === undefined ? 5 * geom.k : toMm((isObj(spec) ? spec.row ?? "5bmm" : spec) as string | number, geom.units);
+  const widths = [col, row];
+  const collectWidths = (node: unknown) => {
+    if (!isObj(node)) return;
+    if (typeof node.gutter === "string" || typeof node.gutter === "number") widths.push(toMm(node.gutter, geom.units));
+    else if (isObj(node.gutter)) for (const value of Object.values(node.gutter)) if (typeof value === "string" || typeof value === "number") widths.push(toMm(value, geom.units));
+    for (const key of ["children", "rows"]) if (Array.isArray(node[key])) for (const child of node[key]) collectWidths(child);
+  };
+  collectWidths(layout);
+  const sign = polygonArea(pg.polygon) > 0 ? 1 : -1;
   const ring = (poly: Vec[]): polygonClipping.Ring => poly.map(({ x, y }) => [x, y]);
-  const outlines = panels.filter(({ panel }) => panel.props.visible !== false).flatMap((pg) => {
+  const pieces: polygonClipping.Polygon[] = [[ring(pg.polygon)]];
+  const edges: { a: Vec; b: Vec; offset: Vec }[] = [];
+  for (let i = 0; i < pg.polygon.length; i++) {
+    const a = pg.polygon[i], b = pg.polygon[(i + 1) % pg.polygon.length];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (len < 1e-8) continue;
+    const n = { x: sign * (b.y - a.y) / len, y: sign * (a.x - b.x) / len };
+    const dot = (p: Vec) => p.x * n.x + p.y * n.y;
+    const edge = dot(a);
+    const outer = [
+      Math.abs(a.x - area.x) < 0.01 && Math.abs(b.x - area.x) < 0.01,
+      Math.abs(a.x - area.x - area.w) < 0.01 && Math.abs(b.x - area.x - area.w) < 0.01,
+      Math.abs(a.y - area.y) < 0.01 && Math.abs(b.y - area.y) < 0.01,
+      Math.abs(a.y - area.y - area.h) < 0.01 && Math.abs(b.y - area.y - area.h) < 0.01,
+    ].some(Boolean);
+    let distance = Math.abs(n.x) >= Math.abs(n.y) ? col : row;
+    const gaps = panels.filter((other) => other !== pg && other.panel.props.visible !== false).flatMap((other) => {
+      const values = other.polygon.map(dot);
+      const gap = Math.min(...values) - edge;
+      const tangent = (p: Vec) => -n.y * p.x + n.x * p.y;
+      const ts = other.polygon.map(tangent);
+      const overlap = Math.min(Math.max(tangent(a), tangent(b)), Math.max(...ts)) - Math.max(Math.min(tangent(a), tangent(b)), Math.min(...ts));
+      return gap > 0.01 && gap <= Math.max(...widths) + 0.1 && overlap > 0.01 ? [gap] : [];
+    });
+    if (gaps.length) distance = Math.min(...gaps);
+    if (outer) distance = Math.max(...rectPts(geom.bleedBox).map(dot)) - edge;
+    const offset = { x: n.x * distance, y: n.y * distance };
+    edges.push({ a, b, offset });
+    if (distance > 0) pieces.push([ring([a, b, { x: b.x + offset.x, y: b.y + offset.y }, { x: a.x + offset.x, y: a.y + offset.y }])]);
+  }
+  for (let i = 0; i < edges.length; i++) {
+    const prev = edges[(i + edges.length - 1) % edges.length], next = edges[i];
+    const t1 = { x: prev.b.x - prev.a.x, y: prev.b.y - prev.a.y };
+    const t2 = { x: next.b.x - next.a.x, y: next.b.y - next.a.y };
+    const cross = t1.x * t2.y - t1.y * t2.x;
+    if (sign * cross <= 1e-8) continue;
+    const p = { x: next.a.x + prev.offset.x, y: next.a.y + prev.offset.y };
+    const q = { x: next.a.x + next.offset.x, y: next.a.y + next.offset.y };
+    const t = ((q.x - p.x) * t2.y - (q.y - p.y) * t2.x) / cross;
+    const miter = { x: p.x + t * t1.x, y: p.y + t * t1.y };
+    const join = [next.a, p, miter, q];
+    if (Math.abs(polygonArea(join)) > 1e-8) pieces.push([ring(join)]);
+  }
+  return polygonClipping.intersection(polygonClipping.union(pieces[0], ...pieces.slice(1)), [ring(rectPts(geom.bleedBox))]);
+}
+function panelOutlines(panels: PanelGeom[], geom: PageGeom): polygonClipping.Polygon[] {
+  const ring = (poly: Vec[]): polygonClipping.Ring => poly.map(({ x, y }) => [x, y]);
+  return panels.filter(({ panel }) => panel.props.visible !== false).flatMap((pg) => {
     const poly = panelShapePoly(pg, geom);
     if (poly.length < 3) return [];
     const contour = poly === pg.polygon ? poly : flattenPath(panelClip(pg, poly), 0.05)[0].pts;
     return [[ring(contour)]];
   });
+}
+function gutterPath(area: Rect, panels: PanelGeom[], geom: PageGeom) {
+  const ring = (poly: Vec[]): polygonClipping.Ring => poly.map(({ x, y }) => [x, y]);
+  const outlines = panelOutlines(panels, geom);
   if (outlines.length === 0) return [];
   const gaps = polygonClipping.difference([ring(rectPts(area))], ...outlines);
   return gaps.flatMap((poly) => poly.flatMap((r) => polyPath(r.slice(0, -1).map(([x, y]) => ({ x, y })), true)));

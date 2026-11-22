@@ -447,6 +447,8 @@ const Panel = z
     border: Stroke.optional(),
     bleed: z.union([z.array(z.enum(["top", "right", "bottom", "left"])), z.literal(false)]).optional(),
     background: Paint.optional(),
+    mood: z.enum(["flashback"]).meta({ id: "FlashbackMoodValue" }).optional().meta({ id: "FlashbackMood" }),
+    flashbackBorder: z.enum(["none", "white"]).meta({ id: "FlashbackBorderValue" }).optional().meta({ id: "FlashbackBorder" }),
     layers: z.array(Element).optional(),
     dialogue: z.array(DialogueLine).optional(),
     defaults: Defaults.optional(),
@@ -520,11 +522,13 @@ const pageSettings = {
   safeArea: z.object({ inset: Length }).strict().optional(),
   gutter: z.union([Length, z.object({ col: Length.optional(), row: Length.optional() }).strict()]).optional(),
   background: PageBackground.optional(),
-  gutterFill: z.enum(["none", "paper"]).optional(),
+  gutterFill: z.union([z.literal("none"), Paint]).optional(),
   color: z.enum(["mono", "color"]).optional(),
   foldMargin: Length.optional(),
   printScale: z.number().positive().max(1).optional(),
   printSize: z.union([z.string(), z.tuple([Length, Length])]).optional(),
+  mood: z.enum(["flashback"]).meta({ id: "PageMoodValue" }).optional().meta({ id: "PageMood" }),
+  flashbackBorder: z.enum(["none", "white"]).meta({ id: "PageFlashbackBorderValue" }).optional().meta({ id: "PageFlashbackBorder" }),
 };
 
 const printSettingsValid = (value: { printScale?: number; printSize?: unknown }) => value.printScale === undefined || value.printSize === undefined;
