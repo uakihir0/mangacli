@@ -273,7 +273,9 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
     if (dialogueWrap === "panel") {
       const vertical = style.writing === "vertical";
       const panel = ctx.panel!.box;
-      boxLimit = (vertical ? panel.h : panel.w) * 0.72 - 2 * (vertical ? padV : padH) - 2 * margin;
+      const extent = (vertical ? panel.h : panel.w) - 0.5 * u.k;
+      const rectangular = kind === "rect" || kind === "none";
+      boxLimit = extent * (rectangular ? 1 : 0.72) - 2 * (vertical ? padV : padH) - 2 * margin;
       boxLimit = Math.max(boxLimit, style.fontSize);
       if (p.maxChars === undefined) style.maxChars = undefined;
     }

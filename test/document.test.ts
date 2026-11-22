@@ -116,6 +116,28 @@ pages:
     expect(r.layout[0].elements[0].bbox.w).toBeLessThanOrEqual(17);
     expect(r.diagnostics.some(d => d.code === "BALLOON_TOO_LARGE")).toBe(false);
   });
+
+  it("uses the full usable width of a panel-clipped rectangular balloon", async () => {
+    const r = await validate(yaml(`mangacli: 1
+meta: { lang: en }
+defaults:
+  balloon: { fontSize: 5mm, writing: horizontal, shape: rect, padding: [0mm, 0mm] }
+pages:
+  - panels:
+      - coords: page
+        box: [20mm, 25mm, 39mm, 22mm]
+        layers:
+          - { balloon: "That works That works", id: b, clip: panel, at: [50%, 50%], tail: none }
+`));
+    expect(r.ok).toBe(true);
+    expect(r.layout[0].text[0]).toMatchObject({ fontSize: 5, lines: ["THAT WORKS", "THAT WORKS"] });
+    const { bbox } = r.layout[0].elements[0];
+    expect(bbox.x).toBeGreaterThanOrEqual(20);
+    expect(bbox.x + bbox.w).toBeLessThanOrEqual(59);
+    expect(bbox.y).toBeGreaterThanOrEqual(25);
+    expect(bbox.y + bbox.h).toBeLessThanOrEqual(47);
+    expect(r.diagnostics.some(d => d.code === "BALLOON_NO_SPACE")).toBe(false);
+  });
 });
 
 describe("rendering", () => {
