@@ -31,14 +31,17 @@ pages:
         outline: 0.8mm white
     panels:
       - id: p-top
+        background: "tone(10%)"
         dialogue:
           - taro: もう、逃げない。
       - id: p-middle
+        background: "tone(10%)"
         layers:
           - { effect: speed-lines, angle: 90deg }
         dialogue:
           - taro: この一歩で
       - id: p-bottom
+        background: "tone(10%)"
         layers:
           - { effect: focus-lines, center: [65%, 0%] }
         dialogue:

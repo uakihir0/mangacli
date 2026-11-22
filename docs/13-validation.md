@@ -113,6 +113,7 @@ diagnostics:
 | `ASSET_DECODE_FAILED` | E | 画像を読み込めない | × |
 | `ASSET_TOO_LARGE` | E | 画素数・ファイルサイズが上限を超える | × |
 | `ASSET_LOW_RESOLUTION` | W | 実効解像度が不足する（[5.5.1](05-elements-and-images.md#551-解像度の確認)） | ○ |
+| `ART_LEAVES_VOID` | W | 画像のあるコマで画像・塗り・明示的な背景が覆わない内側の面積が 5% を超える。`size` を外し `fit: cover` と `focus` で枠を満たす（欠落素材・プレースホルダーは除外） | ○ |
 | `FONT_NOT_CONFIGURED` | E | 日本語の文字があるのに使えるフォントがない | × |
 | `FONT_NOT_FOUND` | E | フォントのファイル・システムフォントが見つからない | × |
 | `FONT_LOAD_FAILED` | E | フォントを読み込めない | × |

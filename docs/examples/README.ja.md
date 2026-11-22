@@ -19,6 +19,7 @@
 - フォントはカタログのものを使うため、初回のレンダリング時に自動でダウンロードする。事前に取得する場合は `npx mangacli fonts install --for docs/examples/b5-mono.yaml` を実行する。
 - `assets/` の画像の多くは、`scripts/make-sample-assets.ts` で生成した簡単な仮の絵（本プロジェクトと同じ MIT）。ぶち抜きゴマの作例は、Sogni で生成したイラストを使う。
 - 描画結果は [../images](../images) にある。
+- 絵は `fit: cover` と被写体に合わせた `focus` で枠を満たす。小さく配置した人物や枠を越える人物・コマをまたぐ人物を見せるコマでは、コマ全体をトーンや色の地で埋め、未配置の空白を残さない。`validate --strict` は `ART_LEAVES_VOID` の警告もエラーにする。
 
 ```bash
 npx mangacli render docs/examples/b5-mono.yaml                 # ドキュメントの output の設定で出力

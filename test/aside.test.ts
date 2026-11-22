@@ -144,9 +144,9 @@ pages:
       return boundsOf(flattenPath(n.path).flatMap(q => q.pts));
     };
     const aside = r.layout[0].elements.find(e => e.id === "p1-k1-balloon1")!.bbox;
-    // The 1000 x 1400 asset is contained in a 100 x 85 mm panel.
-    const headLeft = (100 - 85 * 1000 / 1400) / 2 + 270 * 85 / 1400;
-    const headRight = (100 - 85 * 1000 / 1400) / 2 + 735 * 85 / 1400;
+    // The 1000 x 1400 asset covers a 100 x 85 mm panel.
+    const headLeft = 270 * 100 / 1000;
+    const headRight = 735 * 100 / 1000;
     expect(Math.max(headLeft - aside.x - aside.w, aside.x - headRight)).toBeGreaterThan(1);
     const ratio = glyphBounds("p1-k1-balloon1").w / glyphBounds("p1-k1-d1").w;
     expect(ratio).toBeGreaterThan(0.75);
