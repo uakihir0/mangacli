@@ -26,7 +26,7 @@ import { parsePaint } from "./model/values.js";
 import { polyPath } from "./geom/path.js";
 import type { RElement, RPage } from "./model/resolve.js";
 import { RasterBackend, monoNodeWorkingBytes } from "./render/raster.js";
-import { DEFAULT_OUTPUT_BYTES, DEFAULT_PRINT_SPREAD_OUTPUT_BYTES, monoWorkingBytes } from "./render/mono.js";
+import { DEFAULT_OUTPUT_BYTES, DEFAULT_PRINT_OUTPUT_BYTES, monoWorkingBytes } from "./render/mono.js";
 import { createCanvas } from "@napi-rs/canvas";
 import { renderSvg, svgBox } from "./render/svg.js";
 import { type MangaPlugin, PluginSet, withPlugins } from "./plugin.js";
@@ -601,6 +601,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   }
   const prepared = new Map<number, Awaited<ReturnType<typeof composePage>>>();
   if (packedMono && !options.layoutOnly && formats.some((f) => f !== "svg")) {
+    const limit = lim.maxOutputBytes ?? (prof.print ? DEFAULT_PRINT_OUTPUT_BYTES : DEFAULT_OUTPUT_BYTES);
     for (const pl of plan) {
       if (!selected.has(pl.idx)) continue;
       const page = resolved.pages[pl.idx];
@@ -622,7 +623,6 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const rasterCrop = g.type === "spread" && spreadMode === "split" && crop === "marks" ? "bleed" : crop;
       const outputScale = options.output === "print" ? g.printScale : 1;
       const cost = (d: number) => Math.max(...outputSizes(g, d).map((s) => monoWorkingBytes(s.w, s.h))) + monoNodeWorkingBytes(composed.list, d * outputScale, rasterCrop, (prof.marks?.margin ?? 10) / outputScale);
-      const limit = lim.maxOutputBytes ?? (prof.print && g.type === "spread" ? DEFAULT_PRINT_SPREAD_OUTPUT_BYTES : DEFAULT_OUTPUT_BYTES);
       const estimated = cost(dpi);
       if (estimated <= limit) continue;
       let lo = 0, hi = Math.floor(dpi);
