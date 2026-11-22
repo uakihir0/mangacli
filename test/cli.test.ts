@@ -19,6 +19,23 @@ describe("cli", () => {
     expect(r.status).toBe(1);
     expect(r.stdout).toContain('"code":"SCHEMA_UNKNOWN_KEY"');
   });
+  it("does not show a green summary when there are warnings", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mc-warn-"));
+    const f = join(dir, "warn.yaml");
+    writeFileSync(f, 'mangacli: 1\npages:\n  - panels:\n      - layers:\n          - { balloon: "そんなことってあるわけないだろうそんなことってあるわけないだろう", size: [5mm, 5mm] }\n');
+    const env = { ...process.env, MANGACLI_LOCALE: "en", NO_COLOR: "1" };
+    const run = (...args: string[]) => spawnSync(process.execPath, ["--import", "tsx", join(root, "src/cli/index.ts"), ...args, "--no-config"], { cwd: root, encoding: "utf8", env });
+    const v = run("validate", f);
+    expect(v.status).toBe(0);
+    expect(v.stderr).toContain("⚠ 1 warning(s)");
+    expect(v.stderr).not.toContain("✔");
+    const r = run("render", f, "-p", "preview", "-o", join(dir, "out"));
+    expect(r.status).toBe(0);
+    expect(r.stderr).toMatch(/⚠ wrote 1 file\(s\)/);
+    expect(r.stderr).toContain("  1 warning(s)");
+    expect(r.stderr).not.toContain("✔");
+    expect(cli("validate", "docs/examples/minimal.yaml").stderr).toContain("✔");
+  });
   it("rejects bad option values with exit 3", () => {
     expect(cli("render", "docs/examples/minimal.yaml", "--crop", "nope").status).toBe(3);
   });

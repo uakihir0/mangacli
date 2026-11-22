@@ -208,6 +208,17 @@ function summarize(diags: Diagnostic[]) {
   return { errors: e, warnings: w };
 }
 
+/** the result line's mark: green only when nothing needs attention */
+function summaryMark(errors: number, warnings: number) {
+  return errors ? paint("31", "✖") : warnings ? paint("33", "⚠") : paint("32", "✔");
+}
+
+function countsText(errors: number, warnings: number) {
+  const ja = [errors ? `エラー ${errors} 件` : "", warnings ? `警告 ${warnings} 件` : ""].filter(Boolean).join("、");
+  const en = [errors ? `${errors} error(s)` : "", warnings ? `${warnings} warning(s)` : ""].filter(Boolean).join(", ");
+  return t(ja, en);
+}
+
 // ---- commands ----------------------------------------------------------------------
 
 async function cmdRender(file: string, o: Obj, onSystemFont?: (path: string) => void): Promise<number> {
@@ -263,9 +274,9 @@ async function cmdRender(file: string, o: Obj, onSystemFont?: (path: string) => 
   const secs = ((performance.now() - t0) / 1000).toFixed(1);
   if (r.files.length) {
     const dir = relative(cwd, opts.outDir!) || ".";
-    log("info", `${paint("32", "✔")} ${t(`${r.files.length} ファイルを出力しました（${dir}/、${secs} 秒）`, `wrote ${r.files.length} file(s) to ${dir}/ in ${secs}s`)}`);
+    log("info", `${summaryMark(errors + r.failures.length, warnings)} ${t(`${r.files.length} ファイルを出力しました（${dir}/、${secs} 秒）`, `wrote ${r.files.length} file(s) to ${dir}/ in ${secs}s`)}`);
   }
-  if (warnings) log("info", `  ${t(`警告 ${warnings} 件`, `${warnings} warning(s)`)}`);
+  if (errors || warnings) log("info", `  ${countsText(errors, warnings)}`);
   if (r.failures.length) return 2;
   if (errors) return r.diagnostics.some((d) => d.severity === "error" && /^(ASSET|FONT|IO|RENDER)_/.test(d.code)) ? 2 : 1;
   if (o.strict && warnings) return 1;
@@ -385,7 +396,7 @@ async function cmdValidate(file: string, o: Obj): Promise<number> {
   }
   const { errors, warnings } = summarize(r.diagnostics);
   if (reporter === "json") process.stdout.write(JSON.stringify({ type: "result", ok: r.ok, errors, warnings }) + "\n");
-  else if (reporter === "text") log("info", r.ok ? `${paint("32", "✔")} ${t("問題は見つかりませんでした", "no problems found")}${warnings ? t(`（警告 ${warnings} 件）`, ` (${warnings} warning(s))`) : ""}` : `${paint("31", "✖")} ${t(`エラー ${errors} 件、警告 ${warnings} 件`, `${errors} error(s), ${warnings} warning(s)`)}`);
+  else if (reporter === "text") log("info", `${summaryMark(r.ok ? 0 : Math.max(errors, 1), warnings)} ${errors || warnings ? countsText(errors, warnings) : r.ok ? t("問題は見つかりませんでした", "no problems found") : t("エラーがあります", "errors found")}`);
   return r.ok ? 0 : 1;
 }
 
