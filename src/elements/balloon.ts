@@ -75,6 +75,7 @@ function shapeParams(props: Obj, rng: Rng, hand: HandSpec, u: UnitContext): Shap
   const irr = (typeof s.irregularity === "number" ? s.irregularity : 0.35) / 0.35 * hand.irregularity;
   return {
     kind: String(s.kind ?? "ellipse"),
+    unitScale: u.k,
     irregularity: irr * (hand.irregularity > 0 ? 1 : 0),
     tilt: hand.irregularity > 0 ? tilt : 0,
     squareness: s.squareness as number | undefined,
@@ -136,7 +137,7 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
   const rng = new Rng(el.seed);
   const hand = resolveHand(p.hand, u, ctx.draft);
   const params = shapeParams(p, rng, hand, u);
-  if (fallback?.depth !== undefined) params.depth = fallback.depth;
+  if (fallback?.depth !== undefined) params.spikeScale = Math.min(1, fallback.depth / (params.kind === "burst" ? 0.4 : 0.2));
   if (fallback && (params.count === undefined || params.count === "auto")) params.count = 40;
   if (fallback) params.compactCore = true;
   if (!BODY_GENERATORS[params.kind] && !activePlugins()?.shapes.has(params.kind)) ctx.bag.error("SCHEMA_ENUM", `unknown balloon shape "${params.kind}"`, { path: [...el.path, "shape"] });
@@ -179,9 +180,22 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       const fw = sizeValue(fixedSize[0], ctx.coordsBox.w, pc);
       const fh = sizeValue(fixedSize[1], ctx.coordsBox.h, pc);
       if (fw !== "auto" && fh !== "auto") {
+        const physicalSpikes = (kind === "spike" || kind === "burst") && params.depth === undefined;
+        if (physicalSpikes) params.spikeScale = Math.min(1, Math.min(fw, fh) * 0.9 / (2.2 * (kind === "burst" ? 5 : 3) * u.k));
         const probe = genBody(kind, fw, fh, params, shapeSeed);
         const ob = boundsOf(probe.contour.pts);
         fixedBase = { w: fw * (fw / ob.w), h: fh * (fh / ob.h) };
+        if (physicalSpikes) {
+          let lo = 0;
+          let hi = 1;
+          for (let i = 0; i < 20; i++) {
+            const s = (lo + hi) / 2;
+            const bounds = boundsOf(genBody(kind, fixedBase.w * s, fixedBase.h * s, params, shapeSeed).contour.pts);
+            if (bounds.w <= fw && bounds.h <= fh) lo = s;
+            else hi = s;
+          }
+          fixedBase = { w: fixedBase.w * lo, h: fixedBase.h * lo };
+        }
         const ib = boundsOf(genBody(kind, fixedBase.w, fixedBase.h, params, shapeSeed).inner);
         boxLimit = (style.writing === "vertical" ? ib.h * 0.86 : ib.w * 0.86) - 2 * (style.writing === "vertical" ? padV : padH);
       }
@@ -729,8 +743,12 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
       length = Math.min(maxLen, Math.max(4.5 * u.k, avail));
     } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
     if (whisperWedge && !target && !offSide && t.length === undefined) length = Math.min(maxLen, Math.max(length, 6 * u.k));
-    // on a spiky body the tail must outreach the spikes to read as the pointer
-    if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.15, 6 * u.k);
+    if (!offSide && kind === "wedge" && t.length === undefined && plan.body.spikeLength !== undefined) {
+      const rotation = plan.props.rotate === undefined ? 0 : parseAngle(plan.props.rotate as string);
+      const coreHit = rayPolygon({ x: 0, y: 0 }, rot(rootDir, -rotation), plan.body.spikeCore ?? plan.body.inner);
+      const extension = coreHit ? hit.t - coreHit.t : 0;
+      length = Math.min(maxLen, target ? length : Infinity, Math.max(0.5 * plan.body.spikeLength, 1.5 * plan.body.spikeLength - extension));
+    }
     tailLength = length;
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
