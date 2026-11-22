@@ -83,4 +83,9 @@ describe("multi-speaker images", () => {
     const result = await validate({ mangacli: 1, assets: { art: { src: "art.png", characters } }, pages: [{ layers: [] }] });
     expect(result.diagnostics.some((d) => d.code === "ID_RESERVED")).toBe(true);
   });
+
+  it("rejects reserved speaker names given through styles", async () => {
+    const result = await validate({ mangacli: 1, styles: { duo: { characters: { top: {} } } }, pages: [{ layers: [] }] });
+    expect(result.diagnostics.some((d) => d.code === "ID_RESERVED")).toBe(true);
+  });
 });

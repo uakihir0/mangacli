@@ -266,7 +266,7 @@ function validateSchema(doc: Obj, bag: DiagnosticBag) {
   const checkSpeakers = (value: unknown, path: (string | number)[]) => {
     if (Array.isArray(value)) value.forEach((v, i) => checkSpeakers(v, [...path, i]));
     else if (isObj(value)) {
-      if (isObj(value.characters) && (path[0] === "assets" || path[0] === "pages")) {
+      if (isObj(value.characters) && path.length > 0) {
         for (const [name, data] of Object.entries(value.characters)) {
           if (name in KEYWORDS) bag.error("ID_RESERVED", `"${name}" is a position keyword and cannot name a speaker`, { path: [...path, "characters", name] });
           if (isObj(data)) for (const kind of ["anchors", "regions"]) {
