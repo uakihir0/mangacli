@@ -125,6 +125,25 @@ describe("balloon text extent sizing", () => {
   it("breaks full-width base-text spaces inside formatting tags", async () => {
     expect((await plan("<b>あ　い</b>")).text).toEqual((await plan("<b>あ\nい</b>")).text);
   });
+  it.each([
+    { text: "あ<br>　い", expected: "あ<br>\nい", markup: false },
+    { text: "あ\\<br>　い", expected: "あ\\<br>\nい", markup: true },
+  ])("preserves literal line-break tags: $text", async ({ text, expected, markup }) => {
+    const actual = await plan(text, "vertical", { markup, wrap: "none" });
+    expect(actual.text).toEqual((await plan(expected, "vertical", { markup, wrap: "none" })).text);
+    expect(actual.text.lines.map(line => line.text)).toEqual(["あ<br>", "い"]);
+  });
+  it.each([
+    "｜山　川《やまかわ》", '<ruby="やまかわ">山　川</ruby>',
+    "<b>　</b>｜山　川《やまかわ》<b>　</b>",
+  ])("preserves full-width spaces within ruby bases: %s", async (text) => {
+    const actual = await plan(text, "vertical", { wrap: "none" });
+    const reference = text.replace(/<b>　<\/b>/g, "");
+    const style = resolveTextStyle({ ...actual.el.props, text: reference }, { units: "mm", dpi: 96, k: 1 }, "ja", true, actual.el.seed);
+    expect(actual.text).toEqual(layoutText(reference, style, fonts));
+    expect(actual.text.errors).toEqual([]);
+    expect(actual.text.lines.map(line => line.text)).toEqual(["山　川"]);
+  });
   it.each(["narration", "aside"])("does not change full-width spaces in %s", async (as) => {
     const actual = await plan("あ　い", "vertical", { as, wrap: "none" });
     expect(actual.text.lines).toHaveLength(1);

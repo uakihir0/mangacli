@@ -145,14 +145,29 @@ function isLatinChar(ch: string): boolean {
   return (cp >= 0x21 && cp <= 0x7e) || (cp >= 0xa0 && cp <= 0x24f);
 }
 
-export function parseLayoutText(text: string, style: TextStyle): ParsedText {
+export function parseLayoutText(text: string, style: TextStyle, balloonPhraseBreaks = false): ParsedText {
   const parsed: ParsedText = parseMarkup(text, { markup: style.markup, normalize: { ...(/^(ja|zh|ko)/.test(style.lang) ? style.normalize : { ellipsis: false, dash: false, waveDash: false, smartQuotes: true, ...style.normalize }), uppercase: style.textTransform === "uppercase" }, vertical: style.writing === "vertical" });
+  if (balloonPhraseBreaks) {
+    const units = parsed.units;
+    const space = (unit: Unit) => unit.kind === "char" && unit.ch === "\u3000" && unit.ruby === undefined;
+    parsed.units = [];
+    for (let i = 0; i < units.length;) {
+      let end = i;
+      while (end < units.length && (units[end].kind === "break" || space(units[end]))) end++;
+      if (end > i && units.slice(i, end).some(space)) {
+        if ((i > 0 && end < units.length) || units.slice(i, end).some(unit => unit.kind === "break")) parsed.units.push({ kind: "break" });
+        i = end;
+      } else {
+        parsed.units.push(units[i++]);
+      }
+    }
+  }
   if (style.writing === "vertical") assignTcy(parsed.units, style.tcy, style.latin);
   return parsed;
 }
 
-export function layoutText(text: string, style: TextStyle, reg: FontRegistry, boxLimit?: number): TextLayout {
-  const parsed = parseLayoutText(text, style);
+export function layoutText(text: string, style: TextStyle, reg: FontRegistry, boxLimit?: number, balloonPhraseBreaks = false): TextLayout {
+  const parsed = parseLayoutText(text, style, balloonPhraseBreaks);
   const vertical = style.writing === "vertical";
   const em = style.fontSize;
   const missing: string[] = [];
