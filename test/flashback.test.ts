@@ -19,6 +19,19 @@ async function sample(input: Record<string, unknown>, dpi = 254) {
 }
 
 describe("flashback mood", () => {
+  it.each(["top", "right", "bottom", "left"])("keeps the gutter black between panels bled to the %s", async (side) => {
+    const vertical = side === "top" || side === "bottom";
+    const { at } = await sample({ mangacli: 1, page: settings, pages: [{
+      layout: { rows: vertical ? [{ cols: [1, 1] }] : [{ cols: [1] }, { cols: [1] }] },
+      panels: [{ mood: "flashback", bleed: [side] }, { bleed: [side] }],
+    }] });
+    for (const distance of [-2, 1, 5, 9, 11]) {
+      const x = vertical ? 40 : side === "left" ? distance : 80 - distance;
+      const y = vertical ? side === "top" ? distance : 80 - distance : 40;
+      expect(at(x, y), `${x},${y}`).toBe(0);
+    }
+  });
+
   it("extends inset outer-facing edges to bleed without covering a normal neighbour", async () => {
     const { at } = await sample({ mangacli: 1, page: settings, pages: [{ layout: "free", panels: [
       { mood: "flashback", coords: "page", box: ["20mm", "20mm", "25mm", "40mm"] },

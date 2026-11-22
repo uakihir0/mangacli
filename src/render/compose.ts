@@ -479,7 +479,10 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   if (page.settings.mood !== "flashback") {
     const flashbackPanels = panels.filter((pg) => pg.panel.props.mood === "flashback" && pg.panel.props.visible !== false && pg.polygon.length >= 3 && Math.abs(polygonArea(pg.polygon)) > 1e-8);
     const frame = [rectPts(area).map(({ x, y }) => [x, y] as [number, number])];
-    const regions = flashbackPanels.flatMap((pg) => [...polygonClipping.intersection(flashbackRegion(pg, panels, area, page, geom), frame), ...flashbackMargins(pg, panels, geom)]);
+    const regions = flashbackPanels.flatMap((pg) => {
+      const interior = polygonClipping.union(frame, ...flashbackGutters(pg, panels));
+      return [...polygonClipping.intersection(flashbackRegion(pg, panels, area, page, geom), interior), ...flashbackMargins(pg, panels, geom)];
+    });
     if (regions.length) {
       const interiors = panelOutlines(panels, geom);
       const surround = polygonClipping.difference(polygonClipping.union(regions[0], ...regions.slice(1)), ...interiors);
@@ -558,6 +561,31 @@ function compositeNodes(nodes: Node[], props: Obj, bag: DiagnosticBag, path: (st
 
 function multiPolyPath(polys: polygonClipping.MultiPolygon) {
   return polys.flatMap((poly) => poly.flatMap((ring) => polyPath(ring.map(([x, y]) => ({ x, y })), true)));
+}
+function flashbackGutters(pg: PanelGeom, panels: PanelGeom[]): polygonClipping.Polygon[] {
+  const pieces: polygonClipping.Polygon[] = [];
+  const sign = polygonArea(pg.polygon) > 0 ? 1 : -1;
+  for (let i = 0; i < pg.polygon.length; i++) {
+    const a = pg.polygon[i], b = pg.polygon[(i + 1) % pg.polygon.length];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (len < 1e-8) continue;
+    const n = { x: sign * (b.y - a.y) / len, y: sign * (a.x - b.x) / len };
+    const dot = (p: Vec) => p.x * n.x + p.y * n.y;
+    const tangent = (p: Vec) => -n.y * p.x + n.x * p.y;
+    const ta = tangent(a), tb = tangent(b), edge = dot(a);
+    for (const other of panels) {
+      if (other === pg || other.panel.props.visible === false || other.polygon.length < 3) continue;
+      const gap = Math.min(...other.polygon.map(dot)) - edge;
+      const ts = other.polygon.map(tangent);
+      const lo = Math.max(Math.min(ta, tb), Math.min(...ts));
+      const hi = Math.min(Math.max(ta, tb), Math.max(...ts));
+      if (gap <= 0.01 || hi - lo <= 0.01) continue;
+      const p = { x: a.x - n.y * (lo - ta), y: a.y + n.x * (lo - ta) };
+      const q = { x: a.x - n.y * (hi - ta), y: a.y + n.x * (hi - ta) };
+      pieces.push([[p, q, { x: q.x + n.x * gap, y: q.y + n.y * gap }, { x: p.x + n.x * gap, y: p.y + n.y * gap }].map(({ x, y }) => [x, y])]);
+    }
+  }
+  return pieces;
 }
 function flashbackMargins(pg: PanelGeom, panels: PanelGeom[], geom: PageGeom): polygonClipping.MultiPolygon {
   const pieces: polygonClipping.MultiPolygon = [];
