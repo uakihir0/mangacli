@@ -146,7 +146,8 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
   const rawText = textValue(p.text, ctx.lang, ctx.defaultLang, () => ctx.bag.warn("TEXT_MISSING_TRANSLATION", `no "${ctx.lang}" text`, { path: el.path, elementId: el.id }));
   const text = p.as === "narration" || p.as === "aside" ? rawText : rawText
     .replace(/^\u3000+|\u3000+$/g, "")
-    .replace(/(?:\r\n?|\n|<br>)*\u3000(?:\u3000|\r\n?|\n|<br>)*/g, "\n");
+    .replace(/<(?!br>)[^>]*>|(?<!《)《(?!《)[^》]*》|(?:\r\n?|\n|<br>)*\u3000(?:\u3000|\r\n?|\n|<br>)*/g,
+      part => /^(?:<(?!br>)|《)/.test(part) ? part : "\n");
   const fill = parsePaint(p.fill ?? "paper", { u, box: { x: 0, y: 0, w: 10, h: 10 }, seed: el.seed, bag: ctx.bag, path: [...el.path, "fill"] });
   const lum = paintAvgLuminance(fill);
   const textColor = (p.color as string) ?? (lum < 0.5 ? "white" : "black");

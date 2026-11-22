@@ -6,6 +6,8 @@ import { FontRegistry } from "../src/fonts/registry.js";
 import { pointInPolygon } from "../src/geom/path.js";
 import { resolveDocument } from "../src/model/resolve.js";
 import { BODY_GENERATORS } from "../src/shapes/balloon.js";
+import { layoutText } from "../src/text/layout.js";
+import { resolveTextStyle } from "../src/elements/textstyle.js";
 
 const fonts = new FontRegistry(new Map() as never, "manga-basic", [], {});
 
@@ -105,6 +107,23 @@ describe("balloon text extent sizing", () => {
   });
   it("preserves half-width word spaces", async () => {
     expect((await plan("hello world", "horizontal", { wrap: "none" })).text.lines).toHaveLength(1);
+  });
+  it.each([
+    '<ruby="よみ　かた">漢字</ruby>',
+    '<ruby text="よみ　かた">漢字</ruby>',
+    "｜漢字《よみ　かた》",
+    "漢字《よみ　かた》",
+  ])("preserves full-width spaces in ruby metadata: %s", async (text) => {
+    const actual = await plan(text, "vertical", { wrap: "none" });
+    const style = resolveTextStyle({ ...actual.el.props, text }, { units: "mm", dpi: 96, k: 1 }, "ja", true, actual.el.seed);
+    expect(actual.text).toEqual(layoutText(text, style, fonts));
+    expect(actual.text.errors).toEqual([]);
+    const phrases = await plan(`${text}　次`, "vertical", { wrap: "none" });
+    expect(phrases.text.lines.map(line => line.text)).toEqual(["漢字", "次"]);
+    expect(phrases.text.errors).toEqual([]);
+  });
+  it("breaks full-width base-text spaces inside formatting tags", async () => {
+    expect((await plan("<b>あ　い</b>")).text).toEqual((await plan("<b>あ\nい</b>")).text);
   });
   it.each(["narration", "aside"])("does not change full-width spaces in %s", async (as) => {
     const actual = await plan("あ　い", "vertical", { as, wrap: "none" });
