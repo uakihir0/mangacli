@@ -14,7 +14,7 @@ import type { Node, Paint } from "../render/ir.js";
 import polygonClipping from "polygon-clipping";
 import { BODY_GENERATORS, type BodyGeom, type ShapeParams } from "../shapes/balloon.js";
 import { Contour, type PluginBalloonShape, activePlugins } from "../plugin.js";
-import { type TextLayout, layoutText } from "../text/layout.js";
+import { type TextLayout, layoutText, parseLayoutText } from "../text/layout.js";
 import { type ElemCtx, silhouetteHit, tag } from "./context.js";
 import { fillNode, inksToNodes, polysToPath } from "./inkir.js";
 import { type GlyphRun, glyphNodes } from "./glyphs.js";
@@ -144,6 +144,7 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
   if (!BODY_GENERATORS[params.kind] && !activePlugins()?.shapes.has(params.kind)) ctx.bag.error("SCHEMA_ENUM", `unknown balloon shape "${params.kind}"`, { path: [...el.path, "shape"] });
   const shapeSeed = rng.nextU32();
   const text = textValue(p.text, ctx.lang, ctx.defaultLang, () => ctx.bag.warn("TEXT_MISSING_TRANSLATION", `no "${ctx.lang}" text`, { path: el.path, elementId: el.id }));
+  const balloonPhraseBreaks = p.as !== "narration" && p.as !== "aside";
   const fill = parsePaint(p.fill ?? "paper", { u, box: { x: 0, y: 0, w: 10, h: 10 }, seed: el.seed, bag: ctx.bag, path: [...el.path, "fill"] });
   const lum = paintAvgLuminance(fill);
   const textColor = (p.color as string) ?? (lum < 0.5 ? "white" : "black");
@@ -165,7 +166,10 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
   let scale = 1;
   let constrainAuto = p.as === "aside";
   for (let attempt = 0; attempt < 12; attempt++) {
-    const style = resolveTextStyle({ ...p, fontScale: ((p.fontScale as number) ?? 1) * scale }, u, ctx.lang, true, el.seed);
+    const styleProps = { ...p, text, fontScale: ((p.fontScale as number) ?? 1) * scale };
+    const initialStyle = resolveTextStyle(styleProps, u, ctx.lang, true, el.seed);
+    const authoredText = parseLayoutText(text, initialStyle, balloonPhraseBreaks).units.map(unit => unit.kind === "char" ? unit.ch : unit.kind === "break" ? "\n" : "").join("");
+    const style = resolveTextStyle({ ...styleProps, text: authoredText }, u, ctx.lang, true, el.seed);
     if (kind === "electronic") params.toothPitch = Math.max(style.fontSize / 2, 0.3 * u.k);
     const emCtx = { ...u, em: style.fontSize };
     const pad = Array.isArray(p.padding) ? p.padding : ["0.45em", "0.9em"];
@@ -208,7 +212,7 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       if (isFinite(lim)) boxLimit = Math.min(boxLimit ?? Infinity, Math.max(lim, style.fontSize * 4.5));
     }
     if (fallback) boxLimit = Math.min(boxLimit ?? Infinity, style.fontSize * fallback.lineEm + 1e-6);
-    let tl = layoutText(text, style, ctx.fonts, boxLimit);
+    let tl = layoutText(text, style, ctx.fonts, boxLimit, balloonPhraseBreaks);
     if (p.as === "aside") {
       const pts = tl.glyphs.flatMap(g => flattenPath(g.path).flatMap(q => q.pts));
       if (pts.length) {

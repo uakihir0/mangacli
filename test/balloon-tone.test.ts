@@ -12,6 +12,7 @@ pages:
         layers:
           - balloon: READ ME
             as: ${as}
+            attach: none
             writing: horizontal
             at: [50%, 50%]
             size: [48mm, 24mm]
