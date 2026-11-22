@@ -7,7 +7,6 @@ import { type PathData, distToPolyline, flattenPath, offsetPolygon, pointInPolyg
 import { type Rect, type Vec, boundsOf, dot, lerp, matTranslate, rot, sub } from "../geom/vec.js";
 import type { HandSpec } from "../ink/presets.js";
 import { type ShapeContour, inkShape } from "../ink/shape.js";
-import { blobPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
 import type { RElement } from "../model/resolve.js";
 import { paintAvgLuminance, parsePaint, resolveHand, resolveStroke } from "../model/values.js";
@@ -778,7 +777,7 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     if (kind === "bubbles") {
       const count = typeof t.count === "number" ? t.count : 3;
       let size = t.bubbleSize !== undefined ? toMm(t.bubbleSize as string, u) : Math.min(5 * u.k, Math.max(1.5 * u.k, minSide * 0.2));
-      const shrink = typeof t.shrink === "number" ? t.shrink : 0.62;
+      const shrinkAt = (i: number) => typeof t.shrink === "number" ? t.shrink : i === 0 ? 0.6 : i === 1 ? 0.35 / 0.6 : 0.22 / 0.35;
       // the bubble chain must stop short of the speaker (face): scale it down to the available run
       let spacing = 0.45;
       if (target && t.length === undefined) {
@@ -787,7 +786,7 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
           let sz = sz0;
           for (let i = 0; i < count; i++) {
             span += sz + (i + 1 < count ? sz * sp : 0);
-            sz *= shrink;
+            sz *= shrinkAt(i);
           }
           return span;
         };
@@ -806,15 +805,21 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
         const tt = Math.min(1, dpos / Math.max(1e-6, total));
         const c = quad(R, ctrl, tipBent, tt);
         const r = size / 2;
-        const pts = blobPoly(c, r, tc.rng, 28, 0.06).map((q) => ({ x: c.x + (q.x - c.x) * 1, y: c.y + (q.y - c.y) * 0.88 }));
+        const ratio = tc.rng.range(0.85, 1);
+        const tilt = tc.rng.range(0, Math.PI * 2);
+        const pts = Array.from({ length: 48 }, (_, j) => {
+          const a = j / 48 * Math.PI * 2;
+          const x = r * Math.cos(a), y = r * ratio * Math.sin(a);
+          return { x: c.x + x * Math.cos(tilt) - y * Math.sin(tilt), y: c.y + x * Math.sin(tilt) + y * Math.cos(tilt) };
+        });
         extra.push({ pts, closed: true, kind: "bubble" });
         footprints.push({ pts, closed: true });
         if (spread) {
-          size *= shrink;
+          size *= shrinkAt(i);
           continue;
         }
         dpos += size / 2 + size * spacing;
-        size *= shrink;
+        size *= shrinkAt(i);
         dpos += size / 2;
       }
       continue;
@@ -1002,6 +1007,7 @@ function buildBody(plan: BalloonPlan, ctx: ElemCtx, skipTails = false): BodyBuil
   const translate = (pts: Vec[]) => pts.map((q) => ({ x: q.x * cr - q.y * sr + center.x, y: q.x * sr + q.y * cr + center.y }));
   const body = plan.body;
   let contour: ShapeContour = { ...body.contour, pts: translate(body.contour.pts) };
+  if (contour.seamJitter) contour.seamJitter *= ctx.u.k;
   const tails = skipTails ? [] : balloonTails(p);
   let tailContour = contour;
   if (p.as === "aside" && plan.text.glyphs.length) {
@@ -1051,7 +1057,7 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
   }
   for (const ex of bb.extra) {
     if (ex.kind === "bubble") {
-      const res = inkShape({ pts: ex.pts, closed: true, smooth: true }, { line: bb.stroke, hand: plan.hand, rng: bb.rng.fork("bub"), strokes: 1 });
+      const res = inkShape({ pts: ex.pts, closed: true, smooth: true, segmentProfile: t => 1 - 0.4 * Math.cos(2 * Math.PI * t) }, { line: bb.stroke, hand: plan.hand, rng: bb.rng.fork("bub"), strokes: 1, taper: false });
       const fn = balloonFill(res.fill, plan);
       if (fn) nodes.push(fn);
       nodes.push(...inksToNodes(res.inks, bb.stroke.color, t));
