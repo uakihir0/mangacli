@@ -179,8 +179,16 @@ const cloud: BodyGenerator = (w, h, p, seed) => {
   const base = organicEllipse(a, b, { ...p, squareness: 0, egg: p.egg ?? 0.04 }, rng);
   const per = ellipsePerimeter(a, b);
   const nl = p.lobes === undefined || p.lobes === "auto" ? Math.max(7, Math.round(per / 7)) : Math.max(5, Math.round(p.lobes));
-  const ls = p.lobeSize ?? [0.75, 1.3];
-  const sizes = Array.from({ length: nl }, () => rng.range(ls[0], ls[1]));
+  const ls = p.lobeSize ?? [0.55, 1.5];
+  const sizes: number[] = [];
+  for (let i = 0; i < nl; i++) {
+    const neighbours = i === nl - 1 ? [sizes[i - 1], sizes[0]] : sizes.slice(-1);
+    const difference = (v: number) => Math.min(...neighbours.map(n => Math.abs(v - n) / Math.max(v, n)));
+    let size = rng.range(ls[0], ls[1]);
+    for (let attempt = 0; attempt < 100 && difference(size) < 0.2; attempt++) size = rng.range(ls[0], ls[1]);
+    if (difference(size) < 0.2) size = difference(ls[0]) > difference(ls[1]) ? ls[0] : ls[1];
+    sizes.push(size);
+  }
   const total = sizes.reduce((x, y) => x + y, 0);
   // valley angles by arc-length fraction around the base (approx via angle fraction)
   const dense = sampleRadial(base, 720, 0);
@@ -220,25 +228,23 @@ const cloud: BodyGenerator = (w, h, p, seed) => {
     const ml = Math.hypot(mid.x, mid.y) || 1;
     const out = { x: mid.x / ml, y: mid.y / ml };
     // bulge apex
-    const chordMid = { x: (V0.x + V1.x) / 2, y: (V0.y + V1.y) / 2 };
-    const apex = { x: chordMid.x + out.x * sag, y: chordMid.y + out.y * sag };
+    const peak = rng.range(0.35, 0.65);
+    const fullness = rng.range(0.65, 0.95);
     corners.push({ index: pts.length, kind: "concave" });
-    // cubic-ish arc through V0 -> apex -> V1 using quadratic Béziers with tangent pull
     const k = Math.max(8, Math.ceil((chord + sag) / 0.35));
     for (let j = 0; j < k; j++) {
       const t = j / k;
-      // circular-ish profile: sample along chord with bulge sin(pi t)^0.8
       const bx = V0.x + (V1.x - V0.x) * t;
       const by = V0.y + (V1.y - V0.y) * t;
-      const bulge = Math.pow(Math.sin(Math.PI * t), 0.75) * sag;
+      const phase = t < peak ? t / peak / 2 : 0.5 + (t - peak) / (1 - peak) / 2;
+      const bulge = Math.pow(Math.sin(Math.PI * phase), fullness) * sag;
       pts.push({ x: bx + out.x * bulge, y: by + out.y * bulge });
     }
-    void apex;
     s += len;
   }
   const tilted = pts.map((q) => rot(q, p.tilt));
   const inner = sampleRadial(base, 180, p.tilt);
-  return { contour: { pts: tilted, closed: true, corners }, inner, kind: "cloud", smooth: false, ruler: false };
+  return { contour: { pts: tilted, closed: true, corners, segmentProfile: t => 0.6 + 0.8 * Math.sin(Math.PI * t), seamJitter: 0.15 }, inner, kind: "cloud", smooth: false, ruler: false };
 };
 
 function spiky(w: number, h: number, p: ShapeParams, seed: number, burst: boolean): BodyGeom {

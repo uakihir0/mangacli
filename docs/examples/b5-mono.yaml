@@ -149,7 +149,7 @@ pages:
             avoid: [{ element: hanako1, mode: alpha }]
         dialogue:
           - hanako: |
-              太郎くん
+              <ruby=やまだ／たろう>山田／太郎</ruby>くん
               ちょっといい？
           - { who: hanako, text: 《《大事な》》話があるの, style: small-talk }
 
