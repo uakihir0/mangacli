@@ -11,9 +11,9 @@ function paths(node: Node, id: string): PathNode[] {
   if (node.kind === "group") return node.children.flatMap(n => paths(n, id));
   return node.kind === "path" && node.tag?.elementId === id ? [node] : [];
 }
-async function scene(tail = "to: [90mm, 35mm]", obstacle = "55mm, 35mm", as = "say", first = false, pageLayer = false) {
+async function scene(tail = "to: [90mm, 35mm]", obstacle = "55mm, 35mm", as = "say", first = false, pageLayer = false, neighborSize = "4mm, 4mm") {
   const source = `- { balloon: "", id: source, as: ${as}, hand: clean, size: [20mm, 20mm], at: [40mm, 35mm], tail: { ${tail} } }`;
-  const neighbor = `- { balloon: "", id: neighbor, hand: clean, size: [4mm, 4mm], minSize: [0mm, 0mm], padding: 0mm, at: [${obstacle}], tail: none }`;
+  const neighbor = `- { balloon: "", id: neighbor, hand: clean, size: [${neighborSize}], minSize: [0mm, 0mm], padding: 0mm, at: [${obstacle}], tail: none }`;
   const layers = (first ? [neighbor, source] : [source, neighbor]).map(s => `${pageLayer ? "      " : "          "}${s}`).join("\n");
   const yaml = `mangacli: 1
 page: { size: [160mm, 80mm], bleed: 0mm }
@@ -84,6 +84,16 @@ describe("tail avoidance", () => {
     const routed = await scene("to: [90mm, 35mm], length: 8mm, bend: 0, curl: false");
     expect(overlap(routed.source, routed.neighbor)).toBeLessThan(1e-6);
     expect(routed.warnings).toEqual([]);
+  });
+
+  it.each([false, true])("keeps the default tail exactly and warns when balloons are piled up (first=%s)", async first => {
+    const original = await scene(undefined, "100mm, 65mm", "say", first, false, "40mm, 40mm");
+    const blocked = await scene(undefined, "40mm, 35mm", "say", first, false, "40mm, 40mm");
+    expect(blocked.source).toEqual(original.source);
+    expect(overlap(blocked.source, blocked.neighbor)).toBeGreaterThan(0.1);
+    expect(blocked.warnings).toHaveLength(1);
+    expect(blocked.warnings[0]).toMatchObject({ elementId: "source", severity: "warning" });
+    expect(blocked.warnings[0].message).toContain("neighbor");
   });
 
   it("routes balloons in page layers too", async () => {

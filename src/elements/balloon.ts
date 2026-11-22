@@ -581,7 +581,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         const rng = Object.assign(Object.create(Rng.prototype) as Rng, start);
         const candidate = makeTails(cur, [{ ...tail, ...changes }], { ...tc, rng, ctx: { ...ctx, bag: new DiagnosticBag() } });
         const cost = score(candidate);
-        if (candidate.footprints.length && cost.area < bestScore.area) { best = candidate; bestScore = cost; bestRng = rng; }
+        if (candidate.footprints.length && cost.area === 0) { best = candidate; bestScore = cost; bestRng = rng; }
         if (bestScore.area === 0) break;
       }
       Object.assign(tc.rng, bestRng);
