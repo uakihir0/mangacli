@@ -216,6 +216,7 @@ pages:
 
       - id: p2-back
         layers:
+          - tone: 10%
           - image: hanako-back
             size: [auto, 90%]
             at: [50%, 100%]

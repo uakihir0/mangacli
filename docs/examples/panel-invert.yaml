@@ -7,12 +7,14 @@ pages:
   - layout: { rows: [{ cols: [1, 2] }] }
     panels:
       - layers:
+          - tone: 15%
           - { image: taro, size: [auto, 80%], at: [50%, 100%], anchor: bottom }
           - { effect: focus-lines, inner: [35%, 35%] }
           - { sfx: ドン, at: [30%, 65%], fontSize: 10mm }
           - { balloon: 通常のコマ, place: top-right, fontSize: 3mm }
       - invert: true
         layers:
+          - tone: 15%
           - { image: taro, size: [auto, 80%], at: [50%, 100%], anchor: bottom }
           - { effect: focus-lines, inner: [35%, 35%] }
           - { sfx: ドン, at: [30%, 65%], fontSize: 10mm }

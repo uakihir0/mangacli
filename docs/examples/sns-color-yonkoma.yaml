@@ -72,7 +72,8 @@ pages:
           - { as: narration, text: 朝 }
 
       # 承
-      - layers:
+      - background: "linear-gradient(to bottom, #e4f0f7, #fff6e8)"
+        layers:
           - image: owner
             id: owner1
             size: [auto, 100%]
@@ -107,7 +108,8 @@ pages:
             color: "#e8553f"
 
       # 結
-      - layers:
+      - background: "#e4f0f7"
+        layers:
           - effect: speed-lines
             angle: 180deg
             color: "#7fa7b8"

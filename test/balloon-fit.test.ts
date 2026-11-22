@@ -4,8 +4,10 @@ import { DiagnosticBag } from "../src/core/diagnostics.js";
 import { planBalloon } from "../src/elements/balloon.js";
 import type { ElemCtx } from "../src/elements/context.js";
 import { FontRegistry } from "../src/fonts/registry.js";
-import { pointInPolygon } from "../src/geom/path.js";
+import { flattenPath, pointInPolygon } from "../src/geom/path.js";
+import { boundsOf } from "../src/geom/vec.js";
 import { resolveDocument } from "../src/model/resolve.js";
+import type { Node, PathNode } from "../src/render/ir.js";
 
 const fonts = new FontRegistry(new Map() as never, "manga-basic", [], {});
 
@@ -77,5 +79,57 @@ describe("short-panel spiky balloon fallback", () => {
     expect(b.x + b.w).toBeLessThanOrEqual(190);
     expect(b.y + b.h).toBeLessThanOrEqual(50);
     expect(r.diagnostics.some(d => d.code === "BALLOON_TOO_LARGE")).toBe(false);
+  });
+});
+
+async function flash(props: Record<string, unknown> = {}, slanted = false) {
+  const result = await render({
+    mangacli: 1, seed: 42, page: { size: ["100mm", "100mm"], bleed: 0, baseFrame: "trim" },
+    pages: [{ panels: [{
+      id: "reaction-panel",
+      ...(slanted ? { polygon: [["10mm", "10mm"], ["78mm", "20mm"], ["62mm", "70mm"], ["10mm", "70mm"]] } : { box: ["10mm", "10mm", "60mm", "60mm"] }),
+      layers: [{ balloon: "！！", id: "b", as: "shock", minSize: ["14mm", "14mm"], at: ["50%", "50%"], ...props }],
+    }] }],
+  }, { layoutOnly: true, keepLists: true });
+  const paths = (nodes: Node[]): PathNode[] => nodes.flatMap(n => n.kind === "group" ? paths(n.children) : n.kind === "path" && n.tag?.elementId === "b" ? [n] : []);
+  return { nodes: paths(result.lists![0].root.children), panel: result.layout[0].panels[0].polygon };
+}
+
+const points = (node: PathNode) => flattenPath(node.path).flatMap(q => q.pts);
+
+describe("lone reaction flash", () => {
+  it.each([["！！", "vertical"], ["!?", "horizontal"], ["？", "vertical"], ["<b>⁉</b>", "vertical"]])("sizes %s ink to its core in %s writing", async (balloon, writing) => {
+    const { nodes } = await flash({ balloon, writing });
+    const text = nodes.find(n => n.tag?.role === "text")!;
+    const core = boundsOf(points(nodes.find(n => n.tag?.role === "fill")!));
+    const ink = boundsOf(points(text));
+    expect(text.stroke?.width).toBeGreaterThan(0);
+    expect(Math.max(ink.w / core.w, ink.h / core.h)).toBeCloseTo(0.72, 1);
+    expect((ink.x + ink.w / 2) - (core.x + core.w / 2)).toBeCloseTo(0, 1);
+    expect((ink.y + ink.h / 2) - (core.y + core.h / 2)).toBeCloseTo(0, 1);
+  });
+
+  it("retains explicit sizing and weight and leaves non-reactions alone", async () => {
+    const normal = await flash({ fontScale: 1, weight: 400 });
+    const original = normal.nodes.find(n => n.tag?.role === "text")!;
+    expect(original.stroke).toBeUndefined();
+    expect(boundsOf(points(original)).h).toBeLessThan(5);
+    for (const props of [{ balloon: "あっ！！" }, { balloon: "……" }, { as: "say" }]) {
+      const { nodes } = await flash(props);
+      expect(nodes.find(n => n.tag?.role === "text")?.stroke).toBeUndefined();
+    }
+  });
+
+  it.each([["auto", false], ["panel", true]])("keeps all rays inside clip: %s near a panel corner", async (clip, slanted) => {
+    const { nodes, panel } = await flash({ at: ["99%", "2%"], clip }, slanted);
+    const rays = points(nodes.find(n => n.tag?.role === "ink")!);
+    expect(rays.length).toBeGreaterThan(0);
+    expect(rays.every(p => pointInPolygon(p, panel))).toBe(true);
+  });
+
+  it("honors an explicit request to put the flash over the frame", async () => {
+    const { nodes, panel } = await flash({ at: ["99%", "2%"], clip: "none" });
+    const rays = points(nodes.find(n => n.tag?.role === "ink")!);
+    expect(rays.some(p => !pointInPolygon(p, panel))).toBe(true);
   });
 });

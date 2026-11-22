@@ -10,8 +10,8 @@ import { parsePaint, resolveHand, resolveStroke } from "../model/values.js";
 import { isObj } from "../load/normalize.js";
 import { inkShape } from "../ink/shape.js";
 import { inksToNodes } from "./inkir.js";
-import { glyphNodes } from "./glyphs.js";
-import type { Node, Paint } from "../render/ir.js";
+import { type GlyphRun, glyphNodes, glyphOutlineNodes } from "./glyphs.js";
+import type { Node, Paint, PathNode } from "../render/ir.js";
 import { type TextLayout, layoutText, parseLayoutText } from "../text/layout.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
@@ -20,7 +20,7 @@ import { brushGlyph, emboldenGlyph, type BrushSpec } from "../text/brush.js";
 
 type Obj = Record<string, unknown>;
 
-function outlineNodes(path: PathData, outlines: unknown, ctx: ElemCtx, el: RElement): Node[] {
+function outlineNodes(path: PathData, outlines: unknown, ctx: ElemCtx, el: RElement): PathNode[] {
   const list = Array.isArray(outlines) ? (outlines as Obj[]) : [];
   return list
     .map((o) => ({ w: toMm(o.width as string, ctx.u), c: parseColor((o.color as string) ?? "white") ?? WHITE, j: o.join === "miter" ? ("miter" as const) : ("round" as const) }))
@@ -28,7 +28,7 @@ function outlineNodes(path: PathData, outlines: unknown, ctx: ElemCtx, el: RElem
     .map((o) => ({ kind: "path" as const, path, fillRule: "nonzero" as const, paint: null, stroke: { width: o.w * 2, paint: { type: "solid" as const, color: o.c }, join: o.j, ...(o.j === "miter" ? { miterLimit: 2 } : {}) }, tag: tag(el, "text") }));
 }
 
-export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; layout?: TextLayout } {
+export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; layout: TextLayout; glyphRuns: GlyphRun[] } {
   const p = el.props;
   const u = ctx.u;
   const style = resolveTextStyle(p, u, ctx.lang, false, el.seed);
@@ -88,9 +88,9 @@ export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
     nodes.push({ kind: "path", path: polyPath(corners, true), fillRule: "nonzero", paint: bg, tag: tag(el, "fill") });
   }
   const corners = [applyMat(pl.matrix, { x: 0, y: 0 }), applyMat(pl.matrix, { x: bw, y: 0 }), applyMat(pl.matrix, { x: bw, y: bh }), applyMat(pl.matrix, { x: 0, y: bh })];
-  const textNodes: Node[] = [...outlineNodes(glyphPath, p.outline, ctx, el)];
   const color = textPaint(p.color, ctx, el, pl.bbox);
-  textNodes.push(...glyphNodes(tl.glyphs, (g) => transformPath(g, m), color, tl.fontSize, tag(el, "text")));
+  const runs = glyphNodes(tl.glyphs, (g) => transformPath(g, m), color, tl.fontSize, tag(el, "text"));
+  const textNodes: Node[] = [...glyphOutlineNodes(outlineNodes(glyphPath, p.outline, ctx, el), runs), ...runs];
   if (fixed && p.overflow === "clip") nodes.push({ kind: "group", clip: polyPath(corners, true), children: textNodes });
   else nodes.push(...textNodes);
   // the plate's outline
@@ -102,7 +102,7 @@ export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
       nodes.push(...inksToNodes(res.inks, st.color, tag(el, "ink")));
     }
   }
-  return { nodes, bbox: pl.bbox, layout: tl };
+  return { nodes, bbox: pl.bbox, layout: tl, glyphRuns: [{ el, glyphs: tl.glyphs, transform: m }] };
 }
 
 function textPaint(c: unknown, ctx: ElemCtx, el: RElement, box: Rect): Paint {

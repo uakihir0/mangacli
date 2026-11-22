@@ -101,9 +101,10 @@ describe("off-screen balloon clipping", () => {
     ["as: offscreen", true],
     ["as: offscreen, from: bottom", true],
     ["tails: [{ offscreen: bottom }]", true],
-    ["as: offscreen, tail: none", false],
+    ["as: offscreen, tail: none", true],
+    ["as: offscreen, tail: none, contain: none", false],
     ["as: offscreen, clip: none", false],
-    ["tails: [{ kind: none, offscreen: bottom }]", false],
+    ["tails: [{ kind: none, offscreen: bottom }]", true],
   ])("handles %s at a gutter", async (options, clipped) => {
     const r = createRenderer({ profile: "preview" });
     const { root } = await r.displayList({ filename: "/v/offscreen.yaml", yaml: `mangacli: 1
