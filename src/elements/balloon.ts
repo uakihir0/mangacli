@@ -4,7 +4,7 @@ import { DiagnosticBag } from "../core/diagnostics.js";
 import { Rng } from "../core/random.js";
 import { type UnitContext, parseAngle, toMm } from "../core/units.js";
 import { type PathData, distToPolyline, flattenPath, offsetPolygon, pointInPolygon, polyPath, polygonArea, rayPolygon, transformPath } from "../geom/path.js";
-import { type Rect, type Vec, boundsOf, dot, lerp, matTranslate, rot, sub } from "../geom/vec.js";
+import { type Matrix, type Rect, type Vec, boundsOf, dot, lerp, matMul, matTranslate, rot, sub } from "../geom/vec.js";
 import type { HandSpec } from "../ink/presets.js";
 import { type ShapeContour, inkShape } from "../ink/shape.js";
 import { isObj } from "../load/normalize.js";
@@ -17,7 +17,7 @@ import { Contour, type PluginBalloonShape, activePlugins } from "../plugin.js";
 import { type TextLayout, layoutText } from "../text/layout.js";
 import { type ElemCtx, silhouetteHit, tag } from "./context.js";
 import { fillNode, inksToNodes, polysToPath } from "./inkir.js";
-import { glyphNodes } from "./glyphs.js";
+import { type GlyphRun, glyphNodes } from "./glyphs.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
 import { resolvePoint, sizeValue } from "../layout/place.js";
 
@@ -1073,24 +1073,38 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
   return { nodes, fill: fillPoly };
 }
 
-function textNodes(plan: BalloonPlan, ctx: ElemCtx): Node[] {
+function textRotation(plan: BalloonPlan): Matrix | undefined {
   const ra = plan.props.rotate !== undefined ? parseAngle(plan.props.rotate as string) : 0;
-  const nodes = textNodesFlat(plan, ctx);
-  if (!ra) return nodes;
+  if (!ra) return;
   const c = plan.center!;
   const cr = Math.cos(ra);
   const sr = Math.sin(ra);
-  return [{ kind: "group", transform: [cr, sr, -sr, cr, c.x - cr * c.x + sr * c.y, c.y - sr * c.x - cr * c.y], children: nodes }];
+  return [cr, sr, -sr, cr, c.x - cr * c.x + sr * c.y, c.y - sr * c.x - cr * c.y];
+}
+
+function textOrigin({ center, innerCenter, text, textOffset }: BalloonPlan): Vec {
+  return { x: center!.x + innerCenter.x - text.width / 2 + textOffset.x, y: center!.y + innerCenter.y - text.height / 2 + textOffset.y };
+}
+
+export function balloonGlyphRun(plan: BalloonPlan): GlyphRun {
+  const { x, y } = textOrigin(plan);
+  const translation = matTranslate(x, y);
+  const rotation = textRotation(plan);
+  return { el: plan.el, glyphs: plan.text.glyphs, transform: rotation ? matMul(rotation, translation) : translation };
+}
+
+function textNodes(plan: BalloonPlan, ctx: ElemCtx): Node[] {
+  const transform = textRotation(plan);
+  const nodes = textNodesFlat(plan, ctx);
+  return transform ? [{ kind: "group", transform, children: nodes }] : nodes;
 }
 
 function textNodesFlat(plan: BalloonPlan, ctx: ElemCtx): Node[] {
   const el = plan.el;
   const p = plan.props;
   const u = ctx.u;
-  const center = plan.center!;
   const tl = plan.text;
-  const ox = center.x + plan.innerCenter.x - tl.width / 2 + plan.textOffset.x;
-  const oy = center.y + plan.innerCenter.y - tl.height / 2 + plan.textOffset.y;
+  const { x: ox, y: oy } = textOrigin(plan);
   const color = parseColor(plan.textColor) ?? BLACK;
   const shift = (path: PathData): PathData => path.map((c) => (c[0] === "Z" ? c : (c.map((v, i) => (i === 0 ? v : i % 2 === 1 ? (v as number) + ox : (v as number) + oy)) as typeof c)));
   const glyphs = tl.glyphs.map((g) => shift(g.path));

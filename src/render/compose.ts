@@ -6,8 +6,9 @@ import { Rng } from "../core/random.js";
 import { breakFaults } from "../text/layout.js";
 import { parseAngle, toMm, UnitError } from "../core/units.js";
 import { type ElemCtx, type Silhouette, placeCtx, tag } from "../elements/context.js";
-import { type BalloonPlan, hasOffscreenTail, planBalloon, prepareBalloonObstacles, renderBalloon, renderConnected } from "../elements/balloon.js";
+import { type BalloonPlan, balloonGlyphRun, hasOffscreenTail, planBalloon, prepareBalloonObstacles, renderBalloon, renderConnected } from "../elements/balloon.js";
 import { renderEffect } from "../elements/effects.js";
+import type { GlyphRun } from "../elements/glyphs.js";
 import { layoutImage } from "../elements/image.js";
 import { inksToNodes } from "../elements/inkir.js";
 import { renderMark } from "../elements/marks.js";
@@ -16,7 +17,7 @@ import { renderSfx, renderText } from "../elements/textel.js";
 import { textValue } from "../elements/textstyle.js";
 import type { FontRegistry } from "../fonts/registry.js";
 import { miterFrameEdges } from "../geom/miter.js";
-import { flattenPath, offsetPolygon, parseSvgPath, pointInPolygon, polygonArea, polyPath, smoothPath, transformPath } from "../geom/path.js";
+import { type PathData, flattenPath, offsetPolygon, parseSvgPath, pointInPolygon, polygonArea, polyPath, smoothPath, transformPath } from "../geom/path.js";
 import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, matMul, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
 import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
@@ -76,6 +77,7 @@ interface Item {
   filterClips?: import("../geom/path.js").PathData[];
   stackUnder?: boolean;
   lettering?: { el: RElement; bbox: Rect }[];
+  glyphRuns?: GlyphRun[];
   mask?: { path: import("../geom/path.js").PathData; rule: "nonzero" | "evenodd" };
 }
 
@@ -204,8 +206,8 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
             break;
           case "text": {
             const r = renderText(el, c2);
-            if (r.layout) info.text.push(textInfo(el.id, r.layout));
-            processed.set(el.id, mkItem(el, r.nodes, r.bbox, panelIdx, i, source, ctx));
+            info.text.push(textInfo(el.id, r.layout));
+            processed.set(el.id, mkItem(el, r.nodes, r.bbox, panelIdx, i, source, ctx, r.glyphRuns));
             refs.add({ id: el.id, type: "text", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id });
             break;
           }
@@ -281,7 +283,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
         }
         try {
           const r = renderConnected(other.plan, plan, (c.style as string) ?? "neck", c.width, { ...ctx, coordsBox: coordsFor(plan.el, ctx, geom) });
-          processed.set(other.plan.el.id, mkItem(other.plan.el, r.nodes, r.bbox, panelIdx, Math.min(idx, other.idx), source, ctx));
+          processed.set(other.plan.el.id, mkItem(other.plan.el, r.nodes, r.bbox, panelIdx, Math.min(idx, other.idx), source, ctx, [balloonGlyphRun(other.plan), balloonGlyphRun(plan)]));
           refs.add({ id: plan.el.id, type: "balloon", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id, shape: r.contour });
           refs.add({ id: other.plan.el.id, type: "balloon", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id, shape: r.contour });
           consumed.add(plan.el.id);
@@ -295,7 +297,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       if (consumed.has(plan.el.id)) continue;
       try {
         const r = renderBalloon(plan, { ...ctx, coordsBox: coordsFor(plan.el, ctx, geom) });
-        processed.set(plan.el.id, mkItem(plan.el, r.nodes, r.bbox, panelIdx, idx, source, ctx));
+        processed.set(plan.el.id, mkItem(plan.el, r.nodes, r.bbox, panelIdx, idx, source, ctx, [balloonGlyphRun(plan)]));
         refs.add({ id: plan.el.id, type: "balloon", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id, shape: r.contour });
       } catch (e) {
         bag.error("RENDER_FAILED", `${plan.el.id}: ${(e as Error).message}`, { path: plan.el.path, elementId: plan.el.id });
@@ -308,7 +310,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       try {
         const nodes = await renderMisc(el, c2);
         info.elements.push(...(nodes.elements ?? []).map(({ id, type, bbox, transform }) => ({ id, type, bbox: transform ? boundsOf(rectPts(bbox).map((p) => applyMat(transform, p))) : bbox, panel: ctx.panel?.panel.id })));
-        const item = mkItem(el, nodes.nodes, nodes.bbox, panelIdx, i, source, ctx);
+        const item = mkItem(el, nodes.nodes, nodes.bbox, panelIdx, i, source, ctx, nodes.glyphRuns);
         const descendants = (parent: RElement): RElement[] => (parent.children ?? []).flatMap((child) => [child, ...descendants(child)]);
         item.lettering = descendants(el).flatMap((child) => {
           const layout = nodes.elements?.find((e) => e.id === child.id);
@@ -364,6 +366,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   // collect items
   for (const pg of drawOrder) {
     const clipped: Item[] = [];
+    let glyphClip: polygonClipping.Polygon | undefined;
     for (const el of pg.panel.elements) {
       collectTranscript(el, pg.panel.id, info, o);
       const it = processed.get(el.id);
@@ -376,10 +379,14 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
         items.push(it);
       } else {
         clipped.push(it);
-        // text cut by the panel clip
-        const pb = pg.box;
-        const b = it.bbox;
-        if ((el.type === "balloon" || el.type === "text") && el.props.clip !== "auto" && (b.x < pb.x - 0.3 || b.y < pb.y - 0.3 || b.x + b.w > pb.x + pb.w + 0.3 || b.y + b.h > pb.y + pb.h + 0.3)) bag.warn("TEXT_CLIPPED", `${el.id} is cut by the panel frame`, { path: el.path, elementId: el.id, pageId: page.id });
+        if (it.glyphRuns?.length) {
+          const clip = glyphClip ??= panelGlyphClip(pg, geom);
+          const mask = it.mask && pathArea(it.mask.path, it.mask.rule);
+          for (const run of it.glyphRuns) {
+            const glyph = run.glyphs.find((g) => glyphLeavesPanel(g.path, run.transform, clip, mask));
+            if (glyph) bag.warn("TEXT_CLIPPED", `${run.el.id}: 「${glyph.char}」 is cut by the panel frame`, { path: run.el.path, elementId: run.el.id, pageId: page.id });
+          }
+        }
       }
       info.elements.push({ id: el.id, type: el.type, bbox: it.bbox, panel: pg.panel.id });
     }
@@ -552,7 +559,7 @@ function gutterPath(area: Rect, panels: PanelGeom[], geom: PageGeom) {
   const gaps = polygonClipping.difference([ring(rectPts(area))], ...outlines);
   return gaps.flatMap((poly) => poly.flatMap((r) => polyPath(r.slice(0, -1).map(([x, y]) => ({ x, y })), true)));
 }
-function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listIdx: number, source: number, ctx: ElemCtx): Item {
+function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listIdx: number, source: number, ctx: ElemCtx, glyphRuns?: GlyphRun[]): Item {
   const clip = el.props.clip;
   const free = source === 1 || clip === "none" || clip === "trim" || isObj(clip) || (el.type === "balloon" && clip !== "panel" && !hasOffscreenTail(el.props));
   const layer = el.type === "balloon" ? 1 : el.type === "text" || el.type === "sfx" ? 2 : 0;
@@ -568,7 +575,9 @@ function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listI
     const fy = el.props.flip === "y" || el.props.flip === "xy";
     const cx = bbox.x + bbox.w / 2;
     const cy = bbox.y + bbox.h / 2;
-    inner = [{ kind: "group", transform: [fx ? -1 : 1, 0, 0, fy ? -1 : 1, fx ? 2 * cx : 0, fy ? 2 * cy : 0], children: inner }];
+    const transform: Matrix = [fx ? -1 : 1, 0, 0, fy ? -1 : 1, fx ? 2 * cx : 0, fy ? 2 * cy : 0];
+    inner = [{ kind: "group", transform, children: inner }];
+    glyphRuns = glyphRuns?.map((run) => ({ ...run, transform: matMul(transform, run.transform) }));
   }
   // mask: show the element only inside a region (spec 5.11); feathered masks fade out
   if (el.props.mask !== undefined && inner.length) {
@@ -579,7 +588,7 @@ function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listI
     inner = [fe > 0 ? { kind: "group", softClip: { path: reg.path, fillRule: reg.fillRule, feather: fe }, children: inner } : { kind: "group", clip: reg.path, clipRule: reg.fillRule, children: inner }];
   }
   const wrapped: Node[] = op !== undefined || blend ? [{ kind: "group", opacity: op, blend, children: inner }] : inner;
-  return { el, nodes: wrapped, bbox, z: (el.props.z as number) ?? 0, layer, source, panelIdx, listIdx, free, mask };
+  return { el, nodes: wrapped, bbox, z: (el.props.z as number) ?? 0, layer, source, panelIdx, listIdx, free, mask, glyphRuns };
 }
 
 /** whether a box runs past a side of the panel that lies on the boundary of the panel area */
@@ -625,6 +634,35 @@ function panelShapePoly(pg: PanelGeom, geom: PageGeom): Vec[] {
 
 function panelClip(pg: PanelGeom, poly: Vec[]) {
   return poly === pg.polygon ? polyPath(poly, true) : smoothPath(poly, true);
+}
+
+function panelGlyphClip(pg: PanelGeom, geom: PageGeom): polygonClipping.Polygon {
+  const poly = panelShapePoly(pg, geom);
+  const contour = poly === pg.polygon ? poly : flattenPath(panelClip(pg, poly), 0.02)[0]?.pts ?? [];
+  return pointPolygon(offsetPolygon(contour, 0.3));
+}
+
+function pointPolygon(pts: Vec[]): polygonClipping.Polygon {
+  return [pts.map(({ x, y }) => [x, y])];
+}
+
+function pathArea(path: PathData, rule: "nonzero" | "evenodd"): polygonClipping.MultiPolygon {
+  const contours = flattenPath(path, 0.05).filter((p) => p.pts.length >= 3).map((p) => pointPolygon(p.pts));
+  if (!contours.length) return [];
+  if (rule === "evenodd") return polygonClipping.xor(contours[0], ...contours.slice(1));
+  const signedArea = (p: polygonClipping.Polygon) => polygonArea(p[0].map(([x, y]) => ({ x, y })));
+  contours.sort((a, b) => Math.abs(signedArea(b)) - Math.abs(signedArea(a)));
+  const sign = Math.sign(signedArea(contours[0]));
+  let area: polygonClipping.MultiPolygon = [];
+  for (const poly of contours) area = Math.sign(signedArea(poly)) === sign ? polygonClipping.union(area, poly) : polygonClipping.difference(area, poly);
+  return area;
+}
+
+function glyphLeavesPanel(path: PathData, transform: Matrix, clip: polygonClipping.Polygon, mask?: polygonClipping.MultiPolygon): boolean {
+  const points = flattenPath(transformPath(path, transform), 0.02).flatMap((c) => c.pts);
+  if (!points.length) return false;
+  const outside = polygonClipping.difference(pointPolygon(rectPts(boundsOf(points))), clip);
+  return outside.length > 0 && (!mask || polygonClipping.intersection(outside, mask).length > 0);
 }
 
 function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: ReturnType<typeof parsePaint>, hasPageArt: boolean, bag: DiagnosticBag): Node[] {
@@ -849,7 +887,7 @@ function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["uni
 type GroupBounds = { bbox: Rect; transform?: Matrix };
 type GroupElement = GroupBounds & { id: string; type: string };
 
-async function renderMisc(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[]; bbox: Rect; bounds?: GroupBounds; elements?: GroupElement[]; rendered?: boolean }> {
+async function renderMisc(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[]; bbox: Rect; bounds?: GroupBounds; elements?: GroupElement[]; glyphRuns?: GlyphRun[]; rendered?: boolean }> {
   const p = el.props;
   switch (el.type) {
     case "effect": {
@@ -931,10 +969,12 @@ async function renderMisc(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[]; 
       const cctx: ElemCtx = sized ? { ...ctx, coordsBox: { x: 0, y: 0, w: gw as number, h: gh as number }, localFrame: true } : ctx;
       const nodes: Node[] = [];
       const elements: GroupElement[] = [];
+      const glyphRuns: GlyphRun[] = [];
       for (const c of el.children ?? []) {
         const r: Awaited<ReturnType<typeof renderMisc>> = c.type === "text" ? renderText(c, cctx) : c.type === "sfx" ? renderSfx(c, cctx) : await renderMisc(c, cctx);
         nodes.push(...r.nodes);
         if (!(r.rendered ?? r.nodes.length > 0)) continue;
+        glyphRuns.push(...(r.glyphRuns ?? []));
         elements.push({ id: c.id, type: c.type, ...(r.bounds ?? { bbox: r.bbox }) }, ...(r.elements ?? []));
       }
       let transform: [number, number, number, number, number, number] | undefined;
@@ -950,7 +990,8 @@ async function renderMisc(el: RElement, ctx: ElemCtx): Promise<{ nodes: Node[]; 
       }
       if (transform) for (const e of elements) e.transform = e.transform ? matMul(transform, e.transform) : transform;
       const bounds = { bbox: sized ? { x: 0, y: 0, w: gw as number, h: gh as number } : ctx.coordsBox, transform };
-      return { nodes: [{ kind: "group", transform, children: nodes, tag: tag(el, "fill") }], bbox, bounds, elements, rendered: elements.length > 0 };
+      const matrix = transform;
+      return { nodes: [{ kind: "group", transform, children: nodes, tag: tag(el, "fill") }], bbox, bounds, elements, glyphRuns: matrix ? glyphRuns.map((run) => ({ ...run, transform: matMul(matrix, run.transform) })) : glyphRuns, rendered: elements.length > 0 };
     }
   }
   return { nodes: [], bbox: ctx.coordsBox };
@@ -1652,22 +1693,10 @@ function collectTranscript(el: RElement, panel: string | undefined, info: PageLa
 }
 
 function checkPanelOcclusion(items: Item[], panels: { pg: PanelGeom; clipped: Item[] }[], geom: PageGeom, bag: DiagnosticBag, page: RPage) {
-  const ring = (pts: Vec[]): polygonClipping.Polygon => [pts.map(({ x, y }) => [x, y])];
-  const contour = (pg: PanelGeom) => ring(flattenPath(panelClip(pg, panelShapePoly(pg, geom)), 0.05)[0].pts);
+  const contour = (pg: PanelGeom) => pointPolygon(flattenPath(panelClip(pg, panelShapePoly(pg, geom)), 0.05)[0].pts);
   const lettering = (item: Item) => item.lettering?.length ? item.lettering.map(({ el, bbox }) => ({ ...item, el, bbox })) : [item];
-  const pathArea = (path: import("../geom/path.js").PathData, rule: "nonzero" | "evenodd"): polygonClipping.MultiPolygon => {
-    const contours = flattenPath(path, 0.05).filter((p) => p.pts.length >= 3).map((p) => ring(p.pts));
-    if (!contours.length) return [];
-    if (rule === "evenodd") return polygonClipping.xor(contours[0], ...contours.slice(1));
-    const signedArea = (p: polygonClipping.Polygon) => polygonArea(p[0].map(([x, y]) => ({ x, y })));
-    contours.sort((a, b) => Math.abs(signedArea(b)) - Math.abs(signedArea(a)));
-    const sign = Math.sign(signedArea(contours[0]));
-    let area: polygonClipping.MultiPolygon = [];
-    for (const poly of contours) area = Math.sign(signedArea(poly)) === sign ? polygonClipping.union(area, poly) : polygonClipping.difference(area, poly);
-    return area;
-  };
   const visibleArea = (item: Item) => {
-    let area: polygonClipping.MultiPolygon = [ring(rectPts(item.bbox))];
+    let area: polygonClipping.MultiPolygon = [pointPolygon(rectPts(item.bbox))];
     if (item.mask) area = polygonClipping.intersection(area, pathArea(item.mask.path, item.mask.rule));
     if (item.openClip) area = polygonClipping.intersection(area, pathArea(item.openClip, "nonzero"));
     return area;

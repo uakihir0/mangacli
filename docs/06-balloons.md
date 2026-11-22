@@ -379,7 +379,7 @@ tail: none
 | コマをまたぐ吹き出し | ページの `layers` に置く、またはコマの `layers` に置いて `coords: page` で配置する |
 
 - 本文が安全領域（[4.1](04-pages-and-panels.md#41-ページの幾何)）の外に出る場合は警告（`TEXT_OUTSIDE_SAFE_AREA`）。
-- `clip: panel` で本文の一部が切れる場合は警告（`TEXT_CLIPPED`）。
+- コマの形で本文（ルビを含む）の字形が切れる場合は、最初に切れる文字を示す警告（`TEXT_CLIPPED`）を出す。吹き出しの輪郭やしっぽだけが切れても警告しない。
 
 ## 6.11 セリフの省略記法（dialogue）
 

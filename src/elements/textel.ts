@@ -10,7 +10,7 @@ import { parsePaint, resolveHand, resolveStroke } from "../model/values.js";
 import { isObj } from "../load/normalize.js";
 import { inkShape } from "../ink/shape.js";
 import { inksToNodes } from "./inkir.js";
-import { glyphNodes } from "./glyphs.js";
+import { type GlyphRun, glyphNodes } from "./glyphs.js";
 import type { Node, Paint } from "../render/ir.js";
 import { type TextLayout, layoutText, parseLayoutText } from "../text/layout.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
@@ -28,7 +28,7 @@ function outlineNodes(path: PathData, outlines: unknown, ctx: ElemCtx, el: RElem
     .map((o) => ({ kind: "path" as const, path, fillRule: "nonzero" as const, paint: null, stroke: { width: o.w * 2, paint: { type: "solid" as const, color: o.c }, join: o.j, ...(o.j === "miter" ? { miterLimit: 2 } : {}) }, tag: tag(el, "text") }));
 }
 
-export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; layout?: TextLayout } {
+export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; layout: TextLayout; glyphRuns: GlyphRun[] } {
   const p = el.props;
   const u = ctx.u;
   const style = resolveTextStyle(p, u, ctx.lang, false, el.seed);
@@ -102,7 +102,7 @@ export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
       nodes.push(...inksToNodes(res.inks, st.color, tag(el, "ink")));
     }
   }
-  return { nodes, bbox: pl.bbox, layout: tl };
+  return { nodes, bbox: pl.bbox, layout: tl, glyphRuns: [{ el, glyphs: tl.glyphs, transform: m }] };
 }
 
 function textPaint(c: unknown, ctx: ElemCtx, el: RElement, box: Rect): Paint {
