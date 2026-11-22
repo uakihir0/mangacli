@@ -16,7 +16,7 @@ import { renderSfx, renderText } from "../elements/textel.js";
 import { textValue } from "../elements/textstyle.js";
 import type { FontRegistry } from "../fonts/registry.js";
 import { miterFrameEdges } from "../geom/miter.js";
-import { flattenPath, offsetPolygon, parseSvgPath, pointInPolygon, polyPath, smoothPath, transformPath } from "../geom/path.js";
+import { flattenPath, offsetPolygon, parseSvgPath, pointInPolygon, polygonArea, polyPath, smoothPath, transformPath } from "../geom/path.js";
 import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, matMul, rectInset, rectIntersect, rectOverlapArea } from "../geom/vec.js";
 import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
@@ -75,6 +75,8 @@ interface Item {
   openClip?: Node["kind"] extends never ? never : import("../geom/path.js").PathData;
   filterClips?: import("../geom/path.js").PathData[];
   stackUnder?: boolean;
+  lettering?: { el: RElement; bbox: Rect }[];
+  mask?: { path: import("../geom/path.js").PathData; rule: "nonzero" | "evenodd" };
 }
 
 function elementTexts(el: RElement, lang: string, def: string): string[] {
@@ -306,7 +308,13 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       try {
         const nodes = await renderMisc(el, c2);
         info.elements.push(...(nodes.elements ?? []).map(({ id, type, bbox, transform }) => ({ id, type, bbox: transform ? boundsOf(rectPts(bbox).map((p) => applyMat(transform, p))) : bbox, panel: ctx.panel?.panel.id })));
-        processed.set(el.id, mkItem(el, nodes.nodes, nodes.bbox, panelIdx, i, source, ctx));
+        const item = mkItem(el, nodes.nodes, nodes.bbox, panelIdx, i, source, ctx);
+        const descendants = (parent: RElement): RElement[] => (parent.children ?? []).flatMap((child) => [child, ...descendants(child)]);
+        item.lettering = descendants(el).flatMap((child) => {
+          const layout = nodes.elements?.find((e) => e.id === child.id);
+          return layout && ["balloon", "text", "sfx"].includes(child.type) ? [{ el: child, bbox: layout.transform ? boundsOf(rectPts(layout.bbox).map((p) => applyMat(layout.transform!, p))) : layout.bbox }] : [];
+        });
+        processed.set(el.id, item);
       } catch (e) {
         bag.error("RENDER_FAILED", `${el.id}: ${(e as Error).message}`, { path: el.path, elementId: el.id });
       }
@@ -492,6 +500,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   };
   if (pageFiltered) list.root.children = [...compositeNodes(list.root.children, page.settings, bag, page.path), ...nombre];
   // safe area / fold checks
+  checkPanelOcclusion(items, panelNodes, geom, bag, page);
   checkTextSafety(items.concat(panelNodes.flatMap((p) => p.clipped)), geom, bag, page);
   for (const d of bag.items.slice(diagnosticStart)) d.pageId ??= page.id;
   return { list, info };
@@ -551,6 +560,7 @@ function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listI
   const op = typeof el.props.opacity === "number" && !ownsBlend && el.type !== "effect" ? el.props.opacity : undefined;
   const blend = !ownsBlend && typeof el.props.blend === "string" && el.props.blend !== "normal" ? (el.props.blend as GroupNode["blend"]) : undefined;
   let inner = nodes;
+  let mask: Item["mask"];
   if (el.props.visible === false) inner = [];
   // flip for lettering: mirror about the element's box (spec 5.3.4)
   if ((el.type === "text" || el.type === "sfx") && el.props.flip && inner.length) {
@@ -565,10 +575,11 @@ function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listI
     const mspec = isObj(el.props.mask) && "region" in (el.props.mask as Obj) ? (el.props.mask as Obj).region : el.props.mask;
     const reg = resolveRegion(mspec, ctx, ctx.panel ? "panel" : "page", [...el.path, "mask"]);
     const fe = isObj(el.props.mask) && (el.props.mask as Obj).feather !== undefined ? toMm((el.props.mask as Obj).feather as string, ctx.u) : reg.feather;
+    if (fe === 0) mask = { path: reg.path, rule: reg.fillRule };
     inner = [fe > 0 ? { kind: "group", softClip: { path: reg.path, fillRule: reg.fillRule, feather: fe }, children: inner } : { kind: "group", clip: reg.path, clipRule: reg.fillRule, children: inner }];
   }
   const wrapped: Node[] = op !== undefined || blend ? [{ kind: "group", opacity: op, blend, children: inner }] : inner;
-  return { el, nodes: wrapped, bbox, z: (el.props.z as number) ?? 0, layer, source, panelIdx, listIdx, free };
+  return { el, nodes: wrapped, bbox, z: (el.props.z as number) ?? 0, layer, source, panelIdx, listIdx, free, mask };
 }
 
 /** whether a box runs past a side of the panel that lies on the boundary of the panel area */
@@ -1551,6 +1562,45 @@ function collectTranscript(el: RElement, panel: string | undefined, info: PageLa
     });
     const who = el.props.who as string | undefined;
     info.transcript.push({ panel, id: el.id, type: el.type, who, name: who ? ((o.characters?.[who]?.name as string | undefined) ?? who) : undefined, as: el.props.as as string | undefined, text, raw });
+  }
+}
+
+function checkPanelOcclusion(items: Item[], panels: { pg: PanelGeom; clipped: Item[] }[], geom: PageGeom, bag: DiagnosticBag, page: RPage) {
+  const ring = (pts: Vec[]): polygonClipping.Polygon => [pts.map(({ x, y }) => [x, y])];
+  const contour = (pg: PanelGeom) => ring(flattenPath(panelClip(pg, panelShapePoly(pg, geom)), 0.05)[0].pts);
+  const lettering = (item: Item) => item.lettering?.length ? item.lettering.map(({ el, bbox }) => ({ ...item, el, bbox })) : [item];
+  const pathArea = (path: import("../geom/path.js").PathData, rule: "nonzero" | "evenodd"): polygonClipping.MultiPolygon => {
+    const contours = flattenPath(path, 0.05).filter((p) => p.pts.length >= 3).map((p) => ring(p.pts));
+    if (!contours.length) return [];
+    if (rule === "evenodd") return polygonClipping.xor(contours[0], ...contours.slice(1));
+    const signedArea = (p: polygonClipping.Polygon) => polygonArea(p[0].map(([x, y]) => ({ x, y })));
+    contours.sort((a, b) => Math.abs(signedArea(b)) - Math.abs(signedArea(a)));
+    const sign = Math.sign(signedArea(contours[0]));
+    let area: polygonClipping.MultiPolygon = [];
+    for (const poly of contours) area = Math.sign(signedArea(poly)) === sign ? polygonClipping.union(area, poly) : polygonClipping.difference(area, poly);
+    return area;
+  };
+  const visibleArea = (item: Item) => {
+    let area: polygonClipping.MultiPolygon = [ring(rectPts(item.bbox))];
+    if (item.mask) area = polygonClipping.intersection(area, pathArea(item.mask.path, item.mask.rule));
+    if (item.openClip) area = polygonClipping.intersection(area, pathArea(item.openClip, "nonzero"));
+    return area;
+  };
+  const underneath: { item: Item; area: polygonClipping.MultiPolygon }[] = items.filter((it) => it.stackUnder).flatMap(lettering).map((item) => ({ item, area: visibleArea(item) }));
+  for (const { pg, clipped } of panels) {
+    if (pg.panel.props.visible === false) continue;
+    const poly = contour(pg);
+    const panelLettering = clipped.flatMap(lettering);
+    for (const { item, area } of underneath) {
+      if (!["balloon", "text", "sfx"].includes(item.el.type) || panelLettering.some((it) => it.el === item.el)) continue;
+      const overlap = polygonClipping.intersection(area, poly);
+      const size = overlap.reduce((sum, polygon) => sum + polygon.reduce((total, points, i) => {
+        const a = Math.abs(polygonArea(points.map(([x, y]) => ({ x, y }))));
+        return total + (i === 0 ? a : -a);
+      }, 0), 0);
+      if (size > 1) bag.warn("TEXT_OCCLUDED_BY_PANEL", `${item.el.id} is covered by panel ${pg.panel.id}`, { path: item.el.path, elementId: item.el.id, pageId: page.id });
+    }
+    for (const item of panelLettering) underneath.push({ item, area: polygonClipping.intersection(visibleArea(item), poly) });
   }
 }
 

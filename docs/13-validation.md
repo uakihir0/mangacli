@@ -149,6 +149,7 @@ diagnostics:
 | `TEXT_OVERFLOW` | W（`overflow: error` では E） | 本文が収まらない | ○ |
 | `TEXT_SHRUNK` | I | 本文を収めるために文字サイズを縮めた | ○ |
 | `TEXT_CLIPPED` | W | 本文がクリップで切れる | ○ |
+| `TEXT_OCCLUDED_BY_PANEL` | W | 吹き出し・本文・描き文字が後から描くコマ（挿入コマなど）の領域と 1 平方単位を超えて重なる。コマ内のクリップと描画順を考慮し、そのコマ自身の要素や枠より上の層は対象外 | ○ |
 | `TEXT_OUTSIDE_SAFE_AREA` | W | 本文が安全領域の外にある | ○ |
 | `TEXT_NEAR_FOLD` | W | 見開きの中央付近に文字がある | ○ |
 | `TEXT_MARKUP_UNBALANCED` | E | マークアップのタグが対応しない | × |
