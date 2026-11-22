@@ -85,7 +85,7 @@ export function quantityToMm(q: Quantity, ctx: UnitContext): number {
 export class UnitError extends Error {}
 
 function availableLengthUnits(ctx: UnitContext): readonly string[] {
-  return INTERNAL_LENGTH_UNITS.filter((unit) => (unit !== "em" || ctx.em !== undefined) && (unit !== "%" || ctx.base !== undefined));
+  return LENGTH_UNITS.filter((unit) => (unit !== "em" || ctx.em !== undefined) && (unit !== "%" || ctx.base !== undefined));
 }
 
 export function toMm(input: LengthInput | undefined, ctx: UnitContext, fallback?: number): number {

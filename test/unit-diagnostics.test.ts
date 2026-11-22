@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { load } from "../src/api.js";
 import { Angle, Length } from "../src/schema/schema.js";
-import { ANGLE_UNITS, INTERNAL_LENGTH_UNITS, LENGTH_UNITS, parseAngle, toMm } from "../src/core/units.js";
+import { ANGLE_UNITS, LENGTH_UNITS, parseAngle, toMm } from "../src/core/units.js";
 
 const context = { units: "mm" as const, dpi: 600, k: 1 };
 
@@ -41,12 +41,12 @@ describe("unit diagnostics", () => {
   it("retains internal units and reports context-specific runtime units", () => {
     expect(toMm("12bmm", context)).toBe(12);
     expect(toMm("12bQ", context)).toBe(3);
-    const units = INTERNAL_LENGTH_UNITS.filter((unit) => unit !== "em" && unit !== "%");
+    const units = LENGTH_UNITS.filter((unit) => unit !== "em" && unit !== "%");
     for (const value of ["12oops", "", "2em", "50%", undefined]) {
       expect(() => toMm(value, context)).toThrow(`accepted units: ${units.join(", ")}`);
       expect(() => toMm(value, context)).toThrow(value === undefined ? "undefined" : JSON.stringify(value));
     }
-    expect(() => toMm("oops", { ...context, em: 3, base: 100 })).toThrow(`accepted units: ${INTERNAL_LENGTH_UNITS.join(", ")}`);
+    expect(() => toMm("oops", { ...context, em: 3, base: 100 })).toThrow(`accepted units: ${LENGTH_UNITS.join(", ")}`);
     expect(toMm(undefined, context, 5)).toBe(5);
   });
 });
