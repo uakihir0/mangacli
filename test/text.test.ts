@@ -11,6 +11,19 @@ describe("markup", () => {
     expect(p.rubies.map((r) => r.text)).toEqual(["とうきょう", "かんじ"]);
     expect(p.units.filter((u) => u.kind === "char" && u.ruby === 1).length).toBe(2);
   });
+  it.each(["｜白石／陽和《しらいし／ひより》", "<ruby=しらいし／ひより>白石／陽和</ruby>"])("pairs compound ruby by word: %s", (text) => {
+    const p = parseMarkup(text, { vertical: true });
+    expect(p.errors).toEqual([]);
+    expect(p.rubies).toEqual([{ id: 0, text: "しらいしひより", mono: null, groups: ["しらいし", "ひより"] }]);
+    expect(chars(text).map(({ ch, ruby, rubyGroup }) => [ch, ruby, rubyGroup])).toEqual([
+      ["白", 0, 0], ["石", 0, 0], ["陽", 0, 1], ["和", 0, 1],
+    ]);
+  });
+  it("preserves mono ruby and unpaired literal slashes", () => {
+    expect(parseMarkup("東京《とう きょう》", { vertical: true }).rubies[0].mono).toEqual(["とう", "きょう"]);
+    expect(parseMarkup("白石陽和《しらいし／ひより》", { vertical: true }).rubies[0].text).toBe("しらいし／ひより");
+    expect(parseMarkup("｜白石／陽和《しらいし／ひ／より》", { vertical: true }).errors[0]?.code).toBe("TEXT_RUBY_MISMATCH");
+  });
   it("marks emphasis dots", () => {
     const u = chars("《《大事》》な");
     expect(u.map((x) => !!x.emph)).toEqual([true, true, false]);
