@@ -109,6 +109,8 @@ M = translate(at + offset) · rotate(rotate) · scale(scale) · translate(−anc
 
 ## 5.4 クリップとはみ出し
 
+吹き出しは `contain: panel` が既定で、コマ内へ移動・組み直しを行い、辺寄せの本体と尾はコマで切る。このとき下表の `auto` のコマまたぎより収容が優先する。従来のコマまたぎは `contain: none` または `bridge: true` で有効にできる。明示の `clip: none`、方向開放、複数コマへのクリップも収容を解除する（[6.12](06-balloons.md#612-自動配置)）。
+
 | 値 | 意味 |
 |---|---|
 | `panel` | コマの形でクリップする |

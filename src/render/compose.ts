@@ -30,6 +30,7 @@ import { defaultTextStyle, layoutText, parseLayoutText } from "../text/layout.js
 import { parseMarkup } from "../text/markup.js";
 import { type AssetRegistry, resolveAssetBlend } from "./assets.js";
 import { cleanClippedBalloonInk } from "./balloon-clip.js";
+import { bodyPolygon, containBalloon, containsBalloon, frameClearance, polygonFits, warnBalloonInGutter } from "./balloon-contain.js";
 import type { DisplayList, GroupNode, Node, PathNode } from "./ir.js";
 import { FILTER_NAMES, parseFilter } from "./filters.js";
 
@@ -129,7 +130,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     draft: o.draft,
     panel: pg,
     coordsBox: pg ? pg.box : geom.trim,
-    panelPoly: pg ? panelShapePoly(pg, geom) : undefined,
+    panelPoly: pg ? flattenPath(panelClip(pg, panelShapePoly(pg, geom)), 0.05)[0]?.pts : undefined,
     characters: doc.characters,
     outputDpi: o.outputDpi(geom),
   });
@@ -266,6 +267,11 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       linkedIds.add(a.el.id);
       linkedIds.add(b.el.id);
     }
+    for (const { plan } of plans) {
+      containBalloon(plan, ctx, props => replan(plan, props));
+      const i = info.text.findIndex(t => t.id === plan.el.id);
+      if (i >= 0) info.text[i] = textInfo(plan.el.id, plan.text);
+    }
     pageBalloons.push(...plans.map(({ plan, idx }) => ({ plan, idx, panel: ctx.panel?.panel.id, order: ctx.panel?.order ?? panels.length })));
     const consumed = new Set<string>();
     prepareBalloonObstacles(plans.map(p => p.plan));
@@ -295,6 +301,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       if (consumed.has(plan.el.id)) continue;
       try {
         const r = renderBalloon(plan, { ...ctx, coordsBox: coordsFor(plan.el, ctx, geom) });
+        warnBalloonInGutter(plan.el, r.contour, ctx);
         processed.set(plan.el.id, mkItem(plan.el, r.nodes, r.bbox, panelIdx, idx, source, ctx));
         refs.add({ id: plan.el.id, type: "balloon", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id, shape: r.contour });
       } catch (e) {
@@ -554,7 +561,7 @@ function gutterPath(area: Rect, panels: PanelGeom[], geom: PageGeom) {
 }
 function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listIdx: number, source: number, ctx: ElemCtx): Item {
   const clip = el.props.clip;
-  const free = source === 1 || clip === "none" || clip === "trim" || isObj(clip) || (el.type === "balloon" && clip !== "panel" && !hasOffscreenTail(el.props));
+  const free = !containsBalloon(el, ctx) && (source === 1 || clip === "none" || clip === "trim" || isObj(clip) || (el.type === "balloon" && clip !== "panel" && !hasOffscreenTail(el.props)));
   const layer = el.type === "balloon" ? 1 : el.type === "text" || el.type === "sfx" ? 2 : 0;
   const ownsBlend = el.type === "image" || el.type === "scatter" || (el.type === "mark" && el.props.kind === "asset");
   const op = typeof el.props.opacity === "number" && !ownsBlend && el.type !== "effect" ? el.props.opacity : undefined;
@@ -1213,7 +1220,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
       ctx.bag.info("BALLOON_SHIFTED", `balloon ${pl.el.id} was moved inside the page`, { path: pl.el.path, elementId: pl.el.id });
     }
     // a balloon cut by the outer frame (clip: auto) keeps its text clear of the frame line
-    if (ctx.panel && pl.props.clip === "auto" && !offscreen) {
+    if (ctx.panel && pl.props.clip === "auto" && !offscreen && !containsBalloon(pl.el, ctx)) {
       const pb = ctx.panel.box;
       const m = Math.max(2.5 * u.k, pl.text.fontSize * 0.8);
       const tx = tl.x - pl.outer.x + pl.innerCenter.x + pl.textOffset.x - pl.text.width / 2;
@@ -1277,6 +1284,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   let beam: BeamState[] = [{ rects: placedRects.slice(), prevS: null, prevRect: null, centers: new Map(), costs: new Map(), shapes: new Map(), total: 0, flowX: rtl ? area.x + area.w : area.x, flowY: area.y, rowH: 0 }];
   const step = Math.max(1.5 * u.k, Math.min(area.w, area.h) / 28);
   const air = 2 * u.k;
+  const edgeCandidates = new Map<BalloonPlan, Vec[]>();
   for (const pl of plans) {
     const w = pl.outer.w;
     const h = pl.outer.h;
@@ -1347,6 +1355,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         for (const x of xs) {
           const c = { x, y };
           const rect = { x: x - w / 2, y: y - h / 2, w, h };
+          if (containsBalloon(pl.el, ctx) && ctx.panelPoly && !polygonFits(bodyPolygon(vp, { x: x - (vp.outer.x + w / 2), y: y - (vp.outer.y + h / 2) }), ctx.panelPoly, frameClearance(ctx))) continue;
           const A = w * h;
           let cost = extra;
           const clearance = aside ? rectInset(rect, -Math.max(w, h) * 0.05 - 0.35 * u.k) : rect;
@@ -1373,6 +1382,28 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
           const inside = rectIntersect(rect, area);
           cost += W.outside * (1 - (inside ? inside.w * inside.h : 0) / A);
           cells.push({ c, rect, base: cost, s: sOf(c, h), vp, w, h });
+        }
+      }
+      if (containsBalloon(pl.el, ctx) && ctx.panelPoly && !aside) {
+        const poly = ctx.panelPoly;
+        const mid = center(boundsOf(poly));
+        for (let i = 0; i < poly.length; i++) for (const t of [0, 0.5]) {
+          const a = poly[i];
+          const b = poly[(i + 1) % poly.length];
+          const edge = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+          const d = Math.hypot(mid.x - edge.x, mid.y - edge.y) || 1;
+          const c = { x: edge.x + (mid.x - edge.x) / d * w * 0.3, y: edge.y + (mid.y - edge.y) / d * h * 0.3 };
+          const rect = { x: c.x - w / 2, y: c.y - h / 2, w, h };
+          const textRect = [{ x: c.x - vp.text.width / 2, y: c.y - vp.text.height / 2 }, { x: c.x + vp.text.width / 2, y: c.y - vp.text.height / 2 }, { x: c.x + vp.text.width / 2, y: c.y + vp.text.height / 2 }, { x: c.x - vp.text.width / 2, y: c.y + vp.text.height / 2 }];
+          if (!polygonFits(textRect, poly, Math.max(2.5 * u.k, vp.text.fontSize * 0.8))) continue;
+          let cost = (t === 0 ? -3 : -2) + extra;
+          for (const ob of obstacles) cost += ob.w * rectOverlapArea(rect, ob.r) / (w * h);
+          for (const hr of hard) if (rectOverlapArea(rect, hr) > 0) cost += 1000;
+          if (sils.length) cost += W.figure * silhouetteCover(rect, sils);
+          cells.push({ c, rect, base: cost, s: sOf(c, h), vp, w, h });
+          const edges = edgeCandidates.get(pl) ?? [];
+          edges.push(c);
+          edgeCandidates.set(pl, edges);
         }
       }
     }
@@ -1431,6 +1462,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const vp = chosen.shapes.get(pl);
     if (vp && vp !== pl) Object.assign(pl, { ...vp, el: pl.el, props: pl.props });
     pl.center = { x: c.x - (pl.outer.x + pl.outer.w / 2), y: c.y - (pl.outer.y + pl.outer.h / 2) };
+    if (edgeCandidates.get(pl)?.some(p => Math.hypot(p.x - c.x, p.y - c.y) < 1e-6)) pl.edgeCut = true;
   }
   // reading-order and overlap checks over the final positions
   const rects = plans.filter((pl) => pl.center).map((pl) => ({ pl, r: { x: pl.center!.x + pl.outer.x, y: pl.center!.y + pl.outer.y, w: pl.outer.w, h: pl.outer.h } }));

@@ -34,6 +34,7 @@ export interface BalloonPlan {
   body: BodyGeom; // centered
   outer: Rect; // centered coords bbox of contour
   center?: Vec; // page coords
+  edgeCut?: boolean;
   explicit: boolean;
   fill: Paint | null;
   hand: HandSpec;
