@@ -22,6 +22,7 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
     fontSize: "13bQ",
     clip: "auto",
     autoPlace: "auto",
+    contain: "panel",
   },
   text: { font: "narration", fontSize: "12bQ", clip: "none", padding: ["0.45em", "0.6em"], overflow: "shrink", outline: [{ width: "0.8bmm", color: "paper" }] },
   sfx: {

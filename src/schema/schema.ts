@@ -268,6 +268,8 @@ export const Tail = z
 const balloonProps = {
   ...common,
   ...typo,
+  contain: z.enum(["panel", "none"]).optional(),
+  bridge: z.boolean().optional(),
   text: TextValue.optional(),
   who: z.string().optional(),
   as: z.string().optional(),
