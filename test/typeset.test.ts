@@ -140,6 +140,16 @@ pages:
     expect(ink(result.glyphs[0].path).h).toBeCloseTo(ink(horizontal.glyphs[0].path).h);
     expect(result.infos.some((info) => info.code === "TEXT_TCY_TOO_LONG")).toBe(true);
   });
+  it.each([["yuji-boku", "Yuji Boku 400"], ["yuji-syuku", "Yuji Syuku 400"]])("typesets brush-written lettering vertically with %s", async (id, name) => {
+    const fonts = new FontRegistry(new Map([["brush", { kind: "catalog", id }]]), "none", [], {});
+    await fonts.prepare("brush", "守白石陽和");
+    const result = layoutText("白石陽和", defaultTextStyle({ font: "brush", fontSize: 10 }), fonts);
+    expect(result.errors).toEqual([]);
+    expect(result.missing).toEqual([]);
+    expect(result.fonts).toEqual([name]);
+    expect(new Set(result.glyphs.map((g) => g.cx)).size).toBe(1);
+    expect(ink(layoutText("守", defaultTextStyle({ font: "brush", fontSize: 10 }), fonts).glyphs[0].path).h).toBeGreaterThan(7);
+  });
   it("keeps a Dela dash pair within its shaped 14.22mm advance", async () => {
     const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id: "dela-gothic-one" }]]), "none", [], {});
     await fonts.prepare("test", "――");
