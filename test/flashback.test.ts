@@ -29,18 +29,42 @@ describe("flashback mood", () => {
     expect(at(78, 40)).toBe(255);
   });
 
-  it("fills every reached outer-margin strip on a P10-like page, including beside normal panels", async () => {
+  it("cuts P10-like margins at the gutter center beside the normal top panel", async () => {
     const { at } = await sample({ mangacli: 1, page: settings, pages: [{
       layout: { rows: [{ cols: [1, 1] }, { cols: [1] }, { cols: [1] }] },
       panels: [{}, { mood: "flashback" }, { mood: "flashback" }, { mood: "flashback" }],
     }] });
-    for (const x of [-2, 5, 20, 40, 60, 75, 82]) for (const y of [-2, 5, 75, 82]) expect(at(x, y), `${x},${y}`).toBe(0);
-    for (const y of [20, 40, 60]) for (const x of [-2, 5, 75, 82]) expect(at(x, y), `${x},${y}`).toBe(0);
+    for (const x of [-2, 5, 20, 40, 60, 75, 82]) for (const y of [75, 82]) expect(at(x, y), `${x},${y}`).toBe(0);
+    for (const x of [-2, 5, 20, 39]) expect(at(x, -2)).toBe(0);
+    for (const x of [41, 60, 75, 82]) expect(at(x, -2)).toBe(255);
+    for (const y of [20, 40, 60]) for (const x of [-2, 5]) expect(at(x, y), `${x},${y}`).toBe(0);
+    for (const x of [75, 82]) {
+      expect(at(x, 28)).toBe(255);
+      expect(at(x, 30)).toBe(0);
+      expect(at(x, 60)).toBe(0);
+    }
     expect(at(40, 20)).toBe(0);
     expect(at(60, 20)).toBe(255);
     expect(at(20, 20)).toBe(255);
     expect(at(40, 40)).toBe(255);
     expect(at(40, 60)).toBe(255);
+  });
+
+  it("keeps P11-like normal-panel side and bottom margins white", async () => {
+    const { at } = await sample({ mangacli: 1, page: settings, pages: [{
+      layout: { rows: [{ cols: [1] }, { cols: [1, 1] }, { cols: [1] }] },
+      panels: [{ mood: "flashback" }, {}, {}, {}],
+    }] });
+    for (const x of [-2, 5, 75, 82]) {
+      for (const y of [-2, 5, 20, 28]) expect(at(x, y), `${x},${y}`).toBe(0);
+      for (const y of [30, 40, 60, 75, 82]) expect(at(x, y), `${x},${y}`).toBe(255);
+    }
+    for (const x of [20, 40, 60]) {
+      expect(at(x, -2)).toBe(0);
+      expect(at(x, 82)).toBe(255);
+    }
+    expect(at(40, 29)).toBe(0);
+    expect(at(40, 40)).toBe(255);
   });
 
   it.each(["ellipse", "cloud", "rounded"])("paints black up to the rendered %s flashback outline", async (shape) => {
@@ -170,7 +194,7 @@ describe("flashback mood", () => {
     expect(at(20, 40)).toBe(255);
     expect(at(80, 20)).toBe(0);
     expect(at(60, -2)).toBe(0);
-    expect(at(20, -2)).toBe(0);
+    expect(at(20, -2)).toBe(255);
     expect(at(60, 20)).toBe(255);
   });
 
