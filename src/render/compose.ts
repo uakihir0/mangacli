@@ -245,7 +245,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   // phase B: balloons plans, text, sfx, effects, fills, marks, draw
   const pageBalloons: { plan: BalloonPlan; panel?: string; order: number; idx: number }[] = [];
   const renderOthers = async (els: RElement[], ctx: ElemCtx, panelIdx: number, source: number) => {
-    const plans: { plan: BalloonPlan; idx: number }[] = [];
+    const plans: { plan: BalloonPlan; idx: number; textIndex: number }[] = [];
     const balloonIds = new Set(els.filter((e) => e.type === "balloon").map((e) => e.id));
     const p0 = (v: unknown) => (typeof v === "string" ? v.split(".")[0] : undefined);
     for (const [i, el] of els.entries()) {
@@ -256,7 +256,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
         switch (el.type) {
           case "balloon":
             const plan = planBalloon(el, c2);
-            plans.push({ plan, idx: i });
+            plans.push({ plan, idx: i, textIndex: info.text.length });
             info.text.push(textInfo(el.id, plan.text));
             break;
           case "text": {
@@ -297,6 +297,10 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       }
     };
     placeBalloons(plans.map((p) => p.plan), ctx, refs, processed, sils, replan);
+    for (const { plan, textIndex } of plans) {
+      info.text[textIndex] = textInfo(plan.el.id, plan.text);
+      if (plan.dialogueExceedsMaxSize) ctx.bag.warn("BALLOON_TOO_LARGE", `balloon ${plan.el.id} exceeds maxSize at the dialogue font size`, { path: plan.el.path, elementId: plan.el.id });
+    }
     ctx = { ...ctx, silhouettes: sils };
     // consecutive auto-placed lines of one speaker that end up side by side are joined (one tail)
     const linkedIds = new Set<string>();
@@ -1678,7 +1682,9 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     // the parts of the cost that do not depend on the other balloons are computed once
     const cells: { c: Vec; rect: Rect; base: number; s: number; vp: BalloonPlan; w: number; h: number }[] = [];
     const cutCells: typeof cells = [];
+    const fittingDialogue = variants.some(({ vp }) => vp.dialogueExceedsMaxSize === false);
     for (const { vp, extra } of variants) {
+      if (fittingDialogue && vp.dialogueExceedsMaxSize) continue;
       const w = vp.outer.w;
       const h = vp.outer.h;
       const flashPanel = keepFlashInsidePanel(vp) ? ctx.panelPoly : undefined;

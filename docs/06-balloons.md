@@ -333,6 +333,8 @@ tail: none
 | `clip` | はみ出した本文を本体の形で切り、警告（`TEXT_OVERFLOW`）を出す |
 | `error` | エラー（`TEXT_OVERFLOW`）にする |
 
+本体のサイズが自動の `say` で、既定の文字サイズ（`defaults.balloon.fontSize` を含む）を使う場合は、`grow` でも文字を縮めない。改行と本体のサイズを調整し、それでも `maxSize` に収まらなければ、元の文字サイズを保って吹き出しの ID を含む `BALLOON_TOO_LARGE` を出す。個別にサイズを指定した吹き出しや、明示的に `overflow: shrink` を選んだ吹き出しは、従来どおり縮小できる。
+
 ## 6.8 配置
 
 | 方法 | 指定 | 優先度 |

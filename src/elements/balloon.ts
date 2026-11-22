@@ -42,6 +42,7 @@ export interface BalloonPlan {
   textOffset: Vec;
   fontScaleApplied: number;
   reactionRayLength?: number;
+  dialogueExceedsMaxSize?: boolean;
   tailObstacles?: { id: string; contour: Vec[] }[];
 }
 
@@ -308,12 +309,8 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       attempt--;
       continue;
     }
-    if (!fits && overflow !== "grow" && scale > minFontScale + 1e-6 && overflow !== "clip" && overflow !== "error") {
-      constrainAuto = false;
-      scale = Math.max(minFontScale, scale - 0.05);
-      continue;
-    }
-    if (!fits && overflow === "grow" && scale > minFontScale + 1e-6) {
+    const keepDialogueSize = !fixedBase && overflow === "grow" && (p.as ?? "say") === "say" && !el.balloonFontSizeOverride;
+    if (!fits && !keepDialogueSize && (overflow === "grow" || overflow === "shrink") && scale > minFontScale + 1e-6) {
       constrainAuto = false;
       scale = Math.max(minFontScale, scale - 0.05);
       continue;
@@ -334,8 +331,9 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       }
     }
     if (!fits) {
-      if (overflow === "grow") ctx.bag.warn("BALLOON_TOO_LARGE", `balloon ${el.id} exceeds maxSize`, { path: el.path, elementId: el.id });
-      else if (overflow === "error") ctx.bag.error("TEXT_OVERFLOW", `text does not fit in balloon ${el.id}`, { path: el.path, elementId: el.id });
+      if (overflow === "grow") {
+        if (!keepDialogueSize) ctx.bag.warn("BALLOON_TOO_LARGE", `balloon ${el.id} exceeds maxSize`, { path: el.path, elementId: el.id });
+      } else if (overflow === "error") ctx.bag.error("TEXT_OVERFLOW", `text does not fit in balloon ${el.id}`, { path: el.path, elementId: el.id });
       else ctx.bag.warn("TEXT_OVERFLOW", `text in balloon ${el.id} does not fit even at ${Math.round(scale * 100)}%`, { path: el.path, elementId: el.id });
     } else if (scale < 1) ctx.bag.info("TEXT_SHRUNK", `balloon ${el.id}: font scaled to ${Math.round(scale * 100)}%`, { path: el.path, elementId: el.id });
     if (tl.missing.length) ctx.bag.warn("FONT_MISSING_GLYPH", `missing glyphs: ${[...new Set(tl.missing)].join("")}`, { path: el.path, elementId: el.id });
@@ -354,7 +352,7 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       outer = { x: outer.x - air, y: outer.y - air, w: outer.w + 2 * air, h: outer.h + 2 * air };
     }
     const to = Array.isArray(p.textOffset) ? { x: toMm(p.textOffset[0] as string, u), y: toMm(p.textOffset[1] as string, u) } : { x: 0, y: 0 };
-    return { el, text: tl, textColor, params, seed: shapeSeed, base, body, outer, explicit: p.at !== undefined || p.place !== undefined, fill, hand, innerCenter, props: p, textOffset: to, fontScaleApplied: scale, reactionRayLength };
+    return { el, text: tl, textColor, params, seed: shapeSeed, base, body, outer, explicit: p.at !== undefined || p.place !== undefined, fill, hand, innerCenter, props: p, textOffset: to, fontScaleApplied: scale, reactionRayLength, dialogueExceedsMaxSize: keepDialogueSize ? !fits : undefined };
   }
   throw new Error("unreachable");
 }

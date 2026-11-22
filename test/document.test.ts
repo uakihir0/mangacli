@@ -68,6 +68,27 @@ pages:
     expect(r.ok).toBe(true);
     expect(r.diagnostics.filter((d) => ["TEXT_SHRUNK", "TEXT_OVERFLOW", "BALLOON_TOO_LARGE"].includes(d.code))).toEqual([]);
   });
+  it("keeps the document dialogue size across pages and warns when a balloon exceeds maxSize", async () => {
+    const r = await validate(yaml(`mangacli: 1
+defaults:
+  balloon: { fontSize: 5mm }
+pages:
+  - layers:
+      - { balloon: やあ, id: short }
+  - panels:
+      - dialogue:
+          - { text: "この吹き出しは指定された大きさに収まりません", id: crowded, maxSize: [10mm, 10mm] }
+  - layers:
+      - { balloon: "この吹き出しは指定された大きさに収まりません", id: explicit, fontSize: 5mm, maxSize: [10mm, 10mm] }
+      - { balloon: "この吹き出しは指定された大きさに収まりません", id: shrink, overflow: shrink, maxSize: [10mm, 10mm] }
+`));
+    expect(r.ok).toBe(true);
+    const sizes = Object.fromEntries(r.layout.flatMap((page) => page.text.map(({ id, fontSize }) => [id, fontSize])));
+    expect(sizes).toMatchObject({ short: 5, crowded: 5, explicit: 3.75, shrink: 3.75 });
+    expect(r.diagnostics.filter((d) => d.elementId === "crowded" && ["TEXT_SHRUNK", "TEXT_OVERFLOW", "BALLOON_TOO_LARGE"].includes(d.code))).toEqual([
+      expect.objectContaining({ code: "BALLOON_TOO_LARGE", severity: "warning", elementId: "crowded", message: expect.stringContaining("crowded") }),
+    ]);
+  });
 });
 
 describe("rendering", () => {
