@@ -874,6 +874,13 @@ function buildBody(plan: BalloonPlan, ctx: ElemCtx, skipTails = false): BodyBuil
   return { contour, extra: tr.extra, stroke, ruler, rng };
 }
 
+function balloonFill(poly: Vec[], plan: BalloonPlan): Node | null {
+  const fill = fillNode(poly, plan.fill, tag(plan.el, "fill"));
+  if (fill?.kind !== "path" || plan.fill?.type !== "tone") return fill;
+  const paper: Node = { ...fill, paint: { type: "solid", color: WHITE } };
+  return { kind: "group", children: [paper, fill], tag: fill.tag };
+}
+
 function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeContour): { nodes: Node[]; fill: Vec[] } {
   const el = plan.el;
   const nodes: Node[] = [];
@@ -885,7 +892,7 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
     const cleanJoin = bb.ruler || plan.body.kind === "electronic";
     const res = inkShape(contour, { line: isFlash ? { ...bb.stroke, style: "none" } : bb.stroke, hand: plan.hand, rng: bb.rng.fork("body"), ruler: bb.ruler, join: plan.params.join ?? (cleanJoin ? "clean" : "overshoot"), strokes: plan.params.strokes, sizeHint: Math.min(plan.outer.w, plan.outer.h) });
     fillPoly = res.fill;
-    const fn = fillNode(res.fill, plan.fill, tag(el, "fill"));
+    const fn = balloonFill(res.fill, plan);
     // a thin rim of the fill colour outside the outline keeps it readable over black art
     const halo = plan.props.halo === "none" || plan.props.halo === false ? 0 : plan.props.halo !== undefined ? toMm(plan.props.halo as string, ctx.u) : 0.3 * ctx.u.k;
     if (fn && halo > 0 && !isFlash && fn.kind === "path" && fn.paint?.type === "solid" && fn.paint.color.a > 0.99) nodes.push({ kind: "path", path: polyPath(res.fill, true), fillRule: "nonzero", paint: null, stroke: { width: bb.stroke.width + halo * 2, paint: fn.paint, join: "round" }, tag: tag(el, "fill") });
@@ -899,7 +906,7 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
   for (const ex of bb.extra) {
     if (ex.kind === "bubble") {
       const res = inkShape({ pts: ex.pts, closed: true, smooth: true }, { line: bb.stroke, hand: plan.hand, rng: bb.rng.fork("bub"), strokes: 1 });
-      const fn = fillNode(res.fill, plan.fill, tag(el, "fill"));
+      const fn = balloonFill(res.fill, plan);
       if (fn) nodes.push(fn);
       nodes.push(...inksToNodes(res.inks, bb.stroke.color, t));
     } else {
