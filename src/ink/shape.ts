@@ -21,6 +21,9 @@ export interface ShapeContour {
   startRange?: [number, number];
   /** do not auto-detect corners */
   smooth?: boolean;
+  segmentProfile?: (t: number) => number;
+  /** Signed seam extension range in mm. */
+  seamJitter?: number;
 }
 
 export interface LineStyle {
@@ -308,6 +311,7 @@ function solid(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, r
         taperInLen: tinLen,
         taperOutLen: toutLen,
         ruler,
+        profile: hand.pressure > 0 ? c.segmentProfile : undefined,
       }),
     );
   };
@@ -349,6 +353,7 @@ function solid(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, r
         const startKind = firstPart ? sg.a.kind : "smooth";
         const endKind = lastPart ? sg.b.kind : "smooth";
         const extFor = (k: string) => {
+          if (k === "concave" && c.seamJitter && hand.pressure > 0) return rng.range(-c.seamJitter, c.seamJitter);
           if (k === "point") return 0;
           if (k !== "convex") return 0;
           if (join === "overshoot") return rng.range(hand.overshoot[0], hand.overshoot[1]);
