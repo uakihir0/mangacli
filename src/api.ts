@@ -453,17 +453,20 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   p.resolved = resolved;
   const lim = limitsOf(options);
   if (resolved.pages.length > lim.maxPages) bag.error("SECURITY_LIMIT_EXCEEDED", `${resolved.pages.length} pages exceed maxPages (${lim.maxPages})`);
+  const checkTextLength = (t: unknown, id: string, path: (string | number)[]) => {
+    const len = typeof t === "string" ? t.length : isObj(t) ? Math.max(0, ...Object.values(t).map((v) => String(v).length)) : 0;
+    if (len > lim.maxTextLength) bag.error("SECURITY_LIMIT_EXCEEDED", `text of ${id} is longer than maxTextLength (${lim.maxTextLength})`, { path, elementId: id });
+  };
   for (const pg of resolved.pages) {
     let n = 0;
     const visit = (el: RElement) => {
       n++;
-      const t = el.props.text;
-      const len = typeof t === "string" ? t.length : isObj(t) ? Math.max(0, ...Object.values(t).map((v) => String(v).length)) : 0;
-      if (len > lim.maxTextLength) bag.error("SECURITY_LIMIT_EXCEEDED", `text of ${el.id} is longer than maxTextLength (${lim.maxTextLength})`, { path: el.path, elementId: el.id });
+      checkTextLength(el.props.text, el.id, el.path);
       el.children?.forEach(visit);
     };
     pg.panels.forEach((pn) => pn.elements.forEach(visit));
     pg.layers.forEach(visit);
+    if (pg.hashira !== undefined) checkTextLength(typeof pg.hashira === "string" ? pg.hashira : pg.hashira.text, `${pg.id}-hashira`, [...pg.path, "hashira"]);
     if (n > lim.maxElementsPerPage) bag.error("SECURITY_LIMIT_EXCEEDED", `page ${pg.id} has ${n} elements (maxElementsPerPage ${lim.maxElementsPerPage})`, { pageId: pg.id });
   }
   if (bag.hasErrors) return fail();

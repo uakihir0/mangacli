@@ -65,6 +65,13 @@ describe("hashira", () => {
     ]);
   });
 
+  it.each([text, { text: { ja: "柱", en: "Side copy" } }])("applies the text limit to hashira: %j", async (copy) => {
+    const result = await validate(doc([{ panels: [{}], hashira: copy }]), { limits: { maxTextLength: 5 } });
+    expect(result.ok).toBe(false);
+    expect(result.layout).toEqual([]);
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "SECURITY_LIMIT_EXCEEDED", path: ["pages", 0, "hashira"] }));
+  });
+
   it("warns when a visible bleeding panel covers the gutter", async () => {
     const panel = { id: "art", box: [0, 10, 60, 80], bleed: ["left"] } satisfies NonNullable<DocumentInput["pages"][number]["panels"]>[number];
     const r = await render(doc([{ hashira: text, layout: { free: true, area: "trim" }, panels: [panel] }]), { layoutOnly: true, keepLists: true });
