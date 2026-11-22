@@ -121,4 +121,19 @@ describe("tail avoidance", () => {
     expect(resolved.pages[0].layers[0].tailExplicit).toEqual({ tail: { root: "0deg", length: "8mm", bend: 0 } });
     expect(resolved.pages[0].layers[1].tailExplicit).toEqual({ tail: { length: "8mm" } });
   });
+
+  it("retains the later branch's explicit length in diamond style inheritance", () => {
+    const resolved = resolveDocument({
+      styles: {
+        ancestor: { tail: { length: "8mm" } },
+        left: { extends: "ancestor", tail: { length: null } },
+        right: { extends: "ancestor" },
+        diamond: { extends: ["left", "right"] },
+      },
+      pages: [{ layers: [{ type: "balloon", style: "diamond" }] }],
+    }, new DiagnosticBag());
+    const el = resolved.pages[0].layers[0];
+    expect(el.props.tail).toMatchObject({ length: "8mm" });
+    expect(el.tailExplicit).toEqual({ tail: { length: "8mm" } });
+  });
 });
