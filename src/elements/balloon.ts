@@ -511,6 +511,23 @@ function rayEllipseEntry(o: Vec, d: Vec, r: Rect): number | null {
   return t > 0 ? t : null;
 }
 
+/** distance along `d` from `o` to where the ray enters `r`; 0 when `o` lies inside, null when it misses */
+function rayRectEntry(o: Vec, d: Vec, r: Rect): number | null {
+  let lo = 0;
+  let hi = Infinity;
+  for (const [p, v, min, max] of [[o.x, d.x, r.x, r.x + r.w], [o.y, d.y, r.y, r.y + r.h]] as const) {
+    if (Math.abs(v) < 1e-12) {
+      if (p < min || p > max) return null;
+      continue;
+    }
+    const a = (min - p) / v;
+    const b = (max - p) / v;
+    lo = Math.max(lo, Math.min(a, b));
+    hi = Math.min(hi, Math.max(a, b));
+  }
+  return lo <= hi ? lo : null;
+}
+
 function nearestSide(c: Vec, b: Rect): string {
   const d = { left: c.x - b.x, right: b.x + b.w - c.x, top: c.y - b.y, bottom: b.y + b.h - c.y };
   return (Object.entries(d).sort((x, y) => x[1] - y[1])[0] ?? ["right"])[0];
@@ -694,11 +711,11 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     }
     const gap = t.gap !== undefined ? toMm(t.gap as string, u) : 2 * u.k;
     const whisperWedge = plan.props.as === "whisper" && kind === "wedge";
-    // a tail with a speaker runs on until it nearly reaches them; one with only a direction stays short
-    const reachMax = 30 * u.k;
-    // a shout's tail is one more spike of the outline, so it stays short whatever it points at
+    // a tail with a speaker reaches a little further than a bare pointer, enough to read as aimed at
+    // the mouth, but stays a short wedge: a balloon far from its speaker is moved, not given a needle
     const spikyBody = plan.params.kind === "spike" || plan.params.kind === "burst";
-    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : target && !offSide && !spikyBody ? reachMax : Math.min(9 * u.k, Math.max((whisperWedge ? 6 : 4.5) * u.k, minSide * 0.4));
+    const pointerMax = Math.min(9 * u.k, Math.max((whisperWedge ? 6 : 4.5) * u.k, minSide * 0.4));
+    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : target && !offSide && !spikyBody ? Math.min(12 * u.k, Math.max(6 * u.k, minSide * 0.5)) : pointerMax;
     let length: number;
     let shortBy = 0;
     if (t.length !== undefined) length = toMm(t.length as string, u);
@@ -713,9 +730,12 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
       // anchors for other characters: `close.hayato`)
       const face = faceOf(tgtRef?.regions.face?.bbox, target);
       if (face) {
-        const tf = rayEllipseEntry(R, dir, face);
+        // a clear gap before the face box (hair, beard and glasses spill past the face ellipse);
+        // the ellipse only when the balloon already sits on the box
+        const box = rayRectEntry(R, dir, face);
+        const tf = box !== null && box > gap ? box : rayEllipseEntry(R, dir, face);
         if (tf !== null) {
-          avail = Math.min(avail, tf - gap * 0.5);
+          avail = Math.min(avail, tf - gap);
           stopped = true;
         }
       }
@@ -741,8 +761,8 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     // on a spiky body the tail must outreach the spikes to read as the pointer
     if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.15, 6 * u.k);
     tailLength = length;
-    if (shortBy > 10 * u.k && t.length === undefined)
-      ctx.bag.warn("BALLOON_TAIL_SHORT", `the tail of ${plan.el.id} ends ${shortBy.toFixed(1)} mm short of its speaker; move the balloon closer or raise maxLength (${maxLen.toFixed(1)} mm)`, { path: plan.el.path, elementId: plan.el.id });
+    if (shortBy > 20 * u.k && t.length === undefined)
+      ctx.bag.warn("BALLOON_TAIL_SHORT", `the tail of ${plan.el.id} ends ${shortBy.toFixed(1)} mm short of its speaker; move the balloon closer to them`, { path: plan.el.path, elementId: plan.el.id });
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
     // a wedge's base is about a ninth of the body

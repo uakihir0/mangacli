@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import { describe, expect, it, vi } from "vitest";
 import { createRenderer } from "../src/api.js";
 import { Rng } from "../src/core/random.js";
@@ -208,30 +209,49 @@ describe("balloon tails", () => {
     expect(target - tip(pts).x).toBeGreaterThan(2.5);
     expect(tip(pts).x - rightOf(pts, origin.x + 40)).toBeGreaterThan(3.5);
   });
-  it("runs a tail on toward a distant speaker until it nearly reaches them", async () => {
-    const { pts, origin } = await outline(`{ balloon: "おはよう", id: b, size: [24mm, 24mm], at: [30mm, 35mm], tail: { to: [55mm, 35mm], bend: 0 } }`);
-    const target = { x: origin.x + 55, y: origin.y + 35 };
+  it("aims a tail at a distant speaker with a modest reach, not a needle", async () => {
+    const { pts, origin } = await outline(`{ balloon: "おはよう", id: b, size: [24mm, 24mm], at: [30mm, 35mm], tail: { to: [70mm, 35mm], bend: 0 } }`);
     const t = tip(pts);
-    expect(Math.hypot(target.x - t.x, target.y - t.y)).toBeLessThan(3.5);
-    expect(t.x - rightOf(pts, origin.x + 30)).toBeGreaterThan(9);
+    const reach = t.x - rightOf(pts, origin.x + 30);
+    expect(Math.abs(t.y - (origin.y + 35))).toBeLessThan(0.3);
+    expect(reach).toBeGreaterThan(4.5);
+    expect(reach).toBeLessThan(5.6);
   });
   it("aims a tail at a speaker below even when its root moves to the side", async () => {
-    const { pts, origin } = await outline(`{ balloon: "おはよう", id: b, size: [24mm, 24mm], at: [40mm, 25mm], tail: { to: [42mm, 50mm], bend: 0 } }`);
+    const { pts, origin } = await outline(`{ balloon: "おはよう", id: b, size: [24mm, 24mm], at: [40mm, 25mm], tail: { to: [46mm, 55mm], bend: 0 } }`);
     const t = pts.reduce((p, q) => (q.y > p.y ? q : p));
-    expect(Math.abs(t.x - (origin.x + 42))).toBeLessThan(4);
-    expect(origin.y + 50 - t.y).toBeLessThan(4);
+    expect(Math.abs(t.x - (origin.x + 46))).toBeLessThan(2.5);
+    expect(t.y - (origin.y + 37)).toBeGreaterThan(2.5);
   });
-  it("warns when an explicit maxLength leaves the tail far short of its speaker", async () => {
-    const yaml = (max: string) => `mangacli: 1
+  it("stops a speaker's tail with a clear gap before the whole face box", async () => {
+    const data = await sharp({ create: { width: 1000, height: 800, channels: 3, background: "white" } }).png().toBuffer();
+    const renderer = createRenderer({ profile: "preview", assets: { art: data } });
+    const doc = {
+      mangacli: 1,
+      page: { size: ["100mm", "80mm"], bleed: "0mm", baseFrame: "trim" },
+      assets: { art: { src: "art.png", character: "taro", anchors: { mouth: [700, 450] }, regions: { face: [520, 300, 300, 200] } } },
+      pages: [{ layers: [
+        { image: "art", id: "img", at: ["0mm", "0mm"], anchor: "top-left", size: ["100mm", "80mm"], fit: "fill" },
+        { balloon: "Hi", id: "b", who: "taro", tail: { maxLength: "60mm", gap: "2mm", allowVertical: true }, at: ["24mm", "56mm"], size: ["14mm", "12mm"], hand: "ruler" },
+      ] }],
+    };
+    const root = (await renderer.displayList(doc, 1)).root;
+    const [fill] = paths(root, (n) => n.tag?.elementId === "b" && n.tag.role === "fill");
+    const pts = vertices(fill);
+    const t = pts.reduce((p, q) => (q.x - q.y > p.x - p.y ? q : p));
+    expect(t.x).toBeLessThan(52 - 1.5);
+  });
+  it("warns when a balloon sits too far from its speaker for its tail to reach", async () => {
+    const yaml = (to: string) => `mangacli: 1
 page: { size: [160mm, 80mm], bleed: 3mm }
 pages:
   - panels:
       - layers:
-          - { balloon: "おはよう", id: b, size: [24mm, 24mm], at: [30mm, 35mm], tail: { to: [55mm, 35mm], ${max} } }
+          - { balloon: "おはよう", id: b, size: [24mm, 24mm], at: [30mm, 35mm], tail: { to: [${to}, 35mm] } }
 `;
-    const codes = async (max: string) => (await r.render({ yaml: yaml(max), filename: "/v/tail.yaml" }, { layoutOnly: true })).diagnostics.map((d) => d.code);
-    expect(await codes("maxLength: 3mm")).toContain("BALLOON_TAIL_SHORT");
-    expect(await codes("gap: 1mm")).not.toContain("BALLOON_TAIL_SHORT");
+    const codes = async (to: string) => (await r.render({ yaml: yaml(to), filename: "/v/tail.yaml" }, { layoutOnly: true })).diagnostics.map((d) => d.code);
+    expect(await codes("150mm")).toContain("BALLOON_TAIL_SHORT");
+    expect(await codes("55mm")).not.toContain("BALLOON_TAIL_SHORT");
   });
   it("honors explicit off-screen lengths and caps automatic tails before a distant frame", async () => {
     const balloon = 'balloon: "", id: b, as: offscreen, at: [26mm, 24mm], size: [18mm, 14mm], shape: { kind: ellipse, irregularity: 0 }';
