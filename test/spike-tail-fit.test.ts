@@ -3,7 +3,7 @@ import { DiagnosticBag } from "../src/core/diagnostics.js";
 import { planBalloon, renderBalloon } from "../src/elements/balloon.js";
 import type { ElemCtx } from "../src/elements/context.js";
 import { FontRegistry } from "../src/fonts/registry.js";
-import { boundsOf } from "../src/geom/vec.js";
+import { boundsOf, rot } from "../src/geom/vec.js";
 import { RefRegistry } from "../src/layout/place.js";
 import { resolveDocument } from "../src/model/resolve.js";
 import { BODY_GENERATORS } from "../src/shapes/balloon.js";
@@ -22,6 +22,15 @@ async function setup(w = 40, h = 40) {
 }
 
 describe("physical spike tail fitting", () => {
+  it.each([90, -90])("measures the core and contour in the same frame for a %s degree rotation", async (degrees) => {
+    const { plan, ctx } = await setup(80, 30);
+    plan.props.rotate = `${degrees}deg`;
+    plan.props.tail = { kind: "wedge", direction: "0deg", bend: 0, sideCurve: 0 };
+    const contour = renderBalloon(plan, ctx).contour;
+    const coreRight = Math.max(...plan.body.spikeCore!.map(q => rot(q, degrees * Math.PI / 180).x));
+    const extension = Math.max(...contour.map(q => q.x)) - coreRight;
+    expect(extension).toBeCloseTo(plan.body.spikeLength! * 1.5, 1);
+  });
   it.each(["face", "bare point"])("preserves the distance clamp before a nearby %s", async (target) => {
     const { plan, ctx } = await setup();
     const valley = plan.body.contour.corners!.filter(c => c.kind === "valley").map(c => plan.body.contour.pts[c.index]).sort((a, b) => Math.abs(Math.atan2(a.y, a.x)) - Math.abs(Math.atan2(b.y, b.x)))[0];

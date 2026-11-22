@@ -744,7 +744,8 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
     if (whisperWedge && !target && !offSide && t.length === undefined) length = Math.min(maxLen, Math.max(length, 6 * u.k));
     if (!offSide && kind === "wedge" && t.length === undefined && plan.body.spikeLength !== undefined) {
-      const coreHit = rayPolygon({ x: 0, y: 0 }, rootDir, plan.body.spikeCore ?? plan.body.inner);
+      const rotation = plan.props.rotate === undefined ? 0 : parseAngle(plan.props.rotate as string);
+      const coreHit = rayPolygon({ x: 0, y: 0 }, rot(rootDir, -rotation), plan.body.spikeCore ?? plan.body.inner);
       const extension = coreHit ? hit.t - coreHit.t : 0;
       length = Math.min(maxLen, target ? length : Infinity, Math.max(0.5 * plan.body.spikeLength, 1.5 * plan.body.spikeLength - extension));
     }
