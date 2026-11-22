@@ -76,6 +76,7 @@ interface Item {
   filterClips?: import("../geom/path.js").PathData[];
   stackUnder?: boolean;
   lettering?: { el: RElement; bbox: Rect }[];
+  mask?: { path: import("../geom/path.js").PathData; rule: "nonzero" | "evenodd" };
 }
 
 function elementTexts(el: RElement, lang: string, def: string): string[] {
@@ -518,6 +519,7 @@ function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listI
   const op = typeof el.props.opacity === "number" && !ownsBlend && el.type !== "effect" ? el.props.opacity : undefined;
   const blend = !ownsBlend && typeof el.props.blend === "string" && el.props.blend !== "normal" ? (el.props.blend as GroupNode["blend"]) : undefined;
   let inner = nodes;
+  let mask: Item["mask"];
   if (el.props.visible === false) inner = [];
   // flip for lettering: mirror about the element's box (spec 5.3.4)
   if ((el.type === "text" || el.type === "sfx") && el.props.flip && inner.length) {
@@ -532,10 +534,11 @@ function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listI
     const mspec = isObj(el.props.mask) && "region" in (el.props.mask as Obj) ? (el.props.mask as Obj).region : el.props.mask;
     const reg = resolveRegion(mspec, ctx, ctx.panel ? "panel" : "page", [...el.path, "mask"]);
     const fe = isObj(el.props.mask) && (el.props.mask as Obj).feather !== undefined ? toMm((el.props.mask as Obj).feather as string, ctx.u) : reg.feather;
+    if (fe === 0) mask = { path: reg.path, rule: reg.fillRule };
     inner = [fe > 0 ? { kind: "group", softClip: { path: reg.path, fillRule: reg.fillRule, feather: fe }, children: inner } : { kind: "group", clip: reg.path, clipRule: reg.fillRule, children: inner }];
   }
   const wrapped: Node[] = op !== undefined || blend ? [{ kind: "group", opacity: op, blend, children: inner }] : inner;
-  return { el, nodes: wrapped, bbox, z: (el.props.z as number) ?? 0, layer, source, panelIdx, listIdx, free };
+  return { el, nodes: wrapped, bbox, z: (el.props.z as number) ?? 0, layer, source, panelIdx, listIdx, free, mask };
 }
 
 /** whether a box runs past a side of the panel that lies on the boundary of the panel area */
@@ -1543,7 +1546,24 @@ function checkPanelOcclusion(items: Item[], panels: { pg: PanelGeom; clipped: It
   const ring = (pts: Vec[]): polygonClipping.Polygon => [pts.map(({ x, y }) => [x, y])];
   const contour = (pg: PanelGeom) => ring(flattenPath(panelClip(pg, panelShapePoly(pg, geom)), 0.05)[0].pts);
   const lettering = (item: Item) => item.lettering?.length ? item.lettering.map(({ el, bbox }) => ({ ...item, el, bbox })) : [item];
-  const underneath: { item: Item; area: polygonClipping.MultiPolygon }[] = items.filter((it) => it.stackUnder).flatMap(lettering).map((item) => ({ item, area: [ring(rectPts(item.bbox))] }));
+  const pathArea = (path: import("../geom/path.js").PathData, rule: "nonzero" | "evenodd"): polygonClipping.MultiPolygon => {
+    const contours = flattenPath(path, 0.05).filter((p) => p.pts.length >= 3).map((p) => ring(p.pts));
+    if (!contours.length) return [];
+    if (rule === "evenodd") return polygonClipping.xor(contours[0], ...contours.slice(1));
+    const signedArea = (p: polygonClipping.Polygon) => polygonArea(p[0].map(([x, y]) => ({ x, y })));
+    contours.sort((a, b) => Math.abs(signedArea(b)) - Math.abs(signedArea(a)));
+    const sign = Math.sign(signedArea(contours[0]));
+    let area: polygonClipping.MultiPolygon = [];
+    for (const poly of contours) area = Math.sign(signedArea(poly)) === sign ? polygonClipping.union(area, poly) : polygonClipping.difference(area, poly);
+    return area;
+  };
+  const visibleArea = (item: Item) => {
+    let area: polygonClipping.MultiPolygon = [ring(rectPts(item.bbox))];
+    if (item.mask) area = polygonClipping.intersection(area, pathArea(item.mask.path, item.mask.rule));
+    if (item.openClip) area = polygonClipping.intersection(area, pathArea(item.openClip, "nonzero"));
+    return area;
+  };
+  const underneath: { item: Item; area: polygonClipping.MultiPolygon }[] = items.filter((it) => it.stackUnder).flatMap(lettering).map((item) => ({ item, area: visibleArea(item) }));
   for (const { pg, clipped } of panels) {
     if (pg.panel.props.visible === false) continue;
     const poly = contour(pg);
@@ -1556,7 +1576,7 @@ function checkPanelOcclusion(items: Item[], panels: { pg: PanelGeom; clipped: It
       }, 0), 0);
       if (size > 1) bag.warn("TEXT_OCCLUDED_BY_PANEL", `${item.el.id} is covered by panel ${pg.panel.id}`, { path: item.el.path, elementId: item.el.id, pageId: page.id });
     }
-    for (const item of clipped.flatMap(lettering)) underneath.push({ item, area: polygonClipping.intersection(ring(rectPts(item.bbox)), poly) });
+    for (const item of clipped.flatMap(lettering)) underneath.push({ item, area: polygonClipping.intersection(visibleArea(item), poly) });
   }
 }
 

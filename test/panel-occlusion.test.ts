@@ -25,6 +25,19 @@ const warnings = async (doc: ReturnType<typeof input>) => {
 };
 
 describe("panel occlusion", () => {
+  it("ignores overlap removed by an element mask", async () => {
+    const atEdge = sfx.replace("60mm, 60mm", "40mm, 60mm");
+    expect(await warnings(input(atEdge))).toHaveLength(1);
+    const masked = atEdge.replace("clip: panel", "clip: panel, mask: { rect: [0mm, 0mm, 39mm, 200mm] }");
+    expect(await warnings(input(masked))).toEqual([]);
+  });
+  it("honors page underlay clip targets", async () => {
+    const doc = input(sfx.replace("clip: panel", "stack: under, clip: { to: [inset] }"), "base", "", true);
+    const result = await warnings(doc);
+    expect(result).toHaveLength(2);
+    const outside = input(sfx.replace("clip: panel", "stack: under, clip: { to: [inset] }").replace("60mm, 60mm", "130mm, 150mm"), "base", "", true);
+    expect(await warnings(outside)).toEqual([]);
+  });
   it("checks lettering in nested transformed groups", async () => {
     const group = `{ type: group, id: outer, size: [100mm, 100mm], at: [50mm, 50mm], anchor: top-left, clip: panel, children: [{ type: group, children: [${sfx.replace("60mm, 60mm", "10mm, 10mm")}] }] }`;
     expect(await warnings(input(group))).toEqual([expect.objectContaining({ elementId: "sound" })]);
