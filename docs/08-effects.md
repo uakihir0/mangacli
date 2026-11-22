@@ -487,7 +487,7 @@ paint: { pattern: { asset: flower-tone, scale: 0.5, rotate: 15deg, offset: [0, 0
 | 決めゴマ | 断ち切りのコマ + `focus-lines`（`passes` で 2 重）+ `sfx` |
 | 走る・飛ぶ | `speed-lines`（`clear` で人物を避ける）+ `mark: motion` + `sfx`（`distort.skew`） |
 | 恋・ときめき | `uni-flash` + `scatter`（`sparkle`、花の素材）+ `tone-gradient` の背景 |
-| 回想 | ページの `background: black` + `vignette` + `filters: [sepia]`（カラー）または `tone(10%)` + `as: monologue` |
+| 回想 | ページまたはコマの `mood: flashback`（余白・間白が黒）。`as: narration` は黒地・白文字。必要なら `flashbackBorder: white`。カラーの絵には `filters: [sepia]` も使える（[作例](examples/flashback.yaml)） |
 | 心の声 | `as: think`（雲）または `as: shock`（フラッシュ） |
 | 打撃 | `speed-lines`（中心へ向ける場合は `focus-lines`）+ `sfx`（`grow`） |
 

@@ -12,6 +12,7 @@ English | [日本語](README.ja.md)
 | [color-page.yaml](color-page.yaml) | A one-page color B5 manga: gradient grounds, multiplied backgrounds, SFX on a wave path, colored focus lines and uni flash, blush marks | P0 and P1 |
 | [gallery-balloons.yaml](gallery-balloons.yaml) | Every built-in balloon style (`as`) on one page | P0 and P1 |
 | [gallery-effects.yaml](gallery-effects.yaml) | Effects, tones, marks, and SFX lettering on one page | P0 and P1 |
+| [gallery-sfx.yaml](gallery-sfx.yaml) | SFX defaults, scale ramps, overlap, paths, and Mochiy Pop One | P1 |
 | [en-comic.yaml](en-comic.yaml) | An English page (`lang: en`): left-to-right reading, horizontal balloons in all caps with the `comic-basic` font set, balanced lines | P0 and P1 |
 | [full-page-art.yaml](full-page-art.yaml) | A full-bleed storm illustration seen through gutters and a frameless panel, with white knockouts around inset panels ([render](../images/full-page-art.png)) | P1 |
 

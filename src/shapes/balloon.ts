@@ -13,6 +13,8 @@ export interface ShapeParams {
   tilt: number; // radians (resolved)
   squareness?: number;
   compactCore?: boolean;
+  unitScale?: number;
+  spikeScale?: number;
   egg?: number;
   radius?: number; // mm (round-rect/rect)
   lobes?: number | "auto";
@@ -46,6 +48,8 @@ export interface BodyGeom {
   smooth: boolean;
   /** ruler default for this shape */
   ruler: boolean;
+  spikeLength?: number;
+  spikeCore?: Vec[];
 }
 
 const TAU = Math.PI * 2;
@@ -252,18 +256,34 @@ function spiky(w: number, h: number, p: ShapeParams, seed: number, burst: boolea
   const a = w / 2;
   const b = h / 2;
   const base = organicEllipse(a, b, { ...p, squareness: p.compactCore ? 0.6 : 0.05, egg: p.egg ?? 0.03 }, rng);
-  const per = ellipsePerimeter(a, b);
-  const pitch = burst ? 6.5 : 5;
+  const scale = p.unitScale ?? 1;
+  const guide = sampleRadial(base, 256, 0);
+  const lengths = [0];
+  for (let i = 0; i < guide.length; i++) lengths.push(lengths[i] + dist(guide[i], guide[(i + 1) % guide.length]));
+  const per = lengths[lengths.length - 1];
+  const pitch = (burst ? 6.5 : 5) * scale;
   const n = p.count === undefined || p.count === "auto" ? Math.max(burst ? 8 : 10, Math.round(per / pitch)) : Math.max(5, Math.round(p.count));
-  const dep: [number, number] = Array.isArray(p.depth) ? p.depth : typeof p.depth === "number" ? [p.depth * 0.8, p.depth * 1.2] : burst ? [0.2, 0.6] : [0.12, 0.3];
-  const jit = p.angleJitter ?? (burst ? 0.7 : 0.65);
-  const curve = p.curve ?? (burst ? 0.35 : 0.5);
-  const step = TAU / n;
+  const dep: [number, number] = Array.isArray(p.depth) ? p.depth : typeof p.depth === "number" ? [p.depth * 0.8, p.depth * 1.2] : [0.9, 1.1];
+  const depthMm = p.depth === undefined ? (burst ? 5 : 3) * scale * (p.spikeScale ?? 1) : (a + b) / 2;
+  const jit = p.angleJitter ?? (burst ? 0.2 : 0.15);
+  const curve = p.curve ?? (burst ? 0.05 : 0.1);
+  const step = per / n;
   const phase = rng.range(0, step);
-  const accentOffset = Math.floor(rng.range(0, 5));
-  const tipAng: number[] = [];
-  for (let i = 0; i < n; i++) tipAng.push(phase + i * step + rng.range(-jit / 2, jit / 2) * step);
-  const Rm = (a + b) / 2;
+  const tipArc: number[] = [];
+  for (let i = 0; i < n; i++) tipArc.push(phase + i * step + rng.range(-jit / 2, jit / 2) * step);
+  const angleAt = (s: number) => {
+    s = ((s % per) + per) % per;
+    let lo = 0;
+    let hi = guide.length;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (lengths[mid] <= s) lo = mid;
+      else hi = mid;
+    }
+    return (lo + (s - lengths[lo]) / (lengths[lo + 1] - lengths[lo])) / guide.length * TAU;
+  };
+  const coreAt = (t: number) => ({ x: Math.cos(t) * base(t), y: Math.sin(t) * base(t) });
+  const pointAt = (s: number) => coreAt(angleAt(s));
   const pts: Vec[] = [];
   const corners: Corner[] = [];
   const valleys: Vec[] = [];
@@ -274,22 +294,22 @@ function spiky(w: number, h: number, p: ShapeParams, seed: number, burst: boolea
       pts.push({ x: u * u * A.x + 2 * u * t * C.x + t * t * B.x, y: u * u * A.y + 2 * u * t * C.y + t * t * B.y });
     }
   };
-  const valleyAt = (ang: number) => {
-    const r = base(ang) * (1 + rng.range(-0.03, 0.03));
-    return { x: Math.cos(ang) * r, y: Math.sin(ang) * r };
-  };
-  let prevValley = valleyAt((tipAng[n - 1] - TAU + tipAng[0]) / 2);
+  let prevValley = pointAt((tipArc[n - 1] - per + tipArc[0]) / 2);
   const firstValley = prevValley;
+  let totalDepth = 0;
   for (let i = 0; i < n; i++) {
-    const ta = tipAng[i];
-    const nextA = i + 1 < n ? tipAng[i + 1] : tipAng[0] + TAU;
-    const nextValley = i + 1 < n ? valleyAt(ta + (nextA - ta) * rng.range(0.35, 0.65)) : firstValley;
-    let d = rng.sample(dep[0], dep[1], "uniform");
-    if (p.depth === undefined && (i + accentOffset) % 5 === 0) d = rng.range(burst ? 0.58 : 0.42, burst ? 0.7 : 0.55);
-    else if (burst && p.secondary !== false && rng.chance(0.3)) d = rng.range(0.07, 0.14);
-    else if (burst && rng.chance(0.25)) d *= 1.3;
-    const rb = base(ta);
-    const tip = { x: Math.cos(ta) * (rb + Rm * d), y: Math.sin(ta) * (rb + Rm * d) };
+    const ta = angleAt(tipArc[i]);
+    const nextA = i + 1 < n ? tipArc[i + 1] : tipArc[0] + per;
+    const nextValley = i + 1 < n ? pointAt((tipArc[i] + nextA) / 2 + rng.range(-0.03, 0.03) * step) : firstValley;
+    let d = rng.sample(dep[0], dep[1], "uniform") * depthMm;
+    if (burst && p.secondary === true && rng.chance(0.3)) d = rng.range(0.07, 0.14) * (p.depth === undefined ? depthMm / 0.4 : depthMm);
+    totalDepth += d;
+    const root = coreAt(ta);
+    const prev = coreAt(ta - 0.0001);
+    const next = coreAt(ta + 0.0001);
+    const normal = { x: next.y - prev.y, y: prev.x - next.x };
+    const nl = Math.hypot(normal.x, normal.y) || 1;
+    const tip = { x: root.x + normal.x / nl * d, y: root.y + normal.y / nl * d };
     // edge valley->tip
     corners.push({ index: pts.length, kind: "valley" });
     pts.push(prevValley);
@@ -304,7 +324,7 @@ function spiky(w: number, h: number, p: ShapeParams, seed: number, burst: boolea
   }
   const tilted = pts.map((q) => rot(q, p.tilt));
   const inner = shrinkTo(valleys, 0.98).map((q) => rot(q, p.tilt));
-  return { contour: { pts: tilted, closed: true, corners }, inner, kind: burst ? "burst" : "spike", smooth: false, ruler: false };
+  return { contour: { pts: tilted, closed: true, corners }, inner, kind: burst ? "burst" : "spike", smooth: false, ruler: false, spikeLength: totalDepth / n, spikeCore: guide.map(q => rot(q, p.tilt)) };
 }
 
 function edgeCtrl(A: Vec, B: Vec, curve: number): Vec {

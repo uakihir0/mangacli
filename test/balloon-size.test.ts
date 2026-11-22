@@ -72,6 +72,13 @@ async function plan(text: string, writing = "vertical", props: Record<string, un
 }
 
 describe("balloon text extent sizing", () => {
+  it.each(["shout", "scream"])("keeps fixed-size %s physical spikes inside the requested dimensions", async (as) => {
+    for (const [w, h] of [[19, 30], [30, 19], [8, 8]]) {
+      const p = await plan("", "vertical", { as, size: [`${w}mm`, `${h}mm`], tail: { kind: "none" } });
+      expect(p.outer.w).toBeLessThanOrEqual(w + 1e-6);
+      expect(p.outer.h).toBeLessThanOrEqual(h + 1e-6);
+    }
+  });
   it("defaults tremble to irregular waves while honoring explicit waveforms", async () => {
     expect((await plan("ふるえる声", "vertical", { as: "tremble" })).params.waveform).toBe("irregular");
     const regular = await plan("ふるえる声", "vertical", { as: "tremble", shape: { kind: "wavy", waveform: "sine" } });

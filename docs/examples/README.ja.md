@@ -12,6 +12,7 @@
 | [color-page.yaml](color-page.yaml) | B5 のカラー 1 ページ。グラデーションの地、背景の乗算、波に沿った描き文字、色付きの集中線・ウニフラッシュ、照れの漫符 | P0・P1 |
 | [gallery-balloons.yaml](gallery-balloons.yaml) | 組み込みの吹き出しのスタイル（`as`）の一覧 | P0・P1 |
 | [gallery-effects.yaml](gallery-effects.yaml) | 効果・トーン・漫符・描き文字の一覧 | P0・P1 |
+| [gallery-sfx.yaml](gallery-sfx.yaml) | 描き文字の既定・サイズ推移・重なり・経路・Mochiy Pop One | P1 |
 | [en-comic.yaml](en-comic.yaml) | 英語のページ（`lang: en`）。左から右へ読む順、`comic-basic` フォントセットの大文字の横書きの吹き出し、行の均等化 | P0・P1 |
 | [full-page-art.yaml](full-page-art.yaml) | 間白や枠なしゴマから塗り足しまでの絵が見えるぶち抜きゴマ。小ゴマに白い抜き縁を付ける（[出力画像](../images/full-page-art.png)） | P1 |
 

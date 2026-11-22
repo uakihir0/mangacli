@@ -53,6 +53,7 @@ export interface LetteringSpec {
 
 export interface GlyphOut {
   path: PathData;
+  char: string;
   color?: string;
   unit: number;
   bold?: boolean;
@@ -92,7 +93,7 @@ interface Box {
   punctCompressed?: boolean;
   size: number; // em size mm
   orient: Orient;
-  glyphs: { gid: number; font: LoadedFont; m: Matrix; path?: PathData }[]; // matrix relative to box origin: vertical => (col center, box top); horizontal => (box left, baseline)
+  glyphs: { gid: number; font: LoadedFont; m: Matrix; path?: PathData; char?: string }[]; // matrix relative to box origin: vertical => (col center, box top); horizontal => (box left, baseline)
   breakBefore?: "forced";
   wbrBefore?: boolean;
   space?: boolean;
@@ -309,7 +310,7 @@ function emitBox(b: Box, ox: number, oy: number, _vertical: boolean, out: GlyphO
       const jit: Matrix = matMul(matTranslate(cx + dx, cy + dy), matMul(matRotate(r), matMul(matScale(s), matTranslate(-cx, -cy))));
       m = matMul(jit, m);
     }
-    out.push({ path: g.path ? transformPath(g.path, m) : pathFromJson(glyphJson(g.font, g.gid), m), color: b.color, unit: b.units[0] ?? 0, bold: b.bold, cx, cy });
+    out.push({ path: g.path ? transformPath(g.path, m) : pathFromJson(glyphJson(g.font, g.gid), m), char: g.char ?? b.chars, color: b.color, unit: b.units[0] ?? 0, bold: b.bold, cx, cy });
   }
 }
 
@@ -713,7 +714,7 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
       // horizontal local: x along, y baseline -> place centered in column (x=0) and em cell
       const hx = (xs[k] + gl.xOffset * s - W / 2) * sx;
       const m: Matrix = [s * sx, 0, 0, -s, hx, size0 / 2 - center - gl.yOffset * s];
-      box.glyphs.push({ gid: gl.gid, font: f, m });
+      box.glyphs.push({ gid: gl.gid, font: f, m, char: seg[charOfCluster(gl.cluster)] });
     });
     boxes.push(box);
     return;
@@ -735,7 +736,7 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
         // horizontal glyph matrix H = [s,0,0,-s,hx,-yOff*s - center]; rotate cw: (X,Y) = (-y, x)
         const H: Matrix = [s, 0, 0, -s, hx, -gl.yOffset * s - center];
         const R: Matrix = [0, 1, -1, 0, 0, 0];
-        box.glyphs.push({ gid: gl.gid, font: f, m: matMul(R, H) });
+        box.glyphs.push({ gid: gl.gid, font: f, m: matMul(R, H), char: seg[charOfCluster(gl.cluster)] });
         box.adv += gl.xAdvance * s;
       }
       if (box.adv === 0) box.adv = size * 0.3;
@@ -965,7 +966,7 @@ function placeRuby(parsed: ParsedText, boxes: Box[], glyphs: GlyphOut[], style: 
             for (const gl of g) {
               let m: Matrix = [s, 0, 0, -s, x + gl.xOffset * s, y - (gl.yOffset + pk.font.vOriginFix) * s + pen];
               if (WAVE_DASHES.has(c) && g.length === 1) m = verticalWaveMatrix(pk.font, gl.gid, m, x, y + rsize / 2);
-              glyphs.push({ path: pathFromJson(glyphJson(pk.font, gl.gid), m), unit: sg.boxes[0].units[0], cx: x, cy: y });
+              glyphs.push({ path: pathFromJson(glyphJson(pk.font, gl.gid), m), char: c, unit: sg.boxes[0].units[0], cx: x, cy: y });
               pen += -gl.yAdvance * s;
             }
           }
@@ -984,7 +985,8 @@ function placeRuby(parsed: ParsedText, boxes: Box[], glyphs: GlyphOut[], style: 
         const y = style.ruby.position === "under" ? first[1] + sg.boxes[0].size * 0.12 + rsize * 0.88 : first[1] - sg.boxes[0].size * 0.95;
         for (const gl of g) {
           const m: Matrix = [s, 0, 0, -s, x + gl.xOffset * s, y - gl.yOffset * s];
-          glyphs.push({ path: pathFromJson(glyphJson(pk0.font, gl.gid), m), unit: sg.boxes[0].units[0], cx: x, cy: y });
+          const char = String.fromCodePoint(sg.text.codePointAt(gl.cluster)!);
+          glyphs.push({ path: pathFromJson(glyphJson(pk0.font, gl.gid), m), char, unit: sg.boxes[0].units[0], cx: x, cy: y });
           x += gl.xAdvance * s;
         }
       }
@@ -1020,7 +1022,7 @@ function placeEmphasis(boxes: Box[], glyphs: GlyphOut[], style: TextStyle, reg: 
     const ty = vertical ? b._pos[1] + b.adv / 2 : pos === "under" ? b._pos[1] + b.size * 0.12 + size * 0.6 : b._pos[1] - b.size * 0.88 - size * 0.5;
     const dx = tx - (bb.x + bb.w / 2);
     const dy = ty - (bb.y + bb.h / 2);
-    glyphs.push({ path: pathFromJson(glyphJson(pk.font, g.gid), [s, 0, 0, -s, dx, dy]), unit: b.units[0], cx: tx, cy: ty, color: style.emphasis.color ?? b.color });
+    glyphs.push({ path: pathFromJson(glyphJson(pk.font, g.gid), [s, 0, 0, -s, dx, dy]), char: ch, unit: b.units[0], cx: tx, cy: ty, color: style.emphasis.color ?? b.color });
   }
 }
 
