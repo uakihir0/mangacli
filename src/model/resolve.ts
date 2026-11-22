@@ -315,6 +315,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       delete own.dialogue;
       delete own.defaults;
       pprops = merge(pprops, own, BUILTIN_DEFAULTS.panel);
+      pprops.__explicitBackground = pn.background !== undefined || levels.some((lv) => isObj(lv.d.panel) && lv.d.panel.background !== undefined);
       const counters: Record<string, number> = {};
       const els = ((pn.layers ?? []) as Obj[]).map((e, i) => resolveEl(e, ["pages", pi, "panels", ki, "layers", i], pid, counters, levels, pSeed));
       ((pn.dialogue ?? []) as Obj[]).forEach((d, di) => {

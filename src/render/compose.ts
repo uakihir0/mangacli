@@ -156,6 +156,35 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   };
   for (const pg of drawOrder) await layoutGroup(pg.panel.elements, baseCtx(pg), drawOrder.indexOf(pg), 0);
   await layoutGroup(page.layers, baseCtx(), 0, 1);
+  for (const pg of panels) {
+    const eligible = (el: RElement) => {
+      if (el.props.visible === false || el.props.opacity === 0) return false;
+      const clip = el.props.clip;
+      return !isObj(clip) || !Array.isArray(clip.to) || clip.to.includes(pg.panel.id);
+    };
+    const layers = [...pg.panel.elements, ...page.layers].filter(eligible);
+    const images = layers.filter((el) => el.type === "image" && refs.get(el.id)?.imagePx);
+    if (!images.length) continue;
+    // Only an explicit panel background counts, not the implicit paper canvas.
+    if (pg.panel.props.__explicitBackground && parsePaint(pg.panel.props.background, { u, box: pg.box, seed: pg.panel.seed })) continue;
+    const shapes = images.map((el) => refs.get(el.id)!.shape!).filter((shape) => shape?.length >= 3);
+    const fills = layers.filter((el) => el.type === "fill" && (el.props.opacity === undefined || el.props.opacity === 1) && (el.props.clip === undefined || el.props.clip === "panel" || el.props.clip === "none") && el.props.mask === undefined && (el.props.edge === undefined || el.props.edge === "clean") && parsePaint(el.props.paint ?? "black", { u, box: pg.box, seed: el.seed })).map((el) => resolveRegion(el.props.region, { ...baseCtx(pg), coordsBox: coordsFor(el, baseCtx(pg), geom) }, "panel", [...el.path, "region"])).filter((reg) => !reg.feather && !reg.alphaOf);
+    const shape = panelShapePoly(pg, geom);
+    const poly = shape === pg.polygon ? shape : flattenPath(smoothPath(shape, true), 0.02)[0].pts;
+    const box = boundsOf(poly);
+    let interior = 0;
+    let uncovered = 0;
+    for (let y = 0; y < 100; y++) for (let x = 0; x < 100; x++) {
+      const p = { x: box.x + (x + 0.5) * box.w / 100, y: box.y + (y + 0.5) * box.h / 100 };
+      if (!pointInPolygon(p, poly)) continue;
+      interior++;
+      if (!shapes.some((s) => pointInPolygon(p, s)) && !fills.some((reg) => reg.contains(p))) uncovered++;
+    }
+    if (interior && uncovered / interior > 0.05) {
+      const hint = "Drop size / use fit: cover with focus so the art fills the frame.";
+      bag.warn("ART_LEAVES_VOID", `panel ${pg.panel.id}: ${(100 * uncovered / interior).toFixed(1)}% uncovered. ${hint}`, { elementId: pg.panel.id, pageId: page.id, path: pg.panel.path, hint });
+    }
+  }
   for (const el of [...page.layers, ...panels.flatMap((pg) => pg.panel.elements)]) {
     if (el.type !== "image") continue;
     const target = refs.get(el.id);
