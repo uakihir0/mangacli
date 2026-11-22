@@ -1,6 +1,6 @@
 export const MONO_BAND_PIXELS = 4_000_000;
 export const DEFAULT_OUTPUT_BYTES = 384 * 1024 * 1024;
-export const DEFAULT_PRINT_SPREAD_OUTPUT_BYTES = 4 * 1024 * 1024 * 1024;
+export const DEFAULT_PRINT_OUTPUT_BYTES = 4 * 1024 * 1024 * 1024;
 
 export interface MonoRaster {
   data: Uint8ClampedArray;

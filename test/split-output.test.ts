@@ -159,6 +159,34 @@ pages:
       expect(normal.pages).toHaveLength(2);
     } finally { raster.mockRestore(); }
   });
+  it("allows a full-page image at the print-mono default dpi without raising non-print or explicit limits", async () => {
+    const art = await sharp({ create: { width: 1, height: 1, channels: 3, background: "white" } }).png().toBuffer();
+    const doc = { yaml: `mangacli: 1
+page: { size: A4 }
+pages:
+  - id: ordinary
+    layers:
+      - { image: art, size: [210mm, 297mm], at: [0mm, 0mm], anchor: top-left, fit: fill, filters: [invert] }
+` };
+    const opts = { profile: "print-mono", assets: { art }, throwOnError: false } as const;
+    const raster = vi.spyOn(RasterBackend.prototype, "renderMono").mockImplementation(async (_, { width, height }) => ({
+      width, height, data: new Uint8ClampedArray(0), packed: new Uint8Array(Math.ceil(width / 8) * height),
+    }));
+    try {
+      const diagnostic = expect.objectContaining({
+        code: "OUTPUT_TOO_LARGE", message: expect.stringMatching(/including node buffers.*\(402653184\).*--max-output-bytes/),
+      });
+      const explicit = await render(doc, { ...opts, limits: { maxOutputBytes: 384 * 1024 * 1024 } });
+      expect(explicit.diagnostics).toContainEqual(diagnostic);
+      const web = await render(doc, { ...opts, profile: "web", colorMode: "mono", dpi: 600 });
+      expect(web.diagnostics).toContainEqual(diagnostic);
+      expect(raster).not.toHaveBeenCalled();
+      const normal = await render(doc, opts);
+      expect(normal.failures).toEqual([]);
+      expect(normal.pages).toHaveLength(1);
+      expect(normal.pages[0].dpi).toBe(600);
+    } finally { raster.mockRestore(); }
+  });
   it("includes image working buffers in the mono preflight", async () => {
     const art = await sharp({ create: { width: 1, height: 1, channels: 3, background: "white" } }).png().toBuffer();
     const doc = { yaml: `mangacli: 1
