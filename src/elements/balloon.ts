@@ -17,7 +17,7 @@ import { Contour, type PluginBalloonShape, activePlugins } from "../plugin.js";
 import { type TextLayout, layoutText, parseLayoutText } from "../text/layout.js";
 import { type ElemCtx, silhouetteHit, tag } from "./context.js";
 import { fillNode, inksToNodes, polysToPath } from "./inkir.js";
-import { type GlyphRun, glyphNodes } from "./glyphs.js";
+import { type GlyphRun, glyphNodes, glyphOutlineNodes } from "./glyphs.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
 import { resolvePoint, sizeValue } from "../layout/place.js";
 
@@ -1177,8 +1177,8 @@ function textNodesFlat(plan: BalloonPlan, ctx: ElemCtx): Node[] {
   const nodes: Node[] = [];
   const outlines = Array.isArray(p.textOutline) ? (p.textOutline as Obj[]) : [];
   const ow = outlines.map((o) => ({ w: toMm(o.width as string, u), c: parseColor((o.color as string) ?? "white") ?? WHITE })).sort((a, b) => b.w - a.w);
-  for (const o of ow) nodes.push({ kind: "path", path: textNode.path, fillRule: "nonzero", paint: null, stroke: { width: o.w * 2, paint: { type: "solid", color: o.c }, join: "round" }, tag: tag(el, "text", "text") });
-  nodes.push(...glyphNodes(p.as === "aside" ? tl.glyphs.map(g => ({ ...g, bold: true })) : tl.glyphs, shift, { type: "solid", color }, tl.fontSize, tag(el, "text", "text")));
+  const runs = glyphNodes(p.as === "aside" ? tl.glyphs.map(g => ({ ...g, bold: true })) : tl.glyphs, shift, { type: "solid", color }, tl.fontSize, tag(el, "text", "text"));
+  nodes.push(...glyphOutlineNodes(ow.map(o => ({ kind: "path", path: textNode.path, fillRule: "nonzero", paint: null, stroke: { width: o.w * 2, paint: { type: "solid", color: o.c }, join: "round" }, tag: tag(el, "text", "text") })), runs), ...runs);
   return nodes;
 }
 
