@@ -23,12 +23,12 @@ export function glyphNodes(glyphs: GlyphOut[], xform: (p: PathData) => PathData,
   return out;
 }
 
-/** Outline layers precede every fill; faux-bold strokes grow by half their width. */
+/** Outline layers precede every fill; faux-bold strokes grow by half their width with round joins, so their outline is round-joined too. */
 export function glyphOutlineNodes(outlines: PathNode[], runs: PathNode[]): PathNode[] {
   if (!runs.some(r => r.stroke)) return outlines;
   return outlines.flatMap(outline => runs.map(run => ({
     ...outline,
     path: run.path,
-    stroke: { ...outline.stroke!, width: outline.stroke!.width + (run.stroke?.width ?? 0) },
+    stroke: run.stroke ? { ...outline.stroke!, width: outline.stroke!.width + run.stroke.width, join: "round" as const } : outline.stroke,
   })));
 }
