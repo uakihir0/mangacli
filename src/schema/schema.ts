@@ -1,12 +1,10 @@
 // Canonical document schema (spec 3-10). Validated after shorthand normalization.
 import { z } from "zod";
+import { LENGTH_UNITS, ANGLE_UNITS, LPI_SUFFIXES, LENGTH_PATTERN, ANGLE_PATTERN, LPI_PATTERN, unitParseError } from "../core/units.js";
 
-const LEN_RE = /^[-+]?(?:\d+(?:\.\d+)?|\.\d+)\s*(mm|cm|in|pt|px|Q|H|em|%)?(@print)?$/;
-const ANG_RE = /^[-+]?(?:\d+(?:\.\d+)?|\.\d+)\s*(deg|rad|turn)?$/;
-
-export const Length = z.union([z.number(), z.string().regex(LEN_RE, "invalid length")]).describe("Length: number or '<n><unit>' (mm, cm, in, pt, px, Q, H, em, %), optionally suffixed @print");
+export const Length = z.union([z.number(), z.string().regex(LENGTH_PATTERN, { error: (issue) => unitParseError("length", issue.input, LENGTH_UNITS) })]).describe(`Length: number or '<n><unit>' (${LENGTH_UNITS.join(", ")}), optionally suffixed @print`);
 export const LengthAuto = z.union([Length, z.literal("auto")]);
-export const Angle = z.union([z.number(), z.string().regex(ANG_RE, "invalid angle")]).describe("Angle in degrees or '<n>deg|rad|turn'");
+export const Angle = z.union([z.number(), z.string().regex(ANGLE_PATTERN, { error: (issue) => unitParseError("angle", issue.input, ANGLE_UNITS) })]).describe(`Angle in degrees or '<n>${ANGLE_UNITS.join("|")}'`);
 export const Num = z.number();
 const RangeOf = <T extends z.ZodTypeAny>(t: T) =>
   z.union([t, z.tuple([t, t]), z.object({ min: t, max: t, dist: z.enum(["uniform", "normal", "low", "high"]).optional() }).strict()]);
@@ -19,7 +17,7 @@ export const ColorStr = z.string();
 const ToneObj = z
   .object({
     density: z.union([z.number(), z.string()]).optional(),
-    lpi: z.union([z.number().positive().max(200), z.string().regex(/^(?:\d+(?:\.\d+)?|\.\d+)@print$/).refine((v) => parseFloat(v) > 0 && parseFloat(v) <= 200)]).optional(),
+    lpi: z.union([z.number().positive().max(200), z.string().regex(LPI_PATTERN, { error: (issue) => unitParseError("lpi", issue.input, LPI_SUFFIXES) }).refine((v) => parseFloat(v) > 0 && parseFloat(v) <= 200)]).optional(),
     angle: Angle.optional(),
     dot: z.enum(["round", "square", "ellipse", "line", "cross", "noise"]).optional(),
     grain: Length.optional(),

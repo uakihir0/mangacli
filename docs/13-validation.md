@@ -72,11 +72,13 @@ diagnostics:
 | `SCHEMA_SHORTHAND_CONFLICT` | E | 省略記法の種類名のキーと主要なプロパティを同時に書いた | × |
 | `SCHEMA_DEPRECATED` | W | 非推奨のキー・値を使った | ○ |
 | `TEXT_FOLDED_SCALAR` | W | 本文に折り畳みブロックスカラー（`>`）を使った | ○ |
-| `UNIT_INVALID` | E | 長さ・角度の書式が不正 | × |
+| `UNIT_INVALID` | E | 長さ・角度や印刷用 lpi の書式が不正。指定値と、その項目で使える単位をメッセージに表示する | × |
 | `UNIT_NOT_ALLOWED` | E | その場所で使えない単位（`em` など） | × |
 | `COLOR_INVALID` | E | 色の書式が不正 | × |
 | `PAINT_INVALID` | E | 塗り（トーン・グラデーション）の書式が不正 | × |
 | `REGION_INVALID` | E | 領域の指定が不正 | × |
+
+たとえば `bleed: 12bmm` は `invalid length: "12bmm"; accepted units: mm, cm, in, pt, px, Q, H, em, %` と表示する。`bmm` / `bQ` は既定値の拡縮に使う内部単位で、文書の長さには `mm` / `Q` などを使う。長さは単位なしの数値や `@print` 接尾辞にも対応する。角度で使える単位は `deg, rad, turn`、印刷用 lpi の接尾辞は `@print`。
 
 ### 13.5.2 意味
 
