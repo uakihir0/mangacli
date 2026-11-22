@@ -115,6 +115,30 @@ describe("panel balloon containment geometry", () => {
 
 describe("contained balloon composition", () => {
   const renderer = createRenderer({ profile: "preview", dpi: 72 });
+  it("keeps the frame overlay outside panel inversion", async () => {
+    const list = await renderer.displayList({ yaml: `mangacli: 1
+page: { size: [100mm, 100mm], bleed: 0mm }
+pages:
+  - panels:
+      - invert: true
+        border: { width: 2mm }
+        layers:
+          - { balloon: 台詞, at: [0%, 50%], size: [30mm, 30mm], tail: none }
+` }, 1);
+    let frames = 0;
+    function check(n: Node, inverted = false): void {
+      if (n.kind === "group") {
+        const filtered = inverted || !!n.filters?.some(f => f.name === "invert");
+        for (const child of n.children) check(child, filtered);
+      }
+      if (n.tag?.role === "frame") {
+        frames++;
+        expect(inverted).toBe(false);
+      }
+    }
+    check(list.root);
+    expect(frames).toBeGreaterThan(4);
+  });
   it.each(["flow", "auto"])("keeps %s balloons separated after slanted-panel containment", async mode => {
     const list = await renderer.displayList({ yaml: `mangacli: 1
 page: { size: [120mm, 120mm], bleed: 0mm }

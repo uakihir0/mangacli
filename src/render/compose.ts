@@ -383,7 +383,6 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       if (it.free && contained) {
         const poly = panelShapePoly(pg, geom);
         it.openClip = panelClip(pg, poly);
-        it.nodes.push(...borderNodes(pg, poly, poly !== pg.polygon, geom, bag));
       } else if (it.free && el.type === "balloon" && el.props.clip === "auto" && crossesOuterEdge(pg, it.bbox, u.k)) it.free = false;
       if (it.free) {
         if (isObj(el.props.clip) && !Array.isArray(el.props.clip.to)) it.openClip = openClipPath(pg, el.props.clip as Obj, geom, u);
@@ -494,6 +493,10 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     if (pg) nodes = compositeNodes(nodes, pg.panel.props, bag, pg.panel.path);
     if (nodes !== it.nodes) {
       for (const clip of it.filterClips ?? []) nodes = [{ kind: "group", clip, clipRule: "nonzero", children: nodes }];
+    }
+    if (pg && containsBalloon(it.el, baseCtx(pg))) {
+      const poly = panelShapePoly(pg, geom);
+      nodes = [...nodes, ...borderNodes(pg, poly, poly !== pg.polygon, geom, bag)];
     }
     if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.el.type === "balloon" ? cleanClippedBalloonInk(it.openClip)(nodes) : nodes, tag: pg && containsBalloon(it.el, baseCtx(pg)) ? { elementId: pg.panel.id, elementType: "panel", role: "art", separation: "art" } : undefined });
     else root.children.push(...nodes);
