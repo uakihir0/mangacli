@@ -163,6 +163,8 @@ diagnostics:
 | `BALLOON_TAIL_UNSUPPORTED` | W | 形状が対応しないしっぽの種類 | ○ |
 | `BALLOON_CONNECT_DISJOINT` | W | `overlap` で連結した本体が重ならない | ○ |
 | `BALLOON_TEXT_HIDDEN` | W | 他の吹き出しで本文が隠れる | ○ |
+| `BALLOON_OVERLAP` | W | 連結していない吹き出しの本体の外接矩形が重なる | ○ |
+| `BALLOON_READING_ORDER` | W | 後の吹き出しが位置から明らかに先に読まれる | ○ |
 | `BALLOON_ORDER_MISMATCH` | I | リストの順と位置から推定した読み順が違う | ○ |
 | `DIALOGUE_SPEAKER_NOT_IN_PANEL` | I | 話者の画像が同じコマにない | ○ |
 | `EFFECT_TOO_MANY_LINES` | E | 効果の線の本数が上限を超える | × |

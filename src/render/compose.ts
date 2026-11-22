@@ -184,6 +184,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   }
 
   // phase B: balloons plans, text, sfx, effects, fills, marks, draw
+  const pageBalloons: { plan: BalloonPlan; panel?: string; order: number; idx: number }[] = [];
   const renderOthers = async (els: RElement[], ctx: ElemCtx, panelIdx: number, source: number) => {
     const plans: { plan: BalloonPlan; idx: number }[] = [];
     const balloonIds = new Set(els.filter((e) => e.type === "balloon").map((e) => e.id));
@@ -263,6 +264,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       linkedIds.add(a.el.id);
       linkedIds.add(b.el.id);
     }
+    pageBalloons.push(...plans.map(({ plan, idx }) => ({ plan, idx, panel: ctx.panel?.panel.id, order: ctx.panel?.order ?? panels.length })));
     const consumed = new Set<string>();
     const byId = new Map(plans.map((x) => [x.plan.el.id, x]));
     for (const { plan, idx } of plans) {
@@ -311,6 +313,44 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   };
   for (const pg of drawOrder) await renderOthers(pg.panel.elements, baseCtx(pg), drawOrder.indexOf(pg), 0);
   await renderOthers(page.layers, baseCtx(), 0, 1);
+  const linkedBalloons = new Set<string>();
+  for (const { plan } of pageBalloons) {
+    const cn = plan.props.connect;
+    for (const c of (Array.isArray(cn) ? cn : cn ? [cn] : []) as Obj[]) {
+      linkedBalloons.add(plan.el.id);
+      linkedBalloons.add(String(c.to));
+    }
+  }
+  const bodies = pageBalloons
+    .filter(({ plan }) => plan.center && !linkedBalloons.has(plan.el.id) && plan.props.as !== "aside" && plan.props.shape !== "none" && (!isObj(plan.props.shape) || plan.props.shape.kind !== "none"))
+    .sort((a, b) => a.order - b.order || a.idx - b.idx)
+    .map((balloon) => {
+      const { plan } = balloon;
+      const angle = plan.props.rotate !== undefined ? parseAngle(plan.props.rotate as string) : 0;
+      const cr = Math.cos(angle);
+      const sr = Math.sin(angle);
+      const bounds = boundsOf(plan.body.contour.pts.map((q) => ({ x: q.x * cr - q.y * sr + plan.center!.x, y: q.x * sr + q.y * cr + plan.center!.y })));
+      return { ...balloon, bounds };
+    });
+  const tolerance = 1 * u.k;
+  for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) {
+    const a = bodies[i];
+    const b = bodies[j];
+    const ar = a.bounds;
+    const br = b.bounds;
+    const overlap = Math.min(ar.x + ar.w, br.x + br.w) - Math.max(ar.x, br.x) > tolerance && Math.min(ar.y + ar.h, br.y + br.h) - Math.max(ar.y, br.y) > tolerance;
+    const where = (v: typeof a) => `${v.plan.el.id} (panel ${v.panel ?? "page"})`;
+    const at = { path: b.plan.el.path, elementId: b.plan.el.id };
+    if (overlap) bag.warn("BALLOON_OVERLAP", `balloon bodies ${where(a)} and ${where(b)} overlap`, at);
+    const ac = center(ar);
+    const bc = center(br);
+    const ahead = geom.rtl ? bc.x - ac.x : ac.x - bc.x;
+    const higher = ac.y - bc.y;
+    // Separate panels already have their own reading order; compare across them only at overlaps.
+    if ((overlap || a.panel === b.panel) && ((higher > tolerance && ahead >= 0) || (overlap && ahead > tolerance && higher >= 0))) {
+      bag.warn("BALLOON_READING_ORDER", `balloon ${where(b)} reads before earlier balloon ${where(a)} by its position`, at);
+    }
+  }
 
   // collect items
   for (const pg of drawOrder) {
