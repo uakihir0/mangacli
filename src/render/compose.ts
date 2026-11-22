@@ -1080,7 +1080,7 @@ async function silhouettes(refs: RefRegistry, ctx: ElemCtx): Promise<Silhouette[
   const out: Silhouette[] = [];
   const pid = ctx.panel?.panel.id;
   for (const t of refs.all()) {
-    if (t.type !== "image" || !t.imagePx || (pid && t.panelId !== pid) || !t.character) continue;
+    if (t.type !== "image" || !t.imagePx || (pid && t.panelId !== pid) || (!t.character && !Object.keys(t.speakers ?? {}).length)) continue;
     const s = await imageSilhouette(t, ctx);
     if (s) out.push(s);
   }
@@ -1088,7 +1088,7 @@ async function silhouettes(refs: RefRegistry, ctx: ElemCtx): Promise<Silhouette[
 }
 
 async function imageSilhouette(t: RefTarget, ctx: ElemCtx): Promise<Silhouette | undefined> {
-  if (!t.imagePx || !t.character) return;
+  if (!t.imagePx || (!t.character && !Object.keys(t.speakers ?? {}).length)) return;
   const { w, h, matrix, assetKey } = t.imagePx;
   const gh = 64;
   const gw = Math.max(8, Math.round((gh * w) / h));
@@ -1131,7 +1131,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   }
   const pid = ctx.panel?.panel.id;
   const hard: Rect[] = [];
-  for (const t of refs.all()) {
+  for (const t of refs.allSpeakers()) {
     if (t.type !== "image" || (pid && t.panelId !== undefined && t.panelId !== pid)) continue;
     // faces are roughly elliptical: the corners of the face box are free space
     for (const [k, rg] of Object.entries(t.regions)) if ((k === "face" || k === "avoid") && rectIntersect(rg.bbox, panelBox)) obstacles.push({ r: rg.bbox, w: 60, ellipse: k === "face" });

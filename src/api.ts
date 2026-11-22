@@ -263,6 +263,23 @@ function validateSchema(doc: Obj, bag: DiagnosticBag) {
     for (const kind of ["anchors", "regions"] as const)
       for (const k of Object.keys(isObj(a?.[kind]) ? (a[kind] as Obj) : {})) if (k in KEYWORDS) bag.error("ID_RESERVED", `"${k}" is a position keyword and cannot name an asset ${kind.slice(0, -1)}`, { path: ["assets", an, kind, k] });
   }
+  const checkSpeakers = (value: unknown, path: (string | number)[]) => {
+    if (Array.isArray(value)) value.forEach((v, i) => checkSpeakers(v, [...path, i]));
+    else if (isObj(value)) {
+      if (isObj(value.characters) && (path[0] === "assets" || path[0] === "pages")) {
+        for (const [name, data] of Object.entries(value.characters)) {
+          if (name in KEYWORDS) bag.error("ID_RESERVED", `"${name}" is a position keyword and cannot name a speaker`, { path: [...path, "characters", name] });
+          if (isObj(data)) for (const kind of ["anchors", "regions"]) {
+            for (const key of Object.keys(isObj(data[kind]) ? data[kind] : {})) {
+              if (key in KEYWORDS) bag.error("ID_RESERVED", `"${key}" is a position keyword and cannot name an image ${kind.slice(0, -1)}`, { path: [...path, "characters", name, kind, key] });
+            }
+          }
+        }
+      }
+      for (const [key, v] of Object.entries(value)) checkSpeakers(v, [...path, key]);
+    }
+  };
+  checkSpeakers(doc, []);
   const r = Document.safeParse(doc);
   if (r.success) return;
   for (const iss of r.error.issues.slice(0, 100)) {

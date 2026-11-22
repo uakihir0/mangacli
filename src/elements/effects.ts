@@ -59,7 +59,7 @@ async function resolveClears(f: FxCtx): Promise<FxCtx["clears"]> {
   const raw = f.p.clear == null ? [] : Array.isArray(f.p.clear) ? [...f.p.clear] : [f.p.clear];
   if (["focus-lines", "uni-flash", "speed-lines", "beta-flash"].includes(String(f.p.kind)) && f.p.clearFigures !== false) {
     for (const t of f.ctx.refs.all()) {
-      if (t.type === "image" && t.character && t.imagePx && (!f.ctx.panel || t.panelId === f.ctx.panel.panel.id)) {
+      if (t.type === "image" && (t.character || Object.keys(t.speakers ?? {}).length) && t.imagePx && (!f.ctx.panel || t.panelId === f.ctx.panel.panel.id)) {
         if (!raw.some((s) => isObj(s) && s.element === t.id)) raw.push({ element: t.id, mode: "alpha", automatic: true });
       }
     }
@@ -98,7 +98,7 @@ function autoCenter(f: FxCtx, p: Obj, pc: ReturnType<typeof placeCtx>): Vec | nu
   if (p.center !== undefined && p.center !== "auto") return resolvePoint(p.center, pc);
   const b = f.region.bbox;
   let best: { c: Vec; a: number } | null = null;
-  for (const t of f.ctx.refs.all()) {
+  for (const t of f.ctx.refs.allSpeakers()) {
     const face = t.regions.face?.bbox;
     if (t.type !== "image" || !t.character || !face || (f.ctx.panel && t.panelId !== f.ctx.panel.panel.id)) continue;
     const c = { x: face.x + face.w / 2, y: face.y + face.h / 2 };

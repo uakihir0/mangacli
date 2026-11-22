@@ -300,6 +300,11 @@ const CompositeFilters = {
   exclude: z.array(z.enum(["balloons", "text", "sfx", "effects", "images"])).optional(),
 };
 
+const ImageCharacters = z.record(z.string(), z.object({
+  anchors: z.record(z.string(), z.tuple([z.number(), z.number()])).optional(),
+  regions: z.record(z.string(), Rect).optional(),
+}).strict());
+
 const imageProps = {
   ...common,
   src: z.string().optional(),
@@ -308,6 +313,7 @@ const imageProps = {
   zoom: z.number().positive().optional(),
   crop: Rect.optional(),
   character: z.string().optional(),
+  characters: ImageCharacters.optional(),
   anchors: z.record(z.string(), z.tuple([z.number(), z.number()])).optional(),
   regions: z.record(z.string(), Rect).optional(),
   filters: z.array(Filter).optional(),
@@ -555,6 +561,7 @@ const Asset = z
     kind: z.enum(["art", "lineart", "background", "photo", "texture"]).optional(),
     ppi: z.number().positive().optional(),
     character: z.string().optional(),
+    characters: ImageCharacters.optional(),
     anchors: z.record(z.string(), z.tuple([z.number(), z.number()])).optional(),
     regions: z.record(z.string(), Rect).optional(),
     crop: Rect.optional(),

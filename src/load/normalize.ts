@@ -324,10 +324,12 @@ export function normalizeDocument(input: unknown, bag: DiagnosticBag): Obj {
   // a character named only by an asset (`character: taro`) is declared implicitly
   if (isObj(out.assets)) {
     for (const v of Object.values(out.assets as Obj)) {
-      const name = isObj(v) ? (v as Obj).character : undefined;
-      if (typeof name !== "string" || !name || chars.has(name)) continue;
-      chars.add(name);
-      out.characters = { ...((out.characters as Obj | undefined) ?? {}), [name]: {} };
+      if (!isObj(v)) continue;
+      for (const name of [v.character, ...Object.keys(isObj(v.characters) ? v.characters : {})]) {
+        if (typeof name !== "string" || !name || chars.has(name)) continue;
+        chars.add(name);
+        out.characters = { ...((out.characters as Obj | undefined) ?? {}), [name]: {} };
+      }
     }
   }
   if (Array.isArray(doc.pages)) {
