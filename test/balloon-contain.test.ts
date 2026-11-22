@@ -79,6 +79,20 @@ describe("panel balloon containment geometry", () => {
     expect(ctx.bag.items.map(d => d.code)).toContain("BALLOON_NO_SPACE");
     expect(p.text.plain).toBe("unabridged dialogue");
   });
+  it("does not shrink inherited auto-sized dialogue during containment", () => {
+    const ctx = context();
+    const p = plan(80, 80);
+    p.dialogueExceedsMaxSize = false;
+    const attempted: number[] = [];
+    containBalloon(p, ctx, props => {
+      const scale = props.fontScale as number;
+      attempted.push(scale);
+      return plan(scale < 1 ? 20 : 80, 20);
+    });
+    expect(new Set(attempted)).toEqual(new Set([1]));
+    expect(p.outer.w).toBe(80);
+    expect(ctx.bag.items).toContainEqual(expect.objectContaining({ code: "BALLOON_NO_SPACE", elementId: "b", message: expect.stringContaining("at the dialogue font size") }));
+  });
   it("preserves a separated position and warns when occupied space leaves no room", () => {
     const ctx = context();
     const p = plan();

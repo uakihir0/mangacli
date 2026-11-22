@@ -297,10 +297,6 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       }
     };
     placeBalloons(plans.map((p) => p.plan), ctx, refs, processed, sils, replan);
-    for (const { plan, textIndex } of plans) {
-      info.text[textIndex] = textInfo(plan.el.id, plan.text);
-      if (plan.dialogueExceedsMaxSize) ctx.bag.warn("BALLOON_TOO_LARGE", `balloon ${plan.el.id} exceeds maxSize at the dialogue font size`, { path: plan.el.path, elementId: plan.el.id });
-    }
     ctx = { ...ctx, silhouettes: sils };
     // consecutive auto-placed lines of one speaker that end up side by side are joined (one tail)
     const linkedIds = new Set<string>();
@@ -328,11 +324,11 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       linkedIds.add(b.el.id);
     }
     const occupied: Rect[] = [];
-    for (const { plan } of [...plans].sort((a, b) => Number(b.plan.explicit) - Number(a.plan.explicit))) {
+    for (const { plan, textIndex } of [...plans].sort((a, b) => Number(b.plan.explicit) - Number(a.plan.explicit))) {
       containBalloon(plan, ctx, props => replan(plan, props), plan.explicit || linkedIds.has(plan.el.id) ? [] : occupied);
       if (plan.center) occupied.push(boundsOf(bodyPolygon(plan)));
-      const i = info.text.findIndex(t => t.id === plan.el.id);
-      if (i >= 0) info.text[i] = textInfo(plan.el.id, plan.text);
+      info.text[textIndex] = textInfo(plan.el.id, plan.text);
+      if (plan.dialogueExceedsMaxSize) ctx.bag.warn("BALLOON_TOO_LARGE", `balloon ${plan.el.id} exceeds maxSize at the dialogue font size`, { path: plan.el.path, elementId: plan.el.id });
     }
     pageBalloons.push(...plans.map(({ plan, idx }) => ({ plan, idx, panel: ctx.panel?.panel.id, order: ctx.panel?.order ?? panels.length })));
     const consumed = new Set<string>();
