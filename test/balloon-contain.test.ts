@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
-import { createRenderer } from "../src/api.js";
+import { createRenderer, validate } from "../src/api.js";
 import { DiagnosticBag } from "../src/core/diagnostics.js";
 import { planBalloon, type BalloonPlan } from "../src/elements/balloon.js";
 import type { ElemCtx } from "../src/elements/context.js";
@@ -129,6 +129,24 @@ describe("panel balloon containment geometry", () => {
 
 describe("contained balloon composition", () => {
   const renderer = createRenderer({ profile: "preview", dpi: 72 });
+  it("ignores auto-size limits when containment reflows a fixed-size balloon", async () => {
+    const r = await validate({ yaml: `mangacli: 1
+meta: { lang: en }
+defaults:
+  balloon: { fontSize: 5mm, writing: horizontal, shape: rect, padding: [0mm, 0mm] }
+pages:
+  - panels:
+      - coords: page
+        box: [25mm, 25mm, 30mm, 25mm]
+        layers:
+          - { balloon: "Hi", id: fixed, autoPlace: flow, size: [46mm, 40mm], maxSize: [1mm, 1mm], tail: none }
+` }, { strict: true });
+    expect(r.diagnostics).toEqual([]);
+    expect(r.ok).toBe(true);
+    const { bbox } = r.layout[0].elements[0];
+    expect(bbox.x + bbox.w).toBeLessThanOrEqual(55);
+    expect(bbox.y + bbox.h).toBeLessThanOrEqual(50);
+  });
   it("keeps the frame overlay outside panel inversion", async () => {
     const list = await renderer.displayList({ yaml: `mangacli: 1
 page: { size: [100mm, 100mm], bleed: 0mm }

@@ -204,7 +204,12 @@ export function containBalloon(plan: BalloonPlan, ctx: ElemCtx, replan: (props: 
     candidate.center = { ...original };
     if (!fit(candidate)) continue;
     const props = plan.props;
-    Object.assign(plan, candidate, { props, edgeCut: cut, fontScaleApplied: candidate.fontScaleApplied * scale });
+    Object.assign(plan, candidate, {
+      props,
+      edgeCut: cut,
+      fontScaleApplied: candidate.fontScaleApplied * scale,
+      dialogueExceedsMaxSize: keepDialogueSize ? candidate.dialogueExceedsMaxSize : undefined,
+    });
     if (scale < 1) ctx.bag.info("TEXT_SHRUNK", `balloon ${plan.el.id}: contained font scaled to ${Math.round(scale * 100)}%`, { path: plan.el.path, elementId: plan.el.id });
     return;
   }
