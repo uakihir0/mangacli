@@ -555,13 +555,13 @@ function flashbackRegion(pg: PanelGeom, panels: PanelGeom[], area: Rect, page: R
   if (pg.polygon.length < 3 || Math.abs(polygonArea(pg.polygon)) < 1e-8) return [];
   const layout = isObj(page.layout) ? page.layout : {};
   const spec = layout.split ? page.settings.gutter : layout.gutter ?? page.settings.gutter;
-  const col = spec === undefined ? 2.5 * geom.k : toMm((isObj(spec) ? spec.col ?? "2.5bmm" : spec) as string, geom.units);
-  const row = spec === undefined ? 5 * geom.k : toMm((isObj(spec) ? spec.row ?? "5bmm" : spec) as string, geom.units);
+  const col = spec === undefined ? 2.5 * geom.k : toMm((isObj(spec) ? spec.col ?? "2.5bmm" : spec) as string | number, geom.units);
+  const row = spec === undefined ? 5 * geom.k : toMm((isObj(spec) ? spec.row ?? "5bmm" : spec) as string | number, geom.units);
   const widths = [col, row];
   const collectWidths = (node: unknown) => {
     if (!isObj(node)) return;
-    if (typeof node.gutter === "string") widths.push(toMm(node.gutter, geom.units));
-    else if (isObj(node.gutter)) for (const value of Object.values(node.gutter)) if (typeof value === "string") widths.push(toMm(value, geom.units));
+    if (typeof node.gutter === "string" || typeof node.gutter === "number") widths.push(toMm(node.gutter, geom.units));
+    else if (isObj(node.gutter)) for (const value of Object.values(node.gutter)) if (typeof value === "string" || typeof value === "number") widths.push(toMm(value, geom.units));
     for (const key of ["children", "rows"]) if (Array.isArray(node[key])) for (const child of node[key]) collectWidths(child);
   };
   collectWidths(layout);

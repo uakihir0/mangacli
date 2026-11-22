@@ -19,6 +19,14 @@ async function sample(input: Record<string, unknown>, dpi = 254) {
 }
 
 describe("flashback mood", () => {
+  it.each(["split", "rows", "page"])("covers the full unitless numeric %s gutter", async (source) => {
+    const numericLayout = source === "split" ? { split: "cols", gutter: 8, children: ["panel", "panel"] } : { rows: [{ cols: [1, 1], ...(source === "rows" ? { gutter: { col: 8 } } : {}) }] };
+    const { at } = await sample({ mangacli: 1, page: { ...settings, ...(source === "page" ? { gutter: 8 } : {}) }, pages: [{ layout: numericLayout, panels: [{ mood: "flashback" }, {}] }] });
+    expect(at(37, 30)).toBe(0);
+    expect(at(20, 30)).toBe(255);
+    expect(at(60, 30)).toBe(255);
+  });
+
   it("preserves page art inside transparent flashback panels", async () => {
     const art = await sharp({ create: { width: 80, height: 80, channels: 3, background: "white" } }).png().toBuffer();
     const result = await render({ mangacli: 1, page: { ...settings, background: { image: "art", fit: "cover" } }, assets: { art: { src: "art.png", kind: "background" } }, pages: [{ layout, panels: [{ mood: "flashback", background: "none" }, {}, {}, {}] }] }, { ...options, assets: { art } });
