@@ -377,7 +377,12 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       if (!it) continue;
       // clip: auto — a balloon may lie over a frame line between panels, but one that runs past
       // the outer edge of the panel area is cut by the frame there, as lettering usually is
-      if (it.free && el.type === "balloon" && el.props.clip === "auto" && crossesOuterEdge(pg, it.bbox, u.k)) it.free = false;
+      const contained = containsBalloon(el, baseCtx(pg));
+      if (it.free && contained) {
+        const poly = panelShapePoly(pg, geom);
+        it.openClip = panelClip(pg, poly);
+        it.nodes.push(...borderNodes(pg, poly, poly !== pg.polygon, geom, bag));
+      } else if (it.free && el.type === "balloon" && el.props.clip === "auto" && crossesOuterEdge(pg, it.bbox, u.k)) it.free = false;
       if (it.free) {
         if (isObj(el.props.clip) && !Array.isArray(el.props.clip.to)) it.openClip = openClipPath(pg, el.props.clip as Obj, geom, u);
         items.push(it);
@@ -483,14 +488,12 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   free.sort((a, b) => a.z - b.z || a.layer - b.layer || a.source - b.source || a.panelIdx - b.panelIdx || (a.layer === 1 && b.layer === 1 ? b.listIdx - a.listIdx : a.listIdx - b.listIdx));
   for (const it of free) {
     let nodes = it.nodes;
-    if (it.source === 0) {
-      const pg = drawOrder[it.panelIdx];
-      if (pg) nodes = compositeNodes(nodes, pg.panel.props, bag, pg.panel.path);
-    }
+    const pg = it.source === 0 ? drawOrder[it.panelIdx] : undefined;
+    if (pg) nodes = compositeNodes(nodes, pg.panel.props, bag, pg.panel.path);
     if (nodes !== it.nodes) {
       for (const clip of it.filterClips ?? []) nodes = [{ kind: "group", clip, clipRule: "nonzero", children: nodes }];
     }
-    if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.el.type === "balloon" ? cleanClippedBalloonInk(it.openClip)(nodes) : nodes });
+    if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.el.type === "balloon" ? cleanClippedBalloonInk(it.openClip)(nodes) : nodes, tag: pg && containsBalloon(it.el, baseCtx(pg)) ? { elementId: pg.panel.id, elementType: "panel", role: "art", separation: "art" } : undefined });
     else root.children.push(...nodes);
   }
   const nombre = await nombreNodes(doc, page, geom, o, panels);
@@ -561,7 +564,7 @@ function gutterPath(area: Rect, panels: PanelGeom[], geom: PageGeom) {
 }
 function mkItem(el: RElement, nodes: Node[], bbox: Rect, panelIdx: number, listIdx: number, source: number, ctx: ElemCtx): Item {
   const clip = el.props.clip;
-  const free = !containsBalloon(el, ctx) && (source === 1 || clip === "none" || clip === "trim" || isObj(clip) || (el.type === "balloon" && clip !== "panel" && !hasOffscreenTail(el.props)));
+  const free = source === 1 || clip === "none" || clip === "trim" || isObj(clip) || (el.type === "balloon" && clip !== "panel" && !hasOffscreenTail(el.props));
   const layer = el.type === "balloon" ? 1 : el.type === "text" || el.type === "sfx" ? 2 : 0;
   const ownsBlend = el.type === "image" || el.type === "scatter" || (el.type === "mark" && el.props.kind === "asset");
   const op = typeof el.props.opacity === "number" && !ownsBlend && el.type !== "effect" ? el.props.opacity : undefined;

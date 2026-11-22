@@ -104,9 +104,24 @@ describe("panel balloon containment geometry", () => {
 
 describe("contained balloon composition", () => {
   const renderer = createRenderer({ profile: "preview", dpi: 72 });
+  it("preserves reverse balloon order and stacking above page artwork", async () => {
+    const list = await renderer.displayList({ yaml: `mangacli: 1
+page: { size: [100mm, 100mm], bleed: 0mm }
+pages:
+  - panels:
+      - layers:
+          - { id: first, balloon: 一, at: [50%, 50%], size: [30mm, 30mm], tail: none }
+          - { id: second, balloon: 二, at: [55%, 55%], size: [30mm, 30mm], tail: none }
+    layers:
+      - { id: overlay, effect: focus-lines }
+` }, 1);
+    const order = nodes([list.root]).flatMap(n => n.tag?.elementId ? [n.tag.elementId] : []);
+    expect(order.lastIndexOf("first")).toBeGreaterThan(order.lastIndexOf("second"));
+    expect(order.indexOf("second")).toBeGreaterThan(order.lastIndexOf("overlay"));
+  });
   it("keeps every automatically placed gallery body whole", async () => {
     const list = await renderer.displayList(join(import.meta.dirname, "fixtures", "balloons.yaml"), 1);
-    const panels = nodes([list.root]).filter(n => n.kind === "group" && n.clip && n.tag?.elementType === "panel");
+    const panels = nodes([list.root]).filter(n => n.kind === "group" && n.clip);
     let bodies = 0;
     for (const panel of panels) {
       if (panel.kind !== "group" || !panel.clip) continue;
