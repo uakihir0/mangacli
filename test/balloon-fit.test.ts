@@ -26,6 +26,8 @@ describe("short-panel spiky balloon fallback", () => {
     expect(p.fontScaleApplied).toBeGreaterThanOrEqual(0.75);
     expect(p.text.fontSize).toBeGreaterThanOrEqual(5 * (as === "scream" ? 1.5 : 1.4) * 0.75);
     expect(p.params.depth === undefined || Number(p.params.depth) >= 0.14).toBe(true);
+    expect(p.base.w / p.base.h).toBeLessThanOrEqual(3.5);
+    expect(p.outer.w * p.outer.h).toBeLessThan(p.text.width * p.text.height * 5);
     expect(bag.items.some(d => d.code === "BALLOON_TOO_LARGE")).toBe(false);
     for (const line of p.text.lines) {
       const r = line.rect;
@@ -39,6 +41,11 @@ describe("short-panel spiky balloon fallback", () => {
     const { plan: p, bag } = await plan({ shape: { kind: "burst", depth: 0.9 } }, 20, 10);
     expect(p.params.depth).toBe(0.9);
     expect(bag.items.some(d => d.code === "BALLOON_TOO_LARGE")).toBe(true);
+  });
+
+  it("preserves an explicit aspect ratio during fallback", async () => {
+    const { plan: p } = await plan({ aspect: 1 });
+    expect(p.base.w / p.base.h).toBeCloseTo(1);
   });
 
   it("leaves already-fitting, fixed-size and explicit-overflow balloons unchanged", async () => {
@@ -62,8 +69,8 @@ describe("short-panel spiky balloon fallback", () => {
     expect(impossible.bag.items.some(d => d.code === "BALLOON_TOO_LARGE")).toBe(true);
   });
 
-  it.each(["shout", "scream"])("places %s wholly inside a short panel", async (as) => {
-    const r = await render({ mangacli: 1, seed: 42, page: { size: ["200mm", "80mm"], bleed: 0, baseFrame: "trim" }, pages: [{ panels: [{ id: "short", box: ["10mm", "15mm", "180mm", "35mm"], layers: [{ balloon: "あああああ", id: "b", as, writing: "vertical", fontSize: "5mm", tail: { kind: "none" } }] }] }] }, { format: "svg" });
+  it.each([["shout", "あああああ"], ["scream", "あああああ"], ["scream", "うわあああっ！！"]])("places %s %s wholly inside a short panel", async (as, text) => {
+    const r = await render({ mangacli: 1, seed: 42, page: { size: ["200mm", "80mm"], bleed: 0, baseFrame: "trim" }, pages: [{ panels: [{ id: "short", box: ["10mm", "15mm", "180mm", "35mm"], layers: [{ balloon: text, id: "b", as, writing: "vertical", fontSize: "5mm", tail: { kind: "none" } }] }] }] }, { format: "svg" });
     const b = r.layout[0].elements.find(e => e.id === "b")!.bbox;
     expect(b.x).toBeGreaterThanOrEqual(10);
     expect(b.y).toBeGreaterThanOrEqual(15);

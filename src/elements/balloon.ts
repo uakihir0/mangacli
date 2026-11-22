@@ -114,6 +114,8 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
   const hand = resolveHand(p.hand, u, ctx.draft);
   const params = shapeParams(p, rng, hand, u);
   if (fallback?.depth !== undefined) params.depth = fallback.depth;
+  if (fallback && (params.count === undefined || params.count === "auto")) params.count = 40;
+  if (fallback) params.compactCore = true;
   if (!BODY_GENERATORS[params.kind] && !activePlugins()?.shapes.has(params.kind)) ctx.bag.error("SCHEMA_ENUM", `unknown balloon shape "${params.kind}"`, { path: [...el.path, "shape"] });
   const shapeSeed = rng.nextU32();
   const text = textValue(p.text, ctx.lang, ctx.defaultLang, () => ctx.bag.warn("TEXT_MISSING_TRANSLATION", `no "${ctx.lang}" text`, { path: el.path, elementId: el.id }));
@@ -144,6 +146,10 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
     const pad = Array.isArray(p.padding) ? p.padding : ["0.45em", "0.9em"];
     let padV = toMm(pad[0] as string, emCtx);
     let padH = toMm(pad[1] as string, emCtx);
+    if (fallback && (el.builtinProps?.includes("padding") ?? p.padding === undefined)) {
+      padV = Math.min(padV, style.fontSize * 0.2);
+      padH = Math.min(padH, style.fontSize * 0.4);
+    }
     let boxLimit: number | undefined;
     let fixedBase: { w: number; h: number } | undefined;
     if (fixedSize) {
@@ -215,7 +221,7 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
     } else {
       let ar = (p.aspectRange as [number, number]) ?? [0.55, 1.8];
       const defaultAspectRange = el.builtinProps?.includes("aspectRange") ?? p.aspectRange === undefined;
-      if (fallback && defaultAspectRange) ar = [0.1, 10];
+      if (fallback && defaultAspectRange) ar = [1 / 3.5, 3.5];
       if (compact && defaultAspectRange) ar = [0.15, 6.7];
       // a box follows its text block; horizontal lines make wider balloons than vertical columns
       if (kind === "rect" || kind === "none") ar = [0.05, 20];
@@ -271,13 +277,17 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
     }
     if (!fits && !fallback && !fixedSize && p.overflow === undefined && (kind === "spike" || kind === "burst")) {
       const depths = params.depth === undefined ? [undefined, 0.22, 0.14] : [undefined];
+      let best: { plan: BalloonPlan; bag: DiagnosticBag } | undefined;
       for (const depth of depths) for (const lineEm of [3, 2, 1]) {
         const bag = new DiagnosticBag();
         const candidate = planBalloonWithFit(el, { ...ctx, bag }, { lineEm, depth });
         if ((maxW === "auto" || candidate.outer.w <= maxW + 0.01) && (maxH === "auto" || candidate.outer.h <= maxH + 0.01)) {
-          for (const diagnostic of bag.items) ctx.bag.add(diagnostic);
-          return candidate;
+          if (!best || candidate.outer.w * candidate.outer.h < best.plan.outer.w * best.plan.outer.h) best = { plan: candidate, bag };
         }
+      }
+      if (best) {
+        for (const diagnostic of best.bag.items) ctx.bag.add(diagnostic);
+        return best.plan;
       }
     }
     if (!fits) {
