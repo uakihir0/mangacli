@@ -8,6 +8,121 @@ import { createRenderer } from "../src/api.js";
 
 const templates = ["impact-diagonal", "cascade", "zoom-in", "splash-with-insets", "vertical-strip", "spread-hero"];
 const numbers = [2, 4, 4, 3, 3, 5];
+function splitLayout(layout: Record<string, unknown>, rtl = true, count = 2) {
+  const bag = new DiagnosticBag();
+  const doc = resolveDocument({ mangacli: 1, page: { size: ["100mm", "80mm"], baseFrame: "trim", bleed: 0, gutter: { row: "4mm", col: "2mm" } }, pages: [{ layout, panels: Array.from({ length: count }, () => ({})) }] }, bag);
+  const geom = computePageGeom(doc.pages[0], 1, { readingDirection: rtl ? "rtl" : "ltr" }, bag);
+  return { panels: layoutPanels(doc.pages[0], geom, bag), bag };
+}
+
+describe("diagonal splits", () => {
+  it.each([8, -8])("converts %s degree row and column slants to lengths", (angle) => {
+    const mm = (span: number) => `${Math.tan(angle * Math.PI / 180) * span}mm`;
+    const pairs = [
+      [{ rows: [{ slant: `${angle}deg` }, {}] }, { rows: [{ slant: mm(100) }, {}] }],
+      [{ rows: [{ cols: [1, 1], colSlant: [`${angle}deg`] }] }, { rows: [{ cols: [1, 1], colSlant: [mm(80)] }] }],
+      ...["rows", "cols"].map((split) => [{ split, slant: [`${angle}deg`], children: ["panel", "panel"] }, { split, slant: [mm(split === "rows" ? 100 : 80)], children: ["panel", "panel"] }]),
+    ];
+    for (const [a, b] of pairs) expect(splitLayout(a).panels.map((p) => p.polygon)).toEqual(splitLayout(b).panels.map((p) => p.polygon));
+  });
+  it("cuts corner to side with a perpendicular gutter", () => {
+    const { panels, bag } = splitLayout({ split: { line: [["0%", "0%"], ["100%", "70%"]] }, children: ["panel", "panel"] });
+    expect(bag.hasErrors).toBe(false);
+    expect(panels).toHaveLength(2);
+    const distance = (p: { x: number; y: number }) => (100 * p.y - 56 * p.x) / Math.hypot(100, 56);
+    expect(Math.max(...panels[0].polygon.map(distance))).toBeCloseTo(-2, 8);
+    expect(Math.min(...panels[1].polygon.map(distance))).toBeCloseTo(2, 8);
+    expect(panels[0].polygon).toHaveLength(3);
+  });
+  it.each([true, false])("orders vertical cuts and nested T junctions rtl=%s", (rtl) => {
+    const vertical = splitLayout({ split: { line: [["40%", "0%"], ["60%", "100%"]] }, children: ["panel", "panel"] }, rtl);
+    expect(vertical.bag.hasErrors).toBe(false);
+    expect(vertical.panels[0].box.x > vertical.panels[1].box.x).toBe(rtl);
+    const nested = splitLayout({ split: "cols", children: [{ split: { line: [["0%", "0%"], ["100%", "70%"]] }, children: ["panel", "panel"] }, "panel"] }, rtl, 3);
+    expect(nested.bag.hasErrors).toBe(false);
+    expect(nested.panels).toHaveLength(3);
+    expect(nested.panels[0].box.x > nested.panels[2].box.x).toBe(rtl);
+  });
+  it("uses the slanted parent bounding-box height for nested column angles", () => {
+    const root = { split: "rows", slant: ["8deg"], children: ["panel", "panel"] };
+    const span = splitLayout(root).panels[0].fullBox.h;
+    const nested = (slant: string) => ({ ...root, children: [{ split: "cols", slant: [slant], children: ["panel", "panel"] }, "panel"] });
+    const a = splitLayout(nested("-8deg"), true, 3);
+    const b = splitLayout(nested(`${Math.tan(-8 * Math.PI / 180) * span}mm`), true, 3);
+    expect(a.bag.hasErrors).toBe(false);
+    expect(a.panels.map((p) => p.polygon)).toEqual(b.panels.map((p) => p.polygon));
+    const row = (slant: string) => ({ rows: [{ slant: "8deg", cols: [1, 1], colSlant: [slant] }, {}] });
+    expect(splitLayout(row("-8deg"), true, 3).panels.map((p) => p.polygon)).toEqual(splitLayout(row(`${Math.tan(-8 * Math.PI / 180) * span}mm`), true, 3).panels.map((p) => p.polygon));
+  });
+  it.each([false, true])("orders sides rather than centroids in a thin slanted parent (reversed=%s)", (reversed) => {
+    const line = [["0%", "-15%"], ["100%", "115%"]];
+    const { panels, bag } = splitLayout({ split: "rows", sizes: [3, 1, 3], slant: ["60mm", "60mm"], children: ["panel", { split: { line: reversed ? line.toReversed() : line }, children: ["panel", "panel"] }, "panel"] }, true, 4);
+    expect(bag.hasErrors).toBe(false);
+    const centroidY = (poly: { x: number; y: number }[]) => poly.reduce((sum, a, i) => {
+      const b = poly[(i + 1) % poly.length];
+      return sum + (a.y + b.y) * (a.x * b.y - b.x * a.y);
+    }, 0) / (6 * polygonArea(poly));
+    expect(centroidY(panels[1].polygon)).toBeGreaterThan(centroidY(panels[2].polygon));
+    const upper = panels[1].polygon;
+    const lower = panels[2].polygon;
+    expect(Math.max(...upper.map((p) => p.x))).toBeGreaterThan(Math.max(...lower.map((p) => p.x)));
+  });
+  it("keeps named panel assignments and vertical default gutters", () => {
+    const { panels, bag } = splitLayout({ split: { line: [["50%", "100%"], ["50%", "0%"]] }, children: ["panel", "panel"] });
+    expect(bag.hasErrors).toBe(false);
+    expect(panels[0].box.x - (panels[1].box.x + panels[1].box.w)).toBeCloseTo(2, 8);
+    const names = panels.map((p) => p.panel.id).reverse();
+    const bound = splitLayout({ split: { line: [["50%", "0%"], ["50%", "100%"]] }, children: names.map((panel) => ({ panel })) });
+    expect(bound.bag.hasErrors).toBe(false);
+    expect(bound.panels.map((p) => p.panel.id)).toEqual(names);
+  });
+  it.each([[["0%", "0%"], ["0%", "0%"]], [["0%", "0%"], ["100%", "0%"]], [["0%", "120%"], ["100%", "120%"]]])("rejects a non-cutting line %j without crashing", (a, b) => {
+    expect(splitLayout({ split: { line: [a, b] }, children: ["panel", "panel"] }).bag.items.some((d) => d.code === "LAYOUT_DEGENERATE_PANEL")).toBe(true);
+  });
+  it("validates line arity", async () => {
+    const r = await createRenderer().validate({ mangacli: 1, pages: [{ layout: { split: { line: [[0, 0], ["100%", "70%"]] }, children: ["panel"] }, panels: [{}] }] });
+    expect(r.ok).toBe(false);
+  });
+  it("warns once per flat run with SFX or line effects, but not quiet or slanted pages", async () => {
+    const renderer = createRenderer({ profile: "preview" });
+    for (const kind of ["sfx", "effect", "none", "slant", "blank"]) {
+      const pages = Array.from({ length: 3 }, (_, i) => ({
+        ...(kind === "blank" && i === 1 ? { type: "blank" } : {}),
+        layout: { rows: [{ ...(kind === "slant" && i === 1 ? { slant: "8deg" } : {}) }, {}] },
+        panels: [{ layers: i === 0 && kind !== "none" ? [kind === "effect" ? { effect: "speed-lines" } : { sfx: "ドン" }] : [] }, {}],
+      }));
+      const result = await renderer.validate({ mangacli: 1, pages });
+      const warnings = result.diagnostics.filter((d) => d.code === "LAYOUT_MONOTONE");
+      expect(warnings).toHaveLength(kind === "sfx" || kind === "effect" ? 1 : 0);
+      if (warnings.length) { expect(warnings[0].pageId).toBe(result.layout[0].geom.id); expect(warnings[0].message).toContain("1–3"); }
+    }
+  });
+});
+describe("monotone run boundaries", () => {
+  it("returns diagnostics when monotone layout recomputation fails", async () => {
+    const renderer = createRenderer({ profile: "preview" });
+    const flat = { panels: [{ layers: [{ effect: "focus-lines", count: 2 }] }] };
+    const broken = { layout: { rows: [{ slant: "1em" }, {}] }, panels: [{}, {}] };
+    const doc = { mangacli: 1, pages: [flat, flat, broken, flat, flat] };
+    const validation = await renderer.validate(doc);
+    expect(validation.diagnostics.some((d) => d.severity === "error")).toBe(true);
+    expect(validation.diagnostics.some((d) => d.code === "LAYOUT_MONOTONE")).toBe(false);
+    const rendering = await renderer.render(doc, { throwOnError: false, format: "svg" });
+    expect(rendering.diagnostics.some((d) => d.severity === "error")).toBe(true);
+    expect(rendering.diagnostics.some((d) => d.code === "LAYOUT_MONOTONE")).toBe(false);
+  });
+  it("breaks on curved or panel-less pages and reports separate ranges", async () => {
+    const renderer = createRenderer({ profile: "preview" });
+    const flat = { panels: [{ shape: "rect", layers: [{ effect: "focus-lines", count: 2 }] }] };
+    for (const middle of [{ panels: [] }, { panels: [{ shape: "ellipse" }] }, { layout: "free", panels: [{ polygon: [["0%", "0%"], ["100%", "0%"], ["100%", "50%"], ["50%", "50%"], ["50%", "100%"], ["0%", "100%"]] }] }]) {
+      const result = await renderer.validate({ mangacli: 1, pages: [flat, flat, flat, middle, flat, flat, flat] });
+      expect(result.diagnostics.filter((d) => d.code === "LAYOUT_MONOTONE").map((d) => d.message)).toEqual([
+        expect.stringContaining("1–3"), expect.stringContaining("5–7"),
+      ]);
+    }
+  });
+});
+
 function compose(name: string, size = "B5", spread = false, params: Record<string, unknown> = {}, rtl = true, panelCount?: number, area?: string[]) {
   const bag = new DiagnosticBag();
   const n = panelCount ?? (name === "spread-hero" && spread ? 9 : numbers[templates.indexOf(name)]);

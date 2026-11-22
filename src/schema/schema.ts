@@ -6,6 +6,8 @@ export const Length = z.union([z.number(), z.string().regex(LENGTH_PATTERN, { er
 export const LengthAuto = z.union([Length, z.literal("auto")]);
 export const Angle = z.union([z.number(), z.string().regex(ANGLE_PATTERN, { error: (issue) => unitParseError("angle", issue.input, ANGLE_UNITS) })]).describe(`Angle in degrees or '<n>${ANGLE_UNITS.join("|")}'`);
 export const Num = z.number();
+const Slant = z.union([Length, Angle]);
+const LineSplit = z.object({ line: z.tuple([z.tuple([Length, Length]), z.tuple([Length, Length])]) }).strict();
 const RangeOf = <T extends z.ZodTypeAny>(t: T) =>
   z.union([t, z.tuple([t, t]), z.object({ min: t, max: t, dist: z.enum(["uniform", "normal", "low", "high"]).optional() }).strict()]);
 export const PointKeyword = z.enum(["top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"]);
@@ -467,13 +469,13 @@ const SplitNode: z.ZodType = z.lazy(() =>
     z.object({ panel: z.string() }).strict(),
     z
       .object({
-        split: z.enum(["rows", "cols"]),
+        split: z.union([z.enum(["rows", "cols"]), LineSplit]),
         sizes: z.array(z.union([z.number(), Length])).optional(),
-        slant: z.array(Length).optional(),
+        slant: z.array(Slant).optional(),
         gutter: Length.optional(),
         children: z.array(SplitNode),
       })
-      .strict(),
+      .strict().refine((v) => typeof v.split === "string" || v.children.length === 2, { message: "line split requires exactly two children", path: ["children"] }),
   ]),
 );
 
@@ -481,10 +483,10 @@ const Layout = z.union([
   z.literal("free"),
   z
     .object({
-      rows: z.array(z.object({ cols: z.array(z.number()).optional(), height: z.union([z.number(), Length]).optional(), slant: Length.optional(), colSlant: z.array(Length).optional(), gutter: z.object({ col: Length.optional() }).strict().optional() }).strict()).optional(),
-      split: z.enum(["rows", "cols"]).optional(),
+      rows: z.array(z.object({ cols: z.array(z.number()).optional(), height: z.union([z.number(), Length]).optional(), slant: Slant.optional(), colSlant: z.array(Slant).optional(), gutter: z.object({ col: Length.optional() }).strict().optional() }).strict()).optional(),
+      split: z.union([z.enum(["rows", "cols"]), LineSplit]).optional(),
       sizes: z.array(z.union([z.number(), Length])).optional(),
-      slant: z.array(Length).optional(),
+      slant: z.array(Slant).optional(),
       children: z.array(SplitNode).optional(),
       template: z.string().optional(),
       params: z.record(z.string(), z.unknown()).optional(),
@@ -492,7 +494,7 @@ const Layout = z.union([
       gutter: z.union([Length, z.object({ col: Length.optional(), row: Length.optional() }).strict()]).optional(),
       area: z.union([z.enum(["baseFrame", "trim", "bleed"]), Rect]).optional(),
     })
-    .strict(),
+    .strict().refine((v) => !v.split || typeof v.split === "string" || v.children?.length === 2, { message: "line split requires exactly two children", path: ["children"] }),
 ]);
 
 const BaseFrame = z.union([
