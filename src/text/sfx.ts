@@ -1,4 +1,39 @@
 import { flattenPath, type PathData } from "../geom/path.js";
+import { boundsOf, type Vec } from "../geom/vec.js";
+
+export function sfxInkHeadDepth(path: PathData, vertical: boolean): number {
+  const contours = flattenPath(path, 0.02).map(c => c.pts);
+  const points = contours.flat();
+  if (!points.length) return 0;
+  const bb = boundsOf(points);
+  const axis = (p: Vec) => vertical ? p.y : p.x;
+  const area = (pts: Vec[]) => pts.reduce((sum, p, i) => {
+    const q = pts[(i + 1) % pts.length];
+    return sum + p.x * q.y - q.x * p.y;
+  }, 0) / 2;
+  const total = Math.abs(contours.reduce((sum, pts) => sum + area(pts), 0));
+  if (total < 1e-8) return 0;
+  const start = vertical ? bb.y : bb.x;
+  let lo = start, hi = start + (vertical ? bb.h : bb.w);
+  for (let step = 0; step < 24; step++) {
+    const cutoff = (lo + hi) / 2;
+    const covered = Math.abs(contours.reduce((sum, pts) => {
+      const clipped: Vec[] = [];
+      pts.forEach((p, i) => {
+        const q = pts[(i + 1) % pts.length];
+        if (axis(p) <= cutoff) clipped.push(p);
+        if ((axis(p) <= cutoff) !== (axis(q) <= cutoff)) {
+          const t = (cutoff - axis(p)) / (axis(q) - axis(p));
+          clipped.push({ x: p.x + t * (q.x - p.x), y: p.y + t * (q.y - p.y) });
+        }
+      });
+      return sum + area(clipped);
+    }, 0));
+    if (covered <= total * 0.14) lo = cutoff;
+    else hi = cutoff;
+  }
+  return lo - start;
+}
 
 const SMALL_KANA = new Set(Array.from("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ"));
 

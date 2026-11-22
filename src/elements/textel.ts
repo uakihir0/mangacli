@@ -15,7 +15,7 @@ import type { Node, Paint } from "../render/ir.js";
 import { type TextLayout, layoutText, parseLayoutText } from "../text/layout.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
-import { fullSizeKana, isSmallKana, sfxScale, sfxShifts, sfxStretch, sfxWeightRadius, type SfxScaleRamp } from "../text/sfx.js";
+import { fullSizeKana, isSmallKana, sfxInkHeadDepth, sfxScale, sfxShifts, sfxStretch, sfxWeightRadius, type SfxScaleRamp } from "../text/sfx.js";
 import { brushGlyph, emboldenGlyph, type BrushSpec } from "../text/brush.js";
 
 type Obj = Record<string, unknown>;
@@ -293,6 +293,8 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     let end: number | undefined;
     let previousUnit = -1;
     let previousOffset = 0;
+    let previousSize = 1;
+    let outlineEnd = -Infinity;
     for (const unit of units) {
       const indices = tl.glyphs.flatMap((g, i) => g.unit === unit ? [i] : []);
       const points = indices.flatMap(i => flattenPath(paths[i], 0.05).flatMap(c => c.pts));
@@ -300,13 +302,22 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
       const bb = boundsOf(points);
       const start = vertical ? bb.y : bb.x;
       const index = idxOf.get(unit)!;
-      const spacing = overlap > 0 ? -overlap : (isSmallKana(unitChars[index]) ? 0.04 : Math.max(0.03, style.letterSpacing)) * em;
+      const size = perCharT[index].s;
+      const spacing = overlap > 0 ? -overlap * Math.min(previousSize, size) : (isSmallKana(unitChars[index]) ? 0.04 : Math.max(0.03, style.letterSpacing)) * em;
       const space = parsed.units.slice(previousUnit + 1, unit).reduce((sum, u) => sum + (u.kind === "space" ? u.em * (u.style.size ?? 1) * em : 0), 0);
       const offset = vertical ? perCharT[index].jy : perCharT[index].jx;
-      const delta = end === undefined ? 0 : end + spacing + space + offset - previousOffset - start;
+      let delta = end === undefined ? 0 : end + spacing - start;
+      if (overlap > 0 && end !== undefined) {
+        const depth = sfxInkHeadDepth(indices.flatMap(i => paths[i]), vertical);
+        delta = Math.max(delta, outlineEnd - start - depth);
+      }
+      if (end !== undefined) delta += space + offset - previousOffset;
       packedOffsets.set(unit, delta);
       for (const i of indices) paths[i] = transformPath(paths[i], matTranslate(vertical ? 0 : delta, vertical ? delta : 0));
       end = start + delta + (vertical ? bb.h : bb.w);
+      const outlineWidth = p.outline === undefined ? em * size * 0.12 + toMm("0.25bmm", u) : Math.max(0, ...(Array.isArray(p.outline) ? (p.outline as Obj[]).map(o => toMm(o.width as string, u) * (o.join === "miter" ? 2 : 1)) : []));
+      outlineEnd = Math.max(outlineEnd, end + outlineWidth);
+      previousSize = size;
       previousUnit = unit;
       previousOffset = offset;
     }

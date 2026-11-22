@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { createCanvas, Path2D } from "@napi-rs/canvas";
 import { createRenderer } from "../src/api.js";
 import { BUILTIN_DEFAULTS } from "../src/model/defaults.js";
-import { fullSizeKana, sfxScale, sfxShifts, sfxStretch, sfxWeightRadius, type SfxScaleRamp } from "../src/text/sfx.js";
+import { fullSizeKana, sfxInkHeadDepth, sfxScale, sfxShifts, sfxStretch, sfxWeightRadius, type SfxScaleRamp } from "../src/text/sfx.js";
 import { emboldenGlyph } from "../src/text/brush.js";
-import { flattenPath, polyPath, transformPath } from "../src/geom/path.js";
+import { flattenPath, pathToSvg, polyPath, transformPath } from "../src/geom/path.js";
 import { boundsOf } from "../src/geom/vec.js";
 import type { Node, PathNode } from "../src/render/ir.js";
 
@@ -17,6 +18,13 @@ pages:
 `, filename: "/v/sfx.yaml" });
 
 describe("SFX lettering", () => {
+  it("limits covered fill area in either direction and handles empty ink", () => {
+    const rect = polyPath([{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 10 }, { x: 0, y: 10 }], true);
+    expect(sfxInkHeadDepth(rect, true)).toBeCloseTo(1.4);
+    expect(sfxInkHeadDepth(rect, false)).toBeCloseTo(2.8);
+    expect(sfxInkHeadDepth([], true)).toBe(0);
+    expect(sfxInkHeadDepth(polyPath([{ x: 0, y: 0 }, { x: 0, y: 10 }], true), true)).toBe(0);
+  });
   it.each([
     ["grow", [0.85, 1.075, 1.3]],
     ["shrink", [1.3, 1.05, 0.8]],
@@ -49,17 +57,54 @@ describe("SFX lettering", () => {
     walk(list.root);
     return result.reverse();
   };
-  it.each(["vertical", "horizontal"])("replaces minimum ink gaps with exact overlap in %s", async writing => {
+  it.each(["vertical", "horizontal"])("caps ink overlap at the requested distance in %s", async writing => {
     const source = `writing: ${writing}, rotate: 0deg, grow: 0, brush: false, distort: { roughen: 0 }, `;
     for (const path of ["", "path: { kind: line, angle: 0deg }, "]) {
       for (const overlap of ["0em", "0.15em", "0.3em"]) {
         const boxes = await glyphBoxes(`${source}${path}perChar: { overlap: ${overlap}, rotate: 0deg, jitter: 0mm }`);
         for (let i = 1; i < boxes.length; i++) {
           const gap = writing === "vertical" ? boxes[i].y - boxes[i-1].y - boxes[i-1].h : boxes[i].x - boxes[i-1].x - boxes[i-1].w;
-          if (overlap !== "0em") expect(gap).toBeCloseTo(-parseFloat(overlap) * 10, 2);
+          if (overlap !== "0em") expect(gap).toBeGreaterThanOrEqual(-parseFloat(overlap) * 10 - 0.01);
           else expect(gap).toBeGreaterThanOrEqual(0.29);
         }
       }
+    }
+  });
+  it.each(["vertical", "horizontal"])("measures overlap relative to the smaller scaled character in %s", async writing => {
+    const boxes = await glyphBoxes(`writing: ${writing}, rotate: 0deg, grow: 0, outline: none, brush: false, distort: { roughen: 0 }, chars: [{ index: 1, scale: 0.5 }], perChar: { overlap: 0.01em, rotate: 0deg, jitter: 0mm }`, "ドド");
+    const gap = writing === "vertical" ? boxes[1].y - boxes[0].y - boxes[0].h : boxes[1].x - boxes[0].x - boxes[0].w;
+    expect(gap).toBeCloseTo(-0.01 * 10 * 0.5, 2);
+  });
+  it.each(["vertical", "horizontal"].flatMap(writing => ["ドンッ", "ズオオオッ", "バキィッ"].map(text => ({ writing, text }))))("keeps at least 85 percent of every default $writing $text character fill visible", async ({ writing, text }) => {
+    const list = await renderer.displayList(input(`writing: ${writing}`, text), 1);
+    const paths: PathNode[] = [];
+    const walk = (n: Node) => {
+      if (n.kind === "group") n.children.forEach(walk);
+      if (n.kind === "path") paths.push(n);
+    };
+    walk(list.root);
+    const fills = paths.filter(n => n.tag?.elementId === "sfx" && n.paint && !n.stroke);
+    expect(fills).toHaveLength(Array.from(text).length);
+    for (const fill of fills) {
+      const bb = boundsOf(flattenPath(fill.path, 0.02).flatMap(c => c.pts));
+      const canvas = createCanvas(Math.ceil(bb.w * 24) + 8, Math.ceil(bb.h * 24) + 8);
+      const ctx = canvas.getContext("2d");
+      ctx.scale(24, 24);
+      ctx.translate(-bb.x + 4 / 24, -bb.y + 4 / 24);
+      ctx.fill(new Path2D(pathToSvg(fill.path)));
+      const ink = () => ctx.getImageData(0, 0, canvas.width, canvas.height).data.reduce((sum, v, i) => sum + (i % 4 === 3 ? v : 0), 0);
+      const total = ink();
+      ctx.globalCompositeOperation = "destination-out";
+      for (const front of paths.slice(paths.indexOf(fill) + 1)) {
+        if (front.tag?.elementId !== "sfx") continue;
+        const path = new Path2D(pathToSvg(front.path));
+        if (front.stroke) {
+          ctx.lineWidth = front.stroke.width;
+          ctx.lineJoin = "round";
+          ctx.stroke(path);
+        } else if (front.paint) ctx.fill(path);
+      }
+      expect(ink() / total).toBeGreaterThanOrEqual(0.85);
     }
   });
   it.each(["{ kind: line, angle: 15deg }", "{ kind: arc, radius: 70mm }", "{ kind: wave, amplitude: 2mm, wavelength: 50mm }", "{ kind: points, points: [[0mm, 0mm], [80mm, 0mm], [120mm, 10mm]] }"])("applies ramps and overlap along path %s", async path => {

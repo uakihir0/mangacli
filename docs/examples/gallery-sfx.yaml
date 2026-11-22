@@ -4,7 +4,7 @@
 mangacli: 1
 engine: 1
 meta: { title: 描き文字の一覧, lang: ja }
-page: { size: [182mm, 320mm], color: mono }
+page: { size: [182mm, 400mm], color: mono }
 fonts:
   pop: catalog:mochiy-pop-one
 defaults:
@@ -59,7 +59,7 @@ pages:
           - { sfx: ゴゴゴ, at: [50%, 43%], path: { kind: arc, angle: 40deg } }
           - { text: path / arc }
       - layers:
-          - { sfx: ズオオッ, at: [50%, 43%], path: { kind: wave, amplitude: 2mm, wavelength: 25mm } }
+          - { sfx: ズオオッ, at: [50%, 43%], path: { kind: wave, amplitude: 2mm, wavelength: 50mm } }
           - { text: path / wave }
       - layers:
           - { sfx: ドドド, at: [50%, 43%], path: { kind: line, angle: 15deg } }
