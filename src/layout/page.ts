@@ -488,24 +488,13 @@ function splitTree(node: Obj, poly: Vec[], gCol: number, gRow: number, rtl: bool
   const bb = boundsOf(poly);
   if (isObj(node.split)) {
     const points = node.split.line as (string | number)[][];
-    const [a, b] = points.map(([x, y]) => ({ x: bb.x + toMm(x, { ...u, base: bb.w }), y: bb.y + toMm(y, { ...u, base: bb.h }) }));
+    let [a, b] = points.map(([x, y]) => ({ x: bb.x + toMm(x, { ...u, base: bb.w }), y: bb.y + toMm(y, { ...u, base: bb.h }) }));
     const horizontal = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y);
     const g = node.gutter !== undefined ? toMm(node.gutter as string, u) : horizontal ? gRow : gCol;
     if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-9) return children.flatMap(() => [{ poly: [] }]);
+    if (horizontal ? a.x > b.x : a.y > b.y) [a, b] = [b, a];
     const sides = splitPoly(poly, a, b, g);
-    const center = (p: Vec[]) => {
-      const area = polygonArea(p);
-      let x = 0, y = 0;
-      for (let i = 0; i < p.length; i++) {
-        const a = p[i], b = p[(i + 1) % p.length];
-        const cross = a.x * b.y - b.x * a.y;
-        x += (a.x + b.x) * cross;
-        y += (a.y + b.y) * cross;
-      }
-      return { x: x / (6 * area), y: y / (6 * area) };
-    };
-    const [c, d] = sides.map(center);
-    if (horizontal ? c.y > d.y : rtl ? c.x < d.x : c.x > d.x) sides.reverse();
+    if (horizontal || rtl) sides.reverse();
     return children.flatMap((child, i) => splitTree(child, sides[i] ?? [], gCol, gRow, rtl, u));
   }
   const isRows = node.split === "rows";

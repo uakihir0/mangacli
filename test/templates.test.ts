@@ -54,6 +54,19 @@ describe("diagonal splits", () => {
     const row = (slant: string) => ({ rows: [{ slant: "8deg", cols: [1, 1], colSlant: [slant] }, {}] });
     expect(splitLayout(row("-8deg"), true, 3).panels.map((p) => p.polygon)).toEqual(splitLayout(row(`${Math.tan(-8 * Math.PI / 180) * span}mm`), true, 3).panels.map((p) => p.polygon));
   });
+  it.each([false, true])("orders sides rather than centroids in a thin slanted parent (reversed=%s)", (reversed) => {
+    const line = [["0%", "-15%"], ["100%", "115%"]];
+    const { panels, bag } = splitLayout({ split: "rows", sizes: [3, 1, 3], slant: ["60mm", "60mm"], children: ["panel", { split: { line: reversed ? line.toReversed() : line }, children: ["panel", "panel"] }, "panel"] }, true, 4);
+    expect(bag.hasErrors).toBe(false);
+    const centroidY = (poly: { x: number; y: number }[]) => poly.reduce((sum, a, i) => {
+      const b = poly[(i + 1) % poly.length];
+      return sum + (a.y + b.y) * (a.x * b.y - b.x * a.y);
+    }, 0) / (6 * polygonArea(poly));
+    expect(centroidY(panels[1].polygon)).toBeGreaterThan(centroidY(panels[2].polygon));
+    const upper = panels[1].polygon;
+    const lower = panels[2].polygon;
+    expect(Math.max(...upper.map((p) => p.x))).toBeGreaterThan(Math.max(...lower.map((p) => p.x)));
+  });
   it("keeps named panel assignments and vertical default gutters", () => {
     const { panels, bag } = splitLayout({ split: { line: [["50%", "100%"], ["50%", "0%"]] }, children: ["panel", "panel"] });
     expect(bag.hasErrors).toBe(false);
