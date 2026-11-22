@@ -36,6 +36,16 @@ describe("art coverage", () => {
       expect(voids(await validate(input(layers)))).toEqual([]);
     }
   });
+  it("counts opaque effect grounds, including the beta-flash core", async () => {
+    for (const effect of ["{ effect: beta-flash }", "{ effect: focus-lines, background: paper }"]) {
+      expect(voids(await validate(input(`[${image("fit: contain")}, ${effect}]`)))).toEqual([]);
+    }
+  });
+  it("does not count absent, translucent, hidden or partial effect grounds", async () => {
+    for (const effect of ["{ effect: beta-flash, core: none }", "{ effect: beta-flash, opacity: 0.5 }", "{ effect: beta-flash, visible: false }", "{ effect: beta-flash, region: { rect: [0, 0, 20%, 100%] } }", "{ effect: uni-flash }", "{ effect: focus-lines, background: 'rgba(0,0,0,0.5)' }"]) {
+      expect(voids(await validate(input(`[${image("fit: contain")}, ${effect}]`)))).toHaveLength(1);
+    }
+  });
   it("accounts for rotation and does not count overlapping images twice", async () => {
     for (const layers of [`[${image("rotate: 45deg")}]`, `[${image("size: [20%, 20%]")}, ${image("size: [20%, 20%]")}]`]) {
       expect(voids(await validate(input(layers)))).toHaveLength(1);

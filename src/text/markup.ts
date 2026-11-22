@@ -18,7 +18,7 @@ export interface InlineStyle {
 }
 
 export type Unit =
-  | { kind: "char"; ch: string; style: InlineStyle; emph?: boolean | string; ruby?: number; tcyGroup?: number; nobr?: number }
+  | { kind: "char"; ch: string; style: InlineStyle; emph?: boolean | string; ruby?: number; rubyGroup?: number; tcyGroup?: number; nobr?: number }
   | { kind: "break" }
   | { kind: "wbr" }
   | { kind: "space"; em: number; style: InlineStyle };
@@ -27,6 +27,7 @@ export interface RubyDef {
   id: number;
   text: string;
   mono: string[] | null;
+  groups?: string[];
 }
 
 export interface ParsedText {
@@ -277,6 +278,18 @@ function pushChar(out: ParsedText, g: string, style: InlineStyle, emph: boolean 
 
 function addRuby(out: ParsedText, base: string, ruby: string, style: InlineStyle, norm: NormalizeOptions, vertical: boolean) {
   const id = out.rubies.length;
+  if (base.includes("／") && ruby.includes("／")) {
+    const bases = base.split("／").map((part) => splitGraphemes(normalizeChunk(part.trim(), norm, vertical)));
+    const groups = ruby.split("／").map((part) => part.trim());
+    if (bases.length === groups.length && bases.every((part) => part.length) && groups.every(Boolean)) {
+      out.rubies.push({ id, text: groups.join(""), mono: null, groups });
+      bases.forEach((chars, rubyGroup) => {
+        for (const ch of chars) out.units.push({ kind: "char", ch, style, ruby: id, rubyGroup });
+      });
+      return;
+    }
+    out.errors.push({ code: "TEXT_RUBY_MISMATCH", message: `compound ruby group mismatch: ${base}《${ruby}》` });
+  }
   const chars = splitGraphemes(normalizeChunk(base, norm, vertical));
   const parts = ruby.split(" ").filter(Boolean);
   let mono: string[] | null = null;

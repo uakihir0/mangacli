@@ -168,7 +168,21 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     // Only an explicit panel background counts, not the implicit paper canvas.
     if (pg.panel.props.__explicitBackground && parsePaint(pg.panel.props.background, { u, box: pg.box, seed: pg.panel.seed })) continue;
     const shapes = images.map((el) => refs.get(el.id)!.shape!).filter((shape) => shape?.length >= 3);
-    const fills = layers.filter((el) => el.type === "fill" && (el.props.opacity === undefined || el.props.opacity === 1) && (el.props.clip === undefined || el.props.clip === "panel" || el.props.clip === "none") && el.props.mask === undefined && (el.props.edge === undefined || el.props.edge === "clean") && parsePaint(el.props.paint ?? "black", { u, box: pg.box, seed: el.seed })).map((el) => resolveRegion(el.props.region, { ...baseCtx(pg), coordsBox: coordsFor(el, baseCtx(pg), geom) }, "panel", [...el.path, "region"])).filter((reg) => !reg.feather && !reg.alphaOf);
+    const fills = layers.flatMap((el) => {
+      const p = el.props;
+      if ((p.opacity !== undefined && p.opacity !== 1) || p.mask !== undefined) return [];
+      let ground: unknown;
+      if (el.type === "fill" && (p.edge === undefined || p.edge === "clean")) ground = p.paint ?? "black";
+      if (el.type === "effect" && p.clear === undefined) {
+        if (p.kind === "beta-flash") ground = p.core ?? "paper";
+        else if (["focus-lines", "speed-lines", "gloom-lines", "swirl-lines"].includes(String(p.kind))) ground = p.background;
+      }
+      const paint = parsePaint(ground, { u, box: pg.box, seed: el.seed });
+      if (!paint || (paint.type === "solid" || paint.type === "tone" ? paint.color.a < 1 : paint.stops.some((s) => s.color.a < 1))) return [];
+      const ctx = { ...baseCtx(pg), coordsBox: coordsFor(el, baseCtx(pg), geom) };
+      const reg = resolveRegion(p.region, ctx, "panel", [...el.path, "region"]);
+      return reg.feather || reg.alphaOf ? [] : [reg];
+    });
     const shape = panelShapePoly(pg, geom);
     const poly = shape === pg.polygon ? shape : flattenPath(smoothPath(shape, true), 0.02)[0].pts;
     const box = boundsOf(poly);

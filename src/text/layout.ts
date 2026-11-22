@@ -5,7 +5,7 @@ import type { FontPick, FontRegistry, LoadedFont } from "../fonts/registry.js";
 import { type PathData, flattenPath, pathFromJson, transformPath } from "../geom/path.js";
 import { type Matrix, type Rect, boundsOf, matMul, matRotate, matScale, matTranslate } from "../geom/vec.js";
 import { type KinsokuLevel, inseparable, isClosingPunct, isOpeningPunct, noEnd, noStart, phraseBoundaries, wordBoundaries } from "./linebreak.js";
-import { type InlineStyle, type NormalizeOptions, type ParsedText, type Unit, assignTcy, parseMarkup } from "./markup.js";
+import { type InlineStyle, type NormalizeOptions, type ParsedText, type RubyDef, type Unit, assignTcy, parseMarkup } from "./markup.js";
 
 export interface TextStyle {
   font: string;
@@ -97,6 +97,7 @@ interface Box {
   wbrBefore?: boolean;
   space?: boolean;
   ruby?: number;
+  rubyGroup?: number;
   nobr?: number;
   color?: string;
   bold?: boolean;
@@ -360,7 +361,9 @@ function buildBoxes(parsed: ParsedText, style: TextStyle, reg: FontRegistry, mis
     let j = i + 1;
     const key = (x: Unit & { kind: "char" }) => `${orientOf(x)}|${fontOf(x.style)}|${sizeOf(x.style)}|${x.style.color ?? ""}|${x.tcyGroup ?? ""}|${x.style.bold ? 1 : 0}|${x.style.nobr ?? ""}|${x.style.shake ? 1 : 0}|${x.style.hand ? 1 : 0}|${x.style.scaleX ?? ""}|${x.style.scaleY ?? ""}`;
     const k0 = key(u);
-    while (j < units.length && units[j].kind === "char" && key(units[j] as Unit & { kind: "char" }) === k0 && (o !== "tcy" || (units[j] as { tcyGroup?: number }).tcyGroup === u.tcyGroup)) {
+    for (let next = units[j]; next?.kind === "char"; next = units[j]) {
+      if (key(next) !== k0 || (o === "tcy" && next.tcyGroup !== u.tcyGroup)) break;
+      if (next.rubyGroup !== u.rubyGroup || (u.rubyGroup !== undefined && next.ruby !== u.ruby)) break;
       run.push(j);
       j++;
     }
@@ -407,6 +410,7 @@ function buildBoxes(parsed: ParsedText, style: TextStyle, reg: FontRegistry, mis
       bx.color = st.color;
       bx.bold = bold && !(vertical && o === "upright" && bx.chars === "…");
       bx.ruby = uu.ruby;
+      bx.rubyGroup = uu.rubyGroup;
       bx.nobr = st.nobr;
       bx.emph = uu.emph;
       bx.shake = st.shake;
@@ -859,6 +863,11 @@ function breakLines(boxes: Box[], Lmax: number, wrap: string, style: TextStyle):
         len += adv;
         continue;
       }
+      if (k < 0 && b.rubyGroup !== undefined && cur[cur.length - 1].ruby === b.ruby) {
+        cur.push(b);
+        len += adv;
+        continue;
+      }
       if (k < 0) k = cur.length;
       const carry = cur.slice(k);
       cur = cur.slice(0, k);
@@ -886,6 +895,13 @@ function trimSpaces(bs: Box[]): Box[] {
   return out;
 }
 
+function rubySegments<B extends Box>(r: RubyDef, boxes: B[]): { text: string; boxes: B[] }[] {
+  const bs = boxes.filter((b) => b.ruby === r.id);
+  if (r.groups) return r.groups.map((text, i) => ({ text, boxes: bs.filter((b) => b.rubyGroup === i) }));
+  if (r.mono) return bs.map((b, i) => ({ text: r.mono![i] ?? "", boxes: [b] }));
+  return [{ text: r.text, boxes: bs }];
+}
+
 /** ruby longer than its base (plus the allowed overhang) spreads the base characters evenly (spec 7.8) */
 function spreadRubyBases(parsed: ParsedText, boxes: Box[], style: TextStyle, reg: FontRegistry, vertical: boolean) {
   if (!parsed.rubies.length) return;
@@ -900,12 +916,10 @@ function spreadRubyBases(parsed: ParsedText, boxes: Box[], style: TextStyle, reg
     return shape(pk.font, text, "ltr", style.lang).reduce((a, g) => a + g.xAdvance * (rsize / pk.font.upem), 0);
   };
   for (const r of parsed.rubies) {
-    const bs = boxes.filter((b) => b.ruby === r.id);
-    if (!bs.length) continue;
-    const groups = r.mono ? bs.map((b, k) => ({ text: r.mono![k] ?? "", boxes: [b] })) : [{ text: r.text, boxes: bs }];
-    for (const g of groups) {
+    for (const g of rubySegments(r, boxes)) {
+      if (!g.boxes.length) continue;
       const base = g.boxes.reduce((a, b) => a + b.adv, 0);
-      const need = rubyLen(g.text) - base - 2 * hang;
+      const need = rubyLen(g.text) - base - (r.groups ? 0 : 2 * hang);
       if (need <= 0.01) continue;
       const per = need / g.boxes.length;
       for (const b of g.boxes) {
@@ -925,10 +939,7 @@ function placeRuby(parsed: ParsedText, boxes: Box[], glyphs: GlyphOut[], style: 
   const rsize = style.fontSize * style.ruby.size;
   const font = style.ruby.font ?? style.font;
   for (const r of parsed.rubies) {
-    const bs = boxes.filter((b) => b.ruby === r.id) as (Box & { _pos?: [number, number] })[];
-    if (!bs.length) continue;
-    const segments: { text: string; boxes: typeof bs }[] = r.mono ? bs.map((b, k) => ({ text: r.mono![k] ?? "", boxes: [b] })) : [{ text: r.text, boxes: bs }];
-    for (const sg of segments) {
+    for (const sg of rubySegments(r, boxes as (Box & { _pos?: [number, number] })[])) {
       sg.boxes = sg.boxes.filter((b) => b._pos);
       if (!sg.boxes.length) continue;
       const first = sg.boxes[0]._pos!;
