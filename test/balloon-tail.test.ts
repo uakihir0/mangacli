@@ -158,7 +158,7 @@ describe("balloon tails", () => {
       expect(p.y).toBeCloseTo(explicit.pts[i].y, 5);
     });
   });
-  it.each(["say", "whisper", "electronic", "shout"])("preserves explicit %s widths and their scaling", async as => {
+  it.each(["say", "whisper", "electronic", "shout", "scream"])("preserves explicit %s widths and their scaling", async as => {
     const balloon = `balloon: "おはよう", id: b, as: ${as}, hand: clean, size: [30mm, 24mm], at: [40mm, 35mm]`;
     const tail = "direction: 0deg, length: 10mm, curl: false, bend: 0, sideCurve: 0";
     const scaled = await outline(`{ ${balloon}, tail: { ${tail}, width: 3mm, widthScale: 2 } }`);
@@ -172,6 +172,17 @@ describe("balloon tails", () => {
       rng: new Rng(42),
     });
     expect(widthAt(ink.inks[0].pts, 9.8, 0)).toBeGreaterThanOrEqual(0.29);
+  });
+  it.each(["solid", "dashed"] as const)("tapers %s tail tip ink below 0.1 bmm even without hand taper", style => {
+    const ink = inkShape({ pts: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 0, y: 5 }], closed: true, corners: [{ index: 0, kind: "concave" }, { index: 1, kind: "point" }, { index: 2, kind: "concave" }] }, {
+      line: { width: 0.3, pen: PEN_PRESETS.marker, style },
+      hand: HAND_PRESETS.clean,
+      rng: new Rng(42),
+      pointWidth: 0,
+    });
+    const nearTip = ink.inks.flatMap(p => p.pts).filter(p => p.x >= 9.99);
+    expect(nearTip.length).toBeGreaterThan(0);
+    expect(Math.max(...nearTip.map(p => p.y)) - Math.min(...nearTip.map(p => p.y))).toBeLessThanOrEqual(0.1);
   });
   it("preserves the default zigzag length on whisper balloons", async () => {
     const balloon = 'balloon: "", id: b, as: whisper, at: [40mm, 35mm], size: [24mm, 24mm], shape: { kind: ellipse, irregularity: 0 }';
