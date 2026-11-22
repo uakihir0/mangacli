@@ -81,15 +81,18 @@ describe("hashira", () => {
   it("prints the YAML shorthand as one-bit ink in the gutter", async () => {
     const yaml = `mangacli: 1
 book: { pageNumbers: { enabled: false }, signature: false }
-page: { size: [80mm, 100mm] }
+page:
+  size: [80mm, 100mm]
+  baseFrame: { margins: { top: 10, bottom: 10, inner: 12, outer: 18 } }
 pages:
   - type: blank
     hashira: ${text}
 `;
     const r = await render({ yaml }, { profile: "print-mono", format: "png", crop: "trim", dpi: 254 });
+    expect(r.diagnostics.filter((d) => d.severity !== "info")).toEqual([]);
     const png = Buffer.from(r.pages[0].data);
     expect(png[24]).toBe(1);
-    const pixels = await sharp(png).extract({ left: 50, top: 300, width: 20, height: 400 }).raw().toBuffer();
+    const pixels = await sharp(png).extract({ left: 100, top: 300, width: 30, height: 400 }).raw().toBuffer();
     expect(pixels.some((value) => value === 0)).toBe(true);
   });
 });
