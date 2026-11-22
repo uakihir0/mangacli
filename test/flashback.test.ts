@@ -19,6 +19,67 @@ async function sample(input: Record<string, unknown>, dpi = 254) {
 }
 
 describe("flashback mood", () => {
+  it.each(["top", "right", "bottom", "left"])("keeps the gutter black between panels bled to the %s", async (side) => {
+    const vertical = side === "top" || side === "bottom";
+    const { at } = await sample({ mangacli: 1, page: settings, pages: [{
+      layout: { rows: vertical ? [{ cols: [1, 1] }] : [{ cols: [1] }, { cols: [1] }] },
+      panels: [{ mood: "flashback", bleed: [side] }, { bleed: [side] }],
+    }] });
+    for (const distance of [-2, 1, 5, 9, 11]) {
+      const x = vertical ? 40 : side === "left" ? distance : 80 - distance;
+      const y = vertical ? side === "top" ? distance : 80 - distance : 40;
+      expect(at(x, y), `${x},${y}`).toBe(0);
+    }
+  });
+
+  it("extends inset outer-facing edges to bleed without covering a normal neighbour", async () => {
+    const { at } = await sample({ mangacli: 1, page: settings, pages: [{ layout: "free", panels: [
+      { mood: "flashback", coords: "page", box: ["20mm", "20mm", "25mm", "40mm"] },
+      { coords: "page", box: ["51mm", "20mm", "15mm", "40mm"] },
+    ] }] });
+    for (const [x, y] of [[-2, 40], [30, -2], [30, 82], [10, 40], [30, 10], [30, 70], [48, 40]]) expect(at(x, y)).toBe(0);
+    expect(at(58, 40)).toBe(255);
+    expect(at(78, 40)).toBe(255);
+  });
+
+  it("cuts P10-like margins at the gutter center beside the normal top panel", async () => {
+    const { at } = await sample({ mangacli: 1, page: settings, pages: [{
+      layout: { rows: [{ cols: [1, 1] }, { cols: [1] }, { cols: [1] }] },
+      panels: [{}, { mood: "flashback" }, { mood: "flashback" }, { mood: "flashback" }],
+    }] });
+    for (const x of [-2, 5, 20, 40, 60, 75, 82]) for (const y of [75, 82]) expect(at(x, y), `${x},${y}`).toBe(0);
+    for (const x of [-2, 5, 20, 39]) expect(at(x, -2)).toBe(0);
+    for (const x of [41, 60, 75, 82]) expect(at(x, -2)).toBe(255);
+    for (const y of [20, 40, 60]) for (const x of [-2, 5]) expect(at(x, y), `${x},${y}`).toBe(0);
+    for (const x of [75, 82]) {
+      expect(at(x, 28)).toBe(255);
+      expect(at(x, 30)).toBe(0);
+      expect(at(x, 60)).toBe(0);
+    }
+    expect(at(40, 20)).toBe(0);
+    expect(at(60, 20)).toBe(255);
+    expect(at(20, 20)).toBe(255);
+    expect(at(40, 40)).toBe(255);
+    expect(at(40, 60)).toBe(255);
+  });
+
+  it("keeps P11-like normal-panel side and bottom margins white", async () => {
+    const { at } = await sample({ mangacli: 1, page: settings, pages: [{
+      layout: { rows: [{ cols: [1] }, { cols: [1, 1] }, { cols: [1] }] },
+      panels: [{ mood: "flashback" }, {}, {}, {}],
+    }] });
+    for (const x of [-2, 5, 75, 82]) {
+      for (const y of [-2, 5, 20, 28]) expect(at(x, y), `${x},${y}`).toBe(0);
+      for (const y of [30, 40, 60, 75, 82]) expect(at(x, y), `${x},${y}`).toBe(255);
+    }
+    for (const x of [20, 40, 60]) {
+      expect(at(x, -2)).toBe(0);
+      expect(at(x, 82)).toBe(255);
+    }
+    expect(at(40, 29)).toBe(0);
+    expect(at(40, 40)).toBe(255);
+  });
+
   it.each(["ellipse", "cloud", "rounded"])("paints black up to the rendered %s flashback outline", async (shape) => {
     const { at } = await sample({ mangacli: 1, page: settings, pages: [{ layout, panels: [{ mood: "flashback", shape: { kind: shape, radius: "6mm" } }, {}, {}, {}] }] });
     expect(at(44, 11)).toBe(0);
