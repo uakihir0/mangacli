@@ -351,8 +351,11 @@ async function renderParallel(input: string | { yaml: string; baseDir: string },
               onProgress?.(m.e as ProgressEvent);
               return;
             }
-            if (m.type === "progress") onProgress?.({ ...(m.e as { phase: string; pageId?: string }), done: ++done, total: wanted.length });
-            else if (m.type === "systemFont") onSystemFont?.(m.path as string);
+            if (m.type === "progress") {
+              const e = m.e as { phase: string; pageId?: string };
+              if (e.phase === "render") done++;
+              onProgress?.({ ...e, done, total: wanted.length });
+            } else if (m.type === "systemFont") onSystemFont?.(m.path as string);
             else if (m.type === "done") ok(m);
           });
           w.on("error", ng);

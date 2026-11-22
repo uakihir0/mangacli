@@ -67,6 +67,40 @@ describe("cli", () => {
       expect(human.stderr).toContain("spread/right: raster bands 1/1");
     }
   });
+  it.each([
+    { count: 20, spread: false, selection: "1-", total: 20, files: 20 },
+    { count: 19, spread: true, selection: "1-", total: 19, files: 20 },
+    { count: 20, spread: false, selection: "2,5,9", total: 3, files: 3 },
+    { count: 20, spread: false, selection: "99", total: 0, files: 0 },
+  ])("counts completed pages with parallel print rendering: %j", ({ count, spread, selection, total, files }) => {
+    const dir = mkdtempSync(join(tmpdir(), "mc-progress-"));
+    const file = join(dir, "pages.yaml");
+    const pages = Array.from({ length: count }, (_, i) => `{ id: p${i + 1}${spread && i === 0 ? ", type: spread" : ""} }`);
+    writeFileSync(file, `mangacli: 1\npage: { size: [12mm, 15mm], bleed: 0 }\npages: [${pages.join(", ")}]\n`);
+    const r = cli("render", file, "-p", "print-gray", "--dpi", "100", "--spread", "split", "-f", "png", "-o", join(dir, "out"), "--concurrency", "8", "--pages", selection, "--json");
+    expect(r.status).toBe(total ? 0 : 1);
+    const events = r.stdout.trim().split("\n").map((line) => JSON.parse(line));
+    const progress = events.filter((e) => e.type === "progress" && e.phase !== "raster-band");
+    const completed = progress.filter((e) => e.phase === "render");
+    expect(completed.map((e) => [e.done, e.total])).toEqual(Array.from({ length: total }, (_, i) => [i + 1, total]));
+    expect(new Set(completed.map((e) => e.pageId)).size).toBe(total);
+    if (total) {
+      expect(progress.every((e) => e.done <= e.total)).toBe(true);
+      expect(progress.map((e) => e.done)).toEqual(progress.map((e) => e.done).sort((a, b) => a - b));
+    }
+    expect(events.find((e) => e.type === "result").files).toHaveLength(files);
+  });
+  it("does not count worker preflight errors as completed pages", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mc-progress-error-"));
+    const file = join(dir, "pages.yaml");
+    writeFileSync(file, "mangacli: 1\npage: { size: [12mm, 15mm], bleed: 0 }\npages: [{ id: p1 }, { id: p2 }]\n");
+    const r = cli("render", file, "-p", "print-gray", "--dpi", "100", "-o", join(dir, "out"), "--concurrency", "2", "--max-output-pixels", "1", "--json");
+    expect(r.status).toBe(2);
+    const events = r.stdout.trim().split("\n").map((line) => JSON.parse(line));
+    expect(events.filter((e) => e.type === "progress").every((e) => e.done === 0)).toBe(true);
+    expect(events.some((e) => e.type === "progress" && e.phase === "render")).toBe(false);
+    expect(events.find((e) => e.type === "result").files).toEqual([]);
+  });
   it("raises the per-page pixel limit and rejects invalid limits", () => {
     const dir = mkdtempSync(join(tmpdir(), "mc-limit-"));
     const f = join(dir, "spread.yaml");
