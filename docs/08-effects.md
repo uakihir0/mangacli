@@ -60,8 +60,6 @@
 | `uni-flash` | ウニフラッシュ | 感動、ときめき、心の衝撃 | P0 |
 | `speed-lines` | 流線 | 速さ、動き | P0 |
 | `swirl-lines` | 回転流線 | 回転、渦、めまい | P1 |
-| `impact` | 衝撃 | 打撃、衝突、爆発 | P1 |
-| `lightning` | 稲妻 | ショック、ガーン | P1 |
 | `gloom-lines` | 縦線 | 落ち込み、絶望（ガーン） | P1 |
 | `vignette` | ぼかし枠 | 回想、夢、柔らかさ | P1 |
 
@@ -205,40 +203,9 @@ passes:
 | `thickness` | Range | `[0.1mm, 0.4mm]` | 線幅 |
 | `spiral` | 数値 | `0` | 渦巻きの度合い（円弧の半径を弧に沿って変える割合） |
 
-## 8.7 衝撃（impact）
+## 8.7 （欠番）
 
-（P1）打撃点を中心とした、ギザギザの白い形と放射状の短い線。
-
-| パラメータ | 型 | 既定値 | 説明 |
-|---|---|---|---|
-| `center` | Point | 必須 | 中心 |
-| `radius` | Length \| % | `18%` | 大きさ |
-| `spikes` | 整数 | `14` | ギザギザの数 |
-| `irregularity` | 0〜1 | `0.5` | 不規則さ |
-| `fill` | Paint | `paper` | 形の塗り |
-| `stroke` | Stroke | `{ width: 0.3mm, pen: g-pen }` | 形の輪郭 |
-| `double` | 真偽値 | `true` | 内側にもう 1 つのギザギザを描く |
-| `rays` | `{ count, length, thickness }` | `{ count: 24, length: [2mm, 8mm], thickness: [0.15mm, 0.4mm] }` | 外側の短い放射線 |
-
-### 8.7.1 稲妻（lightning）
-
-黒ベタに、黒い輪郭を持つ白い稲妻。枝は途中から分かれて先端へ細くなる。
-`background: paper` と `fill: black` で白地に黒い稲妻になる。
-
-| パラメータ | 型 | 既定値 | 説明 |
-|---|---|---|---|
-| `origin` | Point | 上辺の各所 | 指定時は全て同じ始点 |
-| `direction` | Angle | `90deg` | 下向き |
-| `bolts` | 整数 | `3` | 主稲妻の本数 |
-| `branches` | 整数 | `2` | 主稲妻ごとの枝数 |
-| `length` | Length / % | `90%` | 領域の高さに対する長さ |
-| `thickness` | Range | `[3bmm, 6bmm]` | 根元の太さ |
-| `jaggedness` | 0〜1 | `0.8` | 折れ曲がりの強さ |
-| `fill` | Paint | `paper` | 稲妻の面 |
-| `stroke` | Stroke | `{ width: 0.25bmm }` | 黒い輪郭 |
-| `background` | Paint | `black` | 領域の背景 |
-
-実行例: [impact-effects.yaml](examples/impact-effects.yaml)。
+衝撃（`impact`）・稲妻（`lightning`）は、形のある絵を描く機能なので削除した。打撃や「ガーン」は、集中線・縦線・ベタフラッシュと描き文字で表す。
 
 ## 8.8 縦線（gloom-lines）
 
@@ -514,15 +481,15 @@ paint: { pattern: { asset: flower-tone, scale: 0.5, rotate: 15deg, offset: [0, 0
 | 場面 | 組み合わせ |
 |---|---|
 | 驚き・ショック | `beta-flash` + 人物 + `mark: surprise` + `as: shout` の吹き出し |
-| ガーン | `lightning` + `gloom-lines`（白線）+ `sfx: ガーン` |
-| 着地 | `impact` + `sfx: ドン` |
+| ガーン | `beta-flash` + `gloom-lines`（白線）+ `sfx: ガーン` |
+| 着地 | `focus-lines` + `sfx: ドン` |
 | 絶望 | `gloom-lines`（`tone` 付き）+ `mark: tremble` + `as: tremble` の吹き出し |
 | 決めゴマ | 断ち切りのコマ + `focus-lines`（`passes` で 2 重）+ `sfx` |
 | 走る・飛ぶ | `speed-lines`（`clear` で人物を避ける）+ `mark: motion` + `sfx`（`distort.skew`） |
 | 恋・ときめき | `uni-flash` + `scatter`（`sparkle`、花の素材）+ `tone-gradient` の背景 |
 | 回想 | ページの `background: black` + `vignette` + `filters: [sepia]`（カラー）または `tone(10%)` + `as: monologue` |
 | 心の声 | `as: think`（雲）または `as: shock`（フラッシュ） |
-| 打撃 | `impact` + `speed-lines`（中心へ向ける場合は `focus-lines`）+ `sfx`（`grow`） |
+| 打撃 | `speed-lines`（中心へ向ける場合は `focus-lines`）+ `sfx`（`grow`） |
 
 ```yaml
 # 例: ショックのコマ
@@ -544,9 +511,9 @@ paint: { pattern: { asset: flower-tone, scale: 0.5, rotate: 15deg, offset: [0, 0
 ```
 
 ```yaml
-# 黒ベタに白い稲妻と絶望の線
-- layers:
-    - { effect: lightning, bolts: 5, seed: 19 }
+# 黒ベタに白い絶望の線
+- background: black
+  layers:
     - { effect: gloom-lines, color: paper, opacity: 0.35 }
     - { sfx: ガーン, at: [35%, 30%], fontSize: 18mm, color: paper, outline: 0.6mm black }
 ```

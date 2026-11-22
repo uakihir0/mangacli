@@ -33,8 +33,10 @@ pages:
       - layers: [{ effect: speed-lines, angle: 0deg }, { text: speed-lines }]
       - layers: [{ effect: gloom-lines, tone: tone(20%) }, { text: gloom-lines }]
       - layers: [{ effect: swirl-lines }, { text: swirl-lines }]
-      - layers: [{ effect: lightning }, { text: lightning, color: white, background: black, outline: none }]
-      - layers: [{ effect: impact }, { text: impact }]
+      - background: "tone(45%)"
+        layers: [{ effect: vignette, shape: ellipse }, { text: vignette }]
+      - background: "tone(30%)"
+        layers: [{ text: tone }]
       - background: "tone-gradient(70%, 0%, 180deg)"
         layers: [{ text: tone-gradient }]
       - layers:

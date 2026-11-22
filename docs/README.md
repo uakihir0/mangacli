@@ -17,7 +17,7 @@ This directory contains the full specification: features, document format, rende
 | 5 | [05-elements-and-images.md](05-elements-and-images.md) | Common element properties, placement, clipping and frame-breaking, image assets, filters, shapes, fills, groups |
 | 6 | [06-balloons.md](06-balloons.md) | Speech balloon shapes, strokes, tails, auto sizing, placement, connected balloons, dialogue shorthand, auto placement |
 | 7 | [07-text.md](07-text.md) | Typesetting (vertical and horizontal), fonts (including the font catalog and on-demand download), mixed fonts, line breaking rules, ruby, emphasis dots, tate-chu-yoko, inline markup, hand-lettered SFX |
-| 8 | [08-effects.md](08-effects.md) | Focus lines, flashes, speed lines, lightning and other overlay effects, screentones, gradients, manpu marks, scattering |
+| 8 | [08-effects.md](08-effects.md) | Focus lines, flashes, speed lines and other overlay effects, screentones, gradients, manpu marks, scattering |
 | 9 | [09-hand-drawn.md](09-hand-drawn.md) | Hand-drawn rendering engine: wobble, pen pressure, tapering, stroke decomposition, pens, finishing |
 | 10 | [10-color-and-output.md](10-color-and-output.md) | Color modes, monochrome conversion, tone rendering, output formats, resolution, crop marks, profiles, separations |
 | 11 | [11-api.md](11-api.md) | TypeScript API, types, renderer, resolvers, plugins |
