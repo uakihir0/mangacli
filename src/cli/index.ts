@@ -667,7 +667,8 @@ new EventSource("/events").onmessage=()=>location.reload()</script>`;
     }, 150);
   });
   await new Promise<void>((ok) => server.listen(port, host, ok));
-  const url = `http://${host}:${port}/`;
+  const address = server.address();
+  const url = `http://${host}:${typeof address === "object" && address !== null ? address.port : port}/`;
   log("info", `${paint("32", "✔")} ${t("プレビュー", "preview")}: ${url}`);
   if (o.open) {
     const { spawn } = await import("node:child_process");

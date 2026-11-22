@@ -27,7 +27,7 @@ pages:
   - layout: { template: grid, params: { cols: 4, rows: 4 } }
     panels:
       - layers:
-          - { balloon: ふつうの吹き出し, at: [50%, 42%], tail: { direction: 110deg } }
+          - { balloon: ふつうの　吹き出し, at: [50%, 42%], tail: { direction: 110deg } }
           - text: "say (ellipse)"
       - layers:
           - { balloon: 考えごと, as: think, at: [50%, 40%], tail: { direction: 100deg } }
@@ -53,10 +53,9 @@ pages:
       - layers:
           - { balloon: 反転, as: inverted, at: [50%, 42%], tail: { direction: 90deg } }
           - text: inverted
-      - background: black
-        layers:
-          - { balloon: ガーン, as: shock, at: [50%, 45%] }
-          - { text: shock, color: white, outline: none }
+      - layers:
+          - { balloon: "！！", as: shock, minSize: [12mm, 12mm], at: [50%, 45%] }
+          - text: shock
       - layers:
           - { balloon: そうか, id: c1, at: [62%, 26%], tail: { direction: 15deg } }
           - { balloon: "やっぱり\n君だったのか", at: [36%, 58%], connect: { to: c1 } }

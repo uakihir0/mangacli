@@ -129,7 +129,7 @@ pages:
         expect([...text].map((ch) => fonts.pick(font, ch.codePointAt(0)!)?.font.label)).toEqual(Array(text.length).fill(expected));
       }
       await fonts.prepare("sfx", text);
-      expect(fonts.primary("sfx")?.key).toBe("cat:zen-kaku-gothic-new@900");
+      expect(fonts.primary("sfx")?.key).toBe("cat:dela-gothic-one@400");
       expect(onError).not.toHaveBeenCalled();
       expect(list).toHaveBeenCalledTimes(1);
       expect(onSystemFont.mock.calls).toEqual(expected === "Zen Kaku Gothic New 900" ? [] : [[path]]);

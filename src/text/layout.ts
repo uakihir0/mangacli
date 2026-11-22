@@ -53,6 +53,7 @@ export interface LetteringSpec {
 
 export interface GlyphOut {
   path: PathData;
+  char: string;
   color?: string;
   unit: number;
   bold?: boolean;
@@ -92,7 +93,7 @@ interface Box {
   punctCompressed?: boolean;
   size: number; // em size mm
   orient: Orient;
-  glyphs: { gid: number; font: LoadedFont; m: Matrix; path?: PathData }[]; // matrix relative to box origin: vertical => (col center, box top); horizontal => (box left, baseline)
+  glyphs: { gid: number; font: LoadedFont; m: Matrix; path?: PathData; char?: string }[]; // matrix relative to box origin: vertical => (col center, box top); horizontal => (box left, baseline)
   breakBefore?: "forced";
   wbrBefore?: boolean;
   space?: boolean;
@@ -144,14 +145,32 @@ function isLatinChar(ch: string): boolean {
   return (cp >= 0x21 && cp <= 0x7e) || (cp >= 0xa0 && cp <= 0x24f);
 }
 
-export function parseLayoutText(text: string, style: TextStyle): ParsedText {
+export function parseLayoutText(text: string, style: TextStyle, balloonPhraseBreaks = false): ParsedText {
   const parsed: ParsedText = parseMarkup(text, { markup: style.markup, normalize: { ...(/^(ja|zh|ko)/.test(style.lang) ? style.normalize : { ellipsis: false, dash: false, waveDash: false, smartQuotes: true, ...style.normalize }), uppercase: style.textTransform === "uppercase" }, vertical: style.writing === "vertical" });
+  if (balloonPhraseBreaks) {
+    const units = parsed.units;
+    const space = (unit: Unit) => unit.kind === "char" && unit.ch === "\u3000" && unit.ruby === undefined;
+    parsed.units = [];
+    for (let i = 0; i < units.length;) {
+      let end = i;
+      while (end < units.length && (units[end].kind === "break" || space(units[end]))) end++;
+      if (end > i && units.slice(i, end).some(space)) {
+        if ((i > 0 && end < units.length) || units.slice(i, end).some(unit => unit.kind === "break")) parsed.units.push({ kind: "break" });
+        i = end;
+      } else {
+        parsed.units.push(units[i++]);
+      }
+    }
+    if (style.normalize.dropTrailingPeriod) {
+      parsed.units = parsed.units.filter((unit, i, units) => !(unit.kind === "char" && unit.ruby === undefined && unit.ch === "。" && (i === units.length - 1 || units[i + 1].kind === "break")));
+    }
+  }
   if (style.writing === "vertical") assignTcy(parsed.units, style.tcy, style.latin);
   return parsed;
 }
 
-export function layoutText(text: string, style: TextStyle, reg: FontRegistry, boxLimit?: number): TextLayout {
-  const parsed = parseLayoutText(text, style);
+export function layoutText(text: string, style: TextStyle, reg: FontRegistry, boxLimit?: number, balloonPhraseBreaks = false): TextLayout {
+  const parsed = parseLayoutText(text, style, balloonPhraseBreaks);
   const vertical = style.writing === "vertical";
   const em = style.fontSize;
   const missing: string[] = [];
@@ -309,7 +328,7 @@ function emitBox(b: Box, ox: number, oy: number, _vertical: boolean, out: GlyphO
       const jit: Matrix = matMul(matTranslate(cx + dx, cy + dy), matMul(matRotate(r), matMul(matScale(s), matTranslate(-cx, -cy))));
       m = matMul(jit, m);
     }
-    out.push({ path: g.path ? transformPath(g.path, m) : pathFromJson(glyphJson(g.font, g.gid), m), color: b.color, unit: b.units[0] ?? 0, bold: b.bold, cx, cy });
+    out.push({ path: g.path ? transformPath(g.path, m) : pathFromJson(glyphJson(g.font, g.gid), m), char: g.char ?? b.chars, color: b.color, unit: b.units[0] ?? 0, bold: b.bold, cx, cy });
   }
 }
 
@@ -713,7 +732,7 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
       // horizontal local: x along, y baseline -> place centered in column (x=0) and em cell
       const hx = (xs[k] + gl.xOffset * s - W / 2) * sx;
       const m: Matrix = [s * sx, 0, 0, -s, hx, size0 / 2 - center - gl.yOffset * s];
-      box.glyphs.push({ gid: gl.gid, font: f, m });
+      box.glyphs.push({ gid: gl.gid, font: f, m, char: seg[charOfCluster(gl.cluster)] });
     });
     boxes.push(box);
     return;
@@ -735,7 +754,7 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
         // horizontal glyph matrix H = [s,0,0,-s,hx,-yOff*s - center]; rotate cw: (X,Y) = (-y, x)
         const H: Matrix = [s, 0, 0, -s, hx, -gl.yOffset * s - center];
         const R: Matrix = [0, 1, -1, 0, 0, 0];
-        box.glyphs.push({ gid: gl.gid, font: f, m: matMul(R, H) });
+        box.glyphs.push({ gid: gl.gid, font: f, m: matMul(R, H), char: seg[charOfCluster(gl.cluster)] });
         box.adv += gl.xAdvance * s;
       }
       if (box.adv === 0) box.adv = size * 0.3;
@@ -965,7 +984,7 @@ function placeRuby(parsed: ParsedText, boxes: Box[], glyphs: GlyphOut[], style: 
             for (const gl of g) {
               let m: Matrix = [s, 0, 0, -s, x + gl.xOffset * s, y - (gl.yOffset + pk.font.vOriginFix) * s + pen];
               if (WAVE_DASHES.has(c) && g.length === 1) m = verticalWaveMatrix(pk.font, gl.gid, m, x, y + rsize / 2);
-              glyphs.push({ path: pathFromJson(glyphJson(pk.font, gl.gid), m), unit: sg.boxes[0].units[0], cx: x, cy: y });
+              glyphs.push({ path: pathFromJson(glyphJson(pk.font, gl.gid), m), char: c, unit: sg.boxes[0].units[0], cx: x, cy: y });
               pen += -gl.yAdvance * s;
             }
           }
@@ -984,7 +1003,8 @@ function placeRuby(parsed: ParsedText, boxes: Box[], glyphs: GlyphOut[], style: 
         const y = style.ruby.position === "under" ? first[1] + sg.boxes[0].size * 0.12 + rsize * 0.88 : first[1] - sg.boxes[0].size * 0.95;
         for (const gl of g) {
           const m: Matrix = [s, 0, 0, -s, x + gl.xOffset * s, y - gl.yOffset * s];
-          glyphs.push({ path: pathFromJson(glyphJson(pk0.font, gl.gid), m), unit: sg.boxes[0].units[0], cx: x, cy: y });
+          const char = String.fromCodePoint(sg.text.codePointAt(gl.cluster)!);
+          glyphs.push({ path: pathFromJson(glyphJson(pk0.font, gl.gid), m), char, unit: sg.boxes[0].units[0], cx: x, cy: y });
           x += gl.xAdvance * s;
         }
       }
@@ -1020,7 +1040,7 @@ function placeEmphasis(boxes: Box[], glyphs: GlyphOut[], style: TextStyle, reg: 
     const ty = vertical ? b._pos[1] + b.adv / 2 : pos === "under" ? b._pos[1] + b.size * 0.12 + size * 0.6 : b._pos[1] - b.size * 0.88 - size * 0.5;
     const dx = tx - (bb.x + bb.w / 2);
     const dy = ty - (bb.y + bb.h / 2);
-    glyphs.push({ path: pathFromJson(glyphJson(pk.font, g.gid), [s, 0, 0, -s, dx, dy]), unit: b.units[0], cx: tx, cy: ty, color: style.emphasis.color ?? b.color });
+    glyphs.push({ path: pathFromJson(glyphJson(pk.font, g.gid), [s, 0, 0, -s, dx, dy]), char: ch, unit: b.units[0], cx: tx, cy: ty, color: style.emphasis.color ?? b.color });
   }
 }
 

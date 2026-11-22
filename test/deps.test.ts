@@ -55,16 +55,15 @@ describe("collectDeps", () => {
 describe("preview", () => {
   it("re-renders when an inline image is added and when it changes", async () => {
     const dir = project({ "manga.yaml": "mangacli: 1\npages:\n  - panels:\n      - layers: [{ image: art/1.png }]\n" });
-    const port = 41000 + Math.floor(Math.random() * 10000);
-    const child = spawn(process.execPath, ["--import", "tsx", join(root, "src/cli/index.ts"), "preview", join(dir, "manga.yaml"), "--port", String(port), "--no-config"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(process.execPath, ["--import", "tsx", join(root, "src/cli/index.ts"), "preview", join(dir, "manga.yaml"), "--port", "0", "--no-config", "--locale", "en"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
     let log = "";
     child.stdout.on("data", (d) => (log += d));
     child.stderr.on("data", (d) => (log += d));
-    const page = async () => (await fetch(`http://127.0.0.1:${port}/`)).text();
     const until = async (ok: (html: string) => boolean) => {
       for (let i = 0; i < 300; i++) {
-        if (log.includes("preview:")) {
-          const html = await page();
+        const url = log.match(/preview: (http:\/\/127\.0\.0\.1:\d+\/)/)?.[1];
+        if (url) {
+          const html = await (await fetch(url)).text();
           if (ok(html)) return html;
         }
         await new Promise((r) => setTimeout(r, 100));

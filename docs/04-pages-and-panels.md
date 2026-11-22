@@ -172,7 +172,9 @@ book:
 | `safeArea` | `{ inset: Length }` | `{ inset: 5mm }` | ✓ | 安全領域 |
 | `gutter` | Length \| `{ col, row }` | `{ col: 2.5mm, row: 5mm }` | ✓ | 間白（[4.6.6](#466-間白gutter)） |
 | `background` | Paint \| `{ image, fit?, bleed? }` | `paper` | ✓ | ページの地の塗り、または下敷きの画像 |
-| `gutterFill` | `paper` \| `none` | `paper` | ✓ | 下敷きの画像の上で間白を白く塗るか、そのまま見せるか |
+| `gutterFill` | Paint \| `none` | `paper` | ✓ | 間白の塗り。`paper` は下敷きの画像があるときだけ塗る |
+| `mood` | `flashback` | — | ✓ | 余白・間白を黒くする回想の指定 |
+| `flashbackBorder` | `none` \| `white` | `none` | ✓ | 回想のコマ枠。`white` は細い白線 |
 | `color` | `mono` \| `color` | `mono` | ✓ | 色の意図（[10.1](10-color-and-output.md#101-カラーモデル)） |
 | `layout` | Layout | 1 コマ | | コマ割り（[4.6](#46-コマ割りlayout)） |
 | `panels` | Panel[] | - | | コマ（[4.7](#47-コマのプロパティ)） |
@@ -194,6 +196,26 @@ book:
 `gutterFill: none` なら間白からも絵が見える。既定の `paper` はレイアウト領域内でコマに覆われない部分を白く塗る（画像のないページには影響しない）。コマを `background: none, border: none` にすると、枠線も地の塗りもなく、下敷きが見える。別のコマに `knockout: 1.5mm` を付けると、コマの輪郭の外側を白く抜く。読み順や自動配置の指定は通常のコマ割りと同じ。
 
 [YAML 作例](examples/full-page-art.yaml) · [出力画像](images/full-page-art.png)
+
+### 回想（`mood`）
+
+ページに `mood: flashback` を指定すると、塗り足しまでの余白と間白が黒くなり、すべてのコマが回想になる。通常のページで一部のコマだけを回想にする場合は、そのコマに指定する。回想のコマの周囲は間白の幅だけ黒く広がり、基本枠の外周に接する辺は塗り足しまで黒くなる。通常のコマ同士の間白は変わらない。
+
+```yaml
+pages:
+  - mood: flashback
+    flashbackBorder: white
+    panels:
+      - dialogue: [{ as: narration, text: あの夏のことだった。 }]
+```
+
+回想のコマ枠は既定で消える。`flashbackBorder: white` なら仕上がり寸法で 0.3mm の白線になり、コマ側の値がページ側より優先される。コマの `border` を明示すればその指定を使う。コマの地は `paper` のまま。`as: narration` の吹き出しだけが黒地・白文字・白枠になり、通常のセリフは白地のままになる。吹き出しの `fill`・`color`・`stroke`、ページの `background`・`gutterFill` などを明示した場合は、その指定を優先する。下敷き画像のある回想ページでも、間白の既定値は黒になる。
+
+`gutterFill: black` や `gutterFill: tone(30%)` は、画像のない通常ページでも使える。`none` は間白を塗らず、`paper` は従来どおり画像のあるページだけを白く覆う。
+
+ナレーションの `fill` または文字の `color` を、吹き出し自身・`style`・文書やページやコマの `defaults` で指定した場合は、回想による配色の変更を行わない。塗り・文字色・枠線をまとめて通常の指定どおりに保つ。
+
+[YAML 作例](examples/flashback.yaml) · [出力画像](images/flashback.png)
 
 ## 4.6 コマ割り（layout）
 
@@ -371,6 +393,8 @@ layout:
 | `border` | Border \| `none` | [4.9](#49-枠線border) | 枠線 |
 | `bleed` | 辺[] \| `all` \| `false` | `false` | 断ち切りにする辺（`top`、`right`、`bottom`、`left`） |
 | `background` | Paint | `paper` | コマの地の塗り |
+| `mood` | `flashback` | ページに従う | 回想。周囲の余白・間白を黒くする |
+| `flashbackBorder` | `none` \| `white` | ページに従う（`none`） | 回想の枠線。明示した `border` が優先 |
 | `layers` | Element[] | - | コマに置く要素。リストの順に下から重ねる |
 | `dialogue` | DialogueLine[] | - | セリフの省略記法（[6.11](06-balloons.md#611-セリフの省略記法dialogue)） |
 | `defaults` | Defaults | - | このコマの既定値 |

@@ -1,5 +1,5 @@
 // Raster backend (Skia via @napi-rs/canvas) with tone screening and mono pipeline (spec 2.6, 10.2, 10.3).
-import { type Canvas, type SKRSContext2D, Path2D, createCanvas } from "@napi-rs/canvas";
+import { type Canvas, type SKRSContext2D, Path2D, StrokeCap, StrokeJoin, createCanvas } from "@napi-rs/canvas";
 import { type RGBA, cssColor, luminanceLinear, srgbToLinear, linearToSrgb } from "../core/color.js";
 import type { PathData } from "../geom/path.js";
 import { type Matrix, type Rect, applyMat, matMul } from "../geom/vec.js";
@@ -155,6 +155,7 @@ export function monoNodeWorkingBytes(list: DisplayList, dpi: number, crop: "trim
     const pixels = r.w * r.h;
     if (n.kind === "image") return pixels * 64;
     if (n.kind === "path") {
+      if (n.stroke && n.tag?.elementType === "sfx") return pixels * 8;
       const p = n.paint;
       const gray = p?.type === "solid" ? linearToSrgb(luminanceLinear(p.color)) : 0;
       if (p && ((p.type === "tone" && p.tone.softEdge) || (p.type !== "tone" && p.type !== "solid") || (gray > 0.05 && gray < 0.95))) return pixels * 32;
@@ -592,16 +593,34 @@ export class RasterBackend {
     const bounds = nodeBounds(n, m);
     if (!bounds || !intersectsViewport(dev, { x: bounds.x - 2, y: bounds.y - 2, w: bounds.w + 4, h: bounds.h + 4 })) return;
     if (n.stroke) {
-      ctx.save();
-      setDeviceM(dev, m);
-      const st = this.paintStyle(dev, n.stroke.paint);
-      if (st) ctx.strokeStyle = st as string;
-      ctx.lineWidth = n.stroke.width;
-      ctx.lineJoin = n.stroke.join;
-      ctx.miterLimit = n.stroke.miterLimit ?? 10;
-      ctx.lineCap = "round";
-      ctx.stroke(buildPath(n.path));
-      ctx.restore();
+      if (n.tag?.elementType === "sfx") {
+        // Keep outline antialiasing in logical page pixels across folds and bands.
+        const r = clampRect(bounds, dev.W, dev.H);
+        if (!r) return;
+        const off = createCanvas(r.w, r.h);
+        const octx = off.getContext("2d");
+        const path = buildPath(n.path).stroke({ width: n.stroke.width, miterLimit: n.stroke.miterLimit ?? 10, cap: StrokeCap.Round, join: n.stroke.join === "round" ? StrokeJoin.Round : StrokeJoin.Miter }).transform({ a: m[0], b: m[1], c: m[2], d: m[3], e: m[4], f: m[5] });
+        setM(octx, [m[0], m[1], m[2], m[3], m[4] - r.x, m[5] - r.y]);
+        octx.fillStyle = this.paintStyle({ ...dev, ctx: octx }, n.stroke.paint) as string;
+        octx.setTransform(1, 0, 0, 1, -r.x, -r.y);
+        octx.fill(path);
+        ctx.save();
+        setDeviceM(dev);
+        blit(dev, off, r.x, r.y);
+        ctx.restore();
+        off.width = off.height = 1;
+      } else {
+        ctx.save();
+        setDeviceM(dev, m);
+        const st = this.paintStyle(dev, n.stroke.paint);
+        if (st) ctx.strokeStyle = st as string;
+        ctx.lineWidth = n.stroke.width;
+        ctx.lineJoin = n.stroke.join;
+        ctx.miterLimit = n.stroke.miterLimit ?? 10;
+        ctx.lineCap = "round";
+        ctx.stroke(buildPath(n.path));
+        ctx.restore();
+      }
     }
     const p = n.paint;
     if (!p) return;

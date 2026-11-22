@@ -17,6 +17,8 @@ export interface StrokeOptions {
   ruler?: boolean;
   /** width multiplier profile hook (0..1 position) */
   profile?: (t: number) => number;
+  startWidth?: number;
+  endWidth?: number;
   noPull?: boolean;
   inkPool?: boolean;
   /** sampling step override (mm) for long straight strokes */
@@ -119,6 +121,9 @@ export function strokeOutline(center: readonly Vec[], o: StrokeOptions): InkPoly
     let wi = w0 * P * T * C * H * J * prof;
     if (!inTaper) wi = Math.max(wi, o.pen.minWidth);
     w[i] = Math.max(o.pen.tipWidth * 0.5, wi);
+    const taperLength = Math.max(0.5, w0 * 3);
+    if (o.startWidth !== undefined) w[i] = Math.min(w[i], o.startWidth + w0 * Math.min(1, si / taperLength));
+    if (o.endWidth !== undefined) w[i] = Math.min(w[i], o.endWidth + w0 * Math.min(1, (L - si) / taperLength));
   }
 
   const left: Vec[] = [];
