@@ -462,10 +462,17 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     };
     const { nodes } = await layoutImage(el, baseCtx(), box, "background");
     pageBackground.push({ kind: "group", clip: polyPath(rectPts(box), true), children: nodes, tag: bgTag });
-    if (page.settings.gutterFill !== "none") {
-      const path = gutterPath(area, panels, geom);
-      if (path.length) pageBackground.push({ kind: "path", path, fillRule: "evenodd", paint: { type: "solid", color: WHITE }, tag: bgTag });
-    }
+  }
+  const gutterFill = page.settings.gutterFill ?? "paper";
+  if (gutterFill !== "none" && (bgImage || gutterFill !== "paper")) {
+    const path = gutterPath(area, panels, geom);
+    const paint = parsePaint(gutterFill, { u, box: area, seed: page.seed, bag, path: [...page.path, "gutterFill"] });
+    if (path.length && paint) pageBackground.push({ kind: "path", path, fillRule: "evenodd", paint, tag: bgTag });
+  }
+  if (page.settings.mood !== "flashback") {
+    const regions = panels.filter((pg) => pg.panel.props.mood === "flashback" && pg.panel.props.visible !== false)
+      .map((pg) => [flashbackRegion(pg, panels, area, page, geom).map(({ x, y }) => [x, y] as [number, number])]);
+    if (regions.length) pageBackground.push({ kind: "path", path: multiPolyPath(polygonClipping.union(regions[0], ...regions.slice(1))), fillRule: "nonzero", paint: { type: "solid", color: BLACK }, tag: bgTag });
   }
   for (const it of items.filter((i) => i.stackUnder)) root.children.push(it.openClip ? { kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.nodes } : { kind: "group", children: it.nodes });
   for (const { pg, clipped } of panelNodes) {
@@ -539,6 +546,59 @@ function compositeNodes(nodes: Node[], props: Obj, bag: DiagnosticBag, path: (st
 
 function multiPolyPath(polys: polygonClipping.MultiPolygon) {
   return polys.flatMap((poly) => poly.flatMap((ring) => polyPath(ring.map(([x, y]) => ({ x, y })), true)));
+}
+function flashbackRegion(pg: PanelGeom, panels: PanelGeom[], area: Rect, page: RPage, geom: PageGeom): Vec[] {
+  const layout = isObj(page.layout) ? page.layout : {};
+  const spec = layout.split ? page.settings.gutter : layout.gutter ?? page.settings.gutter;
+  const col = spec === undefined ? 2.5 * geom.k : toMm((isObj(spec) ? spec.col ?? "2.5bmm" : spec) as string, geom.units);
+  const row = spec === undefined ? 5 * geom.k : toMm((isObj(spec) ? spec.row ?? "5bmm" : spec) as string, geom.units);
+  const widths = [col, row];
+  const collectWidths = (node: unknown) => {
+    if (!isObj(node)) return;
+    if (typeof node.gutter === "string") widths.push(toMm(node.gutter, geom.units));
+    else if (isObj(node.gutter)) for (const value of Object.values(node.gutter)) if (typeof value === "string") widths.push(toMm(value, geom.units));
+    for (const key of ["children", "rows"]) if (Array.isArray(node[key])) for (const child of node[key]) collectWidths(child);
+  };
+  collectWidths(layout);
+  const sign = polygonArea(pg.polygon) > 0 ? 1 : -1;
+  let region = rectPts(geom.bleedBox);
+  for (let i = 0; i < pg.polygon.length; i++) {
+    const a = pg.polygon[i], b = pg.polygon[(i + 1) % pg.polygon.length];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (len < 1e-8) continue;
+    const n = { x: sign * (b.y - a.y) / len, y: sign * (a.x - b.x) / len };
+    const dot = (p: Vec) => p.x * n.x + p.y * n.y;
+    const edge = dot(a);
+    const outer = [
+      Math.abs(a.x - area.x) < 0.01 && Math.abs(b.x - area.x) < 0.01,
+      Math.abs(a.x - area.x - area.w) < 0.01 && Math.abs(b.x - area.x - area.w) < 0.01,
+      Math.abs(a.y - area.y) < 0.01 && Math.abs(b.y - area.y) < 0.01,
+      Math.abs(a.y - area.y - area.h) < 0.01 && Math.abs(b.y - area.y - area.h) < 0.01,
+    ].some(Boolean);
+    let distance = Math.abs(n.x) >= Math.abs(n.y) ? col : row;
+    const gaps = panels.filter((other) => other !== pg && other.panel.props.visible !== false).flatMap((other) => {
+      const values = other.polygon.map(dot);
+      const gap = Math.min(...values) - edge;
+      const tangent = (p: Vec) => -n.y * p.x + n.x * p.y;
+      const ts = other.polygon.map(tangent);
+      const overlap = Math.min(Math.max(tangent(a), tangent(b)), Math.max(...ts)) - Math.max(Math.min(tangent(a), tangent(b)), Math.min(...ts));
+      return gap > 0.01 && gap <= Math.max(...widths) + 0.1 && overlap > 0.01 ? [gap] : [];
+    });
+    if (gaps.length) distance = Math.min(...gaps);
+    const limit = outer ? Math.max(...rectPts(geom.bleedBox).map(dot)) : edge + distance;
+    const next: Vec[] = [];
+    for (let j = 0; j < region.length; j++) {
+      const p = region[j], q = region[(j + 1) % region.length];
+      const dp = dot(p) - limit, dq = dot(q) - limit;
+      if (dp <= 0) next.push(p);
+      if ((dp <= 0) !== (dq <= 0)) {
+        const t = dp / (dp - dq);
+        next.push({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
+      }
+    }
+    region = next;
+  }
+  return region;
 }
 function gutterPath(area: Rect, panels: PanelGeom[], geom: PageGeom) {
   const ring = (poly: Vec[]): polygonClipping.Ring => poly.map(({ x, y }) => [x, y]);
