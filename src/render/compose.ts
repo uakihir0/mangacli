@@ -1590,7 +1590,11 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
       if (isFinite(dx)) tl.x += dx;
       if (isFinite(dy)) tl.y += dy;
     }
-    setCenter(pl, fitDialogue(pl, { x: tl.x - pl.outer.x, y: tl.y - pl.outer.y }));
+    const c = { x: tl.x - pl.outer.x, y: tl.y - pl.outer.y };
+    const clip = pl.props.clip;
+    const b = dialogueBounds(pl);
+    const clipped = clip === "panel" || (clip === "auto" && ctx.panel && crossesOuterEdge(ctx.panel, { ...b, x: c.x + b.x, y: c.y + b.y }, u.k));
+    setCenter(pl, clipped ? fitDialogue(pl, c) : c);
   }
   const apOf = (pl: BalloonPlan) => (isObj(pl.props.autoPlace) ? (pl.props.autoPlace as Obj) : {});
   const isFlow = (pl: BalloonPlan) => (isObj(pl.props.autoPlace) ? apOf(pl).mode : pl.props.autoPlace) === "flow";

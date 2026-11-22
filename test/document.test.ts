@@ -80,7 +80,7 @@ pages:
       - box: [15mm, 25mm, 50mm, 145mm]
         coords: page
         dialogue:
-          - { text: "この吹き出しは指定された大きさに収まりません", id: crowded, at: [0%, 5%], maxSize: [10mm, 10mm], tail: none }
+          - { text: "この吹き出しは指定された大きさに収まりません", id: crowded, at: [0%, 5%], clip: panel, maxSize: [10mm, 10mm], tail: none }
   - layers:
       - { balloon: こんにちは, id: explicit, at: [25%, 25%], fontSize: 5mm, maxSize: [10mm, 10mm] }
       - { balloon: こんにちは, id: shrink, at: [75%, 25%], overflow: shrink, maxSize: [10mm, 10mm] }
@@ -155,6 +155,27 @@ pages:
     const [upper, lower] = ["upper", "lower"].map(id => r.layout[0].elements.find(el => el.id === id)!.bbox);
     expect(lower.y).toBeGreaterThanOrEqual(upper.y + upper.h + 0.8);
     expect(r.diagnostics).toContainEqual(expect.objectContaining({ code: "BALLOON_NO_SPACE", elementId: "lower" }));
+  });
+
+  it("preserves a positioned balloon's intentional frame crossing when unclipped", async () => {
+    const r = await validate(yaml(`mangacli: 1
+meta: { lang: en }
+defaults:
+  balloon: { fontSize: 5mm, writing: horizontal, shape: rect, padding: [0mm, 0mm] }
+pages:
+  - panels:
+      - coords: page
+        box: [50mm, 35mm, 60mm, 40mm]
+        layers:
+          - { balloon: "That works", id: b, clip: none, at: [0%, 50%], maxSize: [5mm, 5mm], tails: [] }
+`));
+    expect(r.ok).toBe(true);
+    const { bbox } = r.layout[0].elements[0];
+    expect(bbox.x).toBeGreaterThan(0);
+    expect(bbox.x).toBeLessThan(50);
+    expect(bbox.x + bbox.w / 2).toBeCloseTo(50, 1);
+    expect(r.diagnostics).toContainEqual(expect.objectContaining({ code: "BALLOON_TOO_LARGE", elementId: "b" }));
+    expect(r.diagnostics.some(d => d.code === "BALLOON_NO_SPACE")).toBe(false);
   });
 });
 

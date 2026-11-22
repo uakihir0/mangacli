@@ -145,7 +145,9 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
     const plan = planBalloonWithFit(el, { ...ctx, bag }, undefined, { wrap, lineEm });
     return { plan, bag, faults: breakFaults(plan.text, ctx.lang) };
   };
-  const panel = (p.coords === undefined || p.coords === "panel") && !hasOffscreenTail(p) ? ctx.panel?.box : undefined;
+  const positioned = p.at !== undefined || p.place !== undefined;
+  const panelClipped = p.clip === "panel" || p.clip === "auto";
+  const panel = (!positioned || panelClipped) && (p.coords === undefined || p.coords === "panel") && !hasOffscreenTail(p) ? ctx.panel?.box : undefined;
   const fitsPanel = ({ plan }: { plan: BalloonPlan }) => {
     if (!panel) return true;
     const a = p.rotate === undefined ? 0 : parseAngle(p.rotate as string);
