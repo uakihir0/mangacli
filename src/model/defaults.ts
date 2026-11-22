@@ -29,7 +29,7 @@ export const BUILTIN_DEFAULTS: Record<string, Obj> = {
     fontSize: "12bmm",
     letterSpacing: "-0.03em",
     rotate: "-6deg",
-    perChar: { rotate: ["-3deg", "3deg"] },
+    perChar: { rotate: ["-3deg", "3deg"], overlap: "0.15em" },
     distort: { roughen: 0.4, warp: 0, skew: "0deg" },
     color: "black",
     lettering: { mode: "hand" },

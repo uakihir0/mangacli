@@ -15,9 +15,18 @@ export function fullSizeKana(char: string): string {
   return full[small.indexOf(char)] ?? char;
 }
 
-export function sfxScale(index: number, count: number, char: string, grow?: number, smallKanaScale = 0.6, style: "impact" | "speed" = "impact"): number {
+export type SfxScaleRamp = "grow" | "shrink" | "burst" | "flat" | { from: number; to: number };
+
+export function sfxScale(index: number, count: number, char: string, grow?: number, smallKanaScale = 0.6, style: "impact" | "speed" = "impact", preset?: SfxScaleRamp): number {
   const t = count > 1 ? index / (count - 1) : style === "impact" ? 0 : 1;
-  const ramp = grow === undefined ? style === "impact" ? 1.3 * (1 - t) + 1.05 * t : 0.95 * (1 - t) + 1.3 * t : 1 + grow * index;
+  const mode = preset ?? (style === "impact" ? "shrink" : undefined);
+  let ramp = style === "speed" ? 0.95 * (1 - t) + 1.3 * t : 1;
+  if (mode === "grow") ramp = 0.85 * (1 - t) + 1.3 * t;
+  else if (mode === "shrink") ramp = 1.3 * (1 - t) + 0.8 * t;
+  else if (mode === "burst") ramp = 0.9 + 0.45 * (count === 1 ? 1 : 1 - Math.abs(2 * t - 1));
+  else if (mode === "flat") ramp = 1;
+  else if (typeof mode === "object") ramp = mode.from * (1 - t) + mode.to * t;
+  if (grow !== undefined) ramp = 1 + grow * index;
   return ramp * (SMALL_KANA.has(char) ? smallKanaScale : 1);
 }
 

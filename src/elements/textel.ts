@@ -15,7 +15,7 @@ import type { Node, Paint } from "../render/ir.js";
 import { type TextLayout, layoutText, parseLayoutText } from "../text/layout.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
-import { fullSizeKana, isSmallKana, sfxScale, sfxShifts, sfxStretch, sfxWeightRadius } from "../text/sfx.js";
+import { fullSizeKana, isSmallKana, sfxScale, sfxShifts, sfxStretch, sfxWeightRadius, type SfxScaleRamp } from "../text/sfx.js";
 import { brushGlyph, emboldenGlyph, type BrushSpec } from "../text/brush.js";
 
 type Obj = Record<string, unknown>;
@@ -130,7 +130,9 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const pressureStyle = brush && brush.style === "speed" ? "speed" : "impact";
   const pcs = (p.perChar ?? {}) as Obj;
   const rotR = toRange(pcs.rotate as never, (x) => parseAngle(x as string), { min: -0.1, max: 0.1, dist: "uniform" });
-  const scR = toRange(pcs.scale as never, (x) => Number(x), { min: 1, max: 1, dist: "uniform" });
+  const scaleRamp = typeof pcs.scale === "string" || (isObj(pcs.scale) && "from" in pcs.scale) ? pcs.scale as SfxScaleRamp : undefined;
+  const scR = toRange((scaleRamp ? undefined : pcs.scale) as never, (x) => Number(x), { min: 1, max: 1, dist: "uniform" });
+  const overlap = Math.max(0, toMm((pcs.overlap as string | undefined) ?? "0.15em", { ...u, em }));
   const jitter = pcs.jitter !== undefined ? toMm(pcs.jitter as string, u) : 0;
   const chars = Array.isArray(p.chars) ? (p.chars as Obj[]) : [];
   // group glyphs by unit (char index order)
@@ -145,7 +147,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   let fullIndex = -1;
   const scales = units.map((_, i) => {
     if (!isSmallKana(unitChars[i])) fullIndex++;
-    return sfxScale(grow === undefined ? Math.max(0, fullIndex) : i, grow === undefined ? fullCount : units.length, unitChars[i], grow, p.smallKanaScale as number | undefined, pressureStyle) * rng.range(scR.min, scR.max);
+    return sfxScale(grow === undefined ? Math.max(0, fullIndex) : i, grow === undefined ? fullCount : units.length, unitChars[i], grow, p.smallKanaScale as number | undefined, pressureStyle, scaleRamp) * rng.range(scR.min, scR.max);
   });
   const shift = sfxShifts(scales, em);
   const acc = scales.reduce((sum, scale) => sum + (scale - 1) * em, 0);
@@ -174,7 +176,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   // the path the letters follow (spec 7.14): along-axis position -> point and tangent turn
   const pathSpec = isObj(p.path) ? (p.path as Obj) : null;
   const along = (g: { cx: number; cy: number }, i: number) => (vertical ? g.cy + (shift[i] ?? 0) : g.cx + (shift[i] ?? 0));
-  const Ltot = vertical ? totalH : totalW;
+  let Ltot = vertical ? totalH : totalW;
   const curveAt = (sPos: number): { dx: number; dy: number; ang: number } => {
     if (!pathSpec) return { dx: 0, dy: 0, ang: 0 };
     const kind = String(pathSpec.kind ?? "line");
@@ -203,7 +205,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
       const pts = (pathSpec.points as unknown[][]).map((q) => ({ x: toMm(q[0] as string, u), y: toMm(q[1] as string, u) }));
       const segL: number[] = [0];
       for (let k = 1; k < pts.length; k++) segL.push(segL[k - 1] + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y));
-      const target = tt * segL[segL.length - 1];
+      const target = sPos;
       let k = 1;
       while (k < pts.length - 1 && segL[k] < target) k++;
       const f0 = (target - segL[k - 1]) / Math.max(1e-6, segL[k] - segL[k - 1]);
@@ -224,9 +226,8 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     const sh = shift[i] ?? 0;
     const cx = g.cx;
     const cy = g.cy;
-    const cv = curveAt(along(g, i));
     const stretch = sfxStretch(unitChars[i], vertical);
-    const m = matMul(matTranslate(cx + t.jx + (vertical ? 0 : sh) + cv.dx, cy + t.jy + (vertical ? sh : 0) + cv.dy), matMul(matRotate(t.r + cv.ang), matMul(matScale(t.s * stretch[0], t.s * stretch[1]), matTranslate(-cx, -cy))));
+    const m = matMul(matTranslate(cx + t.jx + (vertical ? 0 : sh), cy + t.jy + (vertical ? sh : 0)), matMul(matRotate(t.r), matMul(matScale(t.s * stretch[0], t.s * stretch[1]), matTranslate(-cx, -cy))));
     const small = isSmallKana(unitChars[i]);
     let source = g.path;
     if (small) {
@@ -287,7 +288,8 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     paths.push(path);
     colorsPer.push(t.color ?? g.color);
   }
-  if (!pathSpec && style.letterSpacing < 0) {
+  const packedOffsets = new Map<number, number>();
+  if (overlap > 0 || (!pathSpec && style.letterSpacing < 0)) {
     let end: number | undefined;
     let previousUnit = -1;
     let previousOffset = 0;
@@ -298,14 +300,31 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
       const bb = boundsOf(points);
       const start = vertical ? bb.y : bb.x;
       const index = idxOf.get(unit)!;
-      const spacing = isSmallKana(unitChars[index]) ? 0.04 : Math.max(0.03, style.letterSpacing);
+      const spacing = overlap > 0 ? -overlap : (isSmallKana(unitChars[index]) ? 0.04 : Math.max(0.03, style.letterSpacing)) * em;
       const space = parsed.units.slice(previousUnit + 1, unit).reduce((sum, u) => sum + (u.kind === "space" ? u.em * (u.style.size ?? 1) * em : 0), 0);
       const offset = vertical ? perCharT[index].jy : perCharT[index].jx;
-      const delta = end === undefined ? 0 : end + spacing * em + space + offset - previousOffset - start;
+      const delta = end === undefined ? 0 : end + spacing + space + offset - previousOffset - start;
+      packedOffsets.set(unit, delta);
       for (const i of indices) paths[i] = transformPath(paths[i], matTranslate(vertical ? 0 : delta, vertical ? delta : 0));
       end = start + delta + (vertical ? bb.h : bb.w);
       previousUnit = unit;
       previousOffset = offset;
+    }
+  }
+  if (pathSpec) {
+    Ltot = Math.max(0, ...units.map((unit, i) => {
+      const g = tl.glyphs.find(g => g.unit === unit)!;
+      return along(g, i) + (packedOffsets.get(unit) ?? 0) + em * scales[i] / 2;
+    }));
+    for (const unit of units) {
+      const i = idxOf.get(unit)!;
+      const g = tl.glyphs.find(g => g.unit === unit)!;
+      const delta = packedOffsets.get(unit) ?? 0;
+      const cv = curveAt(along(g, i) + delta);
+      const cx = g.cx + perCharT[i].jx + (vertical ? 0 : shift[i] + delta);
+      const cy = g.cy + perCharT[i].jy + (vertical ? shift[i] + delta : 0);
+      const m = matMul(matTranslate(cx + cv.dx, cy + cv.dy), matMul(matRotate(cv.ang), matTranslate(-cx, -cy)));
+      tl.glyphs.forEach((g, k) => { if (g.unit === unit) paths[k] = transformPath(paths[k], m); });
     }
   }
   let footprintScale = 1;
@@ -316,48 +335,50 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
       const baseAlong = (vertical ? tl.height : tl.width) + Math.max(0, units.length - 1) * Math.max(0, -0.05 - style.letterSpacing) * em;
       const baseArea = baseAlong * (vertical ? tl.width : tl.height);
       const explicitScale = pcs.scale !== undefined || p.smallKanaScale !== undefined || chars.some(c => c.scale !== undefined);
-      if (grow === undefined && !explicitScale && bb.w * bb.h > 0) footprintScale = Math.max(1, Math.sqrt(baseArea * 1.15 / (bb.w * bb.h)));
+      if (overlap === 0 && grow === undefined && !explicitScale && bb.w * bb.h > 0) footprintScale = Math.max(1, Math.sqrt(baseArea * 1.15 / (bb.w * bb.h)));
       for (let k = 0; k < paths.length; k++) paths[k] = transformPath(paths[k], [footprintScale, 0, 0, footprintScale, -bb.x * footprintScale, -bb.y * footprintScale]);
       boxW = bb.w * footprintScale;
       boxH = bb.h * footprintScale;
     }
   }
-  const allPath = paths.flat();
   const pc = placeCtx(ctx, el);
   const pl = place(p, boxW, boxH, pc);
-  const placed = transformPath(allPath, pl.matrix);
   const nodes: Node[] = [];
   const outlines = paths.map((path, i) => {
     const scale = perCharT[idxOf.get(tl.glyphs[i].unit) ?? 0].s * footprintScale;
     const whiteWidth = em * scale * 0.12;
     return outlineNodes(transformPath(path, pl.matrix), p.outline ?? [{ width: `${whiteWidth}mm`, color: "white" }, { width: `${whiteWidth + toMm("0.25bmm", u)}mm`, color: "black" }], ctx, el);
   });
-  for (let layer = 0; layer < Math.max(0, ...outlines.map(o => o.length)); layer++) {
-    for (const glyph of outlines) if (glyph[layer]) nodes.push(glyph[layer]);
-  }
   const paint = textPaint(p.color, ctx, el, pl.bbox);
   // hollow letters keep only the traced outline (black by default)
   const edge = (p.edge as Obj | undefined) ?? (p.hollow ? { width: "0.35bmm", color: (p.color as string) ?? "black" } : undefined);
-  if (!p.hollow) {
-    // per-character colours (chars[].color, <color>) split the fill into runs
-    const runs = new Map<string, PathData>();
-    paths.forEach((pd, k) => {
-      const key = colorsPer[k] ?? "";
-      runs.set(key, [...(runs.get(key) ?? []), ...transformPath(pd, pl.matrix)]);
-    });
-    for (const [key, pd] of runs) {
-      const c = key ? parseColor(key) : null;
-      nodes.push({ kind: "path", path: pd, fillRule: "nonzero", paint: c ? { type: "solid", color: c } : paint, tag: tag(el, "text", "sfx") });
+  for (const unit of [...units].reverse()) {
+    const indices = tl.glyphs.flatMap((g, i) => g.unit === unit ? [i] : []);
+    const placed = indices.flatMap(i => transformPath(paths[i], pl.matrix));
+    for (let layer = 0; layer < Math.max(0, ...indices.map(i => outlines[i].length)); layer++) {
+      for (const i of indices) if (outlines[i][layer]) nodes.push(outlines[i][layer]);
     }
-  }
-  else nodes.push({ kind: "path", path: placed, fillRule: "nonzero", paint: { type: "solid", color: WHITE }, tag: tag(el, "text", "sfx") });
-  if (edge && edge.style !== "none") {
-    // trace the glyph contours with a hand-drawn pen line
-    const hand = resolveHand(p.hand, u, ctx.draft);
-    const line = resolveStroke({ pen: { preset: "g-pen" }, ...edge, width: edge.width ?? "0.3bmm" }, hand, u, ctx.bag, [...el.path, "edge"]);
-    const rng = new Rng(el.seed ^ 0x2f6b);
-    const inks = flattenPath(placed, 0.05).filter((c) => c.pts.length > 2).flatMap((c, i) => inkShape({ pts: c.pts, closed: true }, { line, hand: { ...hand, wobbleAmp: hand.wobbleAmp * 0.3 }, rng: rng.fork(`c${i}`), strokes: 1, sizeHint: 4 * u.k }).inks);
-    nodes.push(...inksToNodes(inks, line.color, tag(el, "ink")));
+    if (!p.hollow) {
+      // per-character colours (chars[].color, <color>) split the fill into runs
+      const runs = new Map<string, PathData>();
+      indices.forEach(k => {
+        const key = colorsPer[k] ?? "";
+        runs.set(key, [...(runs.get(key) ?? []), ...transformPath(paths[k], pl.matrix)]);
+      });
+      for (const [key, pd] of runs) {
+        const c = key ? parseColor(key) : null;
+        nodes.push({ kind: "path", path: pd, fillRule: "nonzero", paint: c ? { type: "solid", color: c } : paint, tag: tag(el, "text", "sfx") });
+      }
+    }
+    else nodes.push({ kind: "path", path: placed, fillRule: "nonzero", paint: { type: "solid", color: WHITE }, tag: tag(el, "text", "sfx") });
+    if (edge && edge.style !== "none") {
+      // trace the glyph contours with a hand-drawn pen line
+      const hand = resolveHand(p.hand, u, ctx.draft);
+      const line = resolveStroke({ pen: { preset: "g-pen" }, ...edge, width: edge.width ?? "0.3bmm" }, hand, u, ctx.bag, [...el.path, "edge"]);
+      const rng = new Rng(el.seed ^ 0x2f6b ^ unit);
+      const inks = flattenPath(placed, 0.05).filter((c) => c.pts.length > 2).flatMap((c, i) => inkShape({ pts: c.pts, closed: true }, { line, hand: { ...hand, wobbleAmp: hand.wobbleAmp * 0.3 }, rng: rng.fork(`c${i}`), strokes: 1, sizeHint: 4 * u.k }).inks);
+      nodes.push(...inksToNodes(inks, line.color, tag(el, "ink")));
+    }
   }
   void sizeValue;
   return { nodes, bbox: pl.bbox };

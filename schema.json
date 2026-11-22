@@ -4310,46 +4310,89 @@
                             "scale": {
                               "anyOf": [
                                 {
-                                  "$ref": "#/$defs/__schema159"
-                                },
-                                {
-                                  "type": "array",
-                                  "prefixItems": [
+                                  "anyOf": [
                                     {
                                       "$ref": "#/$defs/__schema159"
                                     },
                                     {
-                                      "$ref": "#/$defs/__schema159"
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "$ref": "#/$defs/__schema159"
+                                        },
+                                        {
+                                          "$ref": "#/$defs/__schema159"
+                                        }
+                                      ],
+                                      "items": false,
+                                      "minItems": 2,
+                                      "maxItems": 2
+                                    },
+                                    {
+                                      "anyOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "min": {
+                                              "$ref": "#/$defs/__schema159"
+                                            },
+                                            "max": {
+                                              "$ref": "#/$defs/__schema159"
+                                            },
+                                            "dist": {
+                                              "type": "string",
+                                              "enum": [
+                                                "uniform",
+                                                "normal",
+                                                "low",
+                                                "high"
+                                              ]
+                                            }
+                                          },
+                                          "required": [
+                                            "min",
+                                            "max"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": [
+                                            "string",
+                                            "number",
+                                            "boolean",
+                                            "array"
+                                          ]
+                                        }
+                                      ]
                                     }
-                                  ],
-                                  "items": false,
-                                  "minItems": 2,
-                                  "maxItems": 2
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "grow",
+                                    "shrink",
+                                    "burst",
+                                    "flat"
+                                  ]
                                 },
                                 {
                                   "anyOf": [
                                     {
                                       "type": "object",
                                       "properties": {
-                                        "min": {
-                                          "$ref": "#/$defs/__schema159"
+                                        "from": {
+                                          "type": "number",
+                                          "exclusiveMinimum": 0
                                         },
-                                        "max": {
-                                          "$ref": "#/$defs/__schema159"
-                                        },
-                                        "dist": {
-                                          "type": "string",
-                                          "enum": [
-                                            "uniform",
-                                            "normal",
-                                            "low",
-                                            "high"
-                                          ]
+                                        "to": {
+                                          "type": "number",
+                                          "exclusiveMinimum": 0
                                         }
                                       },
                                       "required": [
-                                        "min",
-                                        "max"
+                                        "from",
+                                        "to"
                                       ],
                                       "additionalProperties": false
                                     },
@@ -4364,6 +4407,9 @@
                                   ]
                                 }
                               ]
+                            },
+                            "overlap": {
+                              "$ref": "#/$defs/__schema0"
                             },
                             "jitter": {
                               "$ref": "#/$defs/__schema0"
