@@ -2200,11 +2200,14 @@
         "number": {
           "$ref": "#/$defs/__schema174"
         },
-        "title": {
+        "hashira": {
           "$ref": "#/$defs/__schema175"
         },
-        "include": {
+        "title": {
           "$ref": "#/$defs/__schema176"
+        },
+        "include": {
+          "$ref": "#/$defs/__schema177"
         }
       },
       "additionalProperties": false
@@ -7560,9 +7563,57 @@
       ]
     },
     "__schema175": {
-      "type": "string"
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "$ref": "#/$defs/__schema99"
+                },
+                "font": {
+                  "type": "string"
+                },
+                "fontSize": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "color": {
+                  "$ref": "#/$defs/__schema20"
+                },
+                "align": {
+                  "type": "string",
+                  "enum": [
+                    "top",
+                    "center",
+                    "bottom"
+                  ]
+                }
+              },
+              "required": [
+                "text"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "array"
+              ]
+            }
+          ]
+        }
+      ]
     },
     "__schema176": {
+      "type": "string"
+    },
+    "__schema177": {
       "type": "string"
     }
   },

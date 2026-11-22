@@ -137,6 +137,8 @@ diagnostics:
 | コード | 重大度 | 条件 | 変更 |
 |---|---|---|---|
 | `PAGE_BASEFRAME_OUTSIDE_SAFE` | W | 基本枠が安全領域からはみ出す | ○ |
+| `HASHIRA_NO_SPACE` | W | 小口の安全な余白にノンブルをよけて柱が収まらず、描画されない | ○ |
+| `HASHIRA_PANEL_OVERLAP` | W | 柱がコマと重なる | ○ |
 | `LAYOUT_TOO_MANY_PANELS` | E | `panels` がレイアウトの葉より多い | × |
 | `LAYOUT_FREE_MIXED` | E | `layout` を省略し、一部のコマだけが `box` / `polygon` を持つ | × |
 | `BOOK_PAGE_COUNT` | I | 物理的なページ数が `book.signature` の倍数でない（印刷用のプロファイル） | ○ |

@@ -527,6 +527,17 @@ const pageSettings = {
 
 const printSettingsValid = (value: { printScale?: number; printSize?: unknown }) => value.printScale === undefined || value.printSize === undefined;
 
+const Hashira = z.union([
+  z.string(),
+  z.object({
+    text: TextValue,
+    font: z.string().optional(),
+    fontSize: Length.optional(),
+    color: ColorStr.optional(),
+    align: z.enum(["top", "center", "bottom"]).optional(),
+  }).strict(),
+]);
+
 const Page = z
   .object({
     ...CompositeFilters,
@@ -540,6 +551,7 @@ const Page = z
     hand: Hand.optional(),
     seed: z.number().int().min(0).optional(),
     number: z.union([z.boolean(), z.object({ hidden: z.boolean() }).strict()]).optional(),
+    hashira: Hashira.optional(),
     title: z.string().optional(),
     include: z.string().optional(),
   })

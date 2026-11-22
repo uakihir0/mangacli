@@ -3,6 +3,7 @@ import type { DiagnosticBag } from "../core/diagnostics.js";
 import { suggest } from "../core/diagnostics.js";
 import { deriveSeed, Rng } from "../core/random.js";
 import { isObj } from "../load/normalize.js";
+import type { DocumentInput } from "../schema/schema.js";
 import { BUILTIN_DEFAULTS, BUILTIN_EFFECT_DEFAULTS, BUILTIN_MARK_DEFAULTS, BUILTIN_STYLES } from "./defaults.js";
 
 type Obj = Record<string, unknown>;
@@ -39,6 +40,7 @@ export interface RPage {
   panels: RPanel[];
   layers: RElement[];
   number: unknown;
+  hashira?: DocumentInput["pages"][number]["hashira"];
   title?: string;
   path: Path;
   seed: number;
@@ -368,6 +370,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       panels,
       layers,
       number: pg.number,
+      hashira: pg.hashira as RPage["hashira"],
       title: typeof pg.title === "string" ? pg.title : undefined,
       path: ["pages", pi],
       seed: deriveSeed(pageSeedBase, pageId, "page"),
