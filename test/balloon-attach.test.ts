@@ -28,6 +28,26 @@ describe("balloon attachment", () => {
     const result = await validate({ mangacli: 1, pages: [{ panels: [{ layers: [{ balloon: "", attach: "middle" }] }] }] });
     expect(result.diagnostics.some(d => d.severity === "error")).toBe(true);
   });
+  it("uses free corners for implicit captions, then falls back without moving explicit attachments", async () => {
+    const result = await render({ yaml: `mangacli: 1
+page: { size: [100mm, 80mm], baseFrame: trim, bleed: 0 }
+pages:
+  - panels:
+      - layers:
+${Array.from({ length: 6 }, (_, i) => `          - { balloon: '', id: c${i}, as: narration, ${i === 5 ? "attach: top-right," : ""} size: [20mm, 12mm], hand: clean, halo: none }`).join("\n")}
+` }, { layoutOnly: true });
+    expect(result.diagnostics.filter(d => d.severity === "error")).toEqual([]);
+    const boxes = Array.from({ length: 6 }, (_, i) => result.layout[0].elements.find(e => e.id === `c${i}`)!.bbox);
+    expect(boxes[0].x).toBeGreaterThan(boxes[1].x);
+    expect(boxes[2].x).toBeGreaterThan(boxes[3].x);
+    expect(boxes[2].y).toBeGreaterThan(boxes[0].y);
+    expect(boxes[3].y).toBeGreaterThan(boxes[1].y);
+    expect(boxes[5]).toEqual(boxes[0]);
+    for (let i = 0; i < 5; i++) for (let j = 0; j < i; j++) {
+      const a = boxes[i], b = boxes[j];
+      expect(Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))).toBe(0);
+    }
+  });
   it.each(["auto", "flow"])("snaps panel narration before %s speech placement", async mode => {
     const result = await render({ yaml: `mangacli: 1
 page: { size: [100mm, 80mm], baseFrame: trim, bleed: 0 }

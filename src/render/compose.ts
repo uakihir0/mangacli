@@ -1259,7 +1259,15 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         if (side === "top") { frame.y += width; frame.h -= width; }
         if (side === "bottom") frame.h -= width;
       }
-      const c = attachedBalloonCenter(attach, pl.props.as === "narration", frame, pl.outer, resolveStroke(pl.props.stroke, pl.hand, u).width, at);
+      const stroke = resolveStroke(pl.props.stroke, pl.hand, u).width;
+      let c = attachedBalloonCenter(attach, pl.props.as === "narration", frame, pl.outer, stroke, at);
+      if (!attach) {
+        const free = (p: Vec) => !attachedRects.some(r => rectOverlapArea({ x: p.x + pl.outer.x, y: p.y + pl.outer.y, w: pl.outer.w, h: pl.outer.h }, r) > 0);
+        if (c && !free(c)) {
+          const corners = rtl ? ["top-right", "top-left", "bottom-right", "bottom-left"] : ["top-left", "top-right", "bottom-left", "bottom-right"];
+          c = corners.map(side => attachedBalloonCenter(side, true, frame, pl.outer, stroke)!).find(free);
+        }
+      }
       if (c) {
         pl.explicit = true;
         setCenter(pl, c);
