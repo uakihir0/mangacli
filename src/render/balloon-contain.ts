@@ -3,7 +3,7 @@ import { parseAngle, toMm } from "../core/units.js";
 import { balloonTailRegions, hasOffscreenTail, type BalloonPlan } from "../elements/balloon.js";
 import type { ElemCtx } from "../elements/context.js";
 import { distToPolyline, pointInPolygon, polygonArea } from "../geom/path.js";
-import { boundsOf, type Vec } from "../geom/vec.js";
+import { boundsOf, type Rect, type Vec } from "../geom/vec.js";
 import type { RElement } from "../model/resolve.js";
 
 export function containmentOptOut(el: RElement): boolean {
@@ -57,8 +57,12 @@ export function frameClearance(ctx: ElemCtx): number {
   return (border === "none" ? 0 : toMm((width as string) ?? "0.5bmm", ctx.u) / 2) + 0.3 * ctx.u.k;
 }
 
-function nearestTranslation(points: Vec[], panel: Vec[], clearance: number, within?: Vec[]): Vec | null {
-  const fits = (p: Vec[]) => polygonFits(p, panel, clearance) && (!within || polygonFits(p, within));
+function nearestTranslation(points: Vec[], panel: Vec[], clearance: number, within?: Vec[], occupied: Rect[] = []): Vec | null {
+  const fits = (p: Vec[]) => {
+    if (!polygonFits(p, panel, clearance) || (within && !polygonFits(p, within))) return false;
+    const b = boundsOf(p);
+    return occupied.every(r => b.x + b.w + clearance <= r.x || r.x + r.w + clearance <= b.x || b.y + b.h + clearance <= r.y || r.y + r.h + clearance <= b.y);
+  };
   if (fits(points)) return { x: 0, y: 0 };
   const b = boundsOf(points);
   const pb = boundsOf(panel);
@@ -75,7 +79,7 @@ function nearestTranslation(points: Vec[], panel: Vec[], clearance: number, with
   if (lo.x > hi.x || lo.y > hi.y) return null;
   test({ x: Math.max(lo.x, Math.min(hi.x, 0)), y: Math.max(lo.y, Math.min(hi.y, 0)) });
   if (best) return best;
-  if (convexity.get(panel) && !within) {
+  if (convexity.get(panel) && !within && !occupied.length) {
     let feasible = [{ x: lo.x, y: lo.y }, { x: hi.x, y: lo.y }, { x: hi.x, y: hi.y }, { x: lo.x, y: hi.y }];
     const sign = polygonArea(panel) >= 0 ? 1 : -1;
     for (let i = 0; i < panel.length && feasible.length; i++) {
@@ -107,6 +111,11 @@ function nearestTranslation(points: Vec[], panel: Vec[], clearance: number, with
     return best;
   }
   const step = Math.max(pb.w, pb.h) / 16;
+  if (occupied.length) {
+    const xs = [lo.x, hi.x, Math.max(lo.x, Math.min(hi.x, 0)), ...occupied.flatMap(r => [r.x - clearance - b.x - b.w, r.x + r.w + clearance - b.x])];
+    const ys = [lo.y, hi.y, Math.max(lo.y, Math.min(hi.y, 0)), ...occupied.flatMap(r => [r.y - clearance - b.y - b.h, r.y + r.h + clearance - b.y])];
+    for (const x of xs) for (const y of ys) test({ x, y });
+  }
   for (let y = lo.y; y <= hi.y + 1e-6; y += step) for (let x = lo.x; x <= hi.x + 1e-6; x += step) test({ x, y });
   if (!best) return null;
   for (let s = step / 2; s > 0.01; s /= 2) {
@@ -155,7 +164,7 @@ export function edgeCut(plan: BalloonPlan, ctx: ElemCtx): boolean {
   return !polygonFits(body, ctx.panelPoly) && polygonClipping.intersection([ring(body)], [ring(ctx.panelPoly)]).length > 0;
 }
 
-export function containBalloon(plan: BalloonPlan, ctx: ElemCtx, replan: (props: Record<string, unknown>) => BalloonPlan | null): void {
+export function containBalloon(plan: BalloonPlan, ctx: ElemCtx, replan: (props: Record<string, unknown>) => BalloonPlan | null, occupied: Rect[] = []): void {
   if (!containsBalloon(plan.el, ctx) || !ctx.panelPoly || !plan.center) return;
   const panel = ctx.panelPoly;
   const cut = plan.edgeCut || edgeCut(plan, ctx);
@@ -163,7 +172,7 @@ export function containBalloon(plan: BalloonPlan, ctx: ElemCtx, replan: (props: 
   const clearance = frameClearance(ctx);
   const fit = (p: BalloonPlan): boolean => {
     if (!cut) {
-      const d = nearestTranslation(bodyPolygon(p), panel, clearance);
+      const d = nearestTranslation(bodyPolygon(p), panel, clearance, undefined, occupied);
       if (!d) return false;
       p.center = { x: p.center!.x + d.x, y: p.center!.y + d.y };
       return true;

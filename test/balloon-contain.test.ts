@@ -79,6 +79,17 @@ describe("panel balloon containment geometry", () => {
     expect(ctx.bag.items.map(d => d.code)).toContain("BALLOON_NO_SPACE");
     expect(p.text.plain).toBe("unabridged dialogue");
   });
+  it("preserves a separated position and warns when occupied space leaves no room", () => {
+    const ctx = context();
+    const p = plan();
+    containBalloon(p, ctx, () => null, [{ x: 0, y: 0, w: 10, h: 10 }]);
+    expect(p.center).toEqual({ x: 25, y: 25 });
+    expect(ctx.bag.items).toEqual([]);
+    p.text.plain = "unabridged dialogue";
+    containBalloon(p, ctx, () => null, [{ x: 0, y: 0, w: 50, h: 50 }]);
+    expect(ctx.bag.items.map(d => d.code)).toContain("BALLOON_NO_SPACE");
+    expect(p.text.plain).toBe("unabridged dialogue");
+  });
   it.each([{ contain: "none" }, { clip: "none" }, { clip: { to: "panel", open: ["top"] } }, { clip: { to: ["a", "b"] } }, { bridge: true }])("preserves intentional overflow: %j", props => {
     const ctx = context();
     const p = plan(80, 80, props);
@@ -104,6 +115,24 @@ describe("panel balloon containment geometry", () => {
 
 describe("contained balloon composition", () => {
   const renderer = createRenderer({ profile: "preview", dpi: 72 });
+  it.each(["flow", "auto"])("keeps %s balloons separated after slanted-panel containment", async mode => {
+    const list = await renderer.displayList({ yaml: `mangacli: 1
+page: { size: [120mm, 120mm], bleed: 0mm }
+pages:
+  - panels:
+      - polygon: [[0%, 0%], [100%, 70%], [100%, 100%], [0%, 100%]]
+        layers:
+${[1, 2, 3, 4].map(i => `          - { id: dialogue-${i}, balloon: 台詞, autoPlace: ${mode}, size: [20mm, 20mm], hand: clean, shape: rect, tail: none }`).join("\n")}
+` }, 1);
+    const bodies = nodes([list.root]).flatMap(n => n.kind === "path" && n.paint && n.tag?.elementType === "balloon" && n.tag.role === "fill" ? [boundsOf(flattenPath(n.path)[0].pts)] : []);
+    expect(bodies).toHaveLength(4);
+    for (let i = 0; i < bodies.length; i++) for (const b of bodies.slice(i + 1)) {
+      const a = bodies[i];
+      const overlapX = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+      const overlapY = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+      expect(Math.min(overlapX, overlapY)).toBeLessThanOrEqual(0);
+    }
+  });
   it("preserves reverse balloon order and stacking above page artwork", async () => {
     const list = await renderer.displayList({ yaml: `mangacli: 1
 page: { size: [100mm, 100mm], bleed: 0mm }

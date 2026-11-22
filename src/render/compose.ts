@@ -267,8 +267,10 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       linkedIds.add(a.el.id);
       linkedIds.add(b.el.id);
     }
-    for (const { plan } of plans) {
-      containBalloon(plan, ctx, props => replan(plan, props));
+    const occupied: Rect[] = [];
+    for (const { plan } of [...plans].sort((a, b) => Number(b.plan.explicit) - Number(a.plan.explicit))) {
+      containBalloon(plan, ctx, props => replan(plan, props), plan.explicit || linkedIds.has(plan.el.id) ? [] : occupied);
+      if (plan.center) occupied.push(boundsOf(bodyPolygon(plan)));
       const i = info.text.findIndex(t => t.id === plan.el.id);
       if (i >= 0) info.text[i] = textInfo(plan.el.id, plan.text);
     }
