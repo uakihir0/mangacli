@@ -143,7 +143,10 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
   if (fallback) params.compactCore = true;
   if (!BODY_GENERATORS[params.kind] && !activePlugins()?.shapes.has(params.kind)) ctx.bag.error("SCHEMA_ENUM", `unknown balloon shape "${params.kind}"`, { path: [...el.path, "shape"] });
   const shapeSeed = rng.nextU32();
-  const text = textValue(p.text, ctx.lang, ctx.defaultLang, () => ctx.bag.warn("TEXT_MISSING_TRANSLATION", `no "${ctx.lang}" text`, { path: el.path, elementId: el.id }));
+  const rawText = textValue(p.text, ctx.lang, ctx.defaultLang, () => ctx.bag.warn("TEXT_MISSING_TRANSLATION", `no "${ctx.lang}" text`, { path: el.path, elementId: el.id }));
+  const text = p.as === "narration" || p.as === "aside" ? rawText : rawText
+    .replace(/^\u3000+|\u3000+$/g, "")
+    .replace(/(?:\r\n?|\n|<br>)*\u3000(?:\u3000|\r\n?|\n|<br>)*/g, "\n");
   const fill = parsePaint(p.fill ?? "paper", { u, box: { x: 0, y: 0, w: 10, h: 10 }, seed: el.seed, bag: ctx.bag, path: [...el.path, "fill"] });
   const lum = paintAvgLuminance(fill);
   const textColor = (p.color as string) ?? (lum < 0.5 ? "white" : "black");
@@ -165,7 +168,7 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
   let scale = 1;
   let constrainAuto = p.as === "aside";
   for (let attempt = 0; attempt < 12; attempt++) {
-    const style = resolveTextStyle({ ...p, fontScale: ((p.fontScale as number) ?? 1) * scale }, u, ctx.lang, true, el.seed);
+    const style = resolveTextStyle({ ...p, text, fontScale: ((p.fontScale as number) ?? 1) * scale }, u, ctx.lang, true, el.seed);
     if (kind === "electronic") params.toothPitch = Math.max(style.fontSize / 2, 0.3 * u.k);
     const emCtx = { ...u, em: style.fontSize };
     const pad = Array.isArray(p.padding) ? p.padding : ["0.45em", "0.9em"];

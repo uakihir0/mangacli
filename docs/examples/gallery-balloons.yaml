@@ -27,7 +27,7 @@ pages:
   - layout: { template: grid, params: { cols: 4, rows: 4 } }
     panels:
       - layers:
-          - { balloon: ふつうの吹き出し, at: [50%, 42%], tail: { direction: 110deg } }
+          - { balloon: ふつうの　吹き出し, at: [50%, 42%], tail: { direction: 110deg } }
           - text: "say (ellipse)"
       - layers:
           - { balloon: 考えごと, as: think, at: [50%, 40%], tail: { direction: 100deg } }

@@ -79,6 +79,38 @@ describe("balloon text extent sizing", () => {
       expect(p.outer.h).toBeLessThanOrEqual(h + 1e-6);
     }
   });
+  it.each(["vertical", "horizontal"])("uses full-width spaces as phrase breaks in %s balloons", async (writing) => {
+    const expected = await plan("いや〜\n字が\n勝手に\nデカく", writing);
+    const actual = await plan("いや〜　字が\n勝手に　デカく", writing);
+    expect(actual.text).toEqual(expected.text);
+    expect(actual.outer).toEqual(expected.outer);
+    expect(actual.base).toEqual(expected.base);
+  });
+  it.each([
+    "　あ　　い　", "あ　\nい", "あ\n　い", "あ　\r\n　い",
+    "あ　<br>い", "あ<br>　い", "あ　\n　\n　い",
+  ])("collapses space breaks without adding empty columns: %j", async (text) => {
+    expect((await plan(text)).text).toEqual((await plan("あ\nい")).text);
+  });
+  it.each(["", "　", "　　"])("keeps empty phrase text finite: %j", async (text) => {
+    const actual = await plan(text);
+    const empty = await plan("");
+    expect(actual.text).toEqual(empty.text);
+    expect(actual.outer).toEqual(empty.outer);
+    expect(Number.isFinite(actual.outer.w + actual.outer.h)).toBe(true);
+  });
+  it("respects phrase breaks with wrapping disabled and localized text", async () => {
+    const actual = await plan("unused", "vertical", { text: { ja: "あ　い", en: "other" }, wrap: "none" });
+    expect(actual.text.lines.map(line => line.text)).toEqual(["あ", "い"]);
+  });
+  it("preserves half-width word spaces", async () => {
+    expect((await plan("hello world", "horizontal", { wrap: "none" })).text.lines).toHaveLength(1);
+  });
+  it.each(["narration", "aside"])("does not change full-width spaces in %s", async (as) => {
+    const actual = await plan("あ　い", "vertical", { as, wrap: "none" });
+    expect(actual.text.lines).toHaveLength(1);
+  });
+
   it("defaults tremble to irregular waves while honoring explicit waveforms", async () => {
     expect((await plan("ふるえる声", "vertical", { as: "tremble" })).params.waveform).toBe("irregular");
     const regular = await plan("ふるえる声", "vertical", { as: "tremble", shape: { kind: "wavy", waveform: "sine" } });
