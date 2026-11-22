@@ -180,9 +180,22 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       const fw = sizeValue(fixedSize[0], ctx.coordsBox.w, pc);
       const fh = sizeValue(fixedSize[1], ctx.coordsBox.h, pc);
       if (fw !== "auto" && fh !== "auto") {
+        const physicalSpikes = (kind === "spike" || kind === "burst") && params.depth === undefined;
+        if (physicalSpikes) params.spikeScale = Math.min(1, Math.min(fw, fh) * 0.9 / (2.2 * (kind === "burst" ? 5 : 3) * u.k));
         const probe = genBody(kind, fw, fh, params, shapeSeed);
         const ob = boundsOf(probe.contour.pts);
         fixedBase = { w: fw * (fw / ob.w), h: fh * (fh / ob.h) };
+        if (physicalSpikes) {
+          let lo = 0;
+          let hi = 1;
+          for (let i = 0; i < 20; i++) {
+            const s = (lo + hi) / 2;
+            const bounds = boundsOf(genBody(kind, fixedBase.w * s, fixedBase.h * s, params, shapeSeed).contour.pts);
+            if (bounds.w <= fw && bounds.h <= fh) lo = s;
+            else hi = s;
+          }
+          fixedBase = { w: fixedBase.w * lo, h: fixedBase.h * lo };
+        }
         const ib = boundsOf(genBody(kind, fixedBase.w, fixedBase.h, params, shapeSeed).inner);
         boxLimit = (style.writing === "vertical" ? ib.h * 0.86 : ib.w * 0.86) - 2 * (style.writing === "vertical" ? padV : padH);
       }
