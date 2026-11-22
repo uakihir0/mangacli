@@ -34,6 +34,54 @@ const normalizedOutline = (path: PathData) => {
 };
 
 describe("typesetting", () => {
+  it.each(["っ", "やっぱり\n君だったのか"])("preserves Zen Antique vertical small-kana forms in %s", async (text) => {
+    const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id: "zen-antique" }]]), "none", [], {});
+    await fonts.prepare("test", text);
+    const font = fonts.pick("test", 0x3063)!.font;
+    const gids = [hb.Direction.LTR, hb.Direction.TTB].map((dir) => {
+      const buf = new hb.Buffer();
+      buf.addText("っ");
+      buf.guessSegmentProperties();
+      buf.setDirection(dir);
+      hb.shape(font.font, buf);
+      return buf.getGlyphInfos()[0].codepoint;
+    });
+    expect(gids[0]).not.toBe(gids[1]);
+    const style = defaultTextStyle({ font: "test", fontSize: 10 });
+    const result = layoutText(text, style, fonts);
+    const native = layoutText(text, { ...style, smallKanaFix: false }, fonts);
+    expect(result.glyphs).toEqual(native.glyphs);
+    expect(result.errors).toEqual([]);
+    expect(result.missing).toEqual([]);
+    for (const line of result.lines) expect(line.length).toBe(Array.from(line.text).length * 10);
+    for (const glyph of result.glyphs.filter((g) => g.char === "っ")) {
+      expect(ink(glyph.path).y - (glyph.cy - 5)).toBeCloseTo(3.16);
+      expect(ink(glyph.path).h).toBeCloseTo(4.37);
+    }
+  });
+  it("keeps the small-kana fallback for Dela without vertical alternates", async () => {
+    const fonts = new FontRegistry(new Map([["test", { kind: "catalog", id: "dela-gothic-one" }]]), "none", [], {});
+    await fonts.prepare("test", "っ");
+    const font = fonts.pick("test", 0x3063)!.font;
+    const gids = [hb.Direction.LTR, hb.Direction.TTB].map((dir) => {
+      const buf = new hb.Buffer();
+      buf.addText("っ");
+      buf.guessSegmentProperties();
+      buf.setDirection(dir);
+      hb.shape(font.font, buf);
+      return buf.getGlyphInfos()[0].codepoint;
+    });
+    expect(gids[0]).toBe(gids[1]);
+    const style = defaultTextStyle({ font: "test", fontSize: 10 });
+    const result = layoutText("っ", style, fonts);
+    const native = layoutText("っ", { ...style, smallKanaFix: false }, fonts);
+    const [corrected, original] = [result, native].map((l) => ink(l.glyphs[0].path));
+    expect(corrected.w).toBeLessThan(original.w);
+    expect(corrected.y + corrected.h / 2).toBeLessThan(original.y + original.h / 2);
+    expect(corrected.x + corrected.w / 2).toBeGreaterThan(original.x + original.w / 2);
+    expect(result.lines[0].length).toBe(10);
+    expect(result.glyphs[0].cy).toBe(native.glyphs[0].cy);
+  });
   it.each(["vertical", "horizontal"] as const)("places ruby only over positioned bases in %s text", async (writing) => {
     for (const text of ["<ruby=ことば>言葉 </ruby>", "<ruby=こ と ば>言葉 </ruby>", "<ruby=ことば>言葉</ruby>"]) {
       await reg.prepare("dialogue", text);

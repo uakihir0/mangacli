@@ -674,6 +674,7 @@ function shapeSegment(seg: string[], segUnits: number[], pk: FontPick, size0: nu
     for (const b of style.smallKanaFix === false ? [] : per) {
       const small = SMALL_KANA.has(b.chars);
       if ((!small && !VERT_PUNCT.has(b.chars)) || b.glyphs.length !== 1) continue;
+      if (small && hasVertForm(f, b.chars, style.lang)) continue;
       const g = b.glyphs[0];
       const [x0, y0, x1, y1] = inkBox(g.font, g.gid);
       if (!isFinite(x0)) continue;
