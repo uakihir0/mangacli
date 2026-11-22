@@ -11,7 +11,7 @@ const r = await render(input as string, {
   ...opts,
   config,
   throwOnError: false,
-  onProgress: (e) => parentPort?.postMessage({ type: "progress", e }),
+  onProgress: (e) => parentPort?.postMessage({ type: e.phase === "raster-band" ? "rasterProgress" : "progress", e }),
   onSystemFont: trackSystemFonts ? (path) => parentPort?.postMessage({ type: "systemFont", path }) : undefined,
 });
 parentPort?.postMessage({

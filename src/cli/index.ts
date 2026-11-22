@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { cac } from "cac";
 import { parse as parseYaml } from "yaml";
-import { GUIDE_COLORS, type RenderOptions, render, validate } from "../api.js";
+import { GUIDE_COLORS, type ProgressEvent, type RenderOptions, render, validate } from "../api.js";
 import { PDF_X_VERSIONS } from "../output/pdfx.js";
 import { type MangaConfig, findConfig, loadConfig } from "../config.js";
 import { type Diagnostic, MangaError, MangaValidationError } from "../core/diagnostics.js";
@@ -235,6 +235,10 @@ async function cmdRender(file: string, o: Obj, onSystemFont?: (path: string) => 
   opts.onProgress = (e) => {
     emitJson({ type: "progress", ...e });
     if (e.phase === "render") log("info", `  ${paint("2", `${e.done}/${e.total}`)} ${e.pageId ?? ""}`);
+    if (e.phase === "raster-band") {
+      const part = e.side ? `${e.pageId}/${e.side}` : e.pageId;
+      log("info", `    ${part}: ${t("ラスターバンド", "raster bands")} ${e.done}/${e.total}`);
+    }
   };
   const conc = Math.max(1, Math.round(Number(o.concurrency ?? process.env.MANGACLI_CONCURRENCY ?? (opts.config as Obj | undefined)?.concurrency ?? 1)) || 1);
   const formats = ([] as unknown[]).concat(opts.format ?? []);
@@ -332,6 +336,10 @@ async function renderParallel(input: string | { yaml: string; baseDir: string },
         new Promise<Obj>((ok, ng) => {
           const w = new Worker(workerUrl, { workerData: { input, opts: { ...plain, pages: ids }, configPath, trackSystemFonts: !!onSystemFont }, execArgv: ts ? ["--import", "tsx"] : [] });
           w.on("message", (m: Obj) => {
+            if (m.type === "rasterProgress") {
+              onProgress?.(m.e as ProgressEvent);
+              return;
+            }
             if (m.type === "progress") onProgress?.({ ...(m.e as { phase: string; pageId?: string }), done: ++done, total: wanted.length });
             else if (m.type === "systemFont") onSystemFont?.(m.path as string);
             else if (m.type === "done") ok(m);

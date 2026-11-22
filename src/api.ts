@@ -43,6 +43,15 @@ type Obj = Record<string, unknown>;
 
 export type MangaInput = string | URL | { yaml: string; filename?: string; baseDir?: string } | Obj | LoadedDocument;
 
+export interface ProgressEvent {
+  phase: string;
+  pageId?: string;
+  done: number;
+  total: number;
+  /** Split spread side, when applicable to a raster-band event. */
+  side?: "left" | "right";
+}
+
 export interface RenderOptions {
   output?: "manuscript" | "print";
   profile?: string;
@@ -88,7 +97,7 @@ export interface RenderOptions {
   /** a loaded config object, or true to search for mangacli.config.* from the entry's directory */
   config?: Obj | true;
   emit?: ("layout" | "ir" | "transcript" | "manifest")[];
-  onProgress?: (e: { phase: string; pageId?: string; done: number; total: number }) => void;
+  onProgress?: (e: ProgressEvent) => void;
   onDiagnostic?: (d: Diagnostic) => void;
   /** internal: an installed font was loaded from this path */
   onSystemFont?: (path: string) => void;
@@ -712,6 +721,9 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const psds = new Map<string, PsdWriter>();
       for (const run of runs) {
         const backend = new RasterBackend({ maxPixels: packedMono || (geom.type === "spread" && spreadMode === "split") ? Number.MAX_SAFE_INTEGER : lim.maxOutputPixels, dpi: rasterDpi, crop: rasterCrop, marks, drawMarks: run.drawMarks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: run.transparent, separations: run.list, assets });
+        const renderPacked = (x: number, width: number, height: number, side?: ProgressEvent["side"]) =>
+          backend.renderMono(list, { x, y: 0, width, height }, undefined, (done, total) =>
+            options.onProgress?.({ phase: "raster-band", pageId: page.id, ...(side && { side }), done, total }));
         const needRaster = run.layer !== undefined || run.formats.some((f) => f !== "svg");
         const directSplit = geom.type === "spread" && spreadMode === "split" && !plugins?.plugins.some((p) => p.hooks?.afterRender) && !finish && !options.debug;
         const px = (mm: number) => Math.round(mm * rasterDpi / 25.4 + 1e-6);
@@ -739,20 +751,20 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
           const inner = crop === "trim" ? 0 : Math.round((geom.bleed * rasterDpi) / 25.4 + 1e-6);
           const leftW = edge + half + inner;
           const guideEdge = inner > 0 && geom.units.units !== "px" && (options.debug === true || (Array.isArray(options.debug) && options.debug.includes("guides")));
-          const slice = async (x0: number, w: number, innerEdge: "left" | "right") => {
+          const slice = async (x0: number, w: number, side: "left" | "right") => {
             if (packedMono) {
-              const raster = await backend.renderMono(list, { x: x0, y: 0, width: w, height: full.height });
+              const raster = await renderPacked(x0, w, full.height, side);
               return splitMarks ? backend.addMonoMarks(raster, geom.bleed) : raster;
             }
             const out = directSplit ? undefined : new Uint8ClampedArray(w * full.height * 4);
             if (out) for (let y = 0; y < full.height; y++) out.set(full.data.subarray((y * full.width + x0) * 4, (y * full.width + x0 + w) * 4), y * w * 4);
             const raster = out ? { data: out, width: w, height: full.height } : await backend.render(list, { x: x0, width: w });
-            if (guideEdge) drawInnerBleedEdge(raster, innerEdge, rasterDpi / 25.4);
+            if (guideEdge) drawInnerBleedEdge(raster, side === "left" ? "right" : "left", rasterDpi / 25.4);
             return splitMarks ? backend.addMarks(raster, geom.bleed) : raster;
           };
-          const left = { raster: () => slice(0, leftW, "right"), trim: { ...fullTrim, w: half }, side: "left" };
+          const left = { raster: () => slice(0, leftW, "left"), trim: { ...fullTrim, w: half }, side: "left" };
           const rightW = inner + (trimPx - half) + edge;
-          const right = { raster: () => slice(full.width - rightW, rightW, "left"), trim: { ...fullTrim, x: fullTrim.x + half - (full.width - rightW), w: trimPx - half }, side: "right" };
+          const right = { raster: () => slice(full.width - rightW, rightW, "right"), trim: { ...fullTrim, x: fullTrim.x + half - (full.width - rightW), w: trimPx - half }, side: "right" };
           if (splitMarks) {
             const margin = Math.round((marks?.margin ?? 10) * rasterDpi / 25.4 + 1e-6);
             for (const part of [left, right]) {
@@ -768,7 +780,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
             { raster: full, trim: fullTrim, side: geom.rtl ? "right" : "left", nombre: pl.nombre },
             { raster: full, trim: fullTrim, side: geom.rtl ? "left" : "right", nombre: pl.nombre === null ? null : pl.nombre + 1 },
           );
-        } else parts.push({ raster: packedMono && needRaster ? () => backend.renderMono(list, { x: 0, y: 0, width, height }) : full, trim: fullTrim, side: geom.side, nombre: pl.nombre });
+        } else parts.push({ raster: packedMono && needRaster ? () => renderPacked(0, width, height) : full, trim: fullTrim, side: geom.side, nombre: pl.nombre });
         for (const part of parts) {
           const raster = typeof part.raster === "function" ? await part.raster() : part.raster;
           if (run.layer !== undefined) {

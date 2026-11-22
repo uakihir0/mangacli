@@ -15,6 +15,7 @@ export {
   validate,
   type MangaInput,
   type Project,
+  type ProgressEvent,
   type RenderOptions,
   type RenderResult,
   type RenderedPage,

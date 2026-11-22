@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { render } from "../src/api.js";
@@ -5,6 +6,24 @@ import { imageInkMask } from "../src/render/image-ink.js";
 import { linearToSrgb, srgbToLinear } from "../src/core/color.js";
 
 describe("print image ink preservation", () => {
+  it.each([
+    ["linear", "9fb6841e4d54619c28e04d0c5c94d5b78819993f7b7298d225c0d6c049aa0826"],
+    ["perceptual", "d31a1c69ff3dab7fa4739e734e276f71ee6f9a85d4f2f9b84496047396b38030"],
+  ] as const)("keeps the ridge mask unchanged on rectangular art (%s)", (curve, hash) => {
+    const width = 187, height = 129;
+    const rgba = new Uint8Array(width * height * 4);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const inDark = y > 65;
+      const line = (x > 2 && x < 184 && y === Math.round(x * 0.18) + 4) ||
+        (y >= 10 && y <= 58 && x === 179 - Math.floor(y / 2)) ||
+        (x >= 8 && x <= 182 && y === 109 - Math.round(x / 5));
+      const v = inDark === line ? 185 : 65;
+      rgba.set([v, v + x % 4, v, (x + y) % 41 === 0 ? 120 : 255], (y * width + x) * 4);
+    }
+    const mask = imageInkMask(rgba, width, height, 600, curve);
+    expect(createHash("sha256").update(mask).digest("hex")).toBe(hash);
+  });
+
   it.each(["line", "mesh"])("does not protect a gray light %s below the white-core cutoff", (shape) => {
     const size = 144;
     const rgba = new Uint8Array(size * size * 4);
