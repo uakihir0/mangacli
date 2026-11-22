@@ -1567,8 +1567,9 @@ function checkPanelOcclusion(items: Item[], panels: { pg: PanelGeom; clipped: It
   for (const { pg, clipped } of panels) {
     if (pg.panel.props.visible === false) continue;
     const poly = contour(pg);
+    const panelLettering = clipped.flatMap(lettering);
     for (const { item, area } of underneath) {
-      if (!["balloon", "text", "sfx"].includes(item.el.type) || clipped.some((it) => it.el === item.el)) continue;
+      if (!["balloon", "text", "sfx"].includes(item.el.type) || panelLettering.some((it) => it.el === item.el)) continue;
       const overlap = polygonClipping.intersection(area, poly);
       const size = overlap.reduce((sum, polygon) => sum + polygon.reduce((total, points, i) => {
         const a = Math.abs(polygonArea(points.map(([x, y]) => ({ x, y }))));
@@ -1576,7 +1577,7 @@ function checkPanelOcclusion(items: Item[], panels: { pg: PanelGeom; clipped: It
       }, 0), 0);
       if (size > 1) bag.warn("TEXT_OCCLUDED_BY_PANEL", `${item.el.id} is covered by panel ${pg.panel.id}`, { path: item.el.path, elementId: item.el.id, pageId: page.id });
     }
-    for (const item of clipped.flatMap(lettering)) underneath.push({ item, area: polygonClipping.intersection(visibleArea(item), poly) });
+    for (const item of panelLettering) underneath.push({ item, area: polygonClipping.intersection(visibleArea(item), poly) });
   }
 }
 

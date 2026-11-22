@@ -25,6 +25,11 @@ const warnings = async (doc: ReturnType<typeof input>) => {
 };
 
 describe("panel occlusion", () => {
+  it("does not treat grouped art copied into a later panel as occluded", async () => {
+    const group = `{ type: group, stack: art, clip: { to: [base, inset] }, children: [{ type: group, children: [${sfx}] }] }`;
+    expect(await warnings(input(group, "base", "", true))).toEqual([]);
+    expect(await warnings(input(group.replace("[base, inset]", "[base]"), "base", "", true))).toHaveLength(1);
+  });
   it("ignores overlap removed by an element mask", async () => {
     const atEdge = sfx.replace("60mm, 60mm", "40mm, 60mm");
     expect(await warnings(input(atEdge))).toHaveLength(1);
