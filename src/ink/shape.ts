@@ -5,7 +5,7 @@ import type { Vec } from "../geom/vec.js";
 import type { HandSpec, PenSpec } from "./presets.js";
 import { type InkPoly, blobPoly, rotateAboutMid, strokeOutline } from "./stroke.js";
 
-/** `point`: a tail tip, inked at full width to the point like a convex corner */
+/** `point`: a tail tip with no corner overshoot */
 export type CornerKind = "convex" | "concave" | "tip" | "valley" | "point";
 
 export interface Corner {
@@ -47,6 +47,7 @@ export interface InkShapeOptions {
   taper?: boolean;
   /** cap wobble amplitude relative to shape size */
   sizeHint?: number;
+  pointWidth?: number;
 }
 
 export interface InkResult {
@@ -297,7 +298,7 @@ function solid(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, r
   const ruler = !!o.ruler;
   const angErr = ruler ? hand.rulerAngleError : 0;
 
-  const draw = (pts: Vec[], tin: boolean, tout: boolean, tinLen?: number, toutLen?: number) => {
+  const draw = (pts: Vec[], tin: boolean, tout: boolean, tinLen?: number, toutLen?: number, startWidth?: number, endWidth?: number) => {
     let p = pts;
     if (angErr > 0 && !d.closed && corners.length === 0) p = rotateAboutMid(p, rng.range(-angErr, angErr));
     inks.push(
@@ -310,6 +311,8 @@ function solid(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, r
         taperOut: taper && tout,
         taperInLen: tinLen,
         taperOutLen: toutLen,
+        startWidth,
+        endWidth,
         ruler,
         profile: hand.pressure > 0 ? c.segmentProfile : undefined,
       }),
@@ -380,7 +383,7 @@ function solid(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, r
         const sharpEnd = eKind === "concave" || eKind === "valley" || eKind === "point" || (eKind === "convex" && join !== "overshoot");
         if (!firstPart || !lastPart) pts = shiftNormal(pts, rng.normal() * hand.misalign * 0.3);
         // corners where strokes meet are drawn with pressure (no taper) so joints stay clean
-        draw(pts, !sharpStart, !sharpEnd);
+        draw(pts, !sharpStart, !sharpEnd, undefined, undefined, sKind === "point" ? o.pointWidth : undefined, eKind === "point" ? o.pointWidth : undefined);
       }
     }
     return inks;
@@ -440,7 +443,7 @@ function dashed(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, 
       const e = s + on * scale;
       for (const direction of [-1, 1]) {
         const pts = slice(d, anchor + direction * s, anchor + direction * e, step);
-        inks.push(...strokeOutline(pts, { width: line.width, pen: line.pen, hand, rng: rng.fork("d"), taperInLen: i === 0 ? 0 : on * scale * 0.3, taperOutLen: on * scale * 0.35, ruler, inkPool: false }));
+        inks.push(...strokeOutline(pts, { width: line.width, pen: line.pen, hand, rng: rng.fork("d"), taperInLen: i === 0 ? 0 : on * scale * 0.3, taperOutLen: on * scale * 0.35, startWidth: i === 0 ? o.pointWidth : undefined, ruler, inkPool: false }));
       }
     }
     return inks;

@@ -529,6 +529,11 @@ function faceOf(face: Rect | undefined, target: Vec): Rect | undefined {
   return target.x >= face.x - mx && target.x <= face.x + face.w + mx && target.y >= face.y - my && target.y <= face.y + face.h + my ? face : undefined;
 }
 
+export function automaticTailWidth(minSide: number, length: number, k: number, kind: string, offscreen = false, whisper = false): number {
+  const bw0 = Math.min(1.87 * k, Math.max(1.07 * k, minSide * 0.087));
+  return kind === "zigzag" ? bw0 * 1.5 : offscreen ? bw0 : whisper ? minSide / 9 : Math.max(bw0, Math.min(minSide / 9, length * 0.4));
+}
+
 function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult {
   let cur = contour;
   const extra: TailResult["extra"] = [];
@@ -729,9 +734,8 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     tailLength = length;
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
-    // a wedge's base is about a sixth of the body
-    const bw0 = Math.min(2.8 * u.k, Math.max(1.6 * u.k, minSide * 0.13));
-    const bwAuto = kind === "zigzag" ? bw0 * 1.5 : offSide ? bw0 : whisperWedge ? minSide / 6 : Math.max(bw0, Math.min(minSide / 6, length * 0.6));
+    // a wedge's base is about a ninth of the body
+    const bwAuto = automaticTailWidth(minSide, length, u.k, kind, !!offSide, whisperWedge);
     const bw = (t.width !== undefined ? toMm(t.width as string, u) : bwAuto) * widthScale;
     // on a spiky body the tail is one more, larger spike of the outline (the shout/scream presets
     // also set bend/sideCurve 0 for straight sides)
@@ -833,7 +837,7 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     let A = pointAtChord(cur.pts, s, sR, bw / 2, -1);
     let B = pointAtChord(cur.pts, s, sR, bw / 2, 1);
     if (spiky && kind === "wedge" && !offSide && t.width === undefined) {
-      const cap = minSide / 6;
+      const cap = minSide / 9;
       const valleys = (cur.corners ?? []).filter((c) => c.kind === "valley");
       if (valleys.length > 1) {
         const P = s[s.length - 1];
@@ -1038,7 +1042,7 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
   let fillPoly: Vec[] = contour.pts;
   if (!isNone) {
     const cleanJoin = bb.ruler || plan.body.kind === "electronic";
-    const res = inkShape(contour, { line: isFlash ? { ...bb.stroke, style: "none" } : bb.stroke, hand: plan.hand, rng: bb.rng.fork("body"), ruler: bb.ruler, join: plan.params.join ?? (cleanJoin ? "clean" : "overshoot"), strokes: plan.params.strokes, sizeHint: Math.min(plan.outer.w, plan.outer.h) });
+    const res = inkShape(contour, { line: isFlash ? { ...bb.stroke, style: "none" } : bb.stroke, hand: plan.hand, rng: bb.rng.fork("body"), ruler: bb.ruler, join: plan.params.join ?? (cleanJoin ? "clean" : "overshoot"), strokes: plan.params.strokes, sizeHint: Math.min(plan.outer.w, plan.outer.h), pointWidth: 0 });
     fillPoly = res.fill;
     const fn = balloonFill(res.fill, plan);
     // a thin rim of the fill colour outside the outline keeps it readable over black art
