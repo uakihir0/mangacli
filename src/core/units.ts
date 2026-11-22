@@ -1,6 +1,19 @@
 // Lengths, angles and ranges (spec 3.4, 3.5, 16.2).
 
-export type LengthUnit = "mm" | "cm" | "in" | "pt" | "px" | "Q" | "H" | "em" | "%" | "bmm" | "bQ" | "";
+export const LENGTH_UNITS = ["mm", "cm", "in", "pt", "px", "Q", "H", "em", "%"] as const;
+export const INTERNAL_LENGTH_UNITS = [...LENGTH_UNITS, "bmm", "bQ"] as const;
+export const ANGLE_UNITS = ["deg", "rad", "turn"] as const;
+export const LPI_SUFFIXES = ["@print"] as const;
+export type LengthUnit = (typeof INTERNAL_LENGTH_UNITS)[number] | "";
+
+const NUMBER_PATTERN = String.raw`[-+]?(?:\d+(?:\.\d+)?|\.\d+)`;
+export const LENGTH_PATTERN = new RegExp(`^${NUMBER_PATTERN}\\s*(${LENGTH_UNITS.join("|")})?(@print)?$`);
+export const ANGLE_PATTERN = new RegExp(`^${NUMBER_PATTERN}\\s*(${ANGLE_UNITS.join("|")})?$`);
+export const LPI_PATTERN = new RegExp(String.raw`^(?:\d+(?:\.\d+)?|\.\d+)(${LPI_SUFFIXES.join("|")})$`);
+
+export function unitParseError(kind: string, input: unknown, units: readonly string[]): string {
+  return `invalid ${kind}: ${JSON.stringify(input) ?? String(input)}; accepted units: ${units.join(", ")}`;
+}
 
 export interface Quantity {
   value: number;
@@ -10,7 +23,7 @@ export interface Quantity {
 
 export type LengthInput = number | string;
 
-const LEN_RE = /^([-+]?(?:\d+(?:\.\d+)?|\.\d+))\s*(mm|cm|in|pt|px|Q|H|em|%|bmm|bQ)?$/;
+const LEN_RE = new RegExp(`^(${NUMBER_PATTERN})\\s*(${INTERNAL_LENGTH_UNITS.join("|")})?$`);
 
 export function parseLength(input: LengthInput): Quantity | null {
   if (typeof input === "number") return isFinite(input) ? { value: input, unit: "" } : null;
@@ -55,10 +68,10 @@ export function quantityToMm(q: Quantity, ctx: UnitContext): number {
     case "H":
       return q.value * 0.25;
     case "em":
-      if (ctx.em === undefined) throw new UnitError("em unit is not allowed here");
+      if (ctx.em === undefined) throw new UnitError(unitParseError("length (em unit is not allowed here)", `${q.value}${q.unit}`, availableLengthUnits(ctx)));
       return q.value * ctx.em;
     case "%":
-      if (ctx.base === undefined) throw new UnitError("% unit is not allowed here");
+      if (ctx.base === undefined) throw new UnitError(unitParseError("length (% unit is not allowed here)", `${q.value}${q.unit}`, availableLengthUnits(ctx)));
       return (q.value / 100) * ctx.base;
     case "bmm":
       return q.value * ctx.k;
@@ -71,24 +84,28 @@ export function quantityToMm(q: Quantity, ctx: UnitContext): number {
 
 export class UnitError extends Error {}
 
+function availableLengthUnits(ctx: UnitContext): readonly string[] {
+  return INTERNAL_LENGTH_UNITS.filter((unit) => (unit !== "em" || ctx.em !== undefined) && (unit !== "%" || ctx.base !== undefined));
+}
+
 export function toMm(input: LengthInput | undefined, ctx: UnitContext, fallback?: number): number {
   if (input === undefined || input === null) {
-    if (fallback === undefined) throw new UnitError("missing length");
+    if (fallback === undefined) throw new UnitError(unitParseError("length (missing length)", input, availableLengthUnits(ctx)));
     return fallback;
   }
   const q = parseLength(input);
-  if (!q) throw new UnitError(`invalid length: ${String(input)}`);
+  if (!q) throw new UnitError(unitParseError("length", input, availableLengthUnits(ctx)));
   return quantityToMm(q, ctx);
 }
 
-const ANG_RE = /^([-+]?(?:\d+(?:\.\d+)?|\.\d+))\s*(deg|rad|turn)?$/;
+const ANG_RE = new RegExp(`^(${NUMBER_PATTERN})\\s*(${ANGLE_UNITS.join("|")})?$`);
 
 /** returns radians */
 export function parseAngle(input: number | string | undefined, fallbackDeg = 0): number {
   if (input === undefined || input === null) return (fallbackDeg * Math.PI) / 180;
   if (typeof input === "number") return (input * Math.PI) / 180;
   const m = String(input).trim().match(ANG_RE);
-  if (!m) throw new UnitError(`invalid angle: ${input}`);
+  if (!m) throw new UnitError(unitParseError("angle", input, ANGLE_UNITS));
   const v = parseFloat(m[1]);
   if (m[2] === "rad") return v;
   if (m[2] === "turn") return v * Math.PI * 2;
