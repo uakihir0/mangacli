@@ -158,19 +158,24 @@ ${[1, 2, 3, 4].map(i => `          - { id: dialogue-${i}, balloon: 台詞, autoP
     }
   });
   it("preserves reverse balloon order and stacking above page artwork", async () => {
-    const list = await renderer.displayList({ yaml: `mangacli: 1
+    const orders: string[][] = [];
+    for (const contain of ["none", "panel"]) {
+      const list = await renderer.displayList({ yaml: `mangacli: 1
 page: { size: [100mm, 100mm], bleed: 0mm }
 pages:
   - panels:
       - layers:
-          - { id: first, balloon: 一, at: [50%, 50%], size: [30mm, 30mm], tail: none }
-          - { id: second, balloon: 二, at: [55%, 55%], size: [30mm, 30mm], tail: none }
+          - { id: first, balloon: 一, at: [50%, 50%], size: [30mm, 30mm], tail: none, z: 0, contain: ${contain} }
+          - { id: second, balloon: 二, at: [55%, 55%], size: [30mm, 30mm], tail: none, z: 0, contain: ${contain} }
     layers:
       - { id: overlay, effect: focus-lines }
 ` }, 1);
-    const order = nodes([list.root]).flatMap(n => n.tag?.elementId ? [n.tag.elementId] : []);
-    expect(order.lastIndexOf("first")).toBeGreaterThan(order.lastIndexOf("second"));
-    expect(order.indexOf("second")).toBeGreaterThan(order.lastIndexOf("overlay"));
+      const order = nodes([list.root]).flatMap(n => n.tag?.elementId ? [n.tag.elementId] : []);
+      expect(order.lastIndexOf("first")).toBeGreaterThan(order.lastIndexOf("second"));
+      expect(order.indexOf("second")).toBeGreaterThan(order.lastIndexOf("overlay"));
+      orders.push([...new Set(order.filter(id => ["first", "second", "overlay"].includes(id)))]);
+    }
+    expect(orders).toEqual([["overlay", "second", "first"], ["overlay", "second", "first"]]);
   });
   it("keeps every automatically placed gallery body whole", async () => {
     const list = await renderer.displayList(join(import.meta.dirname, "fixtures", "balloons.yaml"), 1);
