@@ -10,7 +10,7 @@ pages:
   - type: ${type}
     panels: []
     layers: ${layers ? `
-      - { sfx: CRASH, id: sfx, fontSize: 12mm, writing: horizontal, at: [${at}], anchor: center${bleed === undefined ? "" : `, bleed: ${bleed}`} }` : "[]"}
+      - { sfx: CRASH, id: sfx, fontSize: 12mm, outline: none, writing: horizontal, at: [${at}], anchor: center${bleed === undefined ? "" : `, bleed: ${bleed}`} }` : "[]"}
 `,
   filename: "/v/text-safety.yaml",
 });

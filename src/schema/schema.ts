@@ -343,7 +343,7 @@ const sfxProps = {
   grow: z.number().optional(),
   smallKanaScale: z.number().min(0.1).max(1).optional(),
   brush: z.union([z.literal(false), z.object({ style: z.enum(["impact", "speed"]).optional(), taper: z.number().min(0).max(2).optional(), entry: z.number().min(0).max(2).optional(), wobble: z.number().min(0).max(0.2).optional() }).strict()]).optional(),
-  perChar: z.object({ rotate: RangeOf(Angle).optional(), scale: RangeOf(z.number()).optional(), jitter: Length.optional() }).strict().optional(),
+  perChar: z.object({ rotate: RangeOf(Angle).optional(), scale: z.union([RangeOf(z.number()), z.enum(["grow", "shrink", "burst", "flat"]), z.object({ from: z.number().positive(), to: z.number().positive() }).strict()]).optional(), overlap: Length.optional(), jitter: Length.optional() }).strict().optional(),
   chars: z.array(z.object({ index: z.number().int(), rotate: Angle.optional(), scale: z.number().optional(), offset: z.tuple([Length, Length]).optional(), color: ColorStr.optional() }).strict()).optional(),
   distort: z.object({ roughen: z.number().optional(), warp: z.number().optional(), skew: Angle.optional(), perspective: z.tuple([z.number(), z.number()]).optional(), bulge: z.number().optional() }).strict().optional(),
   edge: Stroke.optional(),

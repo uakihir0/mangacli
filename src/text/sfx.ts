@@ -1,8 +1,48 @@
 import { flattenPath, type PathData } from "../geom/path.js";
+import { boundsOf, type Vec } from "../geom/vec.js";
+
+export function sfxInkHeadDepth(path: PathData, vertical: boolean): number {
+  const contours = flattenPath(path, 0.02).map(c => c.pts);
+  const points = contours.flat();
+  if (!points.length) return 0;
+  const bb = boundsOf(points);
+  const axis = (p: Vec) => vertical ? p.y : p.x;
+  const area = (pts: Vec[]) => pts.reduce((sum, p, i) => {
+    const q = pts[(i + 1) % pts.length];
+    return sum + p.x * q.y - q.x * p.y;
+  }, 0) / 2;
+  const total = Math.abs(contours.reduce((sum, pts) => sum + area(pts), 0));
+  if (total < 1e-8) return 0;
+  const start = vertical ? bb.y : bb.x;
+  let lo = start, hi = start + (vertical ? bb.h : bb.w);
+  for (let step = 0; step < 24; step++) {
+    const cutoff = (lo + hi) / 2;
+    const covered = Math.abs(contours.reduce((sum, pts) => {
+      const clipped: Vec[] = [];
+      pts.forEach((p, i) => {
+        const q = pts[(i + 1) % pts.length];
+        if (axis(p) <= cutoff) clipped.push(p);
+        if ((axis(p) <= cutoff) !== (axis(q) <= cutoff)) {
+          const t = (cutoff - axis(p)) / (axis(q) - axis(p));
+          clipped.push({ x: p.x + t * (q.x - p.x), y: p.y + t * (q.y - p.y) });
+        }
+      });
+      return sum + area(clipped);
+    }, 0));
+    if (covered <= total * 0.14) lo = cutoff;
+    else hi = cutoff;
+  }
+  return lo - start;
+}
 
 const SMALL_KANA = new Set(Array.from("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ"));
 
 export const isSmallKana = (char: string): boolean => SMALL_KANA.has(char);
+
+export function sfxStretch(char: string, vertical: boolean): [number, number] {
+  const along = "ー〜～ｰ︱︲︴".includes(char) && char.length > 0 ? 1.6 : 1;
+  return vertical ? [1, along] : [along, 1];
+}
 
 export function fullSizeKana(char: string): string {
   const small = Array.from("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ");
@@ -10,9 +50,18 @@ export function fullSizeKana(char: string): string {
   return full[small.indexOf(char)] ?? char;
 }
 
-export function sfxScale(index: number, count: number, char: string, grow?: number, smallKanaScale = 0.7, style: "impact" | "speed" = "impact"): number {
+export type SfxScaleRamp = "grow" | "shrink" | "burst" | "flat" | { from: number; to: number };
+
+export function sfxScale(index: number, count: number, char: string, grow?: number, smallKanaScale = 0.6, style: "impact" | "speed" = "impact", preset?: SfxScaleRamp): number {
   const t = count > 1 ? index / (count - 1) : style === "impact" ? 0 : 1;
-  const ramp = grow === undefined ? style === "impact" ? 1.3 * (1 - t) + 1.05 * t : 0.95 * (1 - t) + 1.3 * t : 1 + grow * index;
+  const mode = preset ?? (style === "impact" ? "shrink" : undefined);
+  let ramp = style === "speed" ? 0.95 * (1 - t) + 1.3 * t : 1;
+  if (mode === "grow") ramp = 0.85 * (1 - t) + 1.3 * t;
+  else if (mode === "shrink") ramp = 1.3 * (1 - t) + 0.8 * t;
+  else if (mode === "burst") ramp = 0.9 + 0.45 * (count === 1 ? 1 : 1 - Math.abs(2 * t - 1));
+  else if (mode === "flat") ramp = 1;
+  else if (typeof mode === "object") ramp = mode.from * (1 - t) + mode.to * t;
+  if (grow !== undefined) ramp = 1 + grow * index;
   return ramp * (SMALL_KANA.has(char) ? smallKanaScale : 1);
 }
 
