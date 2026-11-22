@@ -121,8 +121,8 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
     seen.add(name);
     const raw = rawStyles[name] ?? {};
     let out: Obj = {};
-    for (const e of Array.isArray(raw.extends) ? raw.extends : raw.extends ? [raw.extends] : []) out = merge(out, styleTail(String(e), new Set(seen)));
-    return merge(out, authorStyles[name]);
+    for (const e of Array.isArray(raw.extends) ? raw.extends : raw.extends ? [raw.extends] : []) out = overlay(out, styleTail(String(e), new Set(seen)));
+    return overlay(out, authorStyles[name]);
   };
   const styles: Record<string, Obj> = {};
   const resolving = new Set<string>();

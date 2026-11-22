@@ -136,4 +136,18 @@ describe("tail avoidance", () => {
     expect(el.props.tail).toMatchObject({ length: "8mm" });
     expect(el.tailExplicit).toEqual({ tail: { length: "8mm" } });
   });
+
+  it.each([false, true])("unlocks an inherited explicit length after a style null reset (defaults=%s)", defaults => {
+    const resolved = resolveDocument({
+      ...(defaults ? { defaults: { balloon: { tail: { length: "8mm" } } } } : {}),
+      styles: {
+        parent: { tail: { length: "8mm" } },
+        reset: { extends: "parent", tail: { length: null } },
+      },
+      pages: [{ layers: [{ type: "balloon", style: defaults ? "reset" : ["parent", "reset"] }] }],
+    }, new DiagnosticBag());
+    const el = resolved.pages[0].layers[0];
+    expect(el.props.tail).not.toHaveProperty("length");
+    expect(el.tailExplicit).toEqual({ tail: {} });
+  });
 });
