@@ -161,15 +161,16 @@ pages:
 
   it("preserves the flow gap when grown dialogue cannot fit below the previous row", async () => {
     const r = await validate(yaml(`mangacli: 1
+meta: { lang: en }
 defaults:
-  balloon: { fontSize: 5mm, autoPlace: flow }
+  balloon: { fontSize: 5mm, autoPlace: flow, writing: horizontal, shape: rect, hand: clean, padding: [0mm, 0mm] }
 pages:
   - panels:
       - coords: page
-        box: [20mm, 25mm, 65mm, 65mm]
+        box: [20mm, 25mm, 65mm, 43mm]
         layers:
-          - { balloon: やあ, id: upper, size: [60mm, 26mm], shape: rect, tails: [] }
-          - { balloon: "この吹き出しは指定された大きさに収まりません", id: lower, clip: panel, maxSize: [10mm, 10mm], tails: [] }
+          - { balloon: Hi, id: upper, size: [60mm, 30mm], tails: [] }
+          - { balloon: "Good morning", id: lower, clip: panel, maxSize: [10mm, 10mm], tails: [] }
 `));
     expect(r.ok).toBe(true);
     const [upper, lower] = ["upper", "lower"].map(id => r.layout[0].elements.find(el => el.id === id)!.bbox);
