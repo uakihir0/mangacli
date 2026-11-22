@@ -88,4 +88,9 @@ describe("multi-speaker images", () => {
     const result = await validate({ mangacli: 1, styles: { duo: { characters: { top: {} } } }, pages: [{ layers: [] }] });
     expect(result.diagnostics.some((d) => d.code === "ID_RESERVED")).toBe(true);
   });
+
+  it("accepts a style or asset named characters", async () => {
+    const result = await validate({ mangacli: 1, styles: { characters: { for: "effect", center: [10, 10] } }, assets: { characters: { src: "art.png", anchors: { mouth: [1, 2] } } }, pages: [{ layers: [] }] });
+    expect(result.diagnostics.some((d) => d.code === "ID_RESERVED")).toBe(false);
+  });
 });

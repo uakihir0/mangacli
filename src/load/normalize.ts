@@ -35,7 +35,7 @@ export function isObj(x: unknown): x is Obj {
 }
 
 /** maps whose keys are user-chosen names, not schema keys: `x-` is a valid name there */
-const NAME_MAPS = new Set(["profiles", "styles", "assets", "characters", "fonts", "locales", "anchors", "regions", "diagnostics", "weights"]);
+export const NAME_MAPS = new Set(["profiles", "styles", "assets", "characters", "fonts", "locales", "anchors", "regions", "diagnostics", "weights"]);
 
 function stripExt(o: unknown, parent = ""): unknown {
   if (Array.isArray(o)) return o.map((x) => stripExt(x));
