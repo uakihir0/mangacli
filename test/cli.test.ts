@@ -27,12 +27,13 @@ describe("cli", () => {
     const run = (...args: string[]) => spawnSync(process.execPath, ["--import", "tsx", join(root, "src/cli/index.ts"), ...args, "--no-config"], { cwd: root, encoding: "utf8", env });
     const v = run("validate", f);
     expect(v.status).toBe(0);
-    expect(v.stderr).toContain("⚠ 1 warning(s)");
+    expect(v.stderr).toContain("⚠ 2 warning(s)");
+    expect(v.stderr).toContain("TEXT_CLIPPED");
     expect(v.stderr).not.toContain("✔");
     const r = run("render", f, "-p", "preview", "-o", join(dir, "out"));
     expect(r.status).toBe(0);
     expect(r.stderr).toMatch(/⚠ wrote 1 file\(s\)/);
-    expect(r.stderr).toContain("  1 warning(s)");
+    expect(r.stderr).toContain("  2 warning(s)");
     expect(r.stderr).not.toContain("✔");
     expect(cli("validate", "docs/examples/minimal.yaml").stderr).toContain("✔");
   });

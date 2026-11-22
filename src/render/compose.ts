@@ -393,13 +393,13 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
         items.push(it);
       } else {
         clipped.push(it);
-        if (it.glyphRuns?.length) {
-          const clip = glyphClip ??= panelGlyphClip(pg, geom);
-          const mask = it.mask && pathArea(it.mask.path, it.mask.rule);
-          for (const run of it.glyphRuns) {
-            const glyph = run.glyphs.find((g) => glyphLeavesPanel(g.path, run.transform, clip, mask));
-            if (glyph) bag.warn("TEXT_CLIPPED", `${run.el.id}: 「${glyph.char}」 is cut by the panel frame`, { path: run.el.path, elementId: run.el.id, pageId: page.id });
-          }
+      }
+      if ((!it.free || contained) && it.glyphRuns?.length) {
+        const clip = glyphClip ??= panelGlyphClip(pg, geom);
+        const mask = it.mask && pathArea(it.mask.path, it.mask.rule);
+        for (const run of it.glyphRuns) {
+          const glyph = run.glyphs.find((g) => glyphLeavesPanel(g.path, run.transform, clip, mask));
+          if (glyph) bag.warn("TEXT_CLIPPED", `${run.el.id}: 「${glyph.char}」 is cut by the panel frame`, { path: run.el.path, elementId: run.el.id, pageId: page.id });
         }
       }
       info.elements.push({ id: el.id, type: el.type, bbox: it.bbox, panel: pg.panel.id });

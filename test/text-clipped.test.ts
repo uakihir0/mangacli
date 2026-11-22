@@ -23,6 +23,17 @@ ${layout ? "      - id: second" : ""}
 const frameWarnings = (result: Awaited<ReturnType<typeof renderer.validate>>) =>
   result.diagnostics.filter((d) => d.code === "TEXT_CLIPPED");
 
+it.each([
+  "fontSize: 120mm, minFontScale: 1, overflow: grow",
+  "size: [24mm, 24mm], fontSize: 5mm, textOffset: [100mm, 0mm]",
+])("warns when contained balloon glyphs still cross the frame: %s", async props => {
+  const result = await renderer.validate(input(`- {balloon: O, id: bubble, tail: none, writing: horizontal, ${props}}`));
+  expect(frameWarnings(result)).toEqual([expect.objectContaining({
+    elementId: "bubble", pageId: "page-one", message: "bubble: 「O」 is cut by the panel frame",
+  })]);
+  expect(result.ok).toBe(false);
+});
+
 it("warns only when lettering crosses a colSlant edge", async () => {
   const doc = (x: string, contain = "none") => input(
     `- {balloon: O, id: bubble, clip: panel, contain: ${contain}, tail: none, writing: horizontal, fontSize: 5mm, size: [24mm, 12mm], at: [${x}, 25%]}`,
