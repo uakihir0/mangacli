@@ -30,7 +30,7 @@ import { defaultTextStyle, layoutText, parseLayoutText } from "../text/layout.js
 import { parseMarkup } from "../text/markup.js";
 import { type AssetRegistry, resolveAssetBlend } from "./assets.js";
 import { cleanClippedBalloonInk } from "./balloon-clip.js";
-import type { DisplayList, GroupNode, Node } from "./ir.js";
+import type { DisplayList, GroupNode, Node, PathNode } from "./ir.js";
 import { FILTER_NAMES, parseFilter } from "./filters.js";
 
 type Obj = Record<string, unknown>;
@@ -486,10 +486,8 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     if (it.openClip) root.children.push({ kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.el.type === "balloon" ? cleanClippedBalloonInk(it.openClip)(nodes) : nodes });
     else root.children.push(...nodes);
   }
-  const furniture = [
-    ...await hashiraNodes(page, geom, o, panels, info),
-    ...await nombreNodes(doc, page, geom, o, panels),
-  ];
+  const nombre = await nombreNodes(doc, page, geom, o, panels);
+  const furniture = [...await hashiraNodes(page, geom, o, panels, info, nombre), ...nombre];
   const pageFiltered = page.settings.invert === true || (Array.isArray(page.settings.filters) && page.settings.filters.length > 0);
   if (!pageFiltered) root.children.push(...furniture);
   const list: DisplayList = {
@@ -1483,7 +1481,7 @@ function segRect(a: Vec, b: Vec, r: Rect): boolean {
 
 // ---- page furniture ---------------------------------------------------------------
 
-async function hashiraNodes(page: RPage, geom: PageGeom, o: ComposeOptions, panels: PanelGeom[], info: PageLayoutInfo): Promise<Node[]> {
+async function hashiraNodes(page: RPage, geom: PageGeom, o: ComposeOptions, panels: PanelGeom[], info: PageLayoutInfo, nombre: PathNode[]): Promise<Node[]> {
   const opts = typeof page.hashira === "string" ? { text: page.hashira } : page.hashira;
   if (!opts) return [];
   const text = textValue(opts.text, o.lang, o.defaultLang);
@@ -1513,8 +1511,8 @@ async function hashiraNodes(page: RPage, geom: PageGeom, o: ComposeOptions, pane
   const left = geom.side === "left" || (geom.side === "spread" && !geom.rtl);
   const x0 = left ? safe.x : baseFrame.x + baseFrame.w;
   const x1 = left ? baseFrame.x : safe.x + safe.w;
-  const noSpace = () => {
-    o.bag.warn("HASHIRA_NO_SPACE", "hashira omitted: it does not fit between the outer safe line and the base frame; shorten it, reduce fontSize, or widen the outer margin", where);
+  const noSpace = (reason = "it does not fit between the outer safe line and the base frame") => {
+    o.bag.warn("HASHIRA_NO_SPACE", `hashira omitted: ${reason}; shorten it, reduce fontSize, or widen the outer margin`, where);
     return [];
   };
   if (fontSize > x1 - x0 || safe.h <= 0) return noSpace();
@@ -1532,7 +1530,30 @@ async function hashiraNodes(page: RPage, geom: PageGeom, o: ComposeOptions, pane
   const ink = boundsOf(flattenPath(path, 0.02).flatMap(({ pts }) => pts));
   if (ink.w > x1 - x0 || ink.h > safe.h) return noSpace();
   const x = x0 + (x1 - x0 - ink.w) / 2;
-  const y = safe.y + (safe.h - ink.h) * (opts.align === "top" ? 0 : opts.align === "bottom" ? 1 : 0.5);
+  const preferredY = safe.y + (safe.h - ink.h) * (opts.align === "top" ? 0 : opts.align === "bottom" ? 1 : 0.5);
+  const strip = { x, y: safe.y, w: ink.w, h: safe.h };
+  const occupied = nombre.filter((n) => n.path.length > 0).flatMap((n) => {
+    const numberInk = boundsOf(n.path.flatMap(([op, ...xy]) => {
+      const points: Vec[] = [];
+      for (let i = 0; i < xy.length; i += 2) points.push({ x: xy[i], y: xy[i + 1] });
+      return points;
+    }));
+    const overlap = rectIntersect(strip, rectInset(numberInk, -(n.stroke?.width ?? 0) / 2 - 0.5));
+    return overlap ? [overlap] : [];
+  }).sort((a, b) => a.y - b.y);
+  let y: number | undefined;
+  let start = safe.y;
+  const considerGap = (end: number) => {
+    if (end - start < ink.h) return;
+    const candidate = Math.max(start, Math.min(preferredY, end - ink.h));
+    if (y === undefined || Math.abs(candidate - preferredY) < Math.abs(y - preferredY)) y = candidate;
+  };
+  for (const block of occupied) {
+    considerGap(block.y);
+    start = Math.max(start, block.y + block.h);
+  }
+  considerGap(safe.y + safe.h);
+  if (y === undefined) return noSpace("there is not enough space clear of the page number");
   const box = { x, y, w: ink.w, h: ink.h };
   const ring = (pts: Vec[]): [number, number][] => pts.map(({ x, y }) => [x, y]);
   const overlap = panels.find((p) => p.panel.props.visible !== false && rectIntersect(p.box, box) && polygonClipping.intersection([ring(panelShapePoly(p, geom))], [ring(rectPts(box))]).length > 0);
@@ -1546,7 +1567,7 @@ async function hashiraNodes(page: RPage, geom: PageGeom, o: ComposeOptions, pane
   }];
 }
 
-async function nombreNodes(doc: ResolvedDoc, page: RPage, geom: PageGeom, o: ComposeOptions, panels: PanelGeom[]): Promise<Node[]> {
+async function nombreNodes(doc: ResolvedDoc, page: RPage, geom: PageGeom, o: ComposeOptions, panels: PanelGeom[]): Promise<PathNode[]> {
   const book = (doc.doc.book ?? {}) as Obj;
   const pn = (book.pageNumbers ?? {}) as Obj;
   const { nombre } = o;

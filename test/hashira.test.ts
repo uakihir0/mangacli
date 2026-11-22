@@ -10,7 +10,8 @@ const text = "編集部からのお知らせ";
 const book = { binding: "right", pageNumbers: { enabled: false }, signature: false } as const;
 const page = { size: ["80mm", "100mm"], baseFrame: { margins: { top: 10, bottom: 10, inner: 12, outer: 18 } } } satisfies DocumentInput["page"];
 const doc = (pages: DocumentInput["pages"]): DocumentInput => ({ mangacli: 1, book, page, pages });
-const hashira = (node: Node): PathNode[] => node.kind === "group" ? node.children.flatMap(hashira) : node.kind === "path" && node.tag?.elementType === "hashira" ? [node] : [];
+const paths = (node: Node, type: string): PathNode[] => node.kind === "group" ? node.children.flatMap((child) => paths(child, type)) : node.kind === "path" && node.tag?.elementType === type ? [node] : [];
+const hashira = (node: Node) => paths(node, "hashira");
 const bounds = (node: PathNode) => boundsOf(flattenPath(node.path, 0.02).flatMap(({ pts }) => pts));
 
 describe("hashira", () => {
@@ -88,6 +89,26 @@ describe("hashira", () => {
     const r = await render(doc([{ hashira: text, layout: { free: true, area: "trim" }, panels: [panel] }]), { layoutOnly: true, keepLists: true });
     expect(hashira(r.lists![0].root)).toHaveLength(1);
     expect(r.diagnostics).toContainEqual(expect.objectContaining({ code: "HASHIRA_PANEL_OVERLAP", message: "hashira overlaps panel art" }));
+  });
+
+  it("moves the column clear of the page number and its outline", async () => {
+    const input = doc([{ panels: [{}], hashira: text }]);
+    input.book = { ...book, pageNumbers: { position: "outer-middle", format: "123", fontSize: "12pt" } };
+    const r = await render(input, { profile: "print-mono", layoutOnly: true, keepLists: true });
+    const list = r.lists![0];
+    const [number] = paths(list.root, "nombre");
+    const n = bounds(number);
+    const h = bounds(hashira(list.root)[0]);
+    const halo = number.stroke!.width / 2;
+    expect(h.y + h.h < n.y - halo || h.y > n.y + n.h + halo).toBe(true);
+    expect(h.x + h.w / 2).toBeCloseTo(11.5);
+    expect(h.y).toBeGreaterThanOrEqual(5);
+    expect(h.y + h.h).toBeLessThanOrEqual(95);
+
+    input.pages[0].size = ["80mm", "60mm"];
+    const short = await render(input, { profile: "print-mono", layoutOnly: true, keepLists: true });
+    expect(hashira(short.lists![0].root)).toEqual([]);
+    expect(short.diagnostics).toContainEqual(expect.objectContaining({ code: "HASHIRA_NO_SPACE", message: expect.stringContaining("page number") }));
   });
 
   it.each([[0, "SCHEMA_RANGE"], ["2em", "UNIT_INVALID"]] as const)("rejects invalid font size %s at the hashira field", async (fontSize, code) => {
