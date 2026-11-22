@@ -719,7 +719,7 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     const pointerMax = Math.min(9 * u.k, Math.max((whisperWedge ? 6 : 4.5) * u.k, minSide * 0.4));
     const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : target && !offSide && !spikyBody ? Math.min(12 * u.k, Math.max(6 * u.k, minSide * 0.5)) : pointerMax;
     let length: number;
-    let shortBy = 0;
+    let reach = 0;
     if (t.length !== undefined) length = toMm(t.length as string, u);
     else if (offSide && target) length = Math.min(maxLen, Math.hypot(target.x - R.x, target.y - R.y));
     else if (target) {
@@ -757,12 +757,13 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
       if (!stopped) avail = Math.min(avail, dist - Math.max(gap, Math.min(dist * 0.5, 6 * u.k)));
       // a tail always reads as a pointer, even when the speaker's face is right beside the body
       length = Math.min(maxLen, Math.max(4.5 * u.k, avail));
-      shortBy = avail - length;
+      reach = avail;
     } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
     if (whisperWedge && !target && !offSide && t.length === undefined) length = Math.min(maxLen, Math.max(length, 6 * u.k));
     // on a spiky body the tail must outreach the spikes to read as the pointer
     if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.15, 6 * u.k);
     tailLength = length;
+    const shortBy = reach - length;
     if (shortBy > 20 * u.k && t.length === undefined)
       ctx.bag.warn("BALLOON_TAIL_SHORT", `the tail of ${plan.el.id} ends ${shortBy.toFixed(1)} mm short of its speaker; move the balloon closer to them`, { path: plan.el.path, elementId: plan.el.id });
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
