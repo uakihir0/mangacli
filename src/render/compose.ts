@@ -1375,8 +1375,9 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         const cx = rtl ? st.flowX - w / 2 : st.flowX + w / 2;
         for (const r of attachedRects.slice().sort((a, b) => a.y - b.y)) {
           if (rectOverlapArea({ x: cx - w / 2, y: st.flowY, w, h }, r) > 0) {
+            const rowBottom = st.flowY + st.rowH;
             st.flowY = r.y + r.h + 1 * u.k;
-            st.rowH = 0;
+            st.rowH = Math.max(0, rowBottom - st.flowY);
           }
         }
         const cy = st.flowY + h / 2;

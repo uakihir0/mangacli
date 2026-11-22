@@ -48,6 +48,23 @@ ${Array.from({ length: 6 }, (_, i) => `          - { balloon: '', id: c${i}, as:
       expect(Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))).toBe(0);
     }
   });
+  it("preserves earlier flow item height when a later item jumps past an attachment", async () => {
+    const result = await render({ yaml: `mangacli: 1
+page: { size: [100mm, 100mm], baseFrame: trim, bleed: 0 }
+pages:
+  - panels:
+      - layers:
+          - { balloon: '', id: caption, as: narration, attach: top, at: [50%, 0%], size: [20mm, 12mm], hand: clean, halo: none }
+          - { balloon: '', id: first, autoPlace: flow, size: [30mm, 60mm], hand: clean, tail: none, halo: none }
+          - { balloon: '', id: second, autoPlace: flow, size: [30mm, 10mm], hand: clean, tail: none, halo: none }
+          - { balloon: '', id: third, autoPlace: flow, size: [45mm, 10mm], hand: clean, tail: none, halo: none }
+` }, { layoutOnly: true });
+    expect(result.diagnostics.filter(d => d.severity === "error")).toEqual([]);
+    const box = (id: string) => result.layout[0].elements.find(e => e.id === id)!.bbox;
+    expect(box("second").y).toBeGreaterThan(box("first").y);
+    expect(box("third").y).toBeGreaterThanOrEqual(box("first").y + box("first").h);
+    expect(box("third").y).toBeGreaterThanOrEqual(box("second").y + box("second").h);
+  });
   it.each(["auto", "flow"])("snaps panel narration before %s speech placement", async mode => {
     const result = await render({ yaml: `mangacli: 1
 page: { size: [100mm, 80mm], baseFrame: trim, bleed: 0 }
