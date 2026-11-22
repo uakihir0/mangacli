@@ -53,6 +53,12 @@ describe("hashira", () => {
     expect(bottom.paint).toEqual({ type: "solid", color: { r: 1, g: 0, b: 0, a: 1 } });
   });
 
+  it("loads the fallback for punctuation normalized by vertical typesetting", async () => {
+    const result = await validate(doc([{ panels: [{}], hashira: "Do you “know”?" }]), { lang: "en" });
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics.map((d) => d.code)).not.toContain("FONT_MISSING_GLYPH");
+  });
+
   it("reports unusable gutter dimensions instead of drawing unsafe type", async () => {
     const r = await render(doc([
       { id: "narrow", type: "blank", baseFrame: "trim", hashira: text },

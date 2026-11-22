@@ -26,7 +26,7 @@ import { type RefTarget, RefRegistry, center, place, resolvePoint, sizeValue } f
 import type { RElement, RPage, ResolvedDoc } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolvePen, resolveStroke } from "../model/values.js";
 import { BODY_GENERATORS } from "../shapes/balloon.js";
-import { defaultTextStyle, layoutText } from "../text/layout.js";
+import { defaultTextStyle, layoutText, parseLayoutText } from "../text/layout.js";
 import { parseMarkup } from "../text/markup.js";
 import { type AssetRegistry, resolveAssetBlend } from "./assets.js";
 import { cleanClippedBalloonInk } from "./balloon-clip.js";
@@ -1520,8 +1520,10 @@ async function hashiraNodes(page: RPage, geom: PageGeom, o: ComposeOptions, pane
   if (fontSize > x1 - x0 || safe.h <= 0) return noSpace();
 
   const font = opts.font ?? "narration";
-  await o.fonts.prepare(font, text);
-  const tl = layoutText(text, defaultTextStyle({ font, fontSize, writing: "vertical", wrap: "none", markup: false, lang: o.lang }), o.fonts);
+  const style = defaultTextStyle({ font, fontSize, writing: "vertical", wrap: "none", markup: false, lang: o.lang });
+  const normalized = parseLayoutText(text, style).units.map((unit) => unit.kind === "char" ? unit.ch : "").join("");
+  await o.fonts.prepare(font, text + normalized);
+  const tl = layoutText(text, style, o.fonts);
   if (tl.missing.length) o.bag.warn("FONT_MISSING_GLYPH", `missing glyphs: ${[...new Set(tl.missing)].join("")}`, where);
   if (tl.width > x1 - x0 || tl.height > safe.h) return noSpace();
   const path = tl.glyphs.flatMap((g) => g.path);
