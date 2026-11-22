@@ -18,6 +18,7 @@ export interface RElement {
   children?: RElement[];
   fromDialogue?: boolean;
   builtinProps?: string[];
+  balloonFontSizeOverride?: boolean;
   tailExplicit?: Obj;
   /** inherited hand (after cascade, stored in props.hand) */
 }
@@ -232,6 +233,9 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       const builtinArrays = Object.keys(acc).filter((k) => Array.isArray(acc[k]));
       const builtinProps = new Set(builtinArrays);
       let tailExplicit: Obj = {};
+      let trackBalloonFontSizeOverride = false;
+      let fontSizeOverride = false;
+      let fontScaleOverride = false;
       const mergeProps = (props: Obj | undefined, explicit = props) => {
         if (explicit?.fill !== undefined || explicit?.color !== undefined) explicitColors = true;
         if (isObj(explicit?.stroke)) explicitStroke = merge(explicitStroke, explicit.stroke);
@@ -242,6 +246,10 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
           if (props?.[k] === undefined) continue;
           if (props[k] === null) builtinProps.add(k);
           else builtinProps.delete(k);
+        }
+        if (trackBalloonFontSizeOverride) {
+          if (props?.fontSize !== undefined) fontSizeOverride = props.fontSize !== null;
+          if (props?.fontScale !== undefined) fontScaleOverride = props.fontScale !== null;
         }
         acc = merge(acc, props, builtin);
       };
@@ -255,6 +263,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
           }
         } else if (isObj(d)) mergeProps(d as Obj);
       }
+      trackBalloonFontSizeOverride = type === "balloon";
       const who = typeof raw.who === "string" ? raw.who : undefined;
       if (who) {
         const ch = characters[who];
@@ -296,6 +305,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       acc.id = id;
       const elSeedBase = typeof raw.seed === "number" ? raw.seed : baseSeed;
       const el: RElement = { id, type, props: acc, path, seed: deriveSeed(elSeedBase, id, "element"), fromDialogue, builtinProps: [...builtinProps], tailExplicit };
+      if (trackBalloonFontSizeOverride) el.balloonFontSizeOverride = fontSizeOverride || fontScaleOverride;
       if (type === "balloon" && acc.as === "aside" && acc.rotate === undefined) {
         const tilt = new Rng(deriveSeed(el.seed, id, "aside-tilt")).next() * 2 - 1;
         acc.rotate = `${Math.sign(tilt || 1) * (3 + Math.abs(tilt) * 2)}deg`;

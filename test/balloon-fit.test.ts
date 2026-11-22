@@ -20,6 +20,18 @@ async function plan(props: Record<string, unknown> = {}, w = 180, h = 35) {
   return { plan: planBalloon(el, ctx), bag };
 }
 
+describe("auto-sized dialogue", () => {
+  it("defaults explicit auto dimensions to the same overflow behavior as omitted size", async () => {
+    const props = { as: "say", text: "こんにちは", fontSize: undefined, maxSize: ["10mm", "10mm"], at: ["50%", "50%"] };
+    const omitted = await plan(props);
+    const automatic = await plan({ ...props, size: ["auto", "auto"] });
+    expect(omitted.plan.dialogueExceedsMaxSize).toBe(true);
+    expect(automatic.plan.dialogueExceedsMaxSize).toBe(true);
+    expect(automatic.plan.fontScaleApplied).toBe(1);
+    expect(automatic.plan.outer).toEqual(omitted.plan.outer);
+  });
+});
+
 describe("short-panel spiky balloon fallback", () => {
   it.each(["shout", "scream"])("fits %s including spikes without sacrificing the font floor", async (as) => {
     const { plan: p, bag } = await plan({ as });

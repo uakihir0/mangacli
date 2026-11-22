@@ -5,6 +5,7 @@ import type { ElemCtx } from "../elements/context.js";
 import { distToPolyline, pointInPolygon, polygonArea } from "../geom/path.js";
 import { boundsOf, type Rect, type Vec } from "../geom/vec.js";
 import type { RElement } from "../model/resolve.js";
+import { breakFaults } from "../text/layout.js";
 
 export function containmentOptOut(el: RElement): boolean {
   const p = el.props;
@@ -191,19 +192,27 @@ export function containBalloon(plan: BalloonPlan, ctx: ElemCtx, replan: (props: 
   if (fit(plan)) return;
   const original = plan.center;
   const chars = Math.max(2, ...plan.text.lines.map(l => Array.from(l.text ?? "").length));
-  const floor = typeof plan.props.minFontScale === "number" ? plan.props.minFontScale : 0.75;
+  const keepDialogueSize = plan.dialogueExceedsMaxSize !== undefined;
+  const faults = keepDialogueSize ? breakFaults(plan.text, ctx.lang) : Infinity;
+  const floor = keepDialogueSize ? 1 : typeof plan.props.minFontScale === "number" ? plan.props.minFontScale : 0.75;
   const scales = [1];
   for (let s = 0.95; s > floor + 1e-6; s -= 0.05) scales.push(s);
   if (floor < 1) scales.push(floor);
   for (const scale of scales) for (const maxChars of [...new Set([chars, Math.max(2, Math.round(chars * 0.6)), Math.round(chars * 1.5), Math.max(2, Math.round(chars * 0.4))])]) {
     const candidate = replan({ ...plan.props, size: undefined, maxChars, fontScale: ((plan.props.fontScale as number) ?? 1) * scale, minFontScale: 1, overflow: "grow" });
-    if (!candidate) continue;
+    if (!candidate || (keepDialogueSize && breakFaults(candidate.text, ctx.lang) > faults)) continue;
     candidate.center = { ...original };
     if (!fit(candidate)) continue;
     const props = plan.props;
-    Object.assign(plan, candidate, { props, edgeCut: cut, fontScaleApplied: candidate.fontScaleApplied * scale });
+    Object.assign(plan, candidate, {
+      props,
+      edgeCut: cut,
+      fontScaleApplied: candidate.fontScaleApplied * scale,
+      dialogueExceedsMaxSize: keepDialogueSize ? candidate.dialogueExceedsMaxSize : undefined,
+    });
     if (scale < 1) ctx.bag.info("TEXT_SHRUNK", `balloon ${plan.el.id}: contained font scaled to ${Math.round(scale * 100)}%`, { path: plan.el.path, elementId: plan.el.id });
     return;
   }
-  ctx.bag.warn("BALLOON_NO_SPACE", `balloon ${plan.el.id} cannot fit inside its panel at minFontScale; enlarge the panel or shorten the dialogue`, { path: plan.el.path, elementId: plan.el.id });
+  const size = keepDialogueSize ? "the dialogue font size" : "minFontScale";
+  ctx.bag.warn("BALLOON_NO_SPACE", `balloon ${plan.el.id} cannot fit inside its panel at ${size}; enlarge the panel or shorten the dialogue`, { path: plan.el.path, elementId: plan.el.id });
 }

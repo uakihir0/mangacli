@@ -68,6 +68,136 @@ pages:
     expect(r.ok).toBe(true);
     expect(r.diagnostics.filter((d) => ["TEXT_SHRUNK", "TEXT_OVERFLOW", "BALLOON_TOO_LARGE"].includes(d.code))).toEqual([]);
   });
+  it("keeps the document dialogue size across pages and warns when a balloon exceeds maxSize", async () => {
+    const r = await validate(yaml(`mangacli: 1
+defaults:
+  balloon: { fontSize: 5mm }
+pages:
+  - panels:
+      - layers:
+          - { balloon: やあ, id: short }
+  - panels:
+      - box: [15mm, 25mm, 50mm, 145mm]
+        coords: page
+        dialogue:
+          - { text: "この吹き出しは指定された大きさに収まりません", id: crowded, at: [0%, 5%], clip: panel, maxSize: [10mm, 10mm], tail: none }
+  - layers:
+      - { balloon: こんにちは, id: explicit, at: [25%, 25%], fontSize: 5mm, maxSize: [10mm, 10mm] }
+      - { balloon: こんにちは, id: shrink, at: [75%, 25%], overflow: shrink, maxSize: [10mm, 10mm] }
+`));
+    expect(r.ok).toBe(true);
+    const sizes = Object.fromEntries(r.layout.flatMap((page) => page.text.map(({ id, fontSize }) => [id, fontSize])));
+    expect(sizes).toMatchObject({ short: 5, crowded: 5, explicit: 3.75, shrink: 3.75 });
+    const crowded = r.layout[1].text.find(t => t.id === "crowded")!;
+    expect(crowded.lines.every(line => Array.from(line).length >= 2)).toBe(true);
+    const { bbox } = r.layout[1].elements.find(el => el.id === "crowded")!;
+    expect(bbox.x).toBeGreaterThanOrEqual(15);
+    expect(bbox.x + bbox.w).toBeLessThanOrEqual(65);
+    expect(bbox.y).toBeGreaterThanOrEqual(25);
+    expect(bbox.y + bbox.h).toBeLessThanOrEqual(170);
+    expect(r.diagnostics.some(d => d.elementId === "crowded" && d.code === "BALLOON_NO_SPACE")).toBe(false);
+    expect(r.diagnostics.filter((d) => d.elementId === "crowded" && ["TEXT_SHRUNK", "TEXT_OVERFLOW", "BALLOON_TOO_LARGE"].includes(d.code))).toEqual([
+      expect.objectContaining({ code: "BALLOON_TOO_LARGE", severity: "warning", elementId: "crowded", message: expect.stringContaining("crowded") }),
+    ]);
+  });
+
+  it("tries shorter lines before growing explicitly positioned dialogue", async () => {
+    const r = await validate(yaml(`mangacli: 1
+meta: { lang: en }
+defaults:
+  balloon: { fontSize: 5mm, writing: horizontal, shape: rect, padding: [0mm, 0mm] }
+pages:
+  - panels:
+      - layers:
+          - { balloon: "That works", id: positioned, at: [50%, 50%], maxSize: [17mm, 40mm], tail: none }
+`));
+    expect(r.ok).toBe(true);
+    expect(r.layout[0].text[0]).toMatchObject({ fontSize: 5, lines: ["THAT", "WORKS"] });
+    expect(r.layout[0].elements[0].bbox.w).toBeLessThanOrEqual(17);
+    expect(r.diagnostics.some(d => d.code === "BALLOON_TOO_LARGE")).toBe(false);
+  });
+
+  it("uses the full usable width of a panel-clipped rectangular balloon", async () => {
+    const r = await validate(yaml(`mangacli: 1
+meta: { lang: en }
+defaults:
+  balloon: { fontSize: 5mm, writing: horizontal, shape: rect, padding: [0mm, 0mm] }
+pages:
+  - panels:
+      - coords: page
+        box: [20mm, 25mm, 39mm, 22mm]
+        layers:
+          - { balloon: "That works That works", id: b, clip: panel, at: [50%, 50%], tail: none }
+`));
+    expect(r.ok).toBe(true);
+    expect(r.layout[0].text[0]).toMatchObject({ fontSize: 5, lines: ["THAT WORKS", "THAT WORKS"] });
+    const { bbox } = r.layout[0].elements[0];
+    expect(bbox.x).toBeGreaterThanOrEqual(20);
+    expect(bbox.x + bbox.w).toBeLessThanOrEqual(59);
+    expect(bbox.y).toBeGreaterThanOrEqual(25);
+    expect(bbox.y + bbox.h).toBeLessThanOrEqual(47);
+    expect(r.diagnostics.some(d => d.code === "BALLOON_NO_SPACE")).toBe(false);
+  });
+
+  it("reflows quarter-turned dialogue along its rotated line axis", async () => {
+    const r = await validate(yaml(`mangacli: 1
+meta: { lang: en }
+defaults:
+  balloon: { fontSize: 5mm, writing: horizontal, shape: rect, padding: [0mm, 0mm] }
+pages:
+  - panels:
+      - coords: page
+        box: [20mm, 25mm, 39mm, 26mm]
+        layers:
+          - { balloon: "Good morning", id: b, clip: panel, at: [50%, 50%], rotate: 90deg, tail: none }
+`));
+    expect(r.ok).toBe(true);
+    expect(r.layout[0].text[0]).toMatchObject({ fontSize: 5, lines: ["GOOD", "MORNING"] });
+    const { bbox } = r.layout[0].elements[0];
+    expect(bbox.y).toBeGreaterThanOrEqual(25);
+    expect(bbox.y + bbox.h).toBeLessThanOrEqual(51);
+    expect(r.diagnostics.some(d => ["BALLOON_NO_SPACE", "TEXT_CLIPPED"].includes(d.code))).toBe(false);
+  });
+
+  it("preserves the flow gap when grown dialogue cannot fit below the previous row", async () => {
+    const r = await validate(yaml(`mangacli: 1
+meta: { lang: en }
+defaults:
+  balloon: { fontSize: 5mm, autoPlace: flow, writing: horizontal, shape: rect, hand: clean, padding: [0mm, 0mm] }
+pages:
+  - panels:
+      - coords: page
+        box: [20mm, 25mm, 65mm, 43mm]
+        layers:
+          - { balloon: Hi, id: upper, size: [60mm, 30mm], tails: [] }
+          - { balloon: "Good morning", id: lower, clip: panel, maxSize: [10mm, 10mm], tails: [] }
+`));
+    expect(r.ok).toBe(true);
+    const [upper, lower] = ["upper", "lower"].map(id => r.layout[0].elements.find(el => el.id === id)!.bbox);
+    expect(lower.y).toBeGreaterThanOrEqual(upper.y + upper.h + 0.8);
+    expect(r.diagnostics).toContainEqual(expect.objectContaining({ code: "BALLOON_NO_SPACE", elementId: "lower" }));
+  });
+
+  it("preserves a positioned balloon's intentional frame crossing when unclipped", async () => {
+    const r = await validate(yaml(`mangacli: 1
+meta: { lang: en }
+defaults:
+  balloon: { fontSize: 5mm, writing: horizontal, shape: rect, padding: [0mm, 0mm] }
+pages:
+  - panels:
+      - coords: page
+        box: [50mm, 35mm, 60mm, 40mm]
+        layers:
+          - { balloon: "That works", id: b, clip: none, at: [0%, 50%], maxSize: [5mm, 5mm], tails: [] }
+`));
+    expect(r.ok).toBe(true);
+    const { bbox } = r.layout[0].elements[0];
+    expect(bbox.x).toBeGreaterThan(0);
+    expect(bbox.x).toBeLessThan(50);
+    expect(bbox.x + bbox.w / 2).toBeCloseTo(50, 1);
+    expect(r.diagnostics).toContainEqual(expect.objectContaining({ code: "BALLOON_TOO_LARGE", elementId: "b" }));
+    expect(r.diagnostics.some(d => d.code === "BALLOON_NO_SPACE")).toBe(false);
+  });
 });
 
 describe("rendering", () => {
