@@ -328,14 +328,17 @@ export class RasterBackend {
     return result;
   }
 
-  async renderMono(list: DisplayList, viewport: { x: number; y: number; width: number; height: number }, bandPixels = MONO_BAND_PIXELS): Promise<MonoRaster> {
+  async renderMono(list: DisplayList, viewport: { x: number; y: number; width: number; height: number }, bandPixels = MONO_BAND_PIXELS, onBand?: (done: number, total: number) => void): Promise<MonoRaster> {
     const { width, height } = viewport;
     const packed = new Uint8Array(Math.ceil(width / 8) * height);
     const rows = Math.max(1, Math.floor(bandPixels / width));
-    for (let y = 0; y < height; y += rows) {
+    const total = Math.ceil(height / rows);
+    onBand?.(0, total);
+    for (let y = 0, done = 0; y < height; y += rows) {
       const h = Math.min(rows, height - y);
       const band = await this.render(list, { ...viewport, y: viewport.y + y, height: h });
       packBand(packed, width, band.data, h, y);
+      onBand?.(++done, total);
       await setImmediate();
     }
     return { data: new Uint8ClampedArray(0), packed, width, height };

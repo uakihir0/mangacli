@@ -45,6 +45,28 @@ describe("cli", () => {
     expect(r.status).toBe(0);
     expect(existsSync(join(dir, "001.png"))).toBe(true);
   });
+  it.each([1, 2])("reports one-bit raster bands with concurrency %d", (concurrency) => {
+    const dir = mkdtempSync(join(tmpdir(), "mc-bands-"));
+    const f = join(dir, "bands.yaml");
+    writeFileSync(f, "mangacli: 1\npage: { size: [25.4mm, 25.4mm], bleed: 0 }\npages: [{ id: spread, type: spread }, { id: single }]\n");
+    const args = ["render", f, "-p", "print-mono", "--dpi", "100", "--spread", "split", "-o", join(dir, "out"), "--concurrency", String(concurrency)];
+    const r = cli(...args, "--json");
+    expect(r.status, r.stderr).toBe(0);
+    const events = r.stdout.trim().split("\n").map((line) => JSON.parse(line));
+    const bands = events.filter((e) => e.phase === "raster-band");
+    for (const [pageId, side] of [["spread", "left"], ["spread", "right"], ["single", undefined]]) {
+      expect(bands.filter((e) => e.pageId === pageId && e.side === side)).toEqual(
+        [0, 1].map((done) => ({ type: "progress", phase: "raster-band", pageId, ...(side && { side }), done, total: 1 })),
+      );
+      expect(events.findIndex((e) => e.phase === "render" && e.pageId === pageId)).toBeGreaterThan(events.lastIndexOf(bands.find((e) => e.pageId === pageId && e.side === side && e.done === 1)));
+    }
+    expect(bands).toHaveLength(6);
+    if (concurrency === 1) {
+      const human = cli(...args, "--locale", "en");
+      expect(human.stderr).toContain("spread/right: raster bands 0/1");
+      expect(human.stderr).toContain("spread/right: raster bands 1/1");
+    }
+  });
   it("raises the per-page pixel limit and rejects invalid limits", () => {
     const dir = mkdtempSync(join(tmpdir(), "mc-limit-"));
     const f = join(dir, "spread.yaml");

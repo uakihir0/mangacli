@@ -1,12 +1,14 @@
 import { linearToSrgb, srgbToLinear } from "../core/color.js";
 
+const linearBytes = Array.from({ length: 256 }, (_, i) => srgbToLinear(i / 255));
+
 /** Separate narrow dark (1) and light (2) ridges from continuous tones. */
 export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number, dpi: number, toneCurve: "linear" | "perceptual" = "linear"): Uint8Array {
   const gray = new Float32Array(width * height);
   const mask = new Uint8Array(width * height);
   for (let i = 0; i < gray.length; i++) {
     const a = rgba[i * 4 + 3] / 255;
-    const lin = 0.2126 * srgbToLinear(rgba[i * 4] / 255) + 0.7152 * srgbToLinear(rgba[i * 4 + 1] / 255) + 0.0722 * srgbToLinear(rgba[i * 4 + 2] / 255);
+    const lin = 0.2126 * linearBytes[rgba[i * 4]] + 0.7152 * linearBytes[rgba[i * 4 + 1]] + 0.0722 * linearBytes[rgba[i * 4 + 2]];
     gray[i] = 1 - a + a * (toneCurve === "perceptual" ? linearToSrgb(lin) : lin);
   }
   const radius = Math.max(2, Math.round(dpi * 0.24 / 25.4));
@@ -42,41 +44,43 @@ export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number
       }
     }
   }
-  const tolerance = Math.max(1, Math.round(dpi * 0.08 / 25.4));
+  const tolerance = Math.min(Math.max(width, height), Math.max(1, Math.round(dpi * 0.08 / 25.4)));
   const meshMask = new Uint8Array(width * height);
+  const OffsetArray = tolerance <= 127 ? Uint8Array : Int32Array;
+  const dark = new OffsetArray(gray.length), light = new OffsetArray(gray.length);
+  const ray = new Int32Array(Math.max(width, height));
+  const matches = new Int32Array(ray.length);
   for (const mesh of [false, true]) {
     const activeCandidates = mesh ? candidates : strictCandidates;
     const output = mesh ? meshMask : mask;
     for (const vertical of [false, true]) {
       const major = vertical ? height : width;
       const minor = vertical ? width : height;
+      const stride = vertical ? 1 : width;
+      let previousNormal = -1;
       for (let angle = -8; angle <= 8; angle++) {
         const slope = angle / 8;
         const normal = Math.abs(slope) <= 0.5 ? (vertical ? 0 : 1) : slope > 0 ? 3 : 2;
+        if (normal !== previousNormal) {
+          candidateOffsets(activeCandidates, dark, light, major, minor, stride, vertical ? width : 1, normal, tolerance);
+          previousNormal = normal;
+        }
+        const normalOffset = (directions[normal][1] * width + directions[normal][0]) * radius;
         const step = Math.hypot(1, slope);
         const end = Math.round((major - 1) * slope);
         for (let offset = -Math.max(0, end); offset < minor - Math.min(0, end); offset++) {
-          const ray: number[] = [];
           const lower = -8 * offset - 4;
           const upper = 8 * (minor - offset) - 4;
           const first = Math.max(0, angle > 0 ? Math.ceil(lower / angle) : angle < 0 ? Math.floor(upper / angle) + 1 : 0);
           const limit = Math.min(major, angle > 0 ? Math.ceil(upper / angle) : angle < 0 ? Math.floor(lower / angle) + 1 : major);
+          const rayLength = limit - first;
+          if (rayLength <= 0) continue;
           for (let p = first; p < limit; p++) {
             const q = offset + Math.round(p * slope);
-            ray.push(vertical ? p * width + q : q * width + p);
+            ray[p - first] = vertical ? p * width + q : q * width + p;
           }
           for (const polarity of [1, 2]) {
-            const bit = 1 << (normal + (polarity === 1 ? 0 : 4));
-            const matches = new Int32Array(ray.length).fill(-1);
-            for (let p = 0; p < ray.length; p++) {
-              const i = ray[p];
-              const q = vertical ? i % width : Math.floor(i / width);
-              for (let d = -tolerance; d <= tolerance; d++) {
-                if (q + d < 0 || q + d >= minor) continue;
-                const j = i + d * (vertical ? 1 : width);
-                if (activeCandidates[j] & bit) { matches[p] = j; break; }
-              }
-            }
+            const offsets = polarity === 1 ? dark : light;
             let start = -1, last = -1, count = 0;
             let reference = 0;
             const flush = () => {
@@ -88,14 +92,13 @@ export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number
                   const i = matches[p] >= 0 ? matches[p] : ray[p];
                   if (!mesh) {
                     if (matches[p] >= 0) local = gray[i];
-                    for (const j of [i, ray[p]]) {
-                      if ((gray[j] <= midpoint) === (polarity === 1) && Math.abs(gray[j] - local) <= 0.035) output[j] = polarity;
-                    }
+                    const j = ray[p];
+                    if ((gray[i] <= midpoint) === (polarity === 1) && Math.abs(gray[i] - local) <= 0.035) output[i] = polarity;
+                    if (j !== i && (gray[j] <= midpoint) === (polarity === 1) && Math.abs(gray[j] - local) <= 0.035) output[j] = polarity;
                     continue;
                   }
                   if (matches[p] >= 0) {
-                    const [dx, dy] = directions[normal];
-                    background = (gray[i - (dy * width + dx) * radius] + gray[i + (dy * width + dx) * radius]) / 2;
+                    background = (gray[i - normalOffset] + gray[i + normalOffset]) / 2;
                     output[i] = polarity;
                   }
                   const center = ray[p];
@@ -105,10 +108,13 @@ export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number
               start = last = -1;
               count = 0;
             };
-            for (let p = 0; p < ray.length; p++) {
-              if (matches[p] >= 0 && (mesh || start < 0 || Math.abs(gray[matches[p]] - reference) <= 0.035)) {
+            for (let p = 0; p < rayLength; p++) {
+              const i = ray[p], candidate = offsets[i];
+              const match = candidate ? i + (candidate - tolerance - 1) * stride : -1;
+              if (match >= 0 && (mesh || start < 0 || Math.abs(gray[match] - reference) <= 0.035)) {
+                matches[p] = match;
                 if (start < 0) start = p;
-                reference = gray[matches[p]];
+                reference = gray[match];
                 last = p;
                 count++;
               } else {
@@ -137,6 +143,25 @@ export function imageInkMask(rgba: Uint8Array | Uint8ClampedArray, width: number
     if (core < lightCore) mask[i] = 0;
   }
   return mask;
+}
+
+// Angles with the same normal share these one-based offsets from the start of the tolerance window.
+function candidateOffsets(candidates: Uint8Array, dark: Uint8Array | Int32Array, light: Uint8Array | Int32Array, major: number, minor: number, stride: number, advance: number, normal: number, tolerance: number): void {
+  const darkBit = 1 << normal, lightBit = darkBit << 4;
+  for (let p = 0; p < major; p++) {
+    const base = p * advance;
+    let firstDark = minor, firstLight = minor;
+    for (let q = minor - 1 + tolerance; q >= 0; q--) {
+      const start = q - tolerance;
+      const bits = start >= 0 ? candidates[base + start * stride] : 0;
+      if (bits & darkBit) firstDark = start;
+      if (bits & lightBit) firstLight = start;
+      if (q >= minor) continue;
+      const i = base + q * stride, limit = Math.min(minor - 1, q + tolerance);
+      dark[i] = firstDark <= limit ? firstDark - start + 1 : 0;
+      light[i] = firstLight <= limit ? firstLight - start + 1 : 0;
+    }
+  }
 }
 
 function preserveMesh(mesh: Uint8Array, mask: Uint8Array, width: number, height: number, dpi: number): void {

@@ -22,8 +22,10 @@ describe("logical-frame clip antialiasing", () => {
     const full = await backend.render(list);
     const expected = new Uint8Array(17);
     packBand(expected, 8, full.data, 17, 0);
-    const banded = await backend.renderMono(list, { x: 0, y: 0, width: 8, height: 17 }, 8 * 5);
+    const progress: [number, number][] = [];
+    const banded = await backend.renderMono(list, { x: 0, y: 0, width: 8, height: 17 }, 8 * 5, (done, total) => progress.push([done, total]));
     expect(banded.packed).toEqual(expected);
+    expect(progress).toEqual([[0, 4], [1, 4], [2, 4], [3, 4], [4, 4]]);
     if (path === rectangle) expect(banded.packed[0] & 1).toBe(0);
   });
 });

@@ -334,6 +334,9 @@ $ mangacli render manga.yaml --profile print-mono
 
 ```json
 {"type":"diagnostic","code":"TEXT_OVERFLOW","severity":"warning","location":{"file":"manga.yaml","line":48,"column":11},"message":"..."}
+{"type":"progress","phase":"raster-band","pageId":"p3","done":2,"total":7}
 {"type":"progress","phase":"render","pageId":"p3","done":3,"total":12}
 {"type":"result","files":[{"path":"out/manga-001.png","pageId":"p1","width":4441,"height":6213}],"warnings":1,"errors":0}
 ```
+
+1-bit のバンド描画では、ページ内の進捗を標準エラー出力に表示する（`--json` では `raster-band` イベント）。カウンターは描画開始時の 0 からバンドの完了ごとに進む。見開きを分割出力する場合は左右（`side`）別に表示する。ページ数を数える `render` とは別のカウンター。

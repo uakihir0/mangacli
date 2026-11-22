@@ -222,8 +222,9 @@ interface RenderOptions {
 }
 
 interface ProgressEvent {
-  phase: "load" | "validate" | "resolve" | "prepare" | "layout" | "generate" | "render" | "encode" | "write";
+  phase: "load" | "validate" | "resolve" | "prepare" | "layout" | "generate" | "raster-band" | "render" | "encode" | "write";
   pageId?: string;
+  side?: "left" | "right";
   done: number;
   total: number;
 }
@@ -231,6 +232,7 @@ interface ProgressEvent {
 
 - オプションの値は、プロファイルの値より優先する（[10.7](10-color-and-output.md#107-出力プロファイル)）。
 - `assets` と `fonts` は、ドキュメントの同名の登録より優先する。サーバーで素材をメモリから与える場合に使う。
+- 1-bit のバンド描画では、`onProgress` の `raster-band` が描画開始（`done: 0`）と各バンドの完了を通知する。このフェーズの `done` / `total` はページ数ではなくバンド数。見開きの分割出力では `side` ごとに数え直す。ファイル出力まで含むページ処理の完了は `render` で通知する。
 - `signal` で中断した場合は、`MangaAbortError`（`name` は `"AbortError"`）を投げる。書きかけのファイルは残さない（一時ファイルに書いてから名前を変える）。
 
 ## 11.6 リゾルバー
