@@ -17,6 +17,7 @@ export interface RElement {
   children?: RElement[];
   fromDialogue?: boolean;
   builtinProps?: string[];
+  tailExplicit?: Obj;
   /** inherited hand (after cascade, stored in props.hand) */
 }
 
@@ -108,9 +109,21 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
 
   // styles: builtin <- config <- doc <- locale
   const rawStyles: Record<string, Obj> = {};
+  const authorStyles: Record<string, Obj> = {};
   for (const src of [BUILTIN_STYLES, opts.configStyles ?? {}, (doc.styles ?? {}) as Record<string, Obj>, ((locale?.styles ?? {}) as Record<string, Obj>)]) {
-    for (const [k, v] of Object.entries(src)) rawStyles[k] = rawStyles[k] ? overlay(rawStyles[k], v) : deepClone(v);
+    for (const [k, v] of Object.entries(src)) {
+      rawStyles[k] = rawStyles[k] ? overlay(rawStyles[k], v) : deepClone(v);
+      if (src !== BUILTIN_STYLES) authorStyles[k] = overlay(authorStyles[k] ?? {}, v);
+    }
   }
+  const styleTail = (name: string, seen = new Set<string>()): Obj => {
+    if (seen.has(name)) return {};
+    seen.add(name);
+    const raw = rawStyles[name] ?? {};
+    let out: Obj = {};
+    for (const e of Array.isArray(raw.extends) ? raw.extends : raw.extends ? [raw.extends] : []) out = merge(out, styleTail(String(e), seen));
+    return merge(out, authorStyles[name]);
+  };
   const styles: Record<string, Obj> = {};
   const resolving = new Set<string>();
   const resolveStyle = (name: string, path: Path): Obj | undefined => {
@@ -212,7 +225,11 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
       let acc: Obj = deepClone(builtin);
       const builtinArrays = Object.keys(acc).filter((k) => Array.isArray(acc[k]));
       const builtinProps = new Set(builtinArrays);
-      const mergeProps = (props: Obj | undefined) => {
+      let tailExplicit: Obj = {};
+      const mergeProps = (props: Obj | undefined, explicit = props) => {
+        for (const k of ["tail", "tails"]) {
+          if (explicit?.[k] !== undefined) tailExplicit = merge(tailExplicit, { [k]: explicit[k] });
+        }
         for (const k of builtinArrays) {
           if (props?.[k] === undefined) continue;
           if (props[k] === null) builtinProps.add(k);
@@ -241,7 +258,7 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
         const as = typeof raw.as === "string" ? raw.as : "say";
         const st = styles[as];
         if (!st) bag.error("REF_NOT_FOUND", `unknown speech type "${as}"`, { path: [...path, "as"], hint: suggestHint(as, Object.keys(BUILTIN_STYLES)) });
-        else mergeProps(st);
+        else mergeProps(st, styleTail(as));
         const voice = who ? (characters[who]?.voice as Obj | undefined) : undefined;
         if (voice && isObj(voice[as])) mergeProps(voice[as] as Obj);
         acc.as = as;
@@ -260,14 +277,14 @@ export function resolveDocument(doc: Obj, bag: DiagnosticBag, opts: ResolveOptio
         }
         const s2 = { ...st };
         delete s2.for;
-        mergeProps(s2);
+        mergeProps(s2, styleTail(String(sn)));
       }
       const own = { ...raw };
       delete own.style;
       mergeProps(own);
       acc.id = id;
       const elSeedBase = typeof raw.seed === "number" ? raw.seed : baseSeed;
-      const el: RElement = { id, type, props: acc, path, seed: deriveSeed(elSeedBase, id, "element"), fromDialogue, builtinProps: [...builtinProps] };
+      const el: RElement = { id, type, props: acc, path, seed: deriveSeed(elSeedBase, id, "element"), fromDialogue, builtinProps: [...builtinProps], tailExplicit };
       if (type === "balloon" && acc.as === "aside" && acc.rotate === undefined) {
         const tilt = new Rng(deriveSeed(el.seed, id, "aside-tilt")).next() * 2 - 1;
         acc.rotate = `${Math.sign(tilt || 1) * (3 + Math.abs(tilt) * 2)}deg`;

@@ -1,8 +1,9 @@
 // Balloons: sizing, tails, inking (spec 6).
 import { BLACK, WHITE, parseColor } from "../core/color.js";
+import { DiagnosticBag } from "../core/diagnostics.js";
 import { Rng } from "../core/random.js";
 import { type UnitContext, parseAngle, toMm } from "../core/units.js";
-import { type PathData, distToPolyline, flattenPath, pointInPolygon, polyPath, polygonArea, rayPolygon, transformPath } from "../geom/path.js";
+import { type PathData, distToPolyline, flattenPath, offsetPolygon, pointInPolygon, polyPath, polygonArea, rayPolygon, transformPath } from "../geom/path.js";
 import { type Rect, type Vec, boundsOf, dot, lerp, matTranslate, rot, sub } from "../geom/vec.js";
 import type { HandSpec } from "../ink/presets.js";
 import { type ShapeContour, inkShape } from "../ink/shape.js";
@@ -40,6 +41,30 @@ export interface BalloonPlan {
   props: Obj;
   textOffset: Vec;
   fontScaleApplied: number;
+  tailObstacles?: { id: string; contour: Vec[] }[];
+}
+
+export function prepareBalloonObstacles(plans: BalloonPlan[]): void {
+  const bodies = plans.filter(p => p.center).map(p => {
+    const a = p.props.rotate === undefined ? 0 : parseAngle(p.props.rotate as string);
+    return { id: p.el.id, contour: p.body.contour.pts.map(q => ({ x: p.center!.x + q.x * Math.cos(a) - q.y * Math.sin(a), y: p.center!.y + q.x * Math.sin(a) + q.y * Math.cos(a) })) };
+  });
+  const links = new Map(plans.map(p => [p.el.id, new Set<string>()]));
+  for (const p of plans) {
+    const cs = p.props.connect;
+    for (const c of (Array.isArray(cs) ? cs : cs ? [cs] : []) as Obj[]) {
+      links.get(p.el.id)!.add(String(c.to));
+      links.get(String(c.to))?.add(p.el.id);
+    }
+  }
+  for (const p of plans) {
+    const excluded = new Set([p.el.id]);
+    const visit = (id: string) => {
+      for (const next of links.get(id) ?? []) if (!excluded.has(next)) { excluded.add(next); visit(next); }
+    };
+    visit(p.el.id);
+    p.tailObstacles = bodies.filter(b => !excluded.has(b.id));
+  }
 }
 
 function shapeParams(props: Obj, rng: Rng, hand: HandSpec, u: UnitContext): ShapeParams {
@@ -435,6 +460,9 @@ function pointAtArc(pts: Vec[], s: number[], at: number): { p: Vec; i: number } 
 interface TailResult {
   contour?: ShapeContour; // spliced body contour (page coords)
   extra: { pts: Vec[]; closed: boolean; kind: "bubble" | "line" }[];
+  footprints: { pts: Vec[]; closed: boolean }[];
+  rootAngle?: number;
+  length?: number;
 }
 
 /** distance along ray to entering a rect (null if missed) */
@@ -475,10 +503,91 @@ function faceOf(face: Rect | undefined, target: Vec): Rect | undefined {
 }
 
 function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult {
+  let cur = contour;
+  const extra: TailResult["extra"] = [];
+  const footprints: TailResult["footprints"] = [];
+  const { plan, ctx } = tc;
+  const stroke = resolveStroke(plan.props.stroke, plan.hand, ctx.u);
+  const clearance = 0.35 * ctx.u.k + stroke.width / 2;
+  const obstacles = (plan.tailObstacles ?? []).map(b => ({ ...b, contour: offsetPolygon(b.contour, clearance) }));
+  const score = (r: TailResult) => {
+    const hits = new Map<string, number>();
+    const ring = (pts: Vec[]) => [pts.map(p => [p.x, p.y] as [number, number])];
+    const footprints = r.footprints.map(f => {
+      if (f.closed) return [ring(f.pts)];
+      const [first, ...rest] = lineFootprint(f.pts, Math.max(stroke.width * 1.1 / 2, 0.01 * ctx.u.k)).map(ring);
+      return first ? polygonClipping.union(first, ...rest) : [];
+    });
+    for (const b of obstacles) {
+      let area = 0;
+      for (const footprint of footprints) {
+        if (!footprint.length) continue;
+        const intersection = polygonClipping.intersection(footprint, ring(b.contour));
+        for (const polygon of intersection) for (const [i, points] of polygon.entries()) area += (i ? -1 : 1) * Math.abs(polygonArea(points.map(([x, y]) => ({ x, y }))));
+      }
+      if (area > 1e-8) hits.set(b.id, area);
+    }
+    return { hits, area: [...hits.values()].reduce((a, b) => a + b, 0) };
+  };
+  for (const [index, tail] of tails.entries()) {
+    const start = Object.assign(Object.create(Rng.prototype) as Rng, tc.rng);
+    const initial = makeTails(cur, [tail], tc);
+    let best = initial;
+    let bestScore = score(initial);
+    let bestRng = Object.assign(Object.create(Rng.prototype) as Rng, tc.rng);
+    if (bestScore.area > 0) {
+      const explicit = plan.el.tailExplicit;
+      const own = explicit ? balloonTails(explicit)[index] ?? {} : tail;
+      const roots: Obj[] = [{}];
+      if (own.root === undefined || own.root === "auto") {
+        for (const degrees of [15, -15, 30, -30, 45, -45, 60, -60]) roots.push({ root: `${(initial.rootAngle ?? 0) * 180 / Math.PI + degrees}deg` });
+      }
+      const candidates = roots.slice(1);
+      if (own.curl === undefined && (tail.kind === undefined || tail.kind === "wedge")) for (const root of roots) for (const curl of [false, true]) candidates.push({ ...root, curl });
+      if (own.bend === undefined) for (const root of roots) for (const bend of [-0.3, 0.3, -0.5, 0.5]) candidates.push({ ...root, bend, ...(own.curl === undefined ? { curl: false } : {}) });
+      if (own.length === undefined && initial.length !== undefined) {
+        const minimum = Math.min(initial.length, 2 * ctx.u.k);
+        for (const factor of [0.75, 0.5, 0.25, 0]) for (const root of roots) candidates.push({ ...root, length: `${Math.max(minimum, initial.length * factor)}mm` });
+      }
+      for (const changes of candidates) {
+        const rng = Object.assign(Object.create(Rng.prototype) as Rng, start);
+        const candidate = makeTails(cur, [{ ...tail, ...changes }], { ...tc, rng, ctx: { ...ctx, bag: new DiagnosticBag() } });
+        const cost = score(candidate);
+        if (candidate.footprints.length && cost.area < bestScore.area) { best = candidate; bestScore = cost; bestRng = rng; }
+        if (bestScore.area === 0) break;
+      }
+      Object.assign(tc.rng, bestRng);
+      for (const id of bestScore.hits.keys()) ctx.bag.warn("BALLOON_TAIL_CROSSES", `the tail of ${plan.el.id} crosses ${id}`, { path: plan.el.path, elementId: plan.el.id });
+    }
+    cur = best.contour ?? cur;
+    extra.push(...best.extra);
+    footprints.push(...best.footprints);
+  }
+  return { contour: cur, extra, footprints };
+}
+
+function lineFootprint(pts: Vec[], radius: number): Vec[][] {
+  const out: Vec[][] = [];
+  for (const [i, p] of pts.entries()) {
+    out.push(Array.from({ length: 16 }, (_, j) => ({ x: p.x + radius * Math.cos(j * Math.PI / 8), y: p.y + radius * Math.sin(j * Math.PI / 8) })));
+    if (!i) continue;
+    const a = pts[i - 1];
+    const length = Math.hypot(p.x - a.x, p.y - a.y) || 1;
+    const nx = -(p.y - a.y) / length * radius;
+    const ny = (p.x - a.x) / length * radius;
+    out.push([{ x: a.x + nx, y: a.y + ny }, { x: p.x + nx, y: p.y + ny }, { x: p.x - nx, y: p.y - ny }, { x: a.x - nx, y: a.y - ny }]);
+  }
+  return out;
+}
+
+function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult {
   const { ctx, plan, center } = tc;
   const u = ctx.u;
   let cur: ShapeContour = { ...contour, pts: contour.pts.slice(), corners: contour.corners?.slice() };
   const extra: TailResult["extra"] = [];
+  const footprints: TailResult["footprints"] = [];
+  let rootAngle: number | undefined;
+  let tailLength: number | undefined;
   const minSide = Math.min(plan.outer.w, plan.outer.h);
   const pc = { u, coordsBox: ctx.coordsBox, refs: ctx.refs, panelId: ctx.panel?.panel.id, bag: ctx.bag, path: plan.el.path };
   for (const t of tails) {
@@ -538,6 +647,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     const hit = rayPolygon(center, rootDir, cur.pts);
     if (!hit) continue;
     const R = { x: center.x + rootDir.x * hit.t, y: center.y + rootDir.y * hit.t };
+    rootAngle = Math.atan2(rootDir.y, rootDir.x);
     if (rootDir !== dir && target && !clamped) {
       const d2 = { x: target.x - R.x, y: target.y - R.y };
       const l2 = Math.hypot(d2.x, d2.y) || 1;
@@ -589,6 +699,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     if (whisperWedge && !target && !offSide && t.length === undefined) length = Math.min(maxLen, Math.max(length, 6 * u.k));
     // on a spiky body the tail must outreach the spikes to read as the pointer
     if (!offSide && t.length === undefined && (plan.params.kind === "spike" || plan.params.kind === "burst")) length = Math.max(length * 1.15, 6 * u.k);
+    tailLength = length;
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a narrower band than a wedge
     // a wedge's base is about a sixth of the body
@@ -665,6 +776,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         const r = size / 2;
         const pts = blobPoly(c, r, tc.rng, 28, 0.06).map((q) => ({ x: c.x + (q.x - c.x) * 1, y: c.y + (q.y - c.y) * 0.88 }));
         extra.push({ pts, closed: true, kind: "bubble" });
+        footprints.push({ pts, closed: true });
         if (spread) {
           size *= shrink;
           continue;
@@ -679,6 +791,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       const pts: Vec[] = [];
       for (let i = 0; i <= 20; i++) pts.push(quad(R, ctrl, tipBent, i / 20));
       extra.push({ pts, closed: false, kind: "line" });
+      footprints.push({ pts, closed: false });
       continue;
     }
     // wedge / zigzag: splice into contour
@@ -801,6 +914,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       sideA.push({ x: cl.x + (A.p.x - R.x) * f, y: cl.y + (A.p.y - R.y) * f });
       sideB.push({ x: cl.x + (B.p.x - R.x) * f, y: cl.y + (B.p.y - R.y) * f });
     }
+    footprints.push({ pts: [...sideA, ...sideB.slice().reverse()], closed: true });
     // new contour: from B forward around to A, then A->tip, tip->B
     const n = cur.pts.length;
     const out: Vec[] = [B.p];
@@ -831,7 +945,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     cur = { pts: out, closed: true, corners, smooth: false };
     void smoothBody;
   }
-  return { contour: cur, extra };
+  return { contour: cur, extra, footprints, rootAngle, length: tailLength };
 }
 
 // ---- render -------------------------------------------------------------------

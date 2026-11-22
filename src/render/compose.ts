@@ -6,7 +6,7 @@ import { Rng } from "../core/random.js";
 import { breakFaults } from "../text/layout.js";
 import { parseAngle, toMm } from "../core/units.js";
 import { type ElemCtx, type Silhouette, placeCtx, tag } from "../elements/context.js";
-import { type BalloonPlan, hasOffscreenTail, planBalloon, renderBalloon, renderConnected } from "../elements/balloon.js";
+import { type BalloonPlan, hasOffscreenTail, planBalloon, prepareBalloonObstacles, renderBalloon, renderConnected } from "../elements/balloon.js";
 import { renderEffect } from "../elements/effects.js";
 import { layoutImage } from "../elements/image.js";
 import { inksToNodes } from "../elements/inkir.js";
@@ -264,6 +264,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       linkedIds.add(b.el.id);
     }
     const consumed = new Set<string>();
+    prepareBalloonObstacles(plans.map(p => p.plan));
     const byId = new Map(plans.map((x) => [x.plan.el.id, x]));
     for (const { plan, idx } of plans) {
       const cn = plan.props.connect;
@@ -1389,24 +1390,6 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
       ctx.bag.info("BALLOON_ORDER_MISMATCH", `balloon ${unlinked[i].pl.el.id} reads before ${unlinked[i - 1].pl.el.id} by its position`, { path: unlinked[i].pl.el.path, elementId: unlinked[i].pl.el.id });
       break;
     }
-  }
-  // a tail running to its speaker through another balloon
-  const linked = new Set<string>();
-  for (const r0 of rects) {
-    const cn = r0.pl.props.connect;
-    for (const c of (Array.isArray(cn) ? cn : cn ? [cn] : []) as Obj[]) {
-      linked.add(r0.pl.el.id);
-      linked.add(String(c.to));
-    }
-  }
-  for (const a of rects) {
-    if ((a.pl.props.tail as Obj | undefined)?.kind === "none" && !a.pl.props.tails) continue;
-    if (linked.has(a.pl.el.id)) continue;
-    const who = a.pl.props.who as string | undefined;
-    const sp = who ? refs.point(who, pid) : null;
-    if (!sp) continue;
-    const c0 = { x: a.r.x + a.r.w / 2, y: a.r.y + a.r.h / 2 };
-    for (const b of rects) if (b !== a && segRect(c0, sp, b.r)) ctx.bag.warn("BALLOON_TAIL_CROSSES", `the tail of ${a.pl.el.id} crosses ${b.pl.el.id}`, { path: a.pl.el.path, elementId: a.pl.el.id });
   }
   for (let i = 0; i < rects.length; i++)
     for (let j = i + 1; j < rects.length; j++) {
