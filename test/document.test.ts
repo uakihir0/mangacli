@@ -139,6 +139,26 @@ pages:
     expect(r.diagnostics.some(d => d.code === "BALLOON_NO_SPACE")).toBe(false);
   });
 
+  it("reflows quarter-turned dialogue along its rotated line axis", async () => {
+    const r = await validate(yaml(`mangacli: 1
+meta: { lang: en }
+defaults:
+  balloon: { fontSize: 5mm, writing: horizontal, shape: rect, padding: [0mm, 0mm] }
+pages:
+  - panels:
+      - coords: page
+        box: [20mm, 25mm, 39mm, 26mm]
+        layers:
+          - { balloon: "Good morning", id: b, clip: panel, at: [50%, 50%], rotate: 90deg, tail: none }
+`));
+    expect(r.ok).toBe(true);
+    expect(r.layout[0].text[0]).toMatchObject({ fontSize: 5, lines: ["GOOD", "MORNING"] });
+    const { bbox } = r.layout[0].elements[0];
+    expect(bbox.y).toBeGreaterThanOrEqual(25);
+    expect(bbox.y + bbox.h).toBeLessThanOrEqual(51);
+    expect(r.diagnostics.some(d => ["BALLOON_NO_SPACE", "TEXT_CLIPPED"].includes(d.code))).toBe(false);
+  });
+
   it("preserves the flow gap when grown dialogue cannot fit below the previous row", async () => {
     const r = await validate(yaml(`mangacli: 1
 defaults:

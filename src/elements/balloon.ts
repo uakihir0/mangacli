@@ -195,6 +195,10 @@ export function planBalloon(el: RElement, ctx: ElemCtx): BalloonPlan {
 function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: number; depth?: number }, dialogue?: { wrap: "natural" | "maxSize" | "panel"; lineEm?: number }): BalloonPlan {
   const p = el.props;
   const dialogueWrap = dialogue?.wrap;
+  const panel = dialogueWrap === "panel" ? ctx.panel?.box : undefined;
+  const swapAxes = panel && Math.abs(Math.cos(parseAngle(p.rotate as string))) < 1e-6;
+  const panelW = panel && (swapAxes ? panel.h : panel.w);
+  const panelH = panel && (swapAxes ? panel.w : panel.h);
   const u = ctx.u;
   const rng = new Rng(el.seed);
   const hand = resolveHand(p.hand, u, ctx.draft);
@@ -272,10 +276,9 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       const lim = mx === "auto" ? Infinity : mx * 0.72 - 2 * (style.writing === "vertical" ? padV : padH) - 2 * margin;
       if (isFinite(lim)) boxLimit = Math.min(boxLimit ?? Infinity, Math.max(lim, style.fontSize * 4.5));
     }
-    if (dialogueWrap === "panel") {
+    if (panelW !== undefined && panelH !== undefined) {
       const vertical = style.writing === "vertical";
-      const panel = ctx.panel!.box;
-      const extent = (vertical ? panel.h : panel.w) - 0.5 * u.k;
+      const extent = (vertical ? panelH : panelW) - 0.5 * u.k;
       const rectangular = kind === "rect" || kind === "none";
       boxLimit = extent * (rectangular ? 1 : 0.72) - 2 * (vertical ? padV : padH) - 2 * margin;
       boxLimit = Math.max(boxLimit, style.fontSize);
@@ -341,8 +344,7 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       if (kind === "rect" || kind === "none") ar = [0.05, 20];
       else if (style.writing === "horizontal" && defaultAspectRange) ar = [ar[0], Math.max(ar[1], 2.6)];
       const fixedAspect = typeof p.aspect === "number" ? p.aspect : undefined;
-      const panel = dialogueWrap === "panel" ? ctx.panel?.box : undefined;
-      base = fitBody(kind, params, shapeSeed, withMargin, fixedAspect, ar, panel ? panel.w - 0.5 * u.k : maxW, panel ? panel.h - 0.5 * u.k : maxH);
+      base = fitBody(kind, params, shapeSeed, withMargin, fixedAspect, ar, panelW === undefined ? maxW : panelW - 0.5 * u.k, panelH === undefined ? maxH : panelH - 0.5 * u.k);
       body = genBody(kind, base.w, base.h, params, shapeSeed);
       // balance text inside the organic contour, then tighten
       let ic = bestOffset(withMargin, body.inner, innerCenterOf(body), boundsOf(body.contour.pts));
