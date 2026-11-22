@@ -14,6 +14,16 @@ pages:
 `, filename: join(import.meta.dirname, "..", "docs", "examples", "art-void.yaml") });
 const image = (props = "") => `{ image: assets/taro/normal.png${props ? `, ${props}` : ""} }`;
 const voids = (v: Awaited<ReturnType<typeof validate>>) => v.diagnostics.filter((d) => d.code === "ART_LEAVES_VOID");
+const splitInput = (pageLayers: string, layers = "[]") => ({ yaml: `mangacli: 1
+book: { binding: left }
+page: { size: [100mm, 40mm], bleed: 0, baseFrame: trim, gutter: 0 }
+pages:
+  - layout: { rows: [{ cols: [1, 1] }] }
+    layers: ${pageLayers}
+    panels:
+      - { id: panel-left, layers: ${layers} }
+      - { id: panel-right, layers: ${layers} }
+`, filename: join(import.meta.dirname, "..", "docs", "examples", "art-void.yaml") });
 
 describe("art coverage", () => {
   it("warns once per panel with a contain tile and identifies its source", async () => {
@@ -65,5 +75,12 @@ describe("art coverage", () => {
       expect(v.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
       expect(voids(v)).toHaveLength(1);
     }
+  });
+  it("only checks panels intersected by page-level art", async () => {
+    const full = await validate(splitInput(`[${image("size: [50%, 100%], fit: cover, at: [25%, 50%], clip: none")}]`));
+    expect(full.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(voids(full)).toEqual([]);
+    const partial = await validate(splitInput(`[${image("size: [25%, 100%], fit: cover, at: [12.5%, 50%], clip: none")}]`));
+    expect(voids(partial).map((d) => d.elementId)).toEqual(["panel-left"]);
   });
 });

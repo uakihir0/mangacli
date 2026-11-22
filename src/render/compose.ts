@@ -158,13 +158,22 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   await layoutGroup(page.layers, baseCtx(), 0, 1);
   const checkArtCoverage = () => {
   for (const pg of panels) {
+    const shape = panelShapePoly(pg, geom);
+    const poly = shape === pg.polygon ? shape : flattenPath(smoothPath(shape, true), 0.02)[0].pts;
     const eligible = (el: RElement) => {
       if (el.props.visible === false || el.props.opacity === 0) return false;
       const clip = el.props.clip;
       return !isObj(clip) || !Array.isArray(clip.to) || clip.to.includes(pg.panel.id);
     };
     const layers = [...pg.panel.elements, ...page.layers].filter(eligible);
-    const images = layers.filter((el) => el.type === "image" && refs.get(el.id)?.imagePx);
+    const images = layers.filter((el) => {
+      const target = refs.get(el.id);
+      if (el.type !== "image" || !target?.imagePx) return false;
+      if (pg.panel.elements.includes(el)) return true;
+      const visible = target.shape ?? rectPts(target.bbox);
+      const ring = (pts: Vec[]): polygonClipping.Ring => pts.map((p) => [p.x, p.y]);
+      return polygonClipping.intersection([ring(visible)], [ring(poly)]).length > 0;
+    });
     if (!images.length) continue;
     // Only an explicit panel background counts, not the implicit paper canvas.
     if (pg.panel.props.__explicitBackground && parsePaint(pg.panel.props.background, { u, box: pg.box, seed: pg.panel.seed })) continue;
@@ -185,8 +194,6 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       const reg = resolveRegion(p.region, ctx, "panel", [...el.path, "region"]);
       return ctx.bag.hasErrors || reg.feather || reg.alphaOf ? [] : [reg];
     });
-    const shape = panelShapePoly(pg, geom);
-    const poly = shape === pg.polygon ? shape : flattenPath(smoothPath(shape, true), 0.02)[0].pts;
     const box = boundsOf(poly);
     let interior = 0;
     let uncovered = 0;
