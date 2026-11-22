@@ -223,6 +223,11 @@ describe("balloon tails", () => {
     expect(Math.abs(t.x - (origin.x + 46))).toBeLessThan(2.5);
     expect(t.y - (origin.y + 37)).toBeGreaterThan(2.5);
   });
+  it("keeps a tail outside the body when its speaker is right under it", async () => {
+    const { pts, origin } = await outline(`{ balloon: "おはよう", id: b, size: [24mm, 24mm], at: [40mm, 25mm], tail: { to: [42mm, 40mm], bend: 0 } }`);
+    const t = pts.reduce((p, q) => (q.y > p.y ? q : p));
+    expect(t.y - (origin.y + 37)).toBeGreaterThan(1.5);
+  });
   it("stops a speaker's tail with a clear gap before the whole face box", async () => {
     const data = await sharp({ create: { width: 1000, height: 800, channels: 3, background: "white" } }).png().toBuffer();
     const renderer = createRenderer({ profile: "preview", assets: { art: data } });

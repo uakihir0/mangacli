@@ -703,7 +703,9 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     if (rootDir !== dir && target) {
       const d2 = { x: target.x - R.x, y: target.y - R.y };
       const l2 = Math.hypot(d2.x, d2.y) || 1;
-      dir = { x: d2.x / l2, y: d2.y / l2 };
+      const aim = { x: d2.x / l2, y: d2.y / l2 };
+      // a speaker right under the body would pull the tail back across it: keep the side direction
+      dir = pointInPolygon({ x: R.x + aim.x * 0.5 * u.k, y: R.y + aim.y * 0.5 * u.k }, cur.pts) ? rootDir : aim;
     }
     if (target && pointInPolygon(target, cur.pts)) {
       ctx.bag.warn("BALLOON_TAIL_TARGET_INSIDE", `tail target of ${plan.el.id} is inside the balloon`, { path: plan.el.path, elementId: plan.el.id });
