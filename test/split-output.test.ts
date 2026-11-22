@@ -129,6 +129,36 @@ pages:
     const absurd = await render({ mangacli: 1, page: { size: "A3" }, pages: [{ type: "spread" }] }, { profile: "print-mono", dpi: 2400, spread: "joined", format: "pdf", throwOnError: false });
     expect(absurd.diagnostics.some((d) => d.code === "OUTPUT_TOO_LARGE" && d.message.includes("maxOutputBytes"))).toBe(true);
   });
+  it("allows full-spread image buffers in print and respects explicit and default limits", async () => {
+    const art = await sharp({ create: { width: 1, height: 1, channels: 3, background: "white" } }).png().toBuffer();
+    const doc = { yaml: `mangacli: 1
+page: { size: [180mm, 270mm], bleed: 0 }
+pages:
+  - id: spread
+    type: spread
+    layers:
+      - { image: art, size: [360mm, 270mm], at: [0mm, 0mm], anchor: top-left, fit: fill, filters: [invert] }
+` };
+    const opts = { profile: "print-mono", crop: "trim", format: "png", assets: { art }, throwOnError: false } as const;
+    const raster = vi.spyOn(RasterBackend.prototype, "renderMono").mockImplementation(async (_, { width, height }) => ({
+      width, height, data: new Uint8ClampedArray(0), packed: new Uint8Array(Math.ceil(width / 8) * height),
+    }));
+    try {
+      const config = { limits: { maxOutputBytes: 384 * 1024 * 1024 } };
+      const overridden = await render(doc, { ...opts, config });
+      expect(overridden.diagnostics).toContainEqual(expect.objectContaining({
+        code: "OUTPUT_TOO_LARGE", message: expect.stringMatching(/including node buffers.*\(402653184\).*--max-output-bytes/),
+      }));
+      const overCap = await render(doc, { ...opts, dpi: 720 });
+      expect(overCap.diagnostics).toContainEqual(expect.objectContaining({
+        code: "OUTPUT_TOO_LARGE", message: expect.stringMatching(/including node buffers.*\(4294967296\).*--max-output-bytes/),
+      }));
+      expect(raster).not.toHaveBeenCalled();
+      const normal = await render(doc, opts);
+      expect(normal.failures).toEqual([]);
+      expect(normal.pages).toHaveLength(2);
+    } finally { raster.mockRestore(); }
+  });
   it("includes image working buffers in the mono preflight", async () => {
     const art = await sharp({ create: { width: 1, height: 1, channels: 3, background: "white" } }).png().toBuffer();
     const doc = { yaml: `mangacli: 1
