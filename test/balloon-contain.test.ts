@@ -2,13 +2,17 @@ import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { createRenderer } from "../src/api.js";
 import { DiagnosticBag } from "../src/core/diagnostics.js";
-import type { BalloonPlan } from "../src/elements/balloon.js";
+import { planBalloon, type BalloonPlan } from "../src/elements/balloon.js";
 import type { ElemCtx } from "../src/elements/context.js";
 import type { Vec } from "../src/geom/vec.js";
 import { boundsOf } from "../src/geom/vec.js";
 import { flattenPath } from "../src/geom/path.js";
-import { bodyPolygon, containBalloon, containsBalloon, polygonFits, warnBalloonInGutter } from "../src/render/balloon-contain.js";
+import { autoEdgeCutFits, bodyPolygon, containBalloon, containsBalloon, polygonFits, warnBalloonInGutter } from "../src/render/balloon-contain.js";
 import type { Node } from "../src/render/ir.js";
+import { FontRegistry } from "../src/fonts/registry.js";
+import { RefRegistry } from "../src/layout/place.js";
+import { resolveDocument } from "../src/model/resolve.js";
+import { join } from "node:path";
 
 const rect = (x: number, y: number, w: number, h: number): Vec[] => [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
 function context(poly = rect(0, 0, 50, 50)): ElemCtx {
@@ -100,6 +104,23 @@ describe("panel balloon containment geometry", () => {
 
 describe("contained balloon composition", () => {
   const renderer = createRenderer({ profile: "preview", dpi: 72 });
+  it("keeps every automatically placed gallery body whole", async () => {
+    const list = await renderer.displayList(join(import.meta.dirname, "fixtures", "balloons.yaml"), 1);
+    const panels = nodes([list.root]).filter(n => n.kind === "group" && n.clip && n.tag?.elementType === "panel");
+    let bodies = 0;
+    for (const panel of panels) {
+      if (panel.kind !== "group" || !panel.clip) continue;
+      const polygon = flattenPath(panel.clip)[0].pts;
+      for (const n of nodes(panel.children)) {
+        if (n.kind !== "path" || n.tag?.elementType !== "balloon" || n.tag.role !== "fill" || !n.paint) continue;
+        for (const contour of flattenPath(n.path)) {
+          bodies++;
+          expect(polygonFits(contour.pts, polygon), n.tag.elementId).toBe(true);
+        }
+      }
+    }
+    expect(bodies).toBeGreaterThan(10);
+  });
   it("does not paint the neighboring panel, including a tail aimed outside", async () => {
     const result = await renderer.render({ yaml: `mangacli: 1
 page: { size: [120mm, 90mm], bleed: 0mm }
@@ -139,5 +160,43 @@ pages:
     const clipped = all.filter(n => n.kind === "group" && n.clip && nodes(n.children).some(c => c.tag?.elementId === "b"));
     expect(clipped.length).toBeGreaterThan(0);
     expect(result.diagnostics.some(d => d.code === "BALLOON_IN_GUTTER")).toBe(false);
+  });
+});
+
+describe("automatic edge-cut eligibility", () => {
+  const fonts = new FontRegistry(new Map() as never, "manga-basic", [], {});
+  async function candidate(props: Record<string, unknown> = {}, center = { x: 25, y: 7 }) {
+    const ctx = { ...context(), fonts, coordsBox: { x: 0, y: 0, w: 50, h: 50 }, refs: new RefRegistry(() => ["mouth"]), lang: "ja", defaultLang: "ja", draft: false } as ElemCtx;
+    const doc = resolveDocument({ seed: 42, pages: [{ layers: [{ type: "balloon", id: "b", text: "あ", size: ["20mm", "20mm"], hand: "clean", shape: { kind: "ellipse", irregularity: 0 }, tail: { kind: "none" }, ...props }] }] }, ctx.bag);
+    const el = doc.pages[0].layers[0];
+    await fonts.prepare(el.props.font as string, "あ");
+    const p = planBalloon(el, ctx);
+    p.center = center;
+    return { p, ctx };
+  }
+  it("accepts a shallow slice but rejects a deep cut", async () => {
+    const { p, ctx } = await candidate();
+    expect(autoEdgeCutFits(p, ctx, false)).toBe(true);
+    p.center!.y = 4;
+    expect(autoEdgeCutFits(p, ctx, false)).toBe(false);
+  });
+  it.each(["wedge", "bubbles", "line", "zigzag"])("keeps %s tail and root inside", async kind => {
+    const inside = await candidate({ tail: { kind, direction: "90deg", length: "5mm" } });
+    expect(autoEdgeCutFits(inside.p, inside.ctx, false)).toBe(true);
+    const outside = await candidate({ tail: { kind, direction: "-90deg", length: "15mm" } });
+    expect(autoEdgeCutFits(outside.p, outside.ctx, false)).toBe(false);
+  });
+  it("uses stricter corner limits and excludes diamonds", async () => {
+    const rounded = await candidate({}, { x: 8.5, y: 8.5 });
+    expect(autoEdgeCutFits(rounded.p, rounded.ctx, true)).toBe(true);
+    rounded.p.center = { x: 7, y: 7 };
+    expect(autoEdgeCutFits(rounded.p, rounded.ctx, true)).toBe(false);
+    const diamond = await candidate({ shape: { kind: "polygon", points: [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]] } }, { x: 8.5, y: 8.5 });
+    expect(autoEdgeCutFits(diamond.p, diamond.ctx, true)).toBe(false);
+  });
+  it("rejects insufficient text clearance", async () => {
+    const { p, ctx } = await candidate();
+    p.textOffset.y = -4;
+    expect(autoEdgeCutFits(p, ctx, false)).toBe(false);
   });
 });

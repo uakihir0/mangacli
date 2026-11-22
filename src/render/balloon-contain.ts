@@ -1,6 +1,6 @@
 import polygonClipping from "polygon-clipping";
 import { parseAngle, toMm } from "../core/units.js";
-import type { BalloonPlan } from "../elements/balloon.js";
+import { balloonTailRegions, hasOffscreenTail, type BalloonPlan } from "../elements/balloon.js";
 import type { ElemCtx } from "../elements/context.js";
 import { distToPolyline, pointInPolygon, polygonArea } from "../geom/path.js";
 import { boundsOf, type Vec } from "../geom/vec.js";
@@ -121,6 +121,29 @@ function textPolygon(plan: BalloonPlan): Vec[] {
   const y = plan.center!.y + plan.innerCenter.y + plan.textOffset.y - plan.text.height / 2;
   const a = plan.props.rotate === undefined ? 0 : parseAngle(plan.props.rotate as string);
   return [{ x, y }, { x: x + plan.text.width, y }, { x: x + plan.text.width, y: y + plan.text.height }, { x, y: y + plan.text.height }].map(q => ({ x: plan.center!.x + (q.x - plan.center!.x) * Math.cos(a) - (q.y - plan.center!.y) * Math.sin(a), y: plan.center!.y + (q.x - plan.center!.x) * Math.sin(a) + (q.y - plan.center!.y) * Math.cos(a) }));
+}
+
+export function autoEdgeCutFits(plan: BalloonPlan, ctx: ElemCtx, corner: boolean): boolean {
+  if (!ctx.panelPoly || !plan.center || hasOffscreenTail(plan.props) || plan.props.connect) return false;
+  if (corner && !["ellipse", "cloud", "round-rect"].includes(plan.params.kind)) return false;
+  const body = bodyPolygon(plan);
+  const poly = ctx.panelPoly;
+  const sign = polygonArea(poly) >= 0 ? 1 : -1;
+  let cuts = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    if (length < 1e-8) continue;
+    const distances = body.map(p => ((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)) / length * sign);
+    const low = Math.min(...distances);
+    if (low >= 0) continue;
+    cuts++;
+    if (-low > (Math.max(...distances) - low) * (corner ? 0.1 : 0.25) + 1e-6) return false;
+  }
+  if (cuts === 0 || cuts > (corner ? 2 : 1)) return false;
+  if (plan.text.plain && !polygonFits(textPolygon(plan), poly, Math.max(2.5 * ctx.u.k, plan.text.fontSize * 0.8))) return false;
+  return balloonTailRegions(plan, ctx).every(tail => polygonFits(tail, poly, frameClearance(ctx)));
 }
 
 export function edgeCut(plan: BalloonPlan, ctx: ElemCtx): boolean {

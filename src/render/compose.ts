@@ -30,7 +30,7 @@ import { defaultTextStyle, layoutText, parseLayoutText } from "../text/layout.js
 import { parseMarkup } from "../text/markup.js";
 import { type AssetRegistry, resolveAssetBlend } from "./assets.js";
 import { cleanClippedBalloonInk } from "./balloon-clip.js";
-import { bodyPolygon, containBalloon, containsBalloon, frameClearance, polygonFits, warnBalloonInGutter } from "./balloon-contain.js";
+import { autoEdgeCutFits, bodyPolygon, containBalloon, containsBalloon, frameClearance, polygonFits, warnBalloonInGutter } from "./balloon-contain.js";
 import type { DisplayList, GroupNode, Node, PathNode } from "./ir.js";
 import { FILTER_NAMES, parseFilter } from "./filters.js";
 
@@ -1338,6 +1338,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     }
     // the parts of the cost that do not depend on the other balloons are computed once
     const cells: { c: Vec; rect: Rect; base: number; s: number; vp: BalloonPlan; w: number; h: number }[] = [];
+    const cutCells: typeof cells = [];
     for (const { vp, extra } of variants) {
       const w = vp.outer.w;
       const h = vp.outer.h;
@@ -1384,7 +1385,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
           cells.push({ c, rect, base: cost, s: sOf(c, h), vp, w, h });
         }
       }
-      if (containsBalloon(pl.el, ctx) && ctx.panelPoly && !aside) {
+      if (containsBalloon(pl.el, ctx) && ctx.panelPoly && !aside && !cells.length) {
         const poly = ctx.panelPoly;
         const mid = center(boundsOf(poly));
         for (let i = 0; i < poly.length; i++) for (const t of [0, 0.5]) {
@@ -1392,20 +1393,34 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
           const b = poly[(i + 1) % poly.length];
           const edge = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
           const d = Math.hypot(mid.x - edge.x, mid.y - edge.y) || 1;
-          const c = { x: edge.x + (mid.x - edge.x) / d * w * 0.3, y: edge.y + (mid.y - edge.y) / d * h * 0.3 };
+          const c = t === 0
+            ? { x: edge.x + (mid.x - edge.x) / d * w * 0.6, y: edge.y + (mid.y - edge.y) / d * h * 0.6 }
+            : { x: edge.x, y: edge.y };
+          if (t !== 0) {
+            const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+            const sign = polygonArea(poly) >= 0 ? 1 : -1;
+            const normal = { x: -(b.y - a.y) / length * sign, y: (b.x - a.x) / length * sign };
+            const shapeCenter = { x: c.x - (vp.outer.x + w / 2), y: c.y - (vp.outer.y + h / 2) };
+            const depths = bodyPolygon(vp, shapeCenter).map(p => (p.x - edge.x) * normal.x + (p.y - edge.y) * normal.y);
+            const shift = -Math.min(...depths) - (Math.max(...depths) - Math.min(...depths)) * 0.15;
+            c.x += normal.x * shift;
+            c.y += normal.y * shift;
+          }
           const rect = { x: c.x - w / 2, y: c.y - h / 2, w, h };
-          const textRect = [{ x: c.x - vp.text.width / 2, y: c.y - vp.text.height / 2 }, { x: c.x + vp.text.width / 2, y: c.y - vp.text.height / 2 }, { x: c.x + vp.text.width / 2, y: c.y + vp.text.height / 2 }, { x: c.x - vp.text.width / 2, y: c.y + vp.text.height / 2 }];
-          if (!polygonFits(textRect, poly, Math.max(2.5 * u.k, vp.text.fontSize * 0.8))) continue;
-          let cost = (t === 0 ? -3 : -2) + extra;
-          for (const ob of obstacles) cost += ob.w * rectOverlapArea(rect, ob.r) / (w * h);
+          const candidate = { ...vp, center: { x: c.x - (vp.outer.x + w / 2), y: c.y - (vp.outer.y + h / 2) } };
+          if (!autoEdgeCutFits(candidate, ctx, t === 0)) continue;
+          let cost = -0.02 + extra + W.top * ((c.y - area.y) / Math.max(1, area.h));
+          for (const ob of obstacles) cost += (ob.w === 60 ? W.avoid : ob.w) * (ob.ellipse ? ellipseOverlap(rect, ob.r) : rectOverlapArea(rect, rectInset(ob.r, -air)) / (w * h));
           for (const hr of hard) if (rectOverlapArea(rect, hr) > 0) cost += 1000;
           if (sils.length) cost += W.figure * silhouetteCover(rect, sils);
-          cells.push({ c, rect, base: cost, s: sOf(c, h), vp, w, h });
-          const edges = edgeCandidates.get(pl) ?? [];
-          edges.push(c);
-          edgeCandidates.set(pl, edges);
+          if (speaker) cost += W.speaker * Math.abs(Math.hypot(c.x - speaker.x, c.y - speaker.y) / R - 1.6);
+          cutCells.push({ c, rect, base: cost, s: sOf(c, h), vp, w, h });
         }
       }
+    }
+    if (!cells.length) {
+      cells.push(...cutCells);
+      edgeCandidates.set(pl, cutCells.map(cell => cell.c));
     }
     if (!cells.length) cells.push({ c: center(area), rect: { x: center(area).x - w / 2, y: center(area).y - h / 2, w, h }, base: 999, s: sOf(center(area), h), vp: pl, w, h });
     for (const st of beam) {

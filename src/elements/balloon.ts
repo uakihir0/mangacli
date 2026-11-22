@@ -1017,6 +1017,15 @@ function buildBody(plan: BalloonPlan, ctx: ElemCtx, skipTails = false): BodyBuil
   return { contour, extra: tr.extra, stroke, ruler, rng };
 }
 
+export function balloonTailRegions(plan: BalloonPlan, ctx: ElemCtx): Vec[][] {
+  const quiet = { ...ctx, bag: new DiagnosticBag() };
+  const body = buildBody(plan, quiet, true);
+  const tailed = buildBody(plan, quiet);
+  const ring = (pts: Vec[]): polygonClipping.Ring => pts.map(p => [p.x, p.y]);
+  const added = polygonClipping.difference([ring(tailed.contour.pts)], [ring(body.contour.pts)]);
+  return [...added.flatMap(poly => poly.map(r => r.map(([x, y]) => ({ x, y })))), ...tailed.extra.map(e => e.pts)];
+}
+
 function balloonFill(poly: Vec[], plan: BalloonPlan): Node | null {
   const fill = fillNode(poly, plan.fill, tag(plan.el, "fill"));
   if (fill?.kind !== "path" || plan.fill?.type !== "tone") return fill;
