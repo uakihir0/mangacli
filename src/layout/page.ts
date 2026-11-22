@@ -24,10 +24,13 @@ export function warnMonotone(pages: { page: RPage; panels: { polygon: Vec[] }[] 
     const varied = page.type === "blank" || !page.panels.length || !panels.length || page.panels.some((p) => {
       const shape = isObj(p.props.shape) ? p.props.shape.kind : p.props.shape;
       return shape !== undefined && shape !== "rect";
-    }) || panels.some(({ polygon }) => polygon.some((a, j) => {
-      const b = polygon[(j + 1) % polygon.length];
-      return Math.abs(a.x - b.x) > 1e-6 && Math.abs(a.y - b.y) > 1e-6;
-    }));
+    }) || panels.some(({ polygon }) => {
+      const bb = boundsOf(polygon);
+      return Math.abs(polygonArea(polygon)) < bb.w * bb.h - 1e-6 || polygon.some((a, j) => {
+        const b = polygon[(j + 1) % polygon.length];
+        return Math.abs(a.x - b.x) > 1e-6 && Math.abs(a.y - b.y) > 1e-6;
+      });
+    });
     if (varied) { flush(i); start = i + 1; }
     else active ||= page.layers.some(dynamic) || page.panels.some((p) => p.elements.some(dynamic));
   });

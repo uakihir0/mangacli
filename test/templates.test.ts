@@ -114,7 +114,7 @@ describe("monotone run boundaries", () => {
   it("breaks on curved or panel-less pages and reports separate ranges", async () => {
     const renderer = createRenderer({ profile: "preview" });
     const flat = { panels: [{ shape: "rect", layers: [{ effect: "focus-lines", count: 2 }] }] };
-    for (const middle of [{ panels: [] }, { panels: [{ shape: "ellipse" }] }]) {
+    for (const middle of [{ panels: [] }, { panels: [{ shape: "ellipse" }] }, { layout: "free", panels: [{ polygon: [["0%", "0%"], ["100%", "0%"], ["100%", "50%"], ["50%", "50%"], ["50%", "100%"], ["0%", "100%"]] }] }]) {
       const result = await renderer.validate({ mangacli: 1, pages: [flat, flat, flat, middle, flat, flat, flat] });
       expect(result.diagnostics.filter((d) => d.code === "LAYOUT_MONOTONE").map((d) => d.message)).toEqual([
         expect.stringContaining("1–3"), expect.stringContaining("5–7"),
