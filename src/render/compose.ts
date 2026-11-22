@@ -471,7 +471,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   }
   if (page.settings.mood !== "flashback") {
     const regions = panels.filter((pg) => pg.panel.props.mood === "flashback" && pg.panel.props.visible !== false)
-      .map((pg) => [flashbackRegion(pg, panels, area, page, geom).map(({ x, y }) => [x, y] as [number, number])]);
+      .flatMap((pg) => flashbackRegion(pg, panels, area, page, geom));
     if (regions.length) pageBackground.push({ kind: "path", path: multiPolyPath(polygonClipping.union(regions[0], ...regions.slice(1))), fillRule: "nonzero", paint: { type: "solid", color: BLACK }, tag: bgTag });
   }
   for (const it of items.filter((i) => i.stackUnder)) root.children.push(it.openClip ? { kind: "group", clip: it.openClip, clipRule: "nonzero", children: it.nodes } : { kind: "group", children: it.nodes });
@@ -547,7 +547,8 @@ function compositeNodes(nodes: Node[], props: Obj, bag: DiagnosticBag, path: (st
 function multiPolyPath(polys: polygonClipping.MultiPolygon) {
   return polys.flatMap((poly) => poly.flatMap((ring) => polyPath(ring.map(([x, y]) => ({ x, y })), true)));
 }
-function flashbackRegion(pg: PanelGeom, panels: PanelGeom[], area: Rect, page: RPage, geom: PageGeom): Vec[] {
+function flashbackRegion(pg: PanelGeom, panels: PanelGeom[], area: Rect, page: RPage, geom: PageGeom): polygonClipping.MultiPolygon {
+  if (pg.polygon.length < 3 || Math.abs(polygonArea(pg.polygon)) < 1e-8) return [];
   const layout = isObj(page.layout) ? page.layout : {};
   const spec = layout.split ? page.settings.gutter : layout.gutter ?? page.settings.gutter;
   const col = spec === undefined ? 2.5 * geom.k : toMm((isObj(spec) ? spec.col ?? "2.5bmm" : spec) as string, geom.units);
@@ -561,7 +562,9 @@ function flashbackRegion(pg: PanelGeom, panels: PanelGeom[], area: Rect, page: R
   };
   collectWidths(layout);
   const sign = polygonArea(pg.polygon) > 0 ? 1 : -1;
-  let region = rectPts(geom.bleedBox);
+  const ring = (poly: Vec[]): polygonClipping.Ring => poly.map(({ x, y }) => [x, y]);
+  const pieces: polygonClipping.Polygon[] = [[ring(pg.polygon)]];
+  const edges: { a: Vec; b: Vec; offset: Vec }[] = [];
   for (let i = 0; i < pg.polygon.length; i++) {
     const a = pg.polygon[i], b = pg.polygon[(i + 1) % pg.polygon.length];
     const len = Math.hypot(b.x - a.x, b.y - a.y);
@@ -585,20 +588,25 @@ function flashbackRegion(pg: PanelGeom, panels: PanelGeom[], area: Rect, page: R
       return gap > 0.01 && gap <= Math.max(...widths) + 0.1 && overlap > 0.01 ? [gap] : [];
     });
     if (gaps.length) distance = Math.min(...gaps);
-    const limit = outer ? Math.max(...rectPts(geom.bleedBox).map(dot)) : edge + distance;
-    const next: Vec[] = [];
-    for (let j = 0; j < region.length; j++) {
-      const p = region[j], q = region[(j + 1) % region.length];
-      const dp = dot(p) - limit, dq = dot(q) - limit;
-      if (dp <= 0) next.push(p);
-      if ((dp <= 0) !== (dq <= 0)) {
-        const t = dp / (dp - dq);
-        next.push({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
-      }
-    }
-    region = next;
+    if (outer) distance = Math.max(...rectPts(geom.bleedBox).map(dot)) - edge;
+    const offset = { x: n.x * distance, y: n.y * distance };
+    edges.push({ a, b, offset });
+    if (distance > 0) pieces.push([ring([a, b, { x: b.x + offset.x, y: b.y + offset.y }, { x: a.x + offset.x, y: a.y + offset.y }])]);
   }
-  return region;
+  for (let i = 0; i < edges.length; i++) {
+    const prev = edges[(i + edges.length - 1) % edges.length], next = edges[i];
+    const t1 = { x: prev.b.x - prev.a.x, y: prev.b.y - prev.a.y };
+    const t2 = { x: next.b.x - next.a.x, y: next.b.y - next.a.y };
+    const cross = t1.x * t2.y - t1.y * t2.x;
+    if (sign * cross <= 1e-8) continue;
+    const p = { x: next.a.x + prev.offset.x, y: next.a.y + prev.offset.y };
+    const q = { x: next.a.x + next.offset.x, y: next.a.y + next.offset.y };
+    const t = ((q.x - p.x) * t2.y - (q.y - p.y) * t2.x) / cross;
+    const miter = { x: p.x + t * t1.x, y: p.y + t * t1.y };
+    const join = [next.a, p, miter, q];
+    if (Math.abs(polygonArea(join)) > 1e-8) pieces.push([ring(join)]);
+  }
+  return polygonClipping.intersection(polygonClipping.union(pieces[0], ...pieces.slice(1)), [ring(rectPts(geom.bleedBox))]);
 }
 function gutterPath(area: Rect, panels: PanelGeom[], geom: PageGeom) {
   const ring = (poly: Vec[]): polygonClipping.Ring => poly.map(({ x, y }) => [x, y]);

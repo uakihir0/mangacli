@@ -19,6 +19,14 @@ async function sample(input: Record<string, unknown>, dpi = 254) {
 }
 
 describe("flashback mood", () => {
+  it("renders concave free-placed flashback polygons", async () => {
+    const { at } = await sample({ mangacli: 1, page: settings, pages: [{ layout: "free", panels: [{ mood: "flashback", coords: "page", polygon: [[10, 10], [60, 10], [60, 20], [20, 20], [20, 60], [60, 60], [60, 70], [10, 70]] }] }] });
+    expect(at(64, 15)).toBe(0);
+    expect(at(35, 24)).toBe(0);
+    expect(at(35, 40)).toBe(255);
+    expect(at(-2, -2)).toBe(0);
+  });
+
   it("accepts page defaults, page and panel keys and Paint gutters, rejecting invalid values", () => {
     const doc = { mangacli: 1, page: { mood: "flashback", flashbackBorder: "none", gutterFill: "tone(30%)" }, pages: [{ mood: "flashback", flashbackBorder: "white", gutterFill: "black", panels: [{ mood: "flashback", flashbackBorder: "white" }] }] };
     expect(Document.safeParse(doc).success).toBe(true);
