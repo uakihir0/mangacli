@@ -487,7 +487,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     else root.children.push(...nodes);
   }
   const furniture = [
-    ...await hashiraNodes(page, geom, o, panels),
+    ...await hashiraNodes(page, geom, o, panels, info),
     ...await nombreNodes(doc, page, geom, o, panels),
   ];
   const pageFiltered = page.settings.invert === true || (Array.isArray(page.settings.filters) && page.settings.filters.length > 0);
@@ -1483,7 +1483,7 @@ function segRect(a: Vec, b: Vec, r: Rect): boolean {
 
 // ---- page furniture ---------------------------------------------------------------
 
-async function hashiraNodes(page: RPage, geom: PageGeom, o: ComposeOptions, panels: PanelGeom[]): Promise<Node[]> {
+async function hashiraNodes(page: RPage, geom: PageGeom, o: ComposeOptions, panels: PanelGeom[], info: PageLayoutInfo): Promise<Node[]> {
   const opts = typeof page.hashira === "string" ? { text: page.hashira } : page.hashira;
   if (!opts) return [];
   const text = textValue(opts.text, o.lang, o.defaultLang);
@@ -1524,6 +1524,7 @@ async function hashiraNodes(page: RPage, geom: PageGeom, o: ComposeOptions, pane
   const normalized = parseLayoutText(text, style).units.map((unit) => unit.kind === "char" ? unit.ch : "").join("");
   await o.fonts.prepare(font, text + normalized);
   const tl = layoutText(text, style, o.fonts);
+  info.text.push(textInfo(id, tl));
   if (tl.missing.length) o.bag.warn("FONT_MISSING_GLYPH", `missing glyphs: ${[...new Set(tl.missing)].join("")}`, where);
   if (tl.width > x1 - x0 || tl.height > safe.h) return noSpace();
   const path = tl.glyphs.flatMap((g) => g.path);

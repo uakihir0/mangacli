@@ -59,6 +59,11 @@ describe("hashira", () => {
     expect(result.diagnostics.map((d) => d.code)).not.toContain("FONT_MISSING_GLYPH");
   });
 
+  it("exposes hashira missing glyphs to layout-based font checks", async () => {
+    const result = await validate(doc([{ id: "copy", panels: [{}], hashira: { text: "𓀀", font: "ui" } }]));
+    expect(result.layout[0].text).toMatchObject([{ id: "copy-hashira", missing: ["𓀀"] }]);
+  });
+
   it("reports unusable gutter dimensions instead of drawing unsafe type", async () => {
     const r = await render(doc([
       { id: "narrow", type: "blank", baseFrame: "trim", hashira: text },
