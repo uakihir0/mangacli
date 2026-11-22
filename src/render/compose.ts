@@ -478,7 +478,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   }
   if (page.settings.mood !== "flashback") {
     const flashbackPanels = panels.filter((pg) => pg.panel.props.mood === "flashback" && pg.panel.props.visible !== false && pg.polygon.length >= 3 && Math.abs(polygonArea(pg.polygon)) > 1e-8);
-    const regions = flashbackPanels.flatMap((pg) => flashbackRegion(pg, panels, area, page, geom));
+    const regions = flashbackPanels.flatMap((pg) => [...flashbackRegion(pg, panels, area, page, geom), ...flashbackMargins(pg, panels, area, geom)]);
     if (regions.length) {
       const interiors = panelOutlines(panels, geom);
       const surround = polygonClipping.difference(polygonClipping.union(regions[0], ...regions.slice(1)), ...interiors);
@@ -557,6 +557,50 @@ function compositeNodes(nodes: Node[], props: Obj, bag: DiagnosticBag, path: (st
 
 function multiPolyPath(polys: polygonClipping.MultiPolygon) {
   return polys.flatMap((poly) => poly.flatMap((ring) => polyPath(ring.map(([x, y]) => ({ x, y })), true)));
+}
+function flashbackMargins(pg: PanelGeom, panels: PanelGeom[], area: Rect, geom: PageGeom): polygonClipping.MultiPolygon {
+  const pieces: polygonClipping.MultiPolygon = [];
+  const ring = (poly: Vec[]): polygonClipping.Ring => poly.map(({ x, y }) => [x, y]);
+  const bleed = geom.bleedBox;
+  const sign = polygonArea(pg.polygon) > 0 ? 1 : -1;
+  for (let i = 0; i < pg.polygon.length; i++) {
+    const a = pg.polygon[i], b = pg.polygon[(i + 1) % pg.polygon.length];
+    const nx = sign * (b.y - a.y), ny = sign * (a.x - b.x);
+    if (Math.hypot(nx, ny) < 1e-8) continue;
+    if (pg.polygon.some((p) => (p.x - a.x) * nx + (p.y - a.y) * ny > 1e-8)) continue;
+    const horizontal = Math.abs(nx) >= Math.abs(ny);
+    const positive = (horizontal ? nx : ny) > 0;
+    const target = horizontal ? bleed.x + (positive ? bleed.w : 0) : bleed.y + (positive ? bleed.h : 0);
+    const project = (p: Vec): Vec => horizontal ? { x: target, y: p.y } : { x: p.x, y: target };
+    const transverse = (p: Vec) => horizontal ? p.y : p.x;
+    const corridor = [ring([a, b, project(b), project(a)])];
+    if (Math.abs(polygonArea([a, b, project(b), project(a)])) < 1e-8) continue;
+    const start = transverse(a), span = transverse(b) - start;
+    if (Math.abs(span) < 1e-8) continue;
+    let visible = [[0, 1]];
+    for (const other of panels) {
+      if (other.panel.props.visible === false || other.polygon.length < 3) continue;
+      const overlap = polygonClipping.intersection(corridor, [ring(other.polygon)]);
+      for (const poly of overlap) {
+        const contour = poly[0].map(([x, y]) => ({ x, y }));
+        if (Math.abs(polygonArea(contour)) < 1e-8) continue;
+        const ts = contour.map((p) => (transverse(p) - start) / span);
+        const lo = Math.max(0, Math.min(...ts)), hi = Math.min(1, Math.max(...ts));
+        visible = visible.flatMap(([l, r]) => hi <= l || lo >= r ? [[l, r]] : [[l, Math.min(r, lo)], [Math.max(l, hi), r]].filter(([x, y]) => y - x > 1e-8));
+      }
+    }
+    if (!visible.length) continue;
+    for (const [lo, hi] of visible) {
+      const p = { x: a.x + (b.x - a.x) * lo, y: a.y + (b.y - a.y) * lo };
+      const q = { x: a.x + (b.x - a.x) * hi, y: a.y + (b.y - a.y) * hi };
+      pieces.push([ring([p, q, project(q), project(p)])]);
+    }
+    const strip = horizontal
+      ? { x: positive ? area.x + area.w : bleed.x, y: bleed.y, w: positive ? bleed.x + bleed.w - area.x - area.w : area.x - bleed.x, h: bleed.h }
+      : { x: bleed.x, y: positive ? area.y + area.h : bleed.y, w: bleed.w, h: positive ? bleed.y + bleed.h - area.y - area.h : area.y - bleed.y };
+    if (strip.w > 0 && strip.h > 0) pieces.push([ring(rectPts(strip))]);
+  }
+  return pieces.length ? polygonClipping.intersection(polygonClipping.union(pieces[0], ...pieces.slice(1)), [ring(rectPts(bleed))]) : [];
 }
 function flashbackRegion(pg: PanelGeom, panels: PanelGeom[], area: Rect, page: RPage, geom: PageGeom): polygonClipping.MultiPolygon {
   if (pg.polygon.length < 3 || Math.abs(polygonArea(pg.polygon)) < 1e-8) return [];

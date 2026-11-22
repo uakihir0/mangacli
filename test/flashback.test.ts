@@ -19,6 +19,30 @@ async function sample(input: Record<string, unknown>, dpi = 254) {
 }
 
 describe("flashback mood", () => {
+  it("extends inset outer-facing edges to bleed without covering a normal neighbour", async () => {
+    const { at } = await sample({ mangacli: 1, page: settings, pages: [{ layout: "free", panels: [
+      { mood: "flashback", coords: "page", box: ["20mm", "20mm", "25mm", "40mm"] },
+      { coords: "page", box: ["51mm", "20mm", "15mm", "40mm"] },
+    ] }] });
+    for (const [x, y] of [[-2, 40], [30, -2], [30, 82], [10, 40], [30, 10], [30, 70], [48, 40]]) expect(at(x, y)).toBe(0);
+    expect(at(58, 40)).toBe(255);
+    expect(at(78, 40)).toBe(255);
+  });
+
+  it("fills every reached outer-margin strip on a P10-like page, including beside normal panels", async () => {
+    const { at } = await sample({ mangacli: 1, page: settings, pages: [{
+      layout: { rows: [{ cols: [1, 1] }, { cols: [1] }, { cols: [1] }] },
+      panels: [{}, { mood: "flashback" }, { mood: "flashback" }, { mood: "flashback" }],
+    }] });
+    for (const x of [-2, 5, 20, 40, 60, 75, 82]) for (const y of [-2, 5, 75, 82]) expect(at(x, y), `${x},${y}`).toBe(0);
+    for (const y of [20, 40, 60]) for (const x of [-2, 5, 75, 82]) expect(at(x, y), `${x},${y}`).toBe(0);
+    expect(at(40, 20)).toBe(0);
+    expect(at(60, 20)).toBe(255);
+    expect(at(20, 20)).toBe(255);
+    expect(at(40, 40)).toBe(255);
+    expect(at(40, 60)).toBe(255);
+  });
+
   it.each(["ellipse", "cloud", "rounded"])("paints black up to the rendered %s flashback outline", async (shape) => {
     const { at } = await sample({ mangacli: 1, page: settings, pages: [{ layout, panels: [{ mood: "flashback", shape: { kind: shape, radius: "6mm" } }, {}, {}, {}] }] });
     expect(at(44, 11)).toBe(0);
@@ -146,7 +170,7 @@ describe("flashback mood", () => {
     expect(at(20, 40)).toBe(255);
     expect(at(80, 20)).toBe(0);
     expect(at(60, -2)).toBe(0);
-    expect(at(20, -2)).toBe(255);
+    expect(at(20, -2)).toBe(0);
     expect(at(60, 20)).toBe(255);
   });
 
