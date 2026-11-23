@@ -603,6 +603,32 @@ function pointAtArc(pts: Vec[], s: number[], at: number): { p: Vec; i: number } 
   return { p: { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, i: lo };
 }
 
+function spikeTailBase(contour: ShapeContour, s: number[], at: number, tip: Vec, dir: Vec, widthScale: number) {
+  const corners = (contour.corners ?? []).slice().sort((a, b) => a.index - b.index);
+  const n = corners.length;
+  const perimeter = s[s.length - 1];
+  if (n < 5) return;
+  const after = corners.findIndex(c => s[c.index] > at % perimeter + 1e-8);
+  const next = after < 0 ? 0 : after;
+  const corner = (i: number) => corners[(next + i + n) % n];
+  const [leftOffset, rightOffset] = corner(0).kind === "tip" ? [-1, 1] : [-2, 0];
+  const left = corner(leftOffset);
+  const right = corner(rightOffset);
+  if (left.kind !== "valley" || right.kind !== "valley" || corner(leftOffset + 1).kind !== "tip") return;
+  const prev = corner(leftOffset - 1);
+  const following = corner(rightOffset + 1);
+  const start = s[left.index], end = s[right.index];
+  const flankA = prev.kind === "tip" ? (start - s[prev.index] + perimeter) % perimeter : 0;
+  const flankB = following.kind === "tip" ? (s[following.index] - end + perimeter) % perimeter : 0;
+  // Widen into the adjacent flanks without moving or swallowing their tips.
+  const widen = Math.max(0, Math.min(0.5, 0.3 * widthScale));
+  for (const f of [widen, 0]) {
+    const A = pointAtArc(contour.pts, s, start - flankA * f);
+    const B = pointAtArc(contour.pts, s, end + flankB * f);
+    if (dot(sub(tip, A.p), dir) > 0 && dot(sub(tip, B.p), dir) > 0) return { A, B };
+  }
+}
+
 interface TailResult {
   contour?: ShapeContour; // spliced body contour (page coords)
   extra: { pts: Vec[]; closed: boolean; kind: "bubble" | "line" }[];
@@ -838,9 +864,9 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     const whisperWedge = plan.props.as === "whisper" && kind === "wedge";
     // a tail with a speaker reaches a little further than a bare pointer, enough to read as aimed at
     // the mouth, but stays a short wedge: a balloon far from its speaker is moved, not given a needle
-    const spikyBody = plan.params.kind === "spike" || plan.params.kind === "burst";
+    const spiky = plan.params.kind === "spike" || plan.params.kind === "burst";
     const pointerMax = Math.min(9 * u.k, Math.max((whisperWedge ? 6 : 4.5) * u.k, minSide * 0.4));
-    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : target && !offSide && !spikyBody ? Math.min(12 * u.k, Math.max(6 * u.k, minSide * 0.5)) : pointerMax;
+    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : target && !offSide && !spiky ? Math.min(12 * u.k, Math.max(6 * u.k, minSide * 0.5)) : pointerMax;
     let length: number;
     let reach = 0;
     if (t.length !== undefined) length = toMm(t.length as string, u);
@@ -883,11 +909,12 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
       reach = avail;
     } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
     if (whisperWedge && !target && !offSide && t.length === undefined) length = Math.min(maxLen, Math.max(length, 6 * u.k));
-    if (!offSide && kind === "wedge" && t.length === undefined && plan.body.spikeLength !== undefined) {
+    if (spiky && !offSide && kind === "wedge" && t.length === undefined && plan.body.spikeLength !== undefined) {
       const rotation = plan.props.rotate === undefined ? 0 : parseAngle(plan.props.rotate as string);
       const coreHit = rayPolygon({ x: 0, y: 0 }, rot(rootDir, -rotation), plan.body.spikeCore ?? plan.body.inner);
       const extension = coreHit ? hit.t - coreHit.t : 0;
-      length = Math.min(maxLen, target ? length : Infinity, Math.max(0.5 * plan.body.spikeLength, 1.5 * plan.body.spikeLength - extension));
+      length = Math.min(maxLen, target ? Math.max(0, reach) : Infinity, Math.max(0.5 * plan.body.spikeLength, 2.25 * plan.body.spikeLength - extension));
+      if (length <= 1e-8) continue;
     }
     tailLength = length;
     const shortBy = reach - length;
@@ -900,7 +927,6 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     const bw = (t.width !== undefined ? toMm(t.width as string, u) : bwAuto) * widthScale;
     // on a spiky body the tail is one more, larger spike of the outline (the shout/scream presets
     // also set bend/sideCurve 0 for straight sides)
-    const spiky = plan.params.kind === "spike" || plan.params.kind === "burst";
     let bend = typeof t.bend === "number" ? t.bend : 0.1;
     const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : 0.12;
     const perp = { x: -dir.y, y: dir.x };
@@ -1009,39 +1035,10 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     // wedge / zigzag: splice into contour
     const s = arcLengths(cur.pts);
     const sR = s[hit.index] + hit.u * (s[hit.index + 1] - s[hit.index]);
-    let A = pointAtChord(cur.pts, s, sR, bw / 2, -1);
-    let B = pointAtChord(cur.pts, s, sR, bw / 2, 1);
-    if (spiky && kind === "wedge" && !offSide && t.width === undefined) {
-      const cap = minSide / 9;
-      const valleys = (cur.corners ?? []).filter((c) => c.kind === "valley");
-      if (valleys.length > 1) {
-        const P = s[s.length - 1];
-        const before = valleys.reduce((a, b) => (sR - s[a.index] + P) % P < (sR - s[b.index] + P) % P ? a : b);
-        const after = valleys.reduce((a, b) => ((s[a.index] - sR + P) % P || P) < ((s[b.index] - sR + P) % P || P) ? a : b);
-        const left = s[before.index];
-        let right = s[after.index];
-        if (right <= left) right += P;
-        const peak = (cur.corners ?? []).find((c) => c.kind === "tip" && (s[c.index] - left + P) % P < right - left);
-        if (peak) {
-          const apex = left + (s[peak.index] - left + P) % P;
-          A = pointAtArc(cur.pts, s, left);
-          B = pointAtArc(cur.pts, s, right);
-          if (Math.hypot(B.p.x - A.p.x, B.p.y - A.p.y) > Math.min(cap, bw)) {
-            let lo = 0;
-            let hi = 1;
-            for (let k = 0; k < 40; k++) {
-              const f = (lo + hi) / 2;
-              const a = pointAtArc(cur.pts, s, left + (apex - left) * f);
-              const b = pointAtArc(cur.pts, s, right + (apex - right) * f);
-              if (Math.hypot(b.p.x - a.p.x, b.p.y - a.p.y) > Math.min(cap, bw)) lo = f;
-              else hi = f;
-            }
-            A = pointAtArc(cur.pts, s, left + (apex - left) * hi);
-            B = pointAtArc(cur.pts, s, right + (apex - right) * hi);
-          }
-        }
-      }
-    }
+    const spikeBase = spiky && kind === "wedge" && !offSide && t.width === undefined
+      ? spikeTailBase(cur, s, sR, tipBent, dir, widthScale)
+      : undefined;
+    const { A, B } = spikeBase ?? { A: pointAtChord(cur.pts, s, sR, bw / 2, -1), B: pointAtChord(cur.pts, s, sR, bw / 2, 1) };
     const sideA: Vec[] = [];
     const sideB: Vec[] = [];
     const N = Math.max(12, Math.ceil(length / (0.3 * u.k)));
