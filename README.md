@@ -77,6 +77,7 @@ mangacli render <file> [-p print-mono|print-gray|print-color|web|sns|preview|dra
 mangacli validate <file> [--strict] [--reporter text|json|github]
 mangacli watch <file>                  # re-render on save
 mangacli preview <file> [--open] [--guides] # live preview in the browser (127.0.0.1:4173)
+mangacli edit <file> [--open]          # edit the YAML in the browser with a live preview, then save (127.0.0.1:4174)
 mangacli init [dir] [--template basic|b5-mono|sns-color|yonkoma]
 mangacli fonts install [--set manga-basic] [--for manga.yaml] [--dir ./fonts]
 mangacli fonts list [--catalog]
@@ -86,6 +87,8 @@ mangacli inspect <file> [--layout] [--resolved] [--page p1]
 mangacli fonts verify | fonts licenses [file]
 mangacli cache info | cache clean
 ```
+
+In `edit`, the YAML is rendered as you type (without saving). Click an element on a page to jump to its line, click a diagnostic to jump to the line and highlight the element, and press ⌘/Ctrl+S to save. If the file changes on disk, the editor reloads it, or asks first when you have unsaved edits.
 
 In live preview, click an element warning to locate it with a highlight frame. Click again or press Esc to clear; selection survives auto-reload independently of Guides.
 
