@@ -67,6 +67,7 @@
 | `rect` | 四角 | ナレーション、モノローグ | P0 |
 | `cloud` | 雲（もくもく） | 心の声、思考、回想、夢 | P0 |
 | `spike` | トゲ | 叫び、大声、驚き | P0 |
+| `spike-rect` | 四角トゲ | 縦書きの叫び、名乗り | P1 |
 | `wavy` | 波（ふるえ） | 恐怖・寒さ・動揺で震える声、弱々しい声 | P0 |
 | `none` | なし | 絵の上に直接置く文字（モノローグ、心の声） | P0 |
 | `burst` | 爆発 | 絶叫、爆発的な驚き | P1 |
@@ -185,6 +186,21 @@
 ### 6.3.13 icicle / flower
 
 （P2）予約のみ。`icicle` は本体の下側につららが垂れる形、`flower` は花びら状の膨らみを持つ形とする。
+
+### 6.3.14 spike-rect（四角トゲ）
+
+長方形の芯の全周に直線のトゲを並べ、四隅では辺のトゲの 1.5 倍以上の長さのトゲを 1 本ずつ斜め外へ立てる。本文はトゲを含まない長方形の中に収まる。辺のトゲは深さ約 4.5 bmm・先端角約 30° が目安。狭い辺では本数を減らし、トゲを詰め込まない。`depth` の比率指定は `spike` と同じ。
+
+通常のトゲは先端の線幅を保ち、マイターで閉じる。既定の `wedge` しっぽはトゲ 1 本だけを延ばし、自動の付け根幅は最大 1.3 bmm。複数辺の `cut` も使える。
+
+```yaml
+- { balloon: "おれが\n相馬だ！！", as: yell-box, tail: { direction: 110deg } }
+- { balloon: 離れろ！！, shape: { kind: spike-rect }, cut: [top, right] }
+```
+
+[例の YAML](examples/spike-rect.yaml)
+
+![縦書きの四角トゲの吹き出しと、枠の上・右で切れる例](images/spike-rect.png)
 
 ## 6.4 線（stroke）
 
@@ -541,6 +557,7 @@ defaults:
 | `say` | 通常のセリフ | `ellipse` | 0.25 mm、G ペン | `wedge` | `dialogue` | | P0 |
 | `think` | 心の声 | `cloud` | 0.2 mm、丸ペン | `bubbles` | `thought` | | P0 |
 | `shout` | 叫び | `spike` | 0.3 mm、G ペン | `wedge`（`widthScale: 1.3`、`bend: 0`、`sideCurve: 0`） | `shout` | `fontScale: 1.4` | P0 |
+| `yell-box` | 四角い叫び | `spike-rect` | 0.45 bmm、G ペン | `wedge`（`bend: 0`、`sideCurve: 0`） | `shout` | `fontScale: 1.4` | P1 |
 | `whisper` | 小声 | `ellipse` | 0.2 mm、`dashed`（描画線幅 0.13 mm） | `wedge`（`widthScale: 0.7`） | `whisper` | `fontScale: 0.85` | P0 |
 | `tremble` | 震える声 | `wavy` | 0.22 mm | `wedge` | `dialogue` | | P0 |
 | `narration` | ナレーション | `rect` | 0.2 mm、定規 | `none` | `narration` | 既定の位置 `place: top-<読み始め側>` | P0 |

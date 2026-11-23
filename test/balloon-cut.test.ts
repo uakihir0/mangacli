@@ -77,6 +77,8 @@ describe("balloons cut by several panel sides", () => {
     ["ellipse", "", "[top, right]"],
     ["spike", "as: shout,", "[top, left]"],
     ["burst", "as: scream,", "[bottom, left]"],
+    ["spike-rect", "as: yell-box,", "[top, right]"],
+    ["spike-rect", "as: yell-box,", "[top, left, right]"],
     ["cloud", "as: think,", "[top, right, bottom]"],
     ["rect", "shape: { kind: rect },", "[top, left, right]"],
   ])("%s cut by %s %s keeps its depth and its text clear", async (_kind, style, sides) => {

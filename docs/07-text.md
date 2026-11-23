@@ -254,7 +254,7 @@ fonts:
 | `dialogue` | 混植（アンチゴチ）: かな・約物は `zen-antique`（字面 1.04 倍）。その他は、インストール済みなら中ゴシックBBB（`GothicBBBPr6N-Medium` など）、無ければ `noto-sans-jp@600`、それも使えなければ `zen-kaku-gothic-new@500`。漢字をかなと同じか、わずかに黒い太さにそろえる。フォールバックは `noto-sans-jp@400` |
 | `thought`、`whisper` | `dialogue` と同じ |
 | `narration` | `shippori-mincho@500` |
-| `shout` | ゴシックMB101 U（インストール済み）→ 新ゴ U（インストール済み）→ `zen-kaku-gothic-new@900`（`as: shout`、`as: scream`） |
+| `shout` | ゴシックMB101 U（インストール済み）→ 新ゴ U（インストール済み）→ `zen-kaku-gothic-new@900`（`as: shout`、`as: yell-box`、`as: scream`） |
 | `sfx` | `yuji-syuku@400`（筆の強弱がある描き文字。強い衝撃音には `catalog:rocknroll-one` も指定可） |
 | `hand` | `yomogi` |
 | `title` | システムのゴシックMB101 U・新ゴ U、なければ `noto-sans-jp@900`（扉の題字向けの、画の端が四角い極太ゴシック。ない字は `zen-kaku-gothic-new@900`） |

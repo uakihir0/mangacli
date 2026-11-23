@@ -201,7 +201,7 @@ const typo = {
   lang: z.string().optional(),
 };
 
-const BUILTIN_SHAPES = new Set(["ellipse", "round-rect", "rect", "cloud", "spike", "burst", "wavy", "flash", "electronic", "hexagon", "polygon", "path", "none"]);
+const BUILTIN_SHAPES = new Set(["ellipse", "round-rect", "rect", "cloud", "spike", "spike-rect", "burst", "wavy", "flash", "electronic", "hexagon", "polygon", "path", "none"]);
 const SHAPE_KEYS = new Set(["kind", "irregularity", "tilt", "squareness", "egg", "radius", "ruler", "join", "lobes", "lobeSize", "depth", "count", "angleJitter", "curve", "inner", "waves", "amplitude", "waveform", "secondary", "corners", "jag", "points", "d", "textArea", "lineLength", "thickness", "strokes"]);
 
 const ShapeObj = z
