@@ -693,12 +693,13 @@ export class RasterBackend {
       const target = this.target(dev, r);
       const spec = { density: 0, lpi: dev.opts.monoLpi, angle: Math.PI / 4, dot: "round" as const, grain: 0.08, invert: false, offset: [0, 0] as [number, number], seed: 7 };
       const coverage = makeToneSampler(spec, target, alphaAt);
-      const ink = color.r > 0 && color.r < 1 ? makeToneSampler({ ...spec, density: 1 - color.r, angle: 0 }, target) : null;
+      const luminance = dev.opts.toneCurve === "perceptual" ? color.r : luminanceLinear(b.color);
+      const ink = luminance > 0 && luminance < 1 ? makeToneSampler({ ...spec, density: 1 - luminance, angle: 0 }, target) : null;
       for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
         const i = y * r.w + x, j = 4 * i;
         const inside = core[j + 3] >= 128;
         data[j + 3] = inside || (off !== silhouette && alpha[i] > 0 && coverage(x, y)) ? 255 : 0;
-        data[j] = data[j + 1] = data[j + 2] = (ink ? !ink(x, y) : color.r >= 0.5) ? 255 : 0;
+        data[j] = data[j + 1] = data[j + 2] = (ink ? !ink(x, y) : luminance >= 0.5) ? 255 : 0;
       }
       octx.putImageData(id, 0, 0);
     }

@@ -77,3 +77,17 @@ it.each(["web", "print-mono"] as const)("blurs across the trim edge before cropp
   expect(actual.some((value, i) => i % width === 0 && value > 0)).toBe(true);
   expect(actual.equals(expected)).toBe(true);
 });
+
+it("screens a gray print-mono backdrop using the configured tone curve", async () => {
+  const source = input('{color: "#808080", padding: 3mm, feather: 0mm}');
+  const options = { profile: "print-mono", format: "png", dpi: 254, crop: "trim" } as const;
+  const [defaultPixels, linear, perceptual] = await Promise.all([
+    source,
+    { yaml: `${source.yaml}output: {mono: {toneCurve: linear}}\n` },
+    { yaml: `${source.yaml}output: {mono: {toneCurve: perceptual}}\n` },
+  ].map(async source => sharp((await render(source, options)).pages[0].data).extractChannel(0).raw().toBuffer()));
+  const whitePixels = (pixels: Buffer) => pixels.filter(v => v === 255).length;
+  expect(defaultPixels.equals(linear)).toBe(true);
+  expect(whitePixels(linear)).toBeGreaterThan(100);
+  expect(whitePixels(perceptual)).toBeGreaterThan(whitePixels(linear));
+});
