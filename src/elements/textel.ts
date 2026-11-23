@@ -1,6 +1,6 @@
 // Free text (spec 7.13) and SFX lettering (spec 7.14).
 import { BLACK, WHITE, parseColor } from "../core/color.js";
-import { Rng, noise1, noise2 } from "../core/random.js";
+import { Rng, noise2 } from "../core/random.js";
 import { parseAngle, toMm, toRange } from "../core/units.js";
 import { type PathData, flattenPath, polyPath, transformPath } from "../geom/path.js";
 import { type Rect, type Vec, applyMat, boundsOf, matMul, matRotate, matScale, matTranslate } from "../geom/vec.js";
@@ -15,16 +15,21 @@ import type { Node, Paint, PathNode } from "../render/ir.js";
 import { type TextLayout, layoutText, parseLayoutText } from "../text/layout.js";
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
-import { fullSizeKana, isSmallKana, sfxInkHeadDepth, sfxScale, sfxShifts, sfxStretch, sfxWeightRadius, type SfxScaleRamp } from "../text/sfx.js";
-import { brushGlyph, emboldenGlyph, type BrushSpec } from "../text/brush.js";
+import { fullSizeKana, isSmallKana, sfxInkGap, sfxInkHeadDepth, sfxScale, sfxShifts, sfxStretch, sfxWeightRadius, type SfxScaleRamp } from "../text/sfx.js";
+import { brushGlyph, type BrushSpec } from "../text/brush.js";
+import { glyphInk, inkPath, offsetInk, partitionInk, unionInk, weightInk } from "../text/sfx-ink.js";
 
 type Obj = Record<string, unknown>;
 
-function outlineNodes(path: PathData, outlines: unknown, ctx: ElemCtx, el: RElement): PathNode[] {
+function outlineLayers(outlines: unknown, ctx: ElemCtx) {
   const list = Array.isArray(outlines) ? (outlines as Obj[]) : [];
   return list
     .map((o) => ({ w: toMm(o.width as string, ctx.u), c: parseColor((o.color as string) ?? "white") ?? WHITE, j: o.join === "miter" ? ("miter" as const) : ("round" as const) }))
-    .sort((a, b) => b.w - a.w)
+    .sort((a, b) => b.w - a.w);
+}
+
+function outlineNodes(path: PathData, outlines: unknown, ctx: ElemCtx, el: RElement): PathNode[] {
+  return outlineLayers(outlines, ctx)
     .map((o) => ({ kind: "path" as const, path, fillRule: "nonzero" as const, paint: null, stroke: { width: o.w * 2, paint: { type: "solid" as const, color: o.c }, join: o.j, ...(o.j === "miter" ? { miterLimit: 2 } : {}) }, tag: tag(el, "text") }));
 }
 
@@ -129,10 +134,10 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const brush = p.brush as BrushSpec | false | undefined;
   const pressureStyle = brush && brush.style === "speed" ? "speed" : "impact";
   const pcs = (p.perChar ?? {}) as Obj;
-  const rotR = toRange(pcs.rotate as never, (x) => parseAngle(x as string), { min: -0.1, max: 0.1, dist: "uniform" });
+  const rotR = toRange(pcs.rotate as never, (x) => parseAngle(x as string), { min: 0, max: 0, dist: "uniform" });
   const scaleRamp = typeof pcs.scale === "string" || (isObj(pcs.scale) && "from" in pcs.scale) ? pcs.scale as SfxScaleRamp : undefined;
   const scR = toRange((scaleRamp ? undefined : pcs.scale) as never, (x) => Number(x), { min: 1, max: 1, dist: "uniform" });
-  const overlap = Math.max(0, toMm((pcs.overlap as string | undefined) ?? "0.15em", { ...u, em }));
+  const overlap = Math.max(0, toMm((pcs.overlap as string | undefined) ?? "0.22em", { ...u, em }));
   const jitter = pcs.jitter !== undefined ? toMm(pcs.jitter as string, u) : 0;
   const chars = Array.isArray(p.chars) ? (p.chars as Obj[]) : [];
   // group glyphs by unit (char index order)
@@ -163,16 +168,18 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const totalH = vertical ? tl.height + acc : tl.height;
   let boxW = totalW;
   let boxH = totalH;
-  const perCharT = units.map((uu, i) => {
+  const perCharT = units.map((_, i) => {
     const ov = chars.find((c) => c.index === i);
     const r = ov?.rotate !== undefined ? parseAngle(ov.rotate as string) : rng.range(rotR.min, rotR.max);
     const s = scales[i] * (typeof ov?.scale === "number" ? (ov.scale as number) : 1);
-    const perpendicular = pcs.jitter === undefined ? rng.range(-0.015, 0.015) * em : 0;
-    const jx = rng.range(-jitter, jitter) + (vertical ? perpendicular : 0) + (Array.isArray(ov?.offset) ? toMm(ov!.offset[0] as string, u) : 0);
-    const jy = rng.range(-jitter, jitter) + (vertical ? 0 : perpendicular) + (Array.isArray(ov?.offset) ? toMm(ov!.offset[1] as string, u) : 0);
-    void uu;
+    const jx = rng.range(-jitter, jitter) + (Array.isArray(ov?.offset) ? toMm(ov!.offset[0] as string, u) : 0);
+    const jy = rng.range(-jitter, jitter) + (Array.isArray(ov?.offset) ? toMm(ov!.offset[1] as string, u) : 0);
     return { r, s, jx, jy, color: (ov?.color as string | undefined) };
   });
+  const inkEm = units.length === 1 ? em * perCharT[0].s : em;
+  const radius = inkEm * sfxWeightRadius(pressureStyle);
+  const smallScale = (p.smallKanaScale as number | undefined) ?? 0.6;
+  const kanaRadius = (i: number) => isSmallKana(unitChars[i]) ? em * perCharT[i].s * sfxWeightRadius(pressureStyle, smallScale) : 0;
   // the path the letters follow (spec 7.14): along-axis position -> point and tangent turn
   const pathSpec = isObj(p.path) ? (p.path as Obj) : null;
   const along = (g: { cx: number; cy: number }, i: number) => (vertical ? g.cy + (shift[i] ?? 0) : g.cx + (shift[i] ?? 0));
@@ -234,67 +241,46 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
       const full = layoutText(fullSizeKana(unitChars[i]), { ...style, lettering: null, smallKanaFix: false }, ctx.fonts).glyphs;
       if (full.length) source = transformPath(full.flatMap(g => g.path), matTranslate(cx - full[0].cx, cy - full[0].cy));
     }
-    const smallScale = typeof p.smallKanaScale === "number" ? p.smallKanaScale : 0.6;
-    source = emboldenGlyph(source, em, sfxWeightRadius(pressureStyle, small ? smallScale : 1) * em);
-    let path = transformPath(brushGlyph(source, em, el.seed ^ Math.imul(i + 1, 0x45d9f3b), brush), m);
-    // skew, perspective and bulge are smooth maps of the plane
-    const deform = (x0: number, y0: number) => {
-      let x = x0 + (skew ? Math.tan(skew) * (y0 - totalH / 2) : 0);
-      let y = y0;
-      // perspective: horizontal scale changes from top to bottom; bulge swells the middle
-      if (persp) {
-        const ty = Math.max(0, Math.min(1, y / Math.max(1e-6, totalH)));
-        const k = persp[0] + (persp[1] - persp[0]) * ty;
-        x = totalW / 2 + (x - totalW / 2) * k;
-      }
-      if (bulge) {
-        const nx = (x - totalW / 2) / Math.max(1e-6, totalW / 2);
-        const ny = (y - totalH / 2) / Math.max(1e-6, totalH / 2);
-        const f = 1 + bulge * 0.35 * Math.max(0, 1 - (nx * nx + ny * ny) * 0.5);
-        x = totalW / 2 + (x - totalW / 2) * f;
-        y = totalH / 2 + (y - totalH / 2) * f;
-      }
-      return { x, y };
-    };
-    const noisy = warp > 0 || roughen > 0;
-    if (!noisy && (skew || persp || bulge)) {
-      // no noise: move the Bezier control points, so curves stay curves and ends stay square
-      path = path.map((c) => {
-        const o: (string | number)[] = [c[0]];
-        for (let k = 1; k + 1 < c.length; k += 2) {
-          const q = deform(Number(c[k]), Number(c[k + 1]));
-          o.push(q.x, q.y);
-        }
-        return o as unknown as typeof c;
-      });
-    } else if (noisy) {
-      // noise: flatten -> displace -> smooth
-      const polys = flattenPath(path, 0.05 * u.k);
-      const out: PathData = [];
-      for (const pl of polys) {
-        let s = 0;
-        const pts = pl.pts.map((q, k) => {
-          if (k > 0) s += Math.hypot(q.x - pl.pts[k - 1].x, q.y - pl.pts[k - 1].y);
-          const wx = warp * em * 0.12 * noise2(seedW, q.x / (em * 1.6), q.y / (em * 1.6));
-          const wy = warp * em * 0.12 * noise2(seedW + 7, q.x / (em * 1.6), q.y / (em * 1.6));
-          const rr = roughen * em * 0.02 * noise1(seedR + i, s / (em * 0.25));
-          const d = deform(q.x + rr, q.y + rr);
-          return { x: d.x + wx, y: d.y + wy };
-        });
-        out.push(...polyPath(pts, true));
-      }
-      path = out;
-    }
-    paths.push(path);
+    paths.push(transformPath(source, m));
     colorsPer.push(t.color ?? g.color);
   }
+  const roughness = roughen * em * (pressureStyle === "speed" ? 0.045 : 0.065);
+  const deform = (x0: number, y0: number) => {
+    const wx = warp * em * 0.12 * noise2(seedW, x0 / (em * 1.6), y0 / (em * 1.6));
+    const wy = warp * em * 0.12 * noise2(seedW + 7, x0 / (em * 1.6), y0 / (em * 1.6));
+    const rx = roughness * noise2(seedR, x0 / (em * 0.13), y0 / (em * 0.13));
+    const ry = roughness * noise2(seedR + 7, x0 / (em * 0.13), y0 / (em * 0.13));
+    let x = x0 + rx + (skew ? Math.tan(skew) * (y0 - totalH / 2) : 0);
+    let y = y0 + ry;
+    if (persp) {
+      const ty = Math.max(0, Math.min(1, y / Math.max(1e-6, totalH)));
+      const k = persp[0] + (persp[1] - persp[0]) * ty;
+      x = totalW / 2 + (x - totalW / 2) * k;
+    }
+    if (bulge) {
+      const nx = (x - totalW / 2) / Math.max(1e-6, totalW / 2);
+      const ny = (y - totalH / 2) / Math.max(1e-6, totalH / 2);
+      const f = 1 + bulge * 0.35 * Math.max(0, 1 - (nx * nx + ny * ny) * 0.5);
+      x = totalW / 2 + (x - totalW / 2) * f;
+      y = totalH / 2 + (y - totalH / 2) * f;
+    }
+    return { x: x + wx, y: y + wy };
+  };
+  const distortInk = (path: PathData): PathData => {
+    if (!(warp || roughen || persp || bulge)) return skew ? transformPath(path, [1, 0, Math.tan(skew), 1, -Math.tan(skew) * totalH / 2, 0]) : path;
+    return flattenPath(path, em * 0.002).flatMap(({ pts, closed }) => polyPath(pts.flatMap((a, i) => {
+      const b = pts[i + 1] ?? (closed ? pts[0] : a);
+      const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / (em * 0.025)));
+      return Array.from({ length: steps }, (_, k) => deform(a.x + (b.x - a.x) * k / steps, a.y + (b.y - a.y) * k / steps));
+    }), closed));
+  };
   const packedOffsets = new Map<number, number>();
   if (overlap > 0 || (!pathSpec && style.letterSpacing < 0)) {
     let end: number | undefined;
     let previousUnit = -1;
     let previousOffset = 0;
     let previousSize = 1;
-    let outlineEnd = -Infinity;
+    let previousInk: PathData = [];
     for (const unit of units) {
       const indices = tl.glyphs.flatMap((g, i) => g.unit === unit ? [i] : []);
       const points = indices.flatMap(i => flattenPath(paths[i], 0.05).flatMap(c => c.pts));
@@ -303,20 +289,26 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
       const start = vertical ? bb.y : bb.x;
       const index = idxOf.get(unit)!;
       const size = perCharT[index].s;
-      const spacing = overlap > 0 ? -overlap * Math.min(previousSize, size) : (isSmallKana(unitChars[index]) ? 0.04 : Math.max(0.03, style.letterSpacing)) * em;
+      const weightClearance = Math.max(radius, kanaRadius(index)) + Math.max(radius, kanaRadius(idxOf.get(previousUnit) ?? -1));
+      const spacing = overlap > 0 ? -overlap * Math.min(previousSize, size)
+        : (isSmallKana(unitChars[index]) ? 0.04 : Math.max(0.03, style.letterSpacing)) * em
+          + weightClearance;
       const space = parsed.units.slice(previousUnit + 1, unit).reduce((sum, u) => sum + (u.kind === "space" ? u.em * (u.style.size ?? 1) * em : 0), 0);
       const offset = vertical ? perCharT[index].jy : perCharT[index].jx;
       let delta = end === undefined ? 0 : end + spacing - start;
       if (overlap > 0 && end !== undefined) {
-        const depth = sfxInkHeadDepth(indices.flatMap(i => paths[i]), vertical);
-        delta = Math.max(delta, outlineEnd - start - depth);
+        const currentInk = indices.flatMap(i => paths[i]);
+        const depth = sfxInkHeadDepth(currentInk, vertical);
+        delta = Math.max(delta, end - start - depth);
+        const gap = sfxInkGap(previousInk, currentInk, vertical, em);
+        // Let the outline join without letting the weighted letter fills touch.
+        if (gap !== undefined) delta = Math.max(delta, (pressureStyle === "speed" ? 0.09 : 0.065) * em + weightClearance - gap);
       }
       if (end !== undefined) delta += space + offset - previousOffset;
       packedOffsets.set(unit, delta);
       for (const i of indices) paths[i] = transformPath(paths[i], matTranslate(vertical ? 0 : delta, vertical ? delta : 0));
+      previousInk = indices.flatMap(i => paths[i]);
       end = start + delta + (vertical ? bb.h : bb.w);
-      const outlineWidth = p.outline === undefined ? em * size * 0.12 + toMm("0.25bmm", u) : Math.max(0, ...(Array.isArray(p.outline) ? (p.outline as Obj[]).map(o => toMm(o.width as string, u) * (o.join === "miter" ? 2 : 1)) : []));
-      outlineEnd = Math.max(outlineEnd, end + outlineWidth);
       previousSize = size;
       previousUnit = unit;
       previousOffset = offset;
@@ -338,16 +330,30 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
       tl.glyphs.forEach((g, k) => { if (g.unit === unit) paths[k] = transformPath(paths[k], m); });
     }
   }
+  if (!paths.some(path => path.length)) {
+    return { nodes: [], bbox: place(p, boxW, boxH, placeCtx(ctx, el)).bbox };
+  }
+  const tolerance = Math.max(0.001, em * 0.001);
+  // Normalize each glyph's winding before unioning different font faces.
+  const glyphs = paths.map(path => glyphInk(path, tolerance));
+  const union = unionInk(glyphs.flat());
+  const brushInk = (raw: typeof union) => glyphInk(brushGlyph(inkPath(raw), inkEm, el.seed, brush), tolerance);
+  const glyphRadius = (i: number) => Math.max(radius, kanaRadius(idxOf.get(tl.glyphs[i].unit)!));
+  const compactSpan = pressureStyle === "speed" ? em * 0.62 : 0;
+  const extraKana = glyphs.flatMap((glyph, i) => glyphRadius(i) > radius ? weightInk(brushInk(glyph), glyphRadius(i), tolerance, compactSpan) : []);
+  const weight = unionInk([...weightInk(brushInk(union), radius, tolerance, compactSpan), ...extraKana]);
+  const ink = distortInk(inkPath(weight));
   let footprintScale = 1;
+  let normalize = matTranslate(0, 0);
   {
-    const pts = flattenPath(paths.flat(), 0.2).flatMap((c) => c.pts);
+    const pts = flattenPath(ink, 0.02).flatMap((c) => c.pts);
     if (pts.length) {
       const bb = boundsOf(pts);
       const baseAlong = (vertical ? tl.height : tl.width) + Math.max(0, units.length - 1) * Math.max(0, -0.05 - style.letterSpacing) * em;
       const baseArea = baseAlong * (vertical ? tl.width : tl.height);
       const explicitScale = pcs.scale !== undefined || p.smallKanaScale !== undefined || chars.some(c => c.scale !== undefined);
       if (overlap === 0 && grow === undefined && !explicitScale && bb.w * bb.h > 0) footprintScale = Math.max(1, Math.sqrt(baseArea * 1.15 / (bb.w * bb.h)));
-      for (let k = 0; k < paths.length; k++) paths[k] = transformPath(paths[k], [footprintScale, 0, 0, footprintScale, -bb.x * footprintScale, -bb.y * footprintScale]);
+      normalize = [footprintScale, 0, 0, footprintScale, -bb.x * footprintScale, -bb.y * footprintScale];
       boxW = bb.w * footprintScale;
       boxH = bb.h * footprintScale;
     }
@@ -355,43 +361,49 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const pc = placeCtx(ctx, el);
   const pl = place(p, boxW, boxH, pc);
   const nodes: Node[] = [];
-  const outlines = paths.map((path, i) => {
-    const scale = perCharT[idxOf.get(tl.glyphs[i].unit) ?? 0].s * footprintScale;
-    const whiteWidth = em * scale * 0.12;
-    return outlineNodes(transformPath(path, pl.matrix), p.outline ?? [{ width: `${whiteWidth}mm`, color: "white" }, { width: `${whiteWidth + toMm("0.25bmm", u)}mm`, color: "black" }], ctx, el);
-  });
+  const matrix = matMul(pl.matrix, normalize);
+  const placed = glyphInk(transformPath(ink, matrix), tolerance);
+  const placedInk = inkPath(placed);
+  const whiteWidth = inkEm * footprintScale * 0.12;
+  const outlines = outlineLayers(p.outline ?? [{ width: `${whiteWidth}mm`, color: "white" }, { width: `${whiteWidth + toMm("0.25bmm", u)}mm`, color: "black" }], ctx);
+  for (const outline of outlines) {
+    if (outline.w <= 0) continue;
+    const miter = outline.j === "miter";
+    const outer = offsetInk(placed, outline.w, tolerance, miter);
+    const inner = offsetInk(placed, -outline.w, tolerance, miter);
+    const path = inkPath(partitionInk(outer, inner, false));
+    nodes.push({ kind: "path", path, fillRule: "nonzero", paint: { type: "solid", color: outline.c }, tag: tag(el, "text") });
+  }
   const paint = textPaint(p.color, ctx, el, pl.bbox);
+  const fill = (path: PathData, color: Paint): PathNode => ({ kind: "path", path, fillRule: "nonzero", paint: color, tag: tag(el, "text", "sfx") });
+  const inkColor = (key: string | undefined): Paint => {
+    const color = key ? parseColor(key) : null;
+    return color ? { type: "solid", color } : paint;
+  };
   // hollow letters keep only the traced outline (black by default)
   const edge = (p.edge as Obj | undefined) ?? (p.hollow ? { width: "0.35bmm", color: (p.color as string) ?? "black" } : undefined);
-  for (const unit of [...units].reverse()) {
-    const indices = tl.glyphs.flatMap((g, i) => g.unit === unit ? [i] : []);
-    const placed = indices.flatMap(i => transformPath(paths[i], pl.matrix));
-    for (let layer = 0; layer < Math.max(0, ...indices.map(i => outlines[i].length)); layer++) {
-      for (const i of indices) if (outlines[i][layer]) nodes.push(outlines[i][layer]);
+  if (p.hollow) nodes.push(fill(placedInk, { type: "solid", color: WHITE }));
+  else if (colorsPer.every(c => c === colorsPer[0])) nodes.push(fill(placedInk, inkColor(colorsPer[0])));
+  else {
+    // Partition the word's ink into color regions; the first character wins at overlaps.
+    let remaining = placed;
+    for (const [i, glyph] of glyphs.entries()) {
+      const path = inkPath(offsetInk(brushInk(glyph), glyphRadius(i), tolerance));
+      const region = glyphInk(transformPath(distortInk(path), matrix), tolerance);
+      const visible = inkPath(partitionInk(remaining, region, true));
+      if (visible.length) nodes.push(fill(visible, inkColor(colorsPer[i])));
+      remaining = partitionInk(remaining, region, false);
     }
-    if (!p.hollow) {
-      // per-character colours (chars[].color, <color>) split the fill into runs
-      const runs = new Map<string, PathData>();
-      indices.forEach(k => {
-        const key = colorsPer[k] ?? "";
-        runs.set(key, [...(runs.get(key) ?? []), ...transformPath(paths[k], pl.matrix)]);
-      });
-      for (const [key, pd] of runs) {
-        const c = key ? parseColor(key) : null;
-        nodes.push({ kind: "path", path: pd, fillRule: "nonzero", paint: c ? { type: "solid", color: c } : paint, tag: tag(el, "text", "sfx") });
-      }
-    }
-    else nodes.push({ kind: "path", path: placed, fillRule: "nonzero", paint: { type: "solid", color: WHITE }, tag: tag(el, "text", "sfx") });
-    if (edge && edge.style !== "none") {
-      // trace the glyph contours with a hand-drawn pen line
-      const hand = resolveHand(p.hand, u, ctx.draft);
-      const line = resolveStroke({ pen: { preset: "g-pen" }, ...edge, width: edge.width ?? "0.3bmm" }, hand, u, ctx.bag, [...el.path, "edge"]);
-      const rng = new Rng(el.seed ^ 0x2f6b ^ unit);
-      const inks = flattenPath(placed, 0.05).filter((c) => c.pts.length > 2).flatMap((c, i) => inkShape({ pts: c.pts, closed: true }, { line, hand: { ...hand, wobbleAmp: hand.wobbleAmp * 0.3 }, rng: rng.fork(`c${i}`), strokes: 1, sizeHint: 4 * u.k }).inks);
-      nodes.push(...inksToNodes(inks, line.color, tag(el, "ink")));
-    }
+    const rest = inkPath(remaining);
+    if (rest.length) nodes.push(fill(rest, paint));
   }
-  void sizeValue;
+  if (edge && edge.style !== "none") {
+    const hand = resolveHand(p.hand, u, ctx.draft);
+    const line = resolveStroke({ pen: { preset: "g-pen" }, ...edge, width: edge.width ?? "0.3bmm" }, hand, u, ctx.bag, [...el.path, "edge"]);
+    const rng = new Rng(el.seed ^ 0x2f6b);
+    const inks = flattenPath(placedInk, 0.05).filter((c) => c.pts.length > 2).flatMap((c, i) => inkShape({ pts: c.pts, closed: true }, { line, hand: { ...hand, wobbleAmp: hand.wobbleAmp * 0.3 }, rng: rng.fork(`c${i}`), strokes: 1, sizeHint: 4 * u.k }).inks);
+    nodes.push(...inksToNodes(inks, line.color, tag(el, "ink")));
+  }
   return { nodes, bbox: pl.bbox };
 }
 

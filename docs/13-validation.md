@@ -171,7 +171,7 @@ diagnostics:
 | `BALLOON_TAIL_TARGET_INSIDE` | W | しっぽの向き先が本体の内側にある | ○ |
 | `BALLOON_TAIL_CROSSES` | W | 付け根・曲がり・長さの自動調整で同じコマ（またはページレイヤー群）の他の吹き出し本体との重なりを解消できず、元のしっぽを保つ。線幅・泡の大きさを含む実際の形で判定し、相手の ID を通知。明示した `root`・`length`・`bend` は保つ | ○ |
 | `BALLOON_TAIL_UNSUPPORTED` | W | 形状が対応しないしっぽの種類 | ○ |
-| `BALLOON_CONNECT_DISJOINT` | W | `overlap` で連結した本体が重ならない | ○ |
+| `BALLOON_CONNECT_DISJOINT` | I/W | `overlap` で合体できずに別々に描いた（I）、または `neck` の輪郭がつながらない（W） | ○ |
 | `BALLOON_TEXT_HIDDEN` | W | 他の吹き出しで本文が隠れる | ○ |
 | `BALLOON_OVERLAP` | W | 連結していない吹き出しの本体の外接矩形が重なる | ○ |
 | `BALLOON_READING_ORDER` | W | 後の吹き出しが位置から明らかに先に読まれる | ○ |

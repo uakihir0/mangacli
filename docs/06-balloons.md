@@ -33,7 +33,7 @@
 | `shape` | Shape | `{ kind: ellipse }` | 本体の形（[6.3](#63-形状shape)） |
 | `stroke` | Stroke | `{ width: 0.25mm, pen: g-pen }` | 本体としっぽの線（[6.4](#64-線stroke)） |
 | `fill` | Paint | `paper` | 本体の塗り（[6.5](#65-塗りfill)） |
-| `autoConnect` | 真偽値 | `true` | 同じ話者の続けての自動配置の吹き出しが 4 bmm 以内に並んだ場合、`connect: { to: 直前の吹き出し, style: neck }` として 1 つのしっぽにまとめる |
+| `autoConnect` | 真偽値 | `true` | 同じ話者の続けての自動配置の吹き出しが 4 bmm 以内に並んだ場合、`connect: { to: 直前の吹き出し }` として合体を試みる |
 | `halo` | Length \| `none` \| `false` | `0.3bmm` | 線の外側のふちの幅（不透明な単色のときのみ）。`none` / `false` / `0` で無効。しっぽを含む輪郭に付く |
 | `haloColor` | Color | 自動 | ふちの色。暗い塗り（`inverted` や `fill: black` など）は白、それ以外は塗り色。白い吹き出しは従来どおり。要素・スタイル・`defaults.balloon` で指定できる |
 | `tail` | Tail \| Point \| `none` | 下記 | しっぽ（[6.6](#66-しっぽtail)） |
@@ -361,18 +361,18 @@ tail: none
   at: [70%, 15%]
 - balloon: やっぱり君だったのか
   at: [45%, 30%]
-  connect: { to: b1, style: neck }
+  connect: { to: b1 }
 ```
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---|---|
 | `to` | 吹き出しの ID | 必須 | つなぐ相手 |
-| `style` | `neck` \| `overlap` \| `line` | `neck` | `neck` はくびれでつなぐ。`overlap` は重なった本体の輪郭を合成する。`line` は短い線でつなぐ |
+| `style` | `neck` \| `overlap` \| `line` | `overlap` | `neck` はくびれでつなぐ。`overlap` は重なった本体の輪郭を合成する。`line` は短い線でつなぐ |
 | `width` | Length \| % | 小さいほうの本体の短辺の 35 % | `neck` のくびれの幅 |
 
 - `neck`: 2 つの本体の中心を結ぶ線に沿った帯（幅 `width`）を作り、2 つの本体と和を取って 1 つの輪郭にする。輪郭の凹の角でストロークを区切る。
-- `overlap`: 2 つの本体の和を取る。本体が重なっていない場合は警告（`BALLOON_CONNECT_DISJOINT`）を出し、`neck` として扱う。
-- `line`: 本体の縁同士を結ぶ 1 本の線を描く。
+- `overlap`: 2 つの本体の和集合の輪郭を描く。小さいほうの本体の面積に対して重なりが 15 % 未満の場合は、`connect` を書いた吹き出しを相手に寄せ、15〜25 % 重なる位置を探す。枠に固定されている場合など、寄せても合体できない場合は元の位置に別々に描き、情報（`BALLOON_CONNECT_DISJOINT`）を出す。線やくびれは追加しない。
+- `line`: 明示した場合にだけ、本体の縁同士を結ぶ 1 本の線を描く。
 - 連結した吹き出しの本文はそれぞれの本体に置く。連結した吹き出しは、構成する吹き出しの `z` の最大値でまとめて描く。
 
 ### 6.9.2 重なり
@@ -552,7 +552,7 @@ dialogue:
 | `BALLOON_TAIL_TARGET_INSIDE` | 警告 | しっぽの向き先が本体の内側にある |
 | `BALLOON_TAIL_CROSSES` | 警告 | 自動調整後もしっぽが他の吹き出し本体と重なる。相手の ID を通知 |
 | `BALLOON_TAIL_UNSUPPORTED` | 警告 | 形状が対応しないしっぽの種類を指定した |
-| `BALLOON_CONNECT_DISJOINT` | 警告 | `overlap` で連結した本体が重なっていない |
+| `BALLOON_CONNECT_DISJOINT` | 情報／警告 | `overlap` で合体できずに別々に描いた（情報）、または `neck` の輪郭がつながらない（警告） |
 | `BALLOON_TEXT_HIDDEN` | 警告 | 他の吹き出しで本文が隠れる |
 | `BALLOON_OVERLAP` | 警告 | 連結していない吹き出しの本体の外接矩形が重なる |
 | `BALLOON_READING_ORDER` | 警告 | 後の吹き出しが位置から明らかに先に読まれる |
