@@ -744,7 +744,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         for (const degrees of [15, -15, 30, -30, 45, -45, 60, -60]) roots.push({ root: `${((initial.rootAngle ?? 0) * 180 / Math.PI + degrees).toFixed(10)}deg` });
       }
       const candidates = roots.slice(1);
-      if (own.curl === undefined && (tail.kind === undefined || tail.kind === "wedge")) for (const root of roots) for (const curl of [false, true]) candidates.push({ ...root, curl });
+      if (own.curl === undefined && (tail.kind === undefined || tail.kind === "wedge")) for (const root of roots) candidates.push({ ...root, curl: false });
       if (own.bend === undefined) for (const root of roots) for (const bend of [-0.3, 0.3, -0.5, 0.5]) candidates.push({ ...root, bend, ...(own.curl === undefined ? { curl: false } : {}) });
       if (own.length === undefined && initial.length !== undefined) {
         const tailKind = (tail.kind as string) ?? "wedge";
