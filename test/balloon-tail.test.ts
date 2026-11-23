@@ -194,6 +194,17 @@ describe("balloon tails", () => {
     expect(nearTip.length).toBeGreaterThan(0);
     expect(Math.max(...nearTip.map(p => p.y)) - Math.min(...nearTip.map(p => p.y))).toBeLessThanOrEqual(0.1);
   });
+  it("keeps a direction-only zigzag at 11 bmm unless maxLength is explicit", async () => {
+    const balloon = 'balloon: "", id: b, hand: clean, at: [40mm, 35mm], size: [24mm, 24mm], shape: { kind: ellipse, irregularity: 0 }';
+    const tail = "kind: zigzag, direction: 0deg, bend: 0";
+    const automatic = await outline(`{ ${balloon}, tail: { ${tail} } }`);
+    const explicit = await outline(`{ ${balloon}, tail: { ${tail}, length: ${(11 * 80) / 182}mm } }`);
+    const reach = (out: { pts: Vec[]; origin: Vec }) => tip(out.pts).x - rightOf(out.pts, out.origin.x + 40);
+    expect(reach(automatic)).toBeCloseTo(reach(explicit), 5);
+    const capped = await outline(`{ ${balloon}, tail: { ${tail}, maxLength: 1mm } }`);
+    const short = await outline(`{ ${balloon}, tail: { ${tail}, length: 1mm } }`);
+    expect(capped.pts).toEqual(short.pts);
+  });
   it("preserves the default zigzag length on whisper balloons", async () => {
     const balloon = 'balloon: "", id: b, as: whisper, at: [40mm, 35mm], size: [24mm, 24mm], shape: { kind: ellipse, irregularity: 0 }';
     const tail = "tail: { kind: zigzag, direction: 0deg, bend: 0 }";

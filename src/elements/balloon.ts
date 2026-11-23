@@ -981,7 +981,8 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx, strokeWidth
         reach = avail;
       }
     } else {
-      length = Math.min(maxLen, (kind === "zigzag" ? 11 : plainWedge ? AUTO_WEDGE_LENGTH : 4.5) * u.k);
+      const automatic = (kind === "zigzag" ? 11 : plainWedge ? AUTO_WEDGE_LENGTH : 4.5) * u.k;
+      length = t.maxLength !== undefined || plainWedge ? Math.min(maxLen, automatic) : automatic;
       if (kind === "bubbles" && t.maxLength === undefined) {
         const { count, separation, bodyGap } = bubbleSpacing(t, plan, u, gap, strokeWidth);
         length = Math.max(length, bodyGap + (count - 1) * separation + count * strokeWidth);
