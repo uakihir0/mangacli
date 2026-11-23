@@ -4,6 +4,7 @@ import { createRenderer, validate } from "../src/api.js";
 import { BLACK, WHITE } from "../src/core/color.js";
 import { add, mul, norm, sub } from "../src/geom/vec.js";
 import type { Node, PathNode } from "../src/render/ir.js";
+import { monoWorkingBytes } from "../src/render/mono.js";
 
 function paths(nodes: Node[]): PathNode[] {
   return nodes.flatMap(n => n.kind === "group" ? paths(n.children) : n.kind === "path" ? [n] : []);
@@ -64,6 +65,18 @@ describe("balloon halo", () => {
     const result = await createRenderer({ profile: "web", dpi: 600 }).render(burstPage("white", "0.4mm", "#00000080"), { colorMode: "color", format: "svg" });
     const svg = Buffer.from(result.pages[0].data).toString("utf8");
     expect(svg).toMatch(/<g opacity="0\.502"[^>]*><path[^>]*stroke-width="1\.5"[^>]*\/><path[^>]*stroke-width="0\.8"[^>]*\/>/);
+  });
+
+  it("renders a fully transparent rim within the same mono budget as a disabled rim", async () => {
+    const size = Math.round(45 * 100 / 25.4);
+    const renderer = createRenderer({ profile: "print-mono", dpi: 100, crop: "trim", format: "png", limits: { maxOutputBytes: monoWorkingBytes(size, size) + 150_000 }, throwOnError: false });
+    const disabled = await renderer.render(burstPage("white", "none", "transparent"));
+    expect(disabled.pages).toHaveLength(1);
+    const result = await renderer.render(burstPage("white", "0.4mm", "transparent"));
+    expect(result.failures.map(f => f.error.message)).toEqual([]);
+    expect(result.pages).toHaveLength(1);
+    const [actual, expected] = await Promise.all([result, disabled].map(rendered => sharp(rendered.pages[0].data).raw().toBuffer()));
+    expect(actual.equals(expected)).toBe(true);
   });
 
   it.each(["none", false, 0])("supports halo: %s", async value => {

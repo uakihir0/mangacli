@@ -1264,13 +1264,15 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
     const halo = balloonHalo(plan, ctx.u);
     if (fn && halo > 0 && !isFlash && fn.kind === "path" && fn.paint?.type === "solid") {
       const color = (plan.props.haloColor !== undefined ? parseColor(plan.props.haloColor as string) : paintAvgLuminance(fn.paint) < 0.5 ? WHITE : fn.paint.color) ?? WHITE;
-      const paint: Paint = { type: "solid", color: { ...color, a: 1 } };
-      const fillTag = tag(el, "fill");
-      const rim: Node[] = [{ kind: "path", path: polyPath(res.fill, true), fillRule: "nonzero", paint: null, stroke: { width: bb.stroke.width + halo * 2, paint, join: "round" }, tag: fillTag }];
-      const tips = res.inks.filter(ink => ink.straight).flatMap(ink => polyPath(ink.pts, true));
-      if (tips.length) rim.push({ kind: "path", path: tips, fillRule: "nonzero", paint, stroke: { width: halo * 2, paint, join: "round" }, tag: fillTag });
-      if (color.a < 1) nodes.push({ kind: "group", children: rim, opacity: color.a, isolate: true, tag: fillTag });
-      else nodes.push(...rim);
+      if (color.a > 0) {
+        const paint: Paint = { type: "solid", color: { ...color, a: 1 } };
+        const fillTag = tag(el, "fill");
+        const rim: Node[] = [{ kind: "path", path: polyPath(res.fill, true), fillRule: "nonzero", paint: null, stroke: { width: bb.stroke.width + halo * 2, paint, join: "round" }, tag: fillTag }];
+        const tips = res.inks.filter(ink => ink.straight).flatMap(ink => polyPath(ink.pts, true));
+        if (tips.length) rim.push({ kind: "path", path: tips, fillRule: "nonzero", paint, stroke: { width: halo * 2, paint, join: "round" }, tag: fillTag });
+        if (color.a < 1) nodes.push({ kind: "group", children: rim, opacity: color.a, isolate: true, tag: fillTag });
+        else nodes.push(...rim);
+      }
     }
     if (fn) nodes.push(fn);
     if (isFlash) {
