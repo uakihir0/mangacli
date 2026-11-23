@@ -4,7 +4,7 @@ import { DiagnosticBag } from "../core/diagnostics.js";
 import { Rng } from "../core/random.js";
 import { type UnitContext, parseAngle, toMm } from "../core/units.js";
 import { type PathData, distToPolyline, flattenPath, offsetPolygon, pointInPolygon, polyPath, polygonArea, rayPolygon, transformPath } from "../geom/path.js";
-import { type Matrix, type Rect, type Vec, boundsOf, dot, lerp, matMul, matTranslate, rectUnion, rot, sub } from "../geom/vec.js";
+import { type Matrix, type Rect, type Vec, boundsOf, cross, dot, lerp, matMul, matTranslate, rectUnion, rot, sub } from "../geom/vec.js";
 import type { HandSpec } from "../ink/presets.js";
 import { type ShapeContour, inkShape } from "../ink/shape.js";
 import { isObj } from "../load/normalize.js";
@@ -12,7 +12,7 @@ import type { RElement } from "../model/resolve.js";
 import { paintAvgLuminance, parsePaint, resolveHand, resolveStroke } from "../model/values.js";
 import type { Node, Paint } from "../render/ir.js";
 import polygonClipping from "polygon-clipping";
-import { BODY_GENERATORS, type BodyGeom, type ShapeParams } from "../shapes/balloon.js";
+import { BODY_GENERATORS, type BodyGeom, type ShapeParams, defaultSpikeDepth } from "../shapes/balloon.js";
 import { Contour, type PluginBalloonShape, activePlugins } from "../plugin.js";
 import { type TextLayout, breakFaults, layoutText, parseLayoutText } from "../text/layout.js";
 import { type ElemCtx, silhouetteHit, tag } from "./context.js";
@@ -251,7 +251,7 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       const fh = sizeValue(fixedSize[1], ctx.coordsBox.h, pc);
       if (fw !== "auto" && fh !== "auto") {
         const physicalSpikes = (kind === "spike" || kind === "burst") && params.depth === undefined;
-        if (physicalSpikes) params.spikeScale = Math.min(1, Math.min(fw, fh) * 0.9 / (2.2 * (kind === "burst" ? 5 : 3) * u.k));
+        if (physicalSpikes) params.spikeScale = Math.min(1, Math.min(fw, fh) * 0.9 / (2.2 * defaultSpikeDepth(kind === "burst") * u.k));
         const probe = genBody(kind, fw, fh, params, shapeSeed);
         const ob = boundsOf(probe.contour.pts);
         fixedBase = { w: fw * (fw / ob.w), h: fh * (fh / ob.h) };
@@ -602,29 +602,114 @@ function pointAtArc(pts: Vec[], s: number[], at: number): { p: Vec; i: number } 
   return { p: { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, i: lo };
 }
 
-function spikeTailBase(contour: ShapeContour, s: number[], at: number, tip: Vec, dir: Vec, widthScale: number) {
+type TailBase = { A: ReturnType<typeof pointAtArc>; B: ReturnType<typeof pointAtArc> };
+type TailFlanks = { sideA: Vec[]; sideB: Vec[]; zigCorners: number[] };
+
+function tailEdgesIntersect(a: Vec, b: Vec, p: Vec, q: Vec, allowed?: "shared-end" | "start" | "end"): boolean {
+  const epsilon = 1e-9;
+  if (Math.max(a.x, b.x) < Math.min(p.x, q.x) - epsilon || Math.max(p.x, q.x) < Math.min(a.x, b.x) - epsilon
+    || Math.max(a.y, b.y) < Math.min(p.y, q.y) - epsilon || Math.max(p.y, q.y) < Math.min(a.y, b.y) - epsilon) return false;
+  const side = sub(b, a), edge = sub(q, p), offset = sub(p, a);
+  const sideLength2 = dot(side, side);
+  if (sideLength2 < epsilon ** 2 || dot(edge, edge) < epsilon ** 2) return false;
+  const den = cross(side, edge);
+  if (Math.abs(den) < 1e-12) {
+    if (Math.abs(cross(offset, side)) > 1e-12) return false;
+    const t = dot(offset, side) / sideLength2, u = dot(sub(q, a), side) / sideLength2;
+    const lo = Math.max(0, Math.min(t, u)), hi = Math.min(1, Math.max(t, u));
+    return hi >= lo - epsilon && !(hi - lo <= epsilon
+      && (allowed === "shared-end" || allowed === "start" && hi <= epsilon || allowed === "end" && lo >= 1 - epsilon));
+  }
+  const t = cross(offset, edge) / den, u = cross(offset, side) / den;
+  const atStart = t <= epsilon, atEnd = t >= 1 - epsilon;
+  const shared = (atStart || atEnd) && (u <= epsilon || u >= 1 - epsilon);
+  return t >= -epsilon && t <= 1 + epsilon && u >= -epsilon && u <= 1 + epsilon
+    && !(allowed === "start" && atStart || allowed === "end" && atEnd || allowed === "shared-end" && shared);
+}
+
+function validSpikeTail(body: Vec[], outline: Vec[], rootIndex: number): boolean {
+  for (let i = rootIndex; i < outline.length; i++) {
+    const a = outline[i], b = outline[(i + 1) % outline.length];
+    if ((i > rootIndex && pointInPolygon(a, body)) || pointInPolygon(lerp(a, b, 0.5), body)) return false;
+    for (let j = 0; j < body.length; j++) {
+      if (tailEdgesIntersect(a, b, body[j], body[(j + 1) % body.length],
+        i === rootIndex ? "start" : i === outline.length - 1 ? "end" : undefined)) return false;
+    }
+  }
+  const edges = outline.map((a, i) => {
+    const b = outline[(i + 1) % outline.length];
+    return { a, b, i, lo: Math.min(a.x, b.x), hi: Math.max(a.x, b.x) };
+  }).sort((a, b) => a.lo - b.lo);
+  for (let i = 0; i < edges.length; i++) {
+    const a = edges[i];
+    if (Math.hypot(a.a.x - a.b.x, a.a.y - a.b.y) <= 1e-9) return false;
+    for (let j = i + 1; j < edges.length && edges[j].lo <= a.hi + 1e-9; j++) {
+      const b = edges[j];
+      const distance = Math.abs(a.i - b.i);
+      if (tailEdgesIntersect(a.a, a.b, b.a, b.b, distance === 1 || distance === outline.length - 1 ? "shared-end" : undefined)) return false;
+    }
+  }
+  return true;
+}
+
+function spliceTail(contour: ShapeContour, { A, B }: TailBase, { sideA, sideB, zigCorners }: TailFlanks) {
+  const n = contour.pts.length;
+  const pts = [B.p];
+  const idxMap = new Map<number, number>();
+  for (let i = (B.i + 1) % n; ; i = (i + 1) % n) {
+    const p = contour.pts[i], prev = pts[pts.length - 1];
+    if (Math.hypot(p.x - prev.x, p.y - prev.y) > 1e-9) pts.push(p);
+    idxMap.set(i, pts.length - 1);
+    if (i === A.i) break;
+  }
+  const last = pts[pts.length - 1];
+  if (Math.hypot(A.p.x - last.x, A.p.y - last.y) > 1e-9) pts.push(A.p);
+  const rootIndex = pts.length - 1;
+  for (let i = 1; i < sideA.length; i++) pts.push(sideA[i]);
+  const tipIndex = pts.length - 1;
+  const bStart = pts.length;
+  for (let i = sideB.length - 2; i >= 1; i--) pts.push(sideB[i]);
+  const corners = (contour.corners ?? []).filter(c => idxMap.has(c.index))
+    .map(c => ({ index: idxMap.get(c.index)!, kind: c.kind })).filter(c => c.index !== 0 && c.index !== rootIndex);
+  corners.push({ index: 0, kind: "concave" }, { index: rootIndex, kind: "concave" }, { index: tipIndex, kind: "point" });
+  for (const i of zigCorners) corners.push({ index: rootIndex + i, kind: "convex" }, { index: bStart + sideB.length - 2 - i, kind: "convex" });
+  return { outline: { pts, closed: true, corners, smooth: false }, rootIndex };
+}
+
+function* spikeTailBases(contour: ShapeContour, s: number[], at: number, width: number): Generator<TailBase> {
   const corners = (contour.corners ?? []).slice().sort((a, b) => a.index - b.index);
   const n = corners.length;
   const perimeter = s[s.length - 1];
-  if (n < 5) return;
-  const after = corners.findIndex(c => s[c.index] > at % perimeter + 1e-8);
-  const next = after < 0 ? 0 : after;
-  const corner = (i: number) => corners[(next + i + n) % n];
-  const [leftOffset, rightOffset] = corner(0).kind === "tip" ? [-1, 1] : [-2, 0];
-  const left = corner(leftOffset);
-  const right = corner(rightOffset);
-  if (left.kind !== "valley" || right.kind !== "valley" || corner(leftOffset + 1).kind !== "tip") return;
-  const prev = corner(leftOffset - 1);
-  const following = corner(rightOffset + 1);
-  const start = s[left.index], end = s[right.index];
-  const flankA = prev.kind === "tip" ? (start - s[prev.index] + perimeter) % perimeter : 0;
-  const flankB = following.kind === "tip" ? (s[following.index] - end + perimeter) % perimeter : 0;
-  // Widen into the adjacent flanks without moving or swallowing their tips.
-  const widen = Math.max(0, Math.min(0.5, 0.3 * widthScale));
-  for (const f of [widen, 0]) {
-    const A = pointAtArc(contour.pts, s, start - flankA * f);
-    const B = pointAtArc(contour.pts, s, end + flankB * f);
-    if (dot(sub(tip, A.p), dir) > 0 && dot(sub(tip, B.p), dir) > 0) return { A, B };
+  const around = (a: number) => (a + perimeter) % perimeter;
+  const candidates = corners.flatMap((peak, i) => {
+    const left = corners[(i + n - 1) % n], right = corners[(i + 1) % n];
+    if (left.kind !== "valley" || right.kind !== "valley" || peak.kind !== "tip") return [];
+    const apex = s[peak.index];
+    const spanA = around(apex - s[left.index]), spanB = around(s[right.index] - apex);
+    const offset = around(at - s[left.index]);
+    const distance = offset <= spanA + spanB ? 0 : Math.min(offset - spanA - spanB, perimeter - offset);
+    return [{ apex, spanA, spanB, distance }];
+  }).sort((a, b) => a.distance - b.distance);
+  for (const { apex, spanA, spanB } of candidates) {
+    const roots = (f: number) => ({
+      A: pointAtArc(contour.pts, s, apex - spanA * f),
+      B: pointAtArc(contour.pts, s, apex + spanB * f),
+    });
+    let lo = 0, hi = 1;
+    const fits = ({ A, B }: TailBase) => Math.hypot(A.p.x - B.p.x, A.p.y - B.p.y) <= width;
+    let base = roots(1);
+    if (!fits(base)) {
+      for (let i = 0; i < 20; i++) {
+        const f = (lo + hi) / 2;
+        if (fits(roots(f))) lo = f;
+        else hi = f;
+      }
+      base = roots(lo);
+    }
+    yield base;
+  }
+  for (const half of [width / 2, width / 4]) {
+    yield { A: pointAtArc(contour.pts, s, at - half), B: pointAtArc(contour.pts, s, at + half) };
   }
 }
 
@@ -999,11 +1084,11 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx, strokeWidth
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
     // a lightning-bolt tail is a wider band than a wedge
     const bwAuto = automaticTailWidth(minSide, u.k, kind);
-    const bw = (t.width !== undefined ? toMm(t.width as string, u) : bwAuto) * widthScale;
-    // on a spiky body the tail is one more, larger spike of the outline (the shout/scream presets
-    // also set bend/sideCurve 0 for straight sides)
-    let bend = typeof t.bend === "number" ? t.bend : 0.1;
-    const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : 0.12;
+    const spikeWedge = spiky && kind === "wedge" && !offSide;
+    const thinSpike = spikeWedge && t.width === undefined;
+    const bw = thinSpike ? 1.3 * u.k * Math.min(1, widthScale) : (t.width !== undefined ? toMm(t.width as string, u) : bwAuto) * widthScale;
+    let bend = typeof t.bend === "number" ? t.bend : spikeWedge ? 0 : 0.1;
+    const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : spikeWedge ? 0 : 0.12;
     const perp = { x: -dir.y, y: dir.x };
     let tip = { x: R.x + dir.x * length, y: R.y + dir.y * length };
     // an explicitly curled tail turns toward the face: its centre line is a circular arc whose centre
@@ -1068,12 +1153,6 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx, strokeWidth
     // wedge / zigzag: splice into contour
     const s = arcLengths(cur.pts);
     const sR = s[hit.index] + hit.u * (s[hit.index + 1] - s[hit.index]);
-    const spikeBase = spiky && kind === "wedge" && !offSide && t.width === undefined
-      ? spikeTailBase(cur, s, sR, tipBent, dir, widthScale)
-      : undefined;
-    const { A, B } = spikeBase ?? { A: pointAtChord(cur.pts, s, sR, bw / 2, -1), B: pointAtChord(cur.pts, s, sR, bw / 2, 1) };
-    const sideA: Vec[] = [];
-    const sideB: Vec[] = [];
     const N = Math.max(12, Math.ceil(length / (0.3 * u.k)));
     const zig = kind === "zigzag";
     const straightBolt = zig && plan.params.kind === "electronic";
@@ -1093,99 +1172,137 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx, strokeWidth
     const nOut = { x: (R.x - center.x) / nl, y: (R.y - center.y) / nl };
     const straight = !zig && !offSide && bend === 0 && sideCurve === 0 && !arcFn;
     const slanted = !straight && !zig && !offSide && nOut.x * dir.x + nOut.y * dir.y < 0.55;
-    const boltSign = Math.sign(dot(sub(A.p, B.p), perp)) || 1;
-    const zigCorners: number[] = [];
-    for (let i = 0; i <= steps; i++) {
-      const tt = i / steps;
-      if (straightBolt) {
-        // Both sides run directly from the same root opening to the first bend.
-        if (i === 0) {
-          sideA.push(A.p);
-          sideB.push(B.p);
-        } else {
-          const mid = zigV[i];
-          const half = bw * (1 - tt) / 2 * boltSign;
-          sideA.push({ x: mid.x + perp.x * half, y: mid.y + perp.y * half });
-          sideB.push({ x: mid.x - perp.x * half, y: mid.y - perp.y * half });
-          if (i < steps) zigCorners.push(i);
+    const drawFlanks = ({ A, B }: TailBase): TailFlanks => {
+      const sideA: Vec[] = [];
+      const sideB: Vec[] = [];
+      const boltSign = Math.sign(dot(sub(A.p, B.p), perp)) || 1;
+      const zigCorners: number[] = [];
+      for (let i = 0; i <= steps; i++) {
+        const tt = i / steps;
+        if (straightBolt) {
+          // Both sides run directly from the same root opening to the first bend.
+          if (i === 0) {
+            sideA.push(A.p);
+            sideB.push(B.p);
+          } else {
+            const mid = zigV[i];
+            const half = bw * (1 - tt) / 2 * boltSign;
+            sideA.push({ x: mid.x + perp.x * half, y: mid.y + perp.y * half });
+            sideB.push({ x: mid.x - perp.x * half, y: mid.y - perp.y * half });
+            if (i < steps) zigCorners.push(i);
+          }
+          continue;
         }
-        continue;
+        if (straight) {
+          sideA.push({ x: A.p.x + (tip.x - A.p.x) * tt, y: A.p.y + (tip.y - A.p.y) * tt });
+          sideB.push({ x: B.p.x + (tip.x - B.p.x) * tt, y: B.p.y + (tip.y - B.p.y) * tt });
+          continue;
+        }
+        let cl = arcFn ? arcFn(tt) : quad(R, ctrl, tipBent, tt);
+        if (zig) {
+          const pos = tt * segs;
+          const k = Math.min(segs - 1, Math.floor(pos));
+          const u = pos - k;
+          cl = lerp(zigV[k], zigV[k + 1], u);
+          if (i > 0 && i < steps && Math.abs(u) < 1e-9) zigCorners.push(i);
+        }
+        // off-panel tails stay open where the frame cuts them
+        const f = zig ? Math.max(0, 1 - tt) ** 1.15 : frameCut ? 1 - 0.65 * Math.pow(tt, 0.8) : Math.pow(1 - tt, 1 + sideCurve * 1.6);
+        if (slanted) {
+          // the tail leaves the outline at a slant: bow the centre line outward first, and keep
+          // the width square to the local direction so it never collapses into a line
+          const c0 = { x: R.x + nOut.x * length * 0.45 + dir.x * length * 0.2, y: R.y + nOut.y * length * 0.45 + dir.y * length * 0.2 };
+          const cq = (x: number) => (arcFn ? arcFn(x) : quad(R, c0, tip, x));
+          const q = cq(tt);
+          const q2 = cq(Math.min(1, tt + 0.01));
+          const q1 = cq(Math.max(0, tt - 0.01));
+          const tg = { x: q2.x - q1.x, y: q2.y - q1.y };
+          const tl2 = Math.hypot(tg.x, tg.y) || 1;
+          let nn = { x: -tg.y / tl2, y: tg.x / tl2 };
+          if (nn.x * (A.p.x - R.x) + nn.y * (A.p.y - R.y) < 0) nn = { x: -nn.x, y: -nn.y };
+          const half = (bw / 2) * Math.pow(1 - tt, 1 + sideCurve);
+          const w8 = Math.min(1, tt * 4);
+          sideA.push({ x: A.p.x * (1 - w8) + (q.x + nn.x * half) * w8, y: A.p.y * (1 - w8) + (q.y + nn.y * half) * w8 });
+          sideB.push({ x: B.p.x * (1 - w8) + (q.x - nn.x * half) * w8, y: B.p.y * (1 - w8) + (q.y - nn.y * half) * w8 });
+          continue;
+        }
+        if (zig) {
+          // the bolt keeps an even band square to the tail axis (blended from the root points)
+          const sg = perp.x * (A.p.x - R.x) + perp.y * (A.p.y - R.y) < 0 ? -1 : 1;
+          const half = (bw / 2) * f;
+          const w8 = Math.min(1, tt * 5);
+          sideA.push({ x: (cl.x + (A.p.x - R.x) * f) * (1 - w8) + (cl.x + perp.x * sg * half) * w8, y: (cl.y + (A.p.y - R.y) * f) * (1 - w8) + (cl.y + perp.y * sg * half) * w8 });
+          sideB.push({ x: (cl.x + (B.p.x - R.x) * f) * (1 - w8) + (cl.x - perp.x * sg * half) * w8, y: (cl.y + (B.p.y - R.y) * f) * (1 - w8) + (cl.y - perp.y * sg * half) * w8 });
+          continue;
+        }
+        sideA.push({ x: cl.x + (A.p.x - R.x) * f, y: cl.y + (A.p.y - R.y) * f });
+        sideB.push({ x: cl.x + (B.p.x - R.x) * f, y: cl.y + (B.p.y - R.y) * f });
       }
-      if (straight) {
-        sideA.push({ x: A.p.x + (tip.x - A.p.x) * tt, y: A.p.y + (tip.y - A.p.y) * tt });
-        sideB.push({ x: B.p.x + (tip.x - B.p.x) * tt, y: B.p.y + (tip.y - B.p.y) * tt });
-        continue;
+      return { sideA, sideB, zigCorners };
+    };
+    const chordBase = (at: number) => ({
+      A: pointAtChord(cur.pts, s, at, bw / 2, -1),
+      B: pointAtChord(cur.pts, s, at, bw / 2, 1),
+    });
+    const fit = (base: TailBase, flanks: TailFlanks) => {
+      if (thinSpike && pointInPolygon(flanks.sideA[flanks.sideA.length - 1], contour.pts)) return;
+      const { outline, rootIndex } = spliceTail(cur, base, flanks);
+      if (!thinSpike || validSpikeTail(contour.pts, outline.pts, rootIndex)) return { outline, flanks };
+    };
+    const tryBases = (at: number, draw: (base: TailBase) => TailFlanks) => {
+      for (const base of spikeTailBases(cur, s, at, bw)) {
+        const fitted = fit(base, draw(base));
+        if (fitted) return fitted;
       }
-      let cl = arcFn ? arcFn(tt) : quad(R, ctrl, tipBent, tt);
-      if (zig) {
-        const pos = tt * segs;
-        const k = Math.min(segs - 1, Math.floor(pos));
-        const u = pos - k;
-        cl = lerp(zigV[k], zigV[k + 1], u);
-        if (i > 0 && i < steps && Math.abs(u) < 1e-9) zigCorners.push(i);
+    };
+    const ordinary = chordBase(sR);
+    let fitted = thinSpike ? tryBases(sR, drawFlanks) : fit(ordinary, drawFlanks(ordinary));
+    if (!fitted && thinSpike) {
+      const drawStraight = (end: Vec) => ({ A, B }: TailBase): TailFlanks => ({
+        sideA: Array.from({ length: steps + 1 }, (_, i) => lerp(A.p, end, i / steps)),
+        sideB: Array.from({ length: steps + 1 }, (_, i) => lerp(B.p, end, i / steps)),
+        zigCorners: [],
+      });
+      const along = (d: number) => ({ x: R.x + dir.x * d, y: R.y + dir.y * d });
+      const back = { x: -dir.x, y: -dir.y };
+      let run = length;
+      if (pointInPolygon(along(run), cur.pts)) {
+        const entry = rayPolygon(along(run), back, cur.pts);
+        if (entry && entry.t < run) {
+          const beforeEntry = run - entry.t - 1e-7 * u.k;
+          if (beforeEntry > 0 && !pointInPolygon(along(beforeEntry), cur.pts)) {
+            const exit = rayPolygon(along(beforeEntry), back, cur.pts);
+            run = beforeEntry - Math.min(beforeEntry, exit?.t ?? beforeEntry) / 2;
+          }
+        }
       }
-      // off-panel tails stay open where the frame cuts them
-      const f = zig ? Math.max(0, 1 - tt) ** 1.15 : frameCut ? 1 - 0.65 * Math.pow(tt, 0.8) : Math.pow(1 - tt, 1 + sideCurve * 1.6);
-      if (slanted) {
-        // the tail leaves the outline at a slant: bow the centre line outward first, and keep
-        // the width square to the local direction so it never collapses into a line
-        const c0 = { x: R.x + nOut.x * length * 0.45 + dir.x * length * 0.2, y: R.y + nOut.y * length * 0.45 + dir.y * length * 0.2 };
-        const cq = (x: number) => (arcFn ? arcFn(x) : quad(R, c0, tip, x));
-        const q = cq(tt);
-        const q2 = cq(Math.min(1, tt + 0.01));
-        const q1 = cq(Math.max(0, tt - 0.01));
-        const tg = { x: q2.x - q1.x, y: q2.y - q1.y };
-        const tl2 = Math.hypot(tg.x, tg.y) || 1;
-        let nn = { x: -tg.y / tl2, y: tg.x / tl2 };
-        if (nn.x * (A.p.x - R.x) + nn.y * (A.p.y - R.y) < 0) nn = { x: -nn.x, y: -nn.y };
-        const half = (bw / 2) * Math.pow(1 - tt, 1 + sideCurve);
-        const w8 = Math.min(1, tt * 4);
-        sideA.push({ x: A.p.x * (1 - w8) + (q.x + nn.x * half) * w8, y: A.p.y * (1 - w8) + (q.y + nn.y * half) * w8 });
-        sideB.push({ x: B.p.x * (1 - w8) + (q.x - nn.x * half) * w8, y: B.p.y * (1 - w8) + (q.y - nn.y * half) * w8 });
-        continue;
+      for (const fraction of [1, 0.75, 0.5, 0.25, 0.125]) {
+        const distance = run * fraction;
+        const end = along(distance);
+        if (pointInPolygon(end, contour.pts)) continue;
+        const draw = drawStraight(end);
+        if (!straight || distance < length) fitted = tryBases(sR, draw);
+        if (fitted) break;
+        const visible = rayPolygon(end, back, cur.pts);
+        if (visible && visible.t <= distance + 1e-7 * u.k) {
+          const at = s[visible.index] + visible.u * (s[visible.index + 1] - s[visible.index]);
+          for (const half of [bw / 2, bw / 4, bw / 8, bw / 16, bw / 32, bw / 64]) {
+            const base = { A: pointAtArc(cur.pts, s, at - half), B: pointAtArc(cur.pts, s, at + half) };
+            fitted = fit(base, draw(base));
+            if (fitted) break;
+          }
+        }
+        if (fitted) break;
       }
-      if (zig) {
-        // the bolt keeps an even band square to the tail axis (blended from the root points)
-        const sg = perp.x * (A.p.x - R.x) + perp.y * (A.p.y - R.y) < 0 ? -1 : 1;
-        const half = (bw / 2) * f;
-        const w8 = Math.min(1, tt * 5);
-        sideA.push({ x: (cl.x + (A.p.x - R.x) * f) * (1 - w8) + (cl.x + perp.x * sg * half) * w8, y: (cl.y + (A.p.y - R.y) * f) * (1 - w8) + (cl.y + perp.y * sg * half) * w8 });
-        sideB.push({ x: (cl.x + (B.p.x - R.x) * f) * (1 - w8) + (cl.x - perp.x * sg * half) * w8, y: (cl.y + (B.p.y - R.y) * f) * (1 - w8) + (cl.y - perp.y * sg * half) * w8 });
-        continue;
-      }
-      sideA.push({ x: cl.x + (A.p.x - R.x) * f, y: cl.y + (A.p.y - R.y) * f });
-      sideB.push({ x: cl.x + (B.p.x - R.x) * f, y: cl.y + (B.p.y - R.y) * f });
+      ctx.bag.warn("BALLOON_TAIL_NO_CLEAR_BASE", fitted
+        ? `the requested tail of ${plan.el.id} crosses its balloon outline; drew a straight tail instead`
+        : `the tail of ${plan.el.id} cannot be drawn without crossing its balloon outline; adjust its root, direction, length, or bend`,
+      { path: plan.el.path, elementId: plan.el.id });
     }
+    if (!fitted) continue;
+    const { sideA, sideB } = fitted.flanks;
     footprints.push({ pts: [...sideA, ...sideB.slice().reverse()], closed: true });
-    // new contour: from B forward around to A, then A->tip, tip->B
-    const n = cur.pts.length;
-    const out: Vec[] = [B.p];
-    const idxMap = new Map<number, number>();
-    let i = (B.i + 1) % n;
-    let guard = 0;
-    while (guard++ < n + 2) {
-      const prev = out[out.length - 1];
-      if (Math.hypot(cur.pts[i].x - prev.x, cur.pts[i].y - prev.y) > 1e-9) out.push(cur.pts[i]);
-      idxMap.set(i, out.length - 1);
-      if (i === A.i) break;
-      i = (i + 1) % n;
-    }
-    const last = out[out.length - 1];
-    if (Math.hypot(A.p.x - last.x, A.p.y - last.y) > 1e-9) out.push(A.p);
-    const aIndex = out.length - 1;
-    for (let k = 1; k < sideA.length; k++) out.push(sideA[k]);
-    const tipIndex = out.length - 1;
-    const bStart = out.length;
-    for (let k = sideB.length - 2; k >= 1; k--) out.push(sideB[k]);
-    const corners = (cur.corners ?? []).filter((c) => idxMap.has(c.index)).map((c) => ({ index: idxMap.get(c.index)!, kind: c.kind })).filter((c) => c.index !== 0 && c.index !== aIndex);
-    corners.push({ index: 0, kind: "concave" }, { index: aIndex, kind: "concave" }, { index: tipIndex, kind: "point" });
-    for (const zc of zigCorners) {
-      corners.push({ index: aIndex + zc, kind: "convex" });
-      corners.push({ index: bStart + (sideB.length - 2 - zc), kind: "convex" });
-    }
-    const smoothBody = cur.smooth || !cur.corners;
-    cur = { pts: out, closed: true, corners, smooth: false };
-    void smoothBody;
+    cur = fitted.outline;
   }
   return { contour: cur, extra, footprints, rootAngle, length: tailLength };
 }
