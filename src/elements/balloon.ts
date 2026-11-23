@@ -209,7 +209,7 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
   if (!BODY_GENERATORS[params.kind] && !activePlugins()?.shapes.has(params.kind)) ctx.bag.error("SCHEMA_ENUM", `unknown balloon shape "${params.kind}"`, { path: [...el.path, "shape"] });
   const shapeSeed = rng.nextU32();
   const text = textValue(p.text, ctx.lang, ctx.defaultLang, () => ctx.bag.warn("TEXT_MISSING_TRANSLATION", `no "${ctx.lang}" text`, { path: el.path, elementId: el.id }));
-  const balloonPhraseBreaks = p.as !== "narration" && p.as !== "aside";
+  const balloonPhraseBreaks = p.as !== "aside";
   const fill = parsePaint(p.fill ?? "paper", { u, box: { x: 0, y: 0, w: 10, h: 10 }, seed: el.seed, bag: ctx.bag, path: [...el.path, "fill"] });
   const lum = paintAvgLuminance(fill);
   const textColor = (p.color as string) ?? (lum < 0.5 ? "white" : "black");

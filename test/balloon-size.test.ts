@@ -151,9 +151,15 @@ describe("balloon text extent sizing", () => {
     expect(actual.text.errors).toEqual([]);
     expect(actual.text.lines.map(line => line.text)).toEqual(["山　川"]);
   });
-  it.each(["narration", "aside"])("does not change full-width spaces in %s", async (as) => {
-    const actual = await plan("あ　い", "vertical", { as, wrap: "none" });
+  it("does not change full-width spaces in aside", async () => {
+    const actual = await plan("あ　い", "vertical", { as: "aside", wrap: "none" });
     expect(actual.text.lines).toHaveLength(1);
+  });
+  it.each(["vertical", "horizontal"])("breaks narration columns at full-width spaces in %s text", async (writing) => {
+    const expected = await plan("——じいちゃん\nの字は\nいつも\n紙から", writing, { as: "narration" });
+    const actual = await plan("——じいちゃん\nの字は　いつも\n紙から", writing, { as: "narration" });
+    expect(actual.text).toEqual(expected.text);
+    expect(actual.outer).toEqual(expected.outer);
   });
 
   it("defaults tremble to irregular waves while honoring explicit waveforms", async () => {
