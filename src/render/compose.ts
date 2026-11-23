@@ -524,7 +524,7 @@ async function composePageInner(doc: ResolvedDoc, page: RPage, physicalIndex: nu
     const h = rec.h * rec.scale[1];
     const box = { x: rec.at.x - w * rec.uv[0], y: rec.at.y - h * rec.uv[1], w, h };
     const text = info.text.find((x) => x.id === el.id);
-    return { frame: rec.frame, at: rec.at, offset: rec.offset, uv: rec.uv, box, rotate: rec.rotate, pivot: rec.at, size: [w, h], fontSize: text?.fontSize ?? fontSize };
+    return { frame: rec.frame, at: rec.at, offset: rec.offset, uv: rec.uv, box, rotate: rec.rotate, pivot: rec.at, size: [w, h], scale: rec.scale, fontSize: text?.fontSize ?? fontSize };
   };
 
   // collect items

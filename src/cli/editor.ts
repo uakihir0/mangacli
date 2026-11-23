@@ -103,8 +103,8 @@ export async function startEditor(o: EditorOptions): Promise<EditorServer> {
     const t0 = performance.now();
     const base = { ...(await o.options()), throwOnError: false, editInfo: true };
     base.onSystemFont = (path) => watcher.add(path);
-    const partial = !!only?.length && !!last && only.every((id) => last!.pages.has(id));
-    const opts = partial ? { ...base, pages: (p: { id: string }) => only!.includes(p.id) } : base;
+    let partial = !!only?.length && !!last && only.every((id) => last!.pages.has(id));
+    const opts: RenderOptions = { ...base };
     let rendered: RenderResult | undefined;
     let diagnostics: Diagnostic[] = [];
     const sources = new Map<string, Source>();
@@ -117,10 +117,13 @@ export async function startEditor(o: EditorOptions): Promise<EditorServer> {
           const resolved = resolveDocument(project.doc, project.bag.fork(), { lang: opts.lang });
           order = resolved.pages.map((p) => p.id);
           describe(resolved, project.loaded.locate, yaml, state, sources);
+          // a page whose id changed is not where the last render had it: draw everything
+          if (partial && !only!.every((id) => order!.includes(id))) partial = false;
         } catch {
           // element positions are a convenience; the render below reports the real problem
         }
       }
+      if (partial) opts.pages = (p: { id: string }) => only!.includes(p.id);
       rendered = await render(project, opts);
       diagnostics = rendered.diagnostics;
     } catch (e) {
@@ -154,6 +157,8 @@ export async function startEditor(o: EditorOptions): Promise<EditorServer> {
         if (ps && c.info) {
           ps.layout = c.info.layoutEdit;
           ps.trim = c.info.geom.trim;
+          ps.bleedBox = c.info.geom.bleedBox;
+          ps.baseFrame = c.info.geom.baseFrame;
           for (const pn of ps.panels) {
             const g = c.info.panels.find((x) => x.id === pn.id);
             if (g) Object.assign(pn, { box: g.box, polygon: g.polygon });
@@ -186,7 +191,7 @@ export async function startEditor(o: EditorOptions): Promise<EditorServer> {
           dividers: ps.layout?.dividers.map((d) => ({ axis: d.axis, a: d.a, b: d.b, slant: d.slant, kind: d.kind })) ?? [],
           lines: ps.layout?.lines.map((l) => ({ a: l.a, b: l.b })) ?? [],
           line: sources.get(`page:${pid}`)?.line,
-          panels: ps.panels.map((pn) => ({ id: pn.id, polygon: pn.polygon, overlay: pn.overlay, editable: pn.src !== undefined, line: sources.get(`panel:${pn.id}`)?.line, column: sources.get(`panel:${pn.id}`)?.column })),
+          panels: ps.panels.map((pn) => ({ id: pn.id, polygon: pn.polygon, shape: ps.layout?.polys[pn.id], overlay: pn.overlay, editable: pn.src !== undefined, line: sources.get(`panel:${pn.id}`)?.line, column: sources.get(`panel:${pn.id}`)?.column })),
         };
       }
       for (const [eid, st] of state.elements) {
@@ -198,7 +203,7 @@ export async function startEditor(o: EditorOptions): Promise<EditorServer> {
           panel: st.panel,
           editable: st.src !== undefined,
           ...sources.get(eid),
-          edit: ed && { at: ed.at, uv: ed.uv, box: ed.box, rotate: ed.rotate, pivot: ed.pivot, keepAspect: st.type === "image" || st.type === "text" || st.type === "sfx", tails: ed.tails?.filter((t) => Number.isFinite(t.tip.x)), center: ed.center },
+          edit: ed && { at: ed.at, uv: ed.uv, box: ed.box, rotate: ed.rotate, pivot: ed.pivot, keepAspect: st.type === "image" || st.type === "text" || st.type === "sfx", tails: ed.tails?.map((t, index) => ({ ...t, index })).filter((t) => Number.isFinite(t.tip.x)), center: ed.center },
         };
       }
     }
@@ -247,7 +252,9 @@ export async function startEditor(o: EditorOptions): Promise<EditorServer> {
     } catch {
       // the loader reports it
     }
+    // only list items are nodes of their own; a path ending in a key (the yonkoma title panel, its title) points at the key
     const here = (path: (string | number)[]) => {
+      if (typeof path[path.length - 1] !== "number") return undefined;
       const loc = locate(path, true);
       return loc && loc.file === entry ? loc : undefined;
     };

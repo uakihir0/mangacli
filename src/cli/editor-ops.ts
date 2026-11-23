@@ -37,6 +37,8 @@ export interface PageState {
   layout?: LayoutEdit;
   panels: PanelState[];
   trim: Rect;
+  bleedBox?: Rect;
+  baseFrame?: Rect;
 }
 
 export interface EditState {
@@ -136,14 +138,16 @@ export function applyOp(state: EditState, op: Op): string {
       const fy = b.h / g.box.h;
       const own = y.value(e.src);
       const props = isObj(own) ? own : {};
+      // sizes are written before `scale`, which place() applies again
+      const [sx, sy] = g.scale ?? [1, 1];
       if (e.type === "text" || e.type === "sfx") {
         const f = Math.sqrt(fx * fy);
         if (g.fontSize) y.set(e.src, ["fontSize"], lengthLike(props.fontSize, g.fontSize * f), { rootWrap: "text" });
-        if (Array.isArray(props.size) && g.size) y.set(e.src, ["size"], [mm(g.size[0] * fx), mm(g.size[1] * fy)]);
+        if (Array.isArray(props.size) && g.size) y.set(e.src, ["size"], [mm((g.size[0] * fx) / sx), mm((g.size[1] * fy) / sy)]);
       } else if (e.type === "image") {
-        y.set(e.src, ["size"], [mm(b.w), "auto"]);
+        y.set(e.src, ["size"], [mm(b.w / sx), "auto"]);
       } else if (g.size) {
-        y.set(e.src, ["size"], [mm(g.size[0] * fx), mm(g.size[1] * fy)], { rootWrap: "text" });
+        y.set(e.src, ["size"], [mm((g.size[0] * fx) / sx), mm((g.size[1] * fy) / sy)], { rootWrap: "text" });
       }
       writeAt(e, { x: b.x + b.w * g.uv[0] + (g.at.x - (g.box.x + g.box.w * g.uv[0])), y: b.y + b.h * g.uv[1] + (g.at.y - (g.box.y + g.box.h * g.uv[1])) });
       break;
@@ -201,7 +205,19 @@ export function applyOp(state: EditState, op: Op): string {
         // a one-line value is written as typed
         raw = op.yaml.includes("\n") ? undefined : op.yaml;
       }
-      y.set(src, op.key, value, { raw, rootWrap: "text" });
+      // a value typed for one context can read differently where it lands (a comma in a flow map, `a: 1` after a key): fall back to flow YAML then
+      const tryRaw = new YamlText(y.text);
+      let ok = false;
+      if (raw !== undefined) {
+        try {
+          tryRaw.set(src, op.key, value, { raw, rootWrap: "text" });
+          ok = JSON.stringify(tryRaw.value(src, op.key)) === JSON.stringify(value);
+        } catch {
+          ok = false;
+        }
+      }
+      if (ok) y.text = tryRaw.text;
+      else y.set(src, op.key, value, { rootWrap: "text" });
       break;
     }
     case "add": {
@@ -222,8 +238,9 @@ export function applyOp(state: EditState, op: Op): string {
       if (op.op === "remove") y.delete(src, keys);
       else {
         const v = y.value(e.src);
-        const copy: Obj = isObj(v) ? { ...v } : { text: v };
-        delete copy.id;
+        // the copy and everything in it get new automatic ids
+        const strip = (x: unknown): unknown => (Array.isArray(x) ? x.map(strip) : isObj(x) ? Object.fromEntries(Object.entries(x).filter(([k]) => k !== "id").map(([k, w]) => [k, strip(w)])) : x);
+        const copy = (isObj(v) ? strip(v) : { text: v }) as Obj;
         y.insert(src, keys.slice(0, -1), index + 1, copy);
       }
       break;
@@ -240,7 +257,12 @@ export function applyOp(state: EditState, op: Op): string {
       sizes[i + 1] -= m;
       const spec = (j: number) => {
         const s = d.specs[j] ?? 1;
-        return typeof s === "number" ? r2((s * sizes[j]) / (d.sizes[j] || 1)) : lengthLike(s, sizes[j]);
+        if (typeof s === "number") return r2((s * sizes[j]) / (d.sizes[j] || 1));
+        const t = String(s).trim();
+        // a bare number in quotes is a ratio, a percentage stays a percentage of the run
+        if (/^[-+]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t)) return r2((Number(t) * sizes[j]) / (d.sizes[j] || 1));
+        if (t.endsWith("%")) return pct(sizes[j], d.total);
+        return lengthLike(s, sizes[j]);
       };
       const src = pageSrc(page);
       if (d.kind === "rows") {
@@ -348,10 +370,11 @@ export function applyOp(state: EditState, op: Op): string {
         if (rect) y.set(p.src, ["box"], boxValue(rect, area));
         else y.set(p.src, ["polygon"], poly.map((q) => [pct(q.x - area.x, area.w), pct(q.y - area.y, area.h)]));
       }
+      // the boxes are relative to the area the layout used: keep it when it is not the base frame
       const layout = y.value(src, ["layout"]);
-      if (isObj(layout) && layout.area !== undefined) y.set(src, ["layout"], { free: true, area: layout.area });
-      else if (layout !== undefined) y.set(src, ["layout"], "free");
-      else y.set(src, ["layout"], "free");
+      const same = (a?: Rect, b?: Rect) => !!a && !!b && Math.abs(a.x - b.x) + Math.abs(a.y - b.y) + Math.abs(a.w - b.w) + Math.abs(a.h - b.h) < 0.01;
+      const areaValue = isObj(layout) && layout.area !== undefined ? layout.area : same(area, page.baseFrame) ? undefined : same(area, page.trim) ? "trim" : same(area, page.bleedBox) ? "bleed" : [mm(area.x - page.trim.x), mm(area.y - page.trim.y), mm(area.w), mm(area.h)];
+      y.set(src, ["layout"], areaValue === undefined ? "free" : { free: true, area: areaValue });
       break;
     }
   }
@@ -600,7 +623,14 @@ function compactRow(r: Obj): unknown {
   return keys.length === 1 && keys[0] === "cols" ? r.cols : r;
 }
 
-function writeLayout(y: YamlText, pageSrc: number, old: Layout, next: Obj | undefined) {
+/** the keys that say how the panels are divided; the others (area, gutter, …) are kept */
+const STRUCTURE = ["rows", "split", "sizes", "slant", "children", "template", "params", "free"];
+
+function writeLayout(y: YamlText, pageSrc: number, old: Layout, next0: Obj | undefined) {
+  const kept = isObj(old) ? Object.fromEntries(Object.entries(old).filter(([k]) => !STRUCTURE.includes(k))) : {};
+  // a rows layout's gutter moved into the split tree, where the layout's own gutter no longer applies
+  if (isObj(old) && Array.isArray(old.rows) && next0?.split) delete kept.gutter;
+  const next = next0 === undefined ? (Object.keys(kept).length ? kept : undefined) : { ...kept, ...next0 };
   if (next === undefined) return y.delete(pageSrc, ["layout"]);
   if (old === undefined || old === null || typeof old === "string") return y.set(pageSrc, ["layout"], next);
   // keep the author's other layout keys (area, gutter, …) as they were

@@ -30,8 +30,10 @@ export interface ElementEdit {
   /** rotation in radians, and the point it turns about */
   rotate: number;
   pivot: Vec;
-  /** what `size` means for this element (the body of a balloon), in mm */
+  /** what `size` means for this element (the body of a balloon), in mm, with `scale` applied */
   size?: [number, number];
+  /** the element's `scale`; written sizes are divided by it */
+  scale?: [number, number];
   fontSize?: number;
   /** balloon outline (page mm) and tail tips */
   body?: Vec[];
@@ -56,6 +58,8 @@ export interface LayoutDivider {
   /** sizes in mm of every slot in this run, and the raw specs (number ratio or length) */
   sizes: number[];
   specs: (number | string)[];
+  /** the length `%` sizes are measured against */
+  total: number;
   /** the span the slant is measured over (width for horizontal lines, height for vertical) */
   span: number;
   slant: number;

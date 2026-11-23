@@ -407,14 +407,14 @@ export function editorClient(cfg) {
     const rc = svg("circle", { cx: rp.x, cy: rp.y, r: 5 * k, class: "rothandle" }, g);
     rc.addEventListener("pointerdown", (e) => rotateDrag(v, e, id));
     // tails
-    (it.edit.tails || []).forEach((t, i) => {
+    (it.edit.tails || []).forEach((t) => {
       const a = toPx(v, t.root);
       const p = toPx(v, t.tip);
       svg("line", { x1: a.x, y1: a.y, x2: p.x, y2: p.y, class: "tailline" }, g);
       const c = svg("circle", { cx: p.x, cy: p.y, r: 6 * k, class: "tailknob" }, g);
       const tt = svg("title", {}, c);
       tt.textContent = T.tailHint;
-      c.addEventListener("pointerdown", (e) => tailDrag(v, e, id, i));
+      c.addEventListener("pointerdown", (e) => tailDrag(v, e, id, t));
     });
     const label = svg("text", { x: corners[0].x, y: corners[0].y - 6 * k, class: "label", "font-size": 11 * k }, g);
     label.textContent = id;
@@ -525,9 +525,10 @@ export function editorClient(cfg) {
     });
   }
 
-  function tailDrag(v, e, id, index) {
+  function tailDrag(v, e, id, tail) {
     const it = doc.items[id];
-    const root = toPx(v, it.edit.tails[index].root);
+    const index = tail.index;
+    const root = toPx(v, tail.root);
     let line = null;
     drag(v, e, {
       move: (p) => {
@@ -591,7 +592,7 @@ export function editorClient(cfg) {
     }
     const sel = selected?.kind === "panel" ? L.panels.find((p) => p.id === selected.id) : null;
     if (sel && (free || sel.overlay) && sel.editable) {
-      sel.polygon.forEach((q, i) => {
+      shapeOf(sel).forEach((q, i) => {
         const p = toPx(v, q);
         const r = svg("rect", { x: p.x - 4.5 * k, y: p.y - 4.5 * k, width: 9 * k, height: 9 * k, class: "handle" }, g);
         r.addEventListener("pointerdown", (e) => vertexDrag(v, e, sel, i));
@@ -666,9 +667,12 @@ export function editorClient(cfg) {
     return xs.size === 2 && ys.size === 2;
   };
 
+  /** a panel's own shape, before bleed extends it: what `box` / `polygon` describe */
+  const shapeOf = (pn) => (pn.shape && pn.shape.length > 2 ? pn.shape : pn.polygon);
+
   function panelMoveDrag(v, e, pn) {
     let preview = null;
-    const shifted = (p, s) => pn.polygon.map((q) => ({ x: q.x + (p.x - s.x) / v.page.transform.scale, y: q.y + (p.y - s.y) / v.page.transform.scale }));
+    const shifted = (p, s) => shapeOf(pn).map((q) => ({ x: q.x + (p.x - s.x) / v.page.transform.scale, y: q.y + (p.y - s.y) / v.page.transform.scale }));
     drag(v, e, {
       move: (p, s) => {
         preview ??= svg("polygon", { class: "preview" }, v.svg);
@@ -676,17 +680,17 @@ export function editorClient(cfg) {
       },
       end: (p, s) => {
         const pts = shifted(p, s);
-        op({ op: "panelShape", panel: pn.id, points: pts, box: isRect(pn.polygon) }, v.page.id);
+        op({ op: "panelShape", panel: pn.id, points: pts, box: isRect(shapeOf(pn)) }, v.page.id);
       },
     });
   }
 
   function vertexDrag(v, e, pn, i) {
     let preview = null;
-    const rect = isRect(pn.polygon);
+    const rect = isRect(shapeOf(pn));
     const moved = (p, ev) => {
       const q = toMm(v, p);
-      const pts = pn.polygon.map((x) => ({ ...x }));
+      const pts = shapeOf(pn).map((x) => ({ ...x }));
       if (rect && !ev.altKey) {
         // a box keeps its right angles: the corners beside the dragged one follow it
         const o = pts[i];

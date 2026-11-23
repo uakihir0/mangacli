@@ -350,7 +350,7 @@ export function layoutPagePanels(page: RPage, geom: PageGeom, bag: DiagnosticBag
         const sl = slantMm(rows[i].slant as string | undefined, area.w, u);
         const a = { x: area.x - 200, y: yb - (sl * (W / area.w)) / 2 };
         const b = { x: area.x + area.w + 200, y: yb + (sl * (W / area.w)) / 2 };
-        sink?.dividers.push({ kind: "rows", index: i, axis: "y", a: { x: area.x, y: yb - sl / 2 }, b: { x: area.x + area.w, y: yb + sl / 2 }, sizes: heights, specs: rowSpecs, span: area.w, slant: sl, rtl });
+        sink?.dividers.push({ kind: "rows", index: i, axis: "y", a: { x: area.x, y: yb - sl / 2 }, b: { x: area.x + area.w, y: yb + sl / 2 }, sizes: heights, specs: rowSpecs, total: area.h, span: area.w, slant: sl, rtl });
         // positive side of a->b (left->right line): side>0 for points below (y-down)
         const [below, above] = splitPoly(remaining, a, b, gRow);
         rowPoly = above;
@@ -489,7 +489,7 @@ function splitCols(rowPoly: Vec[], cols: number[], colSlant: string[], g: number
     const sl = slantMm(colSlant[i], bb.h, u);
     const top = { x: xb - sl / 2, y: bb.y };
     const bot = { x: xb + sl / 2, y: bb.y + bb.h };
-    record?.({ index: i, axis: "x", a: top, b: bot, sizes: widths, specs: cols, span: bb.h, slant: sl, rtl });
+    record?.({ index: i, axis: "x", a: top, b: bot, sizes: widths, specs: cols, total: w, span: bb.h, slant: sl, rtl });
     const ext = 200;
     const dy = bot.y - top.y || 1;
     const a = { x: top.x - ((bot.x - top.x) / dy) * ext, y: top.y - ext };
@@ -548,7 +548,7 @@ function splitTree(node: Obj, poly: Vec[], gCol: number, gRow: number, rtl: bool
       const W = bb.w + 400;
       const a = { x: bb.x - 200, y: yb - (sl * (W / bb.w)) / 2 };
       const b = { x: bb.x + bb.w + 200, y: yb + (sl * (W / bb.w)) / 2 };
-      sink?.dividers.push({ kind: "split", node: at, index: i, axis: "y", a: { x: bb.x, y: yb - sl / 2 }, b: { x: bb.x + bb.w, y: yb + sl / 2 }, sizes, specs, span: bb.w, slant: sl, rtl });
+      sink?.dividers.push({ kind: "split", node: at, index: i, axis: "y", a: { x: bb.x, y: yb - sl / 2 }, b: { x: bb.x + bb.w, y: yb + sl / 2 }, sizes, specs, total, span: bb.w, slant: sl, rtl });
       const [below, above] = splitPoly(remaining, a, b, g);
       leaves.push(...splitTree(children[i], above, gCol, gRow, rtl, u, [...at, i], sink));
       remaining = below;
@@ -556,7 +556,7 @@ function splitTree(node: Obj, poly: Vec[], gCol: number, gRow: number, rtl: bool
       const xb = rtl ? bb.x + bb.w - pos : bb.x + pos;
       const top = { x: xb - sl / 2, y: bb.y };
       const bot = { x: xb + sl / 2, y: bb.y + bb.h };
-      sink?.dividers.push({ kind: "split", node: at, index: i, axis: "x", a: top, b: bot, sizes, specs, span: bb.h, slant: sl, rtl });
+      sink?.dividers.push({ kind: "split", node: at, index: i, axis: "x", a: top, b: bot, sizes, specs, total, span: bb.h, slant: sl, rtl });
       const ext = 200;
       const dy = bot.y - top.y || 1;
       const a = { x: top.x - ((bot.x - top.x) / dy) * ext, y: top.y - ext };
