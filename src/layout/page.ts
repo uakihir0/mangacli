@@ -67,6 +67,7 @@ export interface PanelGeom {
   bledSides: string[];
   box: Rect; // visible box (polygon ∩ trim)
   fullBox: Rect;
+  shapeBox?: Rect;
   order: number;
   edgeSides: (string | null)[]; // for each polygon edge i->i+1: side name if edge lies on area boundary
 }
@@ -401,13 +402,14 @@ export function layoutPagePanels(page: RPage, geom: PageGeom, bag: DiagnosticBag
     assigned[i] = queue[qi++] ?? null;
   }
   if (mode !== "free" && mode !== "single" && qi < queue.length) bag.error("LAYOUT_TOO_MANY_PANELS", `${slotPanels.length} panels for ${leaves.length} layout slots`, { path: page.path, pageId: page.id });
+  const unbled = new Map<PanelGeom, Rect>();
   leaves.forEach((lf, i) => {
     let p = assigned[i];
     if (!p) {
       bag.warn("LAYOUT_EMPTY_SLOT", `layout slot ${i + 1} has no panel`, { path: page.path, pageId: page.id });
       p = { id: `${page.id}-slot${i + 1}`, index: -1, props: { border: { width: "0.5bmm", color: "black", pen: { preset: "kabura-pen" }, style: "solid", ruler: true }, background: "paper" }, elements: [], path: page.path, seed: i };
     }
-    if (lf.overlay || (layoutObj.__autoBleed && p.props.bleed === undefined)) {
+    if (lf.overlay || (layoutObj.__autoBleed && p.props.bleed === undefined && !p.props.dominant)) {
       const box = boundsOf(lf.poly);
       const edges = { top: [box.y, geom.trim.y], bottom: [box.y + box.h, geom.trimH], left: [box.x, geom.trim.x], right: [box.x + box.w, geom.trimW] };
       const bleed = Object.entries(edges).filter(([, [edge, trim]]) => Math.abs(edge - trim) < 0.01).map(([side]) => side);
@@ -417,12 +419,15 @@ export function layoutPagePanels(page: RPage, geom: PageGeom, bag: DiagnosticBag
       bag.error("LAYOUT_DEGENERATE_PANEL", `panel ${p.id} is too small or degenerate`, { path: p.path, pageId: page.id });
       return;
     }
-    out.push(makePanelGeom(p, lf.poly, geom, area, bag, i));
+    const pg = makePanelGeom(p, lf.poly, geom, area, bag, i);
+    unbled.set(pg, boundsOf(lf.poly));
+    out.push(pg);
   });
   for (const ov of overlays) out.push(makePanelGeom(ov, freePoly(ov, geom, area, u), geom, area, bag, out.length));
 
   // reading order
-  const ordered = layoutObj.__insets ? out : readingOrder(out, mode, rtl);
+  const proxies = out.map((p) => ({ ...p, fullBox: unbled.get(p) ?? p.fullBox }));
+  const ordered = layoutObj.__insets ? out : readingOrder(proxies, mode, rtl).map((p) => out[proxies.indexOf(p)]);
   ordered.forEach((pg, i) => (pg.order = i + 1));
   const explicit = out.filter((p) => typeof p.panel.props.order === "number");
   if (explicit.length) {
@@ -439,6 +444,7 @@ export function layoutPagePanels(page: RPage, geom: PageGeom, bag: DiagnosticBag
     for (let i = 0; i < slots.length; i++) if (!slots[i]) slots[i] = rest[r++];
     slots.forEach((p, i) => p && (p.order = i + 1));
   }
+  applyDominant(out, geom, area, gRow, gCol, bag);
   return { area, panels: out };
 }
 
@@ -576,7 +582,9 @@ function makePanelGeom(p: RPanel, poly0: Vec[], geom: PageGeom, area: Rect, bag:
     return null;
   };
   const edgeSides = poly.map((a, i) => sideOfEdge(a, poly[(i + 1) % poly.length]));
-  const bleedReq = Array.isArray(p.props.bleed) ? (p.props.bleed as string[]) : [];
+  const dominant = p.props.dominant;
+  const requested = p.props.bleed ?? (isObj(dominant) ? dominant.bleed : undefined) ?? (dominant ? "all" : false);
+  const bleedReq = requested === "all" ? ["top", "right", "bottom", "left"] : Array.isArray(requested) ? requested as string[] : [];
   const bled: string[] = [];
   for (const s of bleedReq) {
     if (!edgeSides.includes(s)) {
@@ -627,6 +635,117 @@ function makePanelGeom(p: RPanel, poly0: Vec[], geom: PageGeom, area: Rect, bag:
   const fullBox = boundsOf(poly);
   const box = rectIntersect(fullBox, geom.trim) ?? fullBox;
   return { panel: p, polygon: poly, bledSides: bled, box, fullBox, order: idx + 1, edgeSides };
+}
+
+function applyDominant(panels: PanelGeom[], geom: PageGeom, area: Rect, gRow: number, gCol: number, bag: DiagnosticBag): void {
+  const dominant = panels.filter((p) => !!p.panel.props.dominant);
+  if (dominant.length > 1) bag.warn("LAYOUT_DOMINANT_MULTIPLE", "more than one dominant panel on a page", { pageId: geom.id });
+  const originals = new Map(panels.map((p) => [p, p.polygon.slice()]));
+  const ring = (poly: Vec[]): polygonClipping.Ring => [...poly, poly[0]].map((p) => [p.x, p.y]);
+  const update = (p: PanelGeom, poly: Vec[]) => {
+    poly = dedupe(poly.map(({ x, y }) => ({ x: Math.round(x * 1e8) / 1e8, y: Math.round(y * 1e8) / 1e8 })));
+    if (polygonArea(poly) < 0) poly.reverse();
+    p.polygon = poly;
+    p.fullBox = poly.length ? boundsOf(poly) : { x: 0, y: 0, w: 0, h: 0 };
+    p.box = rectIntersect(p.fullBox, geom.trim) ?? p.fullBox;
+    p.edgeSides = poly.map((a, i) => {
+      const b = poly[(i + 1) % poly.length];
+      const limits = { top: area.y, bottom: area.y + area.h, left: area.x, right: area.x + area.w };
+      for (const [side, v] of Object.entries(limits)) {
+        const coord = side === "top" || side === "bottom" ? "y" : "x";
+        const bleed = side === "top" ? geom.bleedBox.y : side === "bottom" ? geom.bleedBox.y + geom.bleedBox.h : side === "left" ? geom.bleedBox.x : geom.bleedBox.x + geom.bleedBox.w;
+        if (Math.abs(a[coord] - (p.bledSides.includes(side) ? bleed : v)) < 0.01 && Math.abs(b[coord] - a[coord]) < 0.01) return side;
+      }
+      return null;
+    });
+    p.bledSides = p.bledSides.filter((side) => p.edgeSides.includes(side));
+    const bb = p.fullBox;
+    const size = Math.abs(polygonArea(poly));
+    if (poly.length < 3 || bb.w < 5 * geom.k || bb.h < 5 * geom.k || size < 25 * geom.k * geom.k || size < 0.12 * bb.w * bb.h) bag.error("LAYOUT_DEGENERATE_PANEL", `panel ${p.panel.id} is too small or degenerate`, { path: p.panel.path });
+  };
+  for (const pg of dominant) {
+    const spec = pg.panel.props.dominant;
+    const overlap = isObj(spec) && spec.overlap !== undefined ? toMm(spec.overlap as string, geom.units) : 0;
+    if (overlap <= 0) continue;
+    const original = originals.get(pg)!;
+    const limits = { ...area };
+    if (pg.bledSides.includes("left")) { limits.w += limits.x - geom.bleedBox.x; limits.x = geom.bleedBox.x; }
+    if (pg.bledSides.includes("top")) { limits.h += limits.y - geom.bleedBox.y; limits.y = geom.bleedBox.y; }
+    if (pg.bledSides.includes("right")) limits.w = geom.bleedBox.x + geom.bleedBox.w - limits.x;
+    if (pg.bledSides.includes("bottom")) limits.h = geom.bleedBox.y + geom.bleedBox.h - limits.y;
+    const edges = original.map((a, i) => {
+      const b = original[(i + 1) % original.length];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      return { a, b, nx: (b.y - a.y) / len, ny: (a.x - b.x) / len, interior: pg.edgeSides[i] === null };
+    });
+    const gaps = edges.map(({ a, b, nx, ny, interior }) => {
+      if (!interior) return 0;
+      const candidates: number[] = [];
+      for (const [otherPanel, other] of originals) {
+        if (otherPanel === pg || otherPanel.panel.props.overlay) continue;
+        for (let j = 0; j < other.length; j++) {
+          const c = other[j], d = other[(j + 1) % other.length];
+          const distance = (c.x - a.x) * nx + (c.y - a.y) * ny;
+          const distanceD = (d.x - a.x) * nx + (d.y - a.y) * ny;
+          const project = (p: Vec) => (p.x - a.x) * -ny + (p.y - a.y) * nx;
+          const span = Math.hypot(b.x - a.x, b.y - a.y);
+          if (distance >= -0.01 && Math.abs(distance - distanceD) < 0.01 && Math.max(project(c), project(d)) > 0 && Math.min(project(c), project(d)) < span) candidates.push(Math.max(0, distance));
+        }
+      }
+      return candidates.length ? Math.min(...candidates) : Math.abs(nx) * gCol + Math.abs(ny) * gRow;
+    });
+    const grow = (withGap = false): polygonClipping.MultiPolygon => {
+      const offsets = edges.map(({ interior }, i) => interior ? overlap + (withGap ? gaps[i] : 0) : 0);
+      const convex = original.every((a, i) => {
+        const b = original[(i + 1) % original.length], c = original[(i + 2) % original.length];
+        return (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x) >= -1e-8;
+      });
+      if (!convex) {
+        const pieces: polygonClipping.Polygon[] = [[ring(original)]];
+        edges.forEach(({ a, b, nx, ny }, i) => {
+          const offset = offsets[i];
+          if (offset > 0) pieces.push([ring([a, b, { x: b.x + nx * offset, y: b.y + ny * offset }, { x: a.x + nx * offset, y: a.y + ny * offset }])]);
+          const prev = edges[(i + edges.length - 1) % edges.length];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const px = prev.b.x - prev.a.x, py = prev.b.y - prev.a.y;
+          const cross = px * dy - py * dx;
+          if (cross <= 1e-8) return;
+          const previousOffset = offsets[(i + offsets.length - 1) % offsets.length];
+          const p = { x: a.x + prev.nx * previousOffset, y: a.y + prev.ny * previousOffset };
+          const q = { x: a.x + nx * offset, y: a.y + ny * offset };
+          const t = ((q.x - p.x) * dy - (q.y - p.y) * dx) / cross;
+          const join = [a, p, { x: p.x + t * px, y: p.y + t * py }, q];
+          if (Math.abs(polygonArea(join)) > 1e-8) pieces.push([ring(join)]);
+        });
+        const result = polygonClipping.intersection(polygonClipping.union(pieces[0], ...pieces.slice(1)), [ring(rectPoly(limits))]);
+        return result;
+      }
+      let poly = rectPoly(limits);
+      for (const [i, { a, b, nx, ny, interior }] of edges.entries()) {
+        const offset = offsets[i];
+        poly = clipHalf(poly, { x: a.x + nx * offset, y: a.y + ny * offset }, { x: b.x + nx * offset, y: b.y + ny * offset }, true);
+      }
+      return poly.length >= 3 ? [[ring(poly)]] : [];
+    };
+    const grown = grow();
+    if (grown.some((p) => p.length > 1)) {
+      bag.warn("LAYOUT_DOMINANT_HOLE", `panel ${pg.panel.id}: dominant overlap would create a hole; keeping the original panel without overlap`, { path: pg.panel.path });
+      continue;
+    }
+    const outlines = grown.map((p) => p[0].slice(0, -1).map(([x, y]) => ({ x, y }))).sort((a, b) => Math.abs(polygonArea(b)) - Math.abs(polygonArea(a)));
+    update(pg, outlines[0] ?? []);
+    const cut = grow(true);
+    for (const other of panels) {
+      if (other === pg || other.panel.props.dominant || other.panel.props.overlay || other.polygon.length < 3) continue;
+      if (!cut.length) continue;
+      if (!polygonClipping.intersection([ring(other.polygon)], cut).length) continue;
+      const result = polygonClipping.difference([ring(other.polygon)], cut);
+      other.shapeBox ??= other.fullBox;
+      const pieces = result.map((p) => p[0].slice(0, -1).map(([x, y]) => ({ x, y }))).sort((a, b) => Math.abs(polygonArea(b)) - Math.abs(polygonArea(a)));
+      if (pieces.length > 1) bag.warn("LAYOUT_DOMINANT_SPLIT", `panel ${other.panel.id}: dominant clipping split the panel; keeping the largest piece`, { path: other.panel.path });
+      update(other, pieces[0] ?? []);
+    }
+  }
 }
 
 function readingOrder(panels: PanelGeom[], mode: string, rtl: boolean): PanelGeom[] {

@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=../../schema.json
+mangacli: 1
+page: { size: B5, gutter: { row: 5mm, col: 3mm } }
+defaults:
+  panel:
+    border: { width: 0.6mm, ruler: true }
+pages:
+  - id: dominant-panel
+    layout:
+      rows:
+        - { height: 1, cols: [1, 1], slant: -8mm }
+        - { height: 2, slant: 8mm }
+        - { height: 1, cols: [1, 1] }
+    panels:
+      - background: '#d8e5ed'
+        layers: [{ text: '1', at: [50%, 50%], fontSize: 24pt }]
+      - background: '#e5e8d1'
+        layers: [{ text: '2', at: [50%, 50%], fontSize: 24pt }]
+      - dominant: { overlap: 9mm }
+        background: '#f3dcc5'
+        layers:
+          - { effect: focus-lines, center: [50%, 50%], radius: 35mm }
+          - { text: '3', at: [50%, 50%], fontSize: 40pt }
+      - background: '#e8d8e6'
+        mood: flashback
+        layers: [{ text: '4', at: [50%, 50%], fontSize: 24pt }]
+      - background: '#d8e5ed'
+        layers: [{ text: '5', at: [50%, 50%], fontSize: 24pt }]
+output:
+  format: png
+  dir: ../images
+  name: '{id}'
+  profile: preview
+  width: 720

@@ -50,9 +50,10 @@ pages:
       - layers:
           - { balloon: その日の　放課後, as: narration, at: [50%, 45%] }
           - text: narration
-      - layers:
+      - background: black
+        layers:
           - { balloon: 反転, as: inverted, at: [50%, 42%], tail: { direction: 90deg } }
-          - text: inverted
+          - { text: inverted, color: white, outline: [] }
       - layers:
           - { balloon: "！！", as: shock, minSize: [12mm, 12mm], at: [50%, 45%] }
           - text: shock

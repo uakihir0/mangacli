@@ -4,6 +4,7 @@ English | [日本語](README.ja.md)
 
 | File | Contents | Feature priorities used |
 |---|---|---|
+| [dominant-panel.yaml](dominant-panel.yaml) | A bleeding dominant panel overlaps slanted gutters while preserving reading order ([render](../images/dominant-panel.png)) | P1 |
 | [span-figure.yaml](span-figure.yaml) | One character across three panels, union clipping, an open top edge, art stacking and face-aware balloons ([render](../images/span-figure.png)) | P0 and P1 |
 | [aside.yaml](aside.yaml) | Small handwritten, white-edged speech beside a face, with an optional short line tail ([render](../images/aside.png)) | P1 |
 | [minimal.yaml](minimal.yaml) | Minimal example: one page using only defaults (B5, monochrome, right-to-left binding, vertical text, `ink` hand-drawn preset, `manga-basic` font set) | P0 only |

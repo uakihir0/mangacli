@@ -3,7 +3,7 @@ import { createRenderer } from "../src/api.js";
 import * as balloon from "../src/elements/balloon.js";
 import * as shape from "../src/ink/shape.js";
 
-it("makes every gallery preset's automatic base width two thirds of the old calculation (±2%)", async () => {
+it("keeps the generic width calculation at two thirds of the old one for gallery tails (±2%)", async () => {
   const ink = vi.spyOn(shape, "inkShape");
   const original = balloon.renderBalloon;
   const measured: { id: string; preset: string; old: number; width: number }[] = [];

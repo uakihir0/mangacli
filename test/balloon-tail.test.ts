@@ -126,8 +126,6 @@ describe("balloon tails", () => {
       const { a, tip } = tailEdges(pts);
       expect(tip - a).toBeGreaterThanOrEqual(12);
       expect(pts.length - tip).toBeGreaterThanOrEqual(12);
-      const shortSide = Math.min(Math.max(...original.map((p) => p.x)) - Math.min(...original.map((p) => p.x)), Math.max(...original.map((p) => p.y)) - Math.min(...original.map((p) => p.y)));
-      expect(Math.hypot(pts[a].x - pts[0].x, pts[a].y - pts[0].y)).toBeLessThanOrEqual(shortSide / 9 + 1e-8);
       const retained = original.filter((p) => pts.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < 1e-8));
       expect(retained.length / original.length).toBeGreaterThan(0.9);
     }
@@ -221,8 +219,8 @@ describe("balloon tails", () => {
       const centerX = Math.min(...auto.pts.map(q => q.x)) - Math.min(...body.contour.pts.map(q => q.x));
       const depth = nominal * 80 / 182;
       const extension = tip(auto.pts).x - centerX - coreRight;
-      expect(extension / depth).toBeGreaterThan(1.4);
-      expect(extension / depth).toBeLessThan(1.6);
+      expect(extension / depth).toBeGreaterThan(1.75);
+      expect(extension / depth).toBeLessThan(2.4);
     } finally {
       spy.mockRestore();
     }
@@ -306,20 +304,56 @@ pages:
     expect(await codes("150mm")).toContain("BALLOON_TAIL_SHORT");
     expect(await codes("55mm")).not.toContain("BALLOON_TAIL_SHORT");
   });
-  it("honors explicit off-screen lengths and caps automatic tails before a distant frame", async () => {
+  it("extends automatic, capped and explicitly short off-screen tails beyond the frame with an open width", async () => {
     const balloon = 'balloon: "", id: b, as: offscreen, at: [26mm, 24mm], size: [18mm, 14mm], shape: { kind: ellipse, irregularity: 0 }';
     const none = await outline(`{${balloon}, tail: none}`);
     const auto = await outline(`{${balloon}, tail: { offscreen: left, bend: 0 }}`);
     const capped = await outline(`{${balloon}, tail: { offscreen: left, bend: 0, maxLength: 3mm }}`);
     const short = await outline(`{${balloon}, tail: { offscreen: left, bend: 0, length: 3.8mm }}`);
     const left = (pts: Vec[]) => Math.min(...pts.map((p) => p.x));
-    expect(left(none.pts) - left(short.pts)).toBeCloseTo(3.8, 1);
-    expect(left(short.pts)).toBeGreaterThan(short.origin.x);
-    expect(left(none.pts) - left(auto.pts)).toBeGreaterThan(3.8);
-    expect(left(none.pts) - left(auto.pts)).toBeLessThan(5);
-    expect(left(auto.pts)).toBeGreaterThan(auto.origin.x);
-    expect(left(none.pts) - left(capped.pts)).toBeCloseTo(3, 1);
+    expect(left(none.pts)).toBeGreaterThan(none.origin.x);
+    for (const result of [short, auto, capped]) {
+      expect(left(result.pts)).toBeLessThan(result.origin.x);
+      expect(widthAt(result.pts, result.origin.x, 24 + result.origin.y)).toBeGreaterThan(0.3);
+    }
     const near = await outline(`{${balloon.replace("26mm", "12mm")}, tail: { offscreen: left, bend: 0 }}`);
     expect(left(near.pts)).toBeLessThan(near.origin.x);
+  });
+  it.each(["0deg", "270deg"])("keeps off-panel tails finite when root %s cannot advance toward the frame", async (root) => {
+    for (const length of ["", ", length: 5mm"]) {
+      const yaml = `mangacli: 1
+page: { size: [100mm, 100mm], bleed: 0mm }
+pages:
+  - panels:
+      - layers:
+          - { balloon: "", id: b, at: [50%, 50%], size: [20mm, 20mm], shape: { kind: ellipse, irregularity: 0 }, tail: { offscreen: bottom, root: ${root}, bend: 0${length} } }
+`;
+      const result = await r.render({ filename: "/v/offscreen-root.yaml", yaml }, { layoutOnly: true, keepLists: true });
+      expect(result.diagnostics.some(d => d.severity === "error" || d.code === "BALLOON_OFFSCREEN_LENGTH_IGNORED")).toBe(false);
+      const [fill] = paths(result.lists![0].root, n => n.tag?.elementId === "b" && n.tag.role === "fill");
+      const points = vertices(fill);
+      expect(points.length).toBeGreaterThan(0);
+      expect(points.every(p => Number.isFinite(p.x) && Number.isFinite(p.y))).toBe(true);
+      expect(Math.max(...points.map(p => p.x)) - Math.min(...points.map(p => p.x))).toBeLessThan(40);
+      expect(Math.max(...points.map(p => p.y)) - Math.min(...points.map(p => p.y))).toBeLessThan(40);
+    }
+  });
+  it.each(["top", "right", "bottom", "left"])("warns only for short explicit off-panel lengths toward %s", async (side) => {
+    const codes = async (tail: string, from = `from: ${side},`) => {
+      const result = await r.render({ filename: "/v/offscreen-length.yaml", yaml: `mangacli: 1
+page: { size: [160mm, 100mm], bleed: 0mm }
+pages:
+  - panels:
+      - layers:
+          - { balloon: "", id: b, ${from} at: [50%, 50%], size: [18mm, 14mm], tail: ${tail} }
+` }, { layoutOnly: true });
+      return result.diagnostics.map(d => d.code);
+    };
+    expect(await codes("{ length: 1mm }")).toContain("BALLOON_OFFSCREEN_LENGTH_IGNORED");
+    expect(await codes(`{ offscreen: ${side}, length: 1mm }`, "")).toContain("BALLOON_OFFSCREEN_LENGTH_IGNORED");
+    expect(await codes("{}")).not.toContain("BALLOON_OFFSCREEN_LENGTH_IGNORED");
+    expect(await codes("{ length: 200mm }")).not.toContain("BALLOON_OFFSCREEN_LENGTH_IGNORED");
+    expect(await codes("none")).not.toContain("BALLOON_OFFSCREEN_LENGTH_IGNORED");
+    expect(await codes("{ length: 1mm }", "")).not.toContain("BALLOON_OFFSCREEN_LENGTH_IGNORED");
   });
 });

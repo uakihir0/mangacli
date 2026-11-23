@@ -4,6 +4,7 @@
 
 | ファイル | 内容 | 使う機能の優先度 |
 |---|---|---|
+| [dominant-panel.yaml](dominant-panel.yaml) | 斜めの間白へ張り出す断ち切りの大ゴマ。読み順と間白の幅を保つ（[描画結果](../images/dominant-panel.png)） | P1 |
 | [span-figure.yaml](span-figure.yaml) | 3 コマをまたぐ人物、和集合クリップ、上辺の開放、枠線の下の絵、顔を避ける吹き出し（[出力](../images/span-figure.png)） | P0・P1 |
 | [aside.yaml](aside.yaml) | 顔の横に置く小さな手書きのセリフ。白フチと短い引き出し線（[描画結果](../images/aside.png)） | P1 |
 | [minimal.yaml](minimal.yaml) | 最小の例。既定値（B5・モノクロ・右綴じ・縦書き・`ink`・フォントセット `manga-basic`）で 1 ページ | P0 のみ |

@@ -137,7 +137,8 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     characters: doc.characters,
     outputDpi: o.outputDpi(geom),
   });
-  const drawOrder = panels.slice().sort((a, b) => ((a.panel.props.z as number) ?? 0) - ((b.panel.props.z as number) ?? 0) || a.order - b.order);
+  const panelPriority = (p: PanelGeom) => p.panel.props.overlay ? 2 : p.panel.props.dominant ? 1 : 0;
+  const drawOrder = panels.slice().sort((a, b) => ((a.panel.props.z as number) ?? 0) - ((b.panel.props.z as number) ?? 0) || panelPriority(a) - panelPriority(b) || a.order - b.order);
 
   // phase A: images (refs)
   const processed = new Map<string, Item>();
@@ -163,7 +164,8 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   const checkArtCoverage = () => {
     for (const pg of panels) {
       const shape = panelShapePoly(pg, geom);
-      const poly = shape === pg.polygon ? shape : flattenPath(smoothPath(shape, true), 0.02)[0].pts;
+      const poly = shape === pg.polygon ? shape : flattenPath(panelClip(pg, shape), 0.02)[0]?.pts ?? [];
+      if (poly.length < 3) continue;
       const eligible = (el: RElement) => {
         if (el.props.visible === false || el.props.opacity === 0) return false;
         const clip = el.props.clip;
@@ -224,7 +226,8 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     for (const pg of panels) {
       if (el.props.visible === false || el.props.opacity === 0 || (ids ? !ids.includes(pg.panel.id) : target.panelId !== undefined && target.panelId !== pg.panel.id)) continue;
       const shape = panelShapePoly(pg, geom);
-      const poly = shape === pg.polygon ? shape : flattenPath(smoothPath(shape, true), 0.02)[0].pts;
+      const poly = shape === pg.polygon ? shape : flattenPath(panelClip(pg, shape), 0.02)[0]?.pts ?? [];
+      if (poly.length < 3) continue;
       const visible = target.shape ?? rectPts(target.bbox);
       if (sil && target.imagePx) {
         let hits = 0;
@@ -483,7 +486,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     it.openClip = targets.flatMap((pg) => openClipPath(pg, clip, geom, u));
     const panelPolys = targets.map((pg) => {
       const poly = panelShapePoly(pg, geom);
-      const pts = poly !== pg.polygon ? flattenPath(smoothPath(poly, true), 0.02)[0].pts : poly;
+      const pts = poly !== pg.polygon ? flattenPath(panelClip(pg, poly), 0.02)[0]?.pts ?? [] : poly;
       return [pts.map((p) => [p.x, p.y] as [number, number])];
     });
     const panelUnion = panelPolys.length ? polygonClipping.union(panelPolys[0], ...panelPolys.slice(1)) : [];
@@ -661,6 +664,27 @@ function flashbackMargins(pg: PanelGeom, panels: PanelGeom[], geom: PageGeom): p
   const pieces: polygonClipping.MultiPolygon = [];
   const ring = (poly: Vec[]): polygonClipping.Ring => poly.map(({ x, y }) => [x, y]);
   const bleed = geom.bleedBox;
+  const dominantCuts: polygonClipping.Polygon[] = [];
+  for (const other of panels) {
+    if (!other.panel.props.dominant || other === pg || other.panel.props.visible === false) continue;
+    const sign = polygonArea(other.polygon) > 0 ? 1 : -1;
+    for (let i = 0; i < other.polygon.length; i++) {
+      const a = other.polygon[i], b = other.polygon[(i + 1) % other.polygon.length];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (len < 1e-8) continue;
+      const n = { x: sign * (b.y - a.y) / len, y: sign * (a.x - b.x) / len };
+      const distance = (p: Vec) => (p.x - a.x) * n.x + (p.y - a.y) * n.y;
+      const gap = Math.min(...pg.polygon.map(distance));
+      if (gap <= 0.01) continue;
+      const tangent = (p: Vec) => (p.x - a.x) * -n.y + (p.y - a.y) * n.x;
+      const ts = pg.polygon.map(tangent);
+      if (Math.max(...ts) <= 0 || Math.min(...ts) >= len) continue;
+      const reach = 4 * (bleed.w + bleed.h);
+      const p = { x: a.x + n.x * gap / 2 + n.y * reach, y: a.y + n.y * gap / 2 - n.x * reach };
+      const q = { x: p.x - 2 * n.y * reach, y: p.y + 2 * n.x * reach };
+      dominantCuts.push([ring([p, q, { x: q.x + n.x * reach, y: q.y + n.y * reach }, { x: p.x + n.x * reach, y: p.y + n.y * reach }])]);
+    }
+  }
   const sign = polygonArea(pg.polygon) > 0 ? 1 : -1;
   for (let i = 0; i < pg.polygon.length; i++) {
     const a = pg.polygon[i], b = pg.polygon[(i + 1) % pg.polygon.length];
@@ -679,7 +703,7 @@ function flashbackMargins(pg: PanelGeom, panels: PanelGeom[], geom: PageGeom): p
     let visible = [[0, 1]];
     const blocked: number[] = [];
     for (const other of panels) {
-      if (other.panel.props.visible === false || other.polygon.length < 3) continue;
+      if (other.panel.props.visible === false || other.polygon.length < 3 || other.panel.props.dominant) continue;
       const overlap = polygonClipping.intersection(corridor, [ring(other.polygon)]);
       for (const poly of overlap) {
         const contour = poly[0].map(([x, y]) => ({ x, y }));
@@ -695,7 +719,7 @@ function flashbackMargins(pg: PanelGeom, panels: PanelGeom[], geom: PageGeom): p
     let lower = horizontal ? bleed.y : bleed.x;
     let upper = horizontal ? bleed.y + bleed.h : bleed.x + bleed.w;
     for (const other of panels) {
-      if (other === pg || other.panel.props.visible === false || other.polygon.length < 3) continue;
+      if (other === pg || other.panel.props.visible === false || other.polygon.length < 3 || other.panel.props.dominant) continue;
       const outward = other.polygon.map((p) => horizontal ? p.x : p.y);
       const edge = horizontal ? [a.x, b.x] : [a.y, b.y];
       if (positive ? Math.max(...outward) < Math.min(...edge) - 0.01 : Math.min(...outward) > Math.max(...edge) + 0.01) continue;
@@ -712,7 +736,7 @@ function flashbackMargins(pg: PanelGeom, panels: PanelGeom[], geom: PageGeom): p
       pieces.push([ring([p, q, project(q), project(p)])]);
     }
   }
-  return pieces.length ? polygonClipping.intersection(polygonClipping.union(pieces[0], ...pieces.slice(1)), [ring(rectPts(bleed))]) : [];
+  return pieces.length ? polygonClipping.intersection(polygonClipping.union(pieces[0], ...pieces.slice(1)), [ring(rectPts(bleed))], ...dominantCuts) : [];
 }
 function flashbackRegion(pg: PanelGeom, panels: PanelGeom[], area: Rect, page: RPage, geom: PageGeom): polygonClipping.MultiPolygon {
   if (pg.polygon.length < 3 || Math.abs(polygonArea(pg.polygon)) < 1e-8) return [];
@@ -845,9 +869,18 @@ function coordsFor(el: RElement, ctx: ElemCtx, geom: PageGeom): Rect {
 }
 
 function panelShapePoly(pg: PanelGeom, geom: PageGeom): Vec[] {
+  const poly = uncutPanelShapePoly(pg, geom);
+  if (!pg.shapeBox || poly === pg.polygon) return poly;
+  const contour = flattenPath(smoothPath(poly, true), 0.02)[0]?.pts ?? [];
+  if (contour.length < 3 || pg.polygon.length < 3) return [];
+  const result = polygonClipping.intersection(pointPolygon(contour), pointPolygon(pg.polygon));
+  return result.map((p) => p[0].slice(0, -1).map(([x, y]) => ({ x, y }))).sort((a, b) => Math.abs(polygonArea(b)) - Math.abs(polygonArea(a)))[0] ?? [];
+}
+
+function uncutPanelShapePoly(pg: PanelGeom, geom: PageGeom): Vec[] {
   const sh = pg.panel.props.shape as Obj | undefined;
   if (!isObj(sh) || sh.kind === "rect") return pg.polygon;
-  const b = pg.fullBox;
+  const b = pg.shapeBox ?? pg.fullBox;
   if (sh.kind === "ellipse") {
     const n = 160;
     return Array.from({ length: n }, (_, i) => ({ x: b.x + b.w / 2 + Math.cos((i / n) * Math.PI * 2) * b.w / 2, y: b.y + b.h / 2 + Math.sin((i / n) * Math.PI * 2) * b.h / 2 }));
@@ -865,7 +898,7 @@ function panelShapePoly(pg: PanelGeom, geom: PageGeom): Vec[] {
 }
 
 function panelClip(pg: PanelGeom, poly: Vec[]) {
-  return poly === pg.polygon ? polyPath(poly, true) : smoothPath(poly, true);
+  return poly === pg.polygon || pg.shapeBox ? polyPath(poly, true) : smoothPath(poly, true);
 }
 
 function panelGlyphClip(pg: PanelGeom, geom: PageGeom): polygonClipping.Polygon {
@@ -902,6 +935,7 @@ function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: Retur
   const p = pg.panel.props;
   const out: Node[] = [];
   const poly = panelShapePoly(pg, geom);
+  if (poly.length < 3) return [];
   const isShaped = poly !== pg.polygon;
   const clip = panelClip(pg, poly);
   if (p.knockout !== undefined) {
@@ -952,7 +986,7 @@ function borderNodes(pg: PanelGeom, poly: Vec[], shaped: boolean, geom: PageGeom
   const main = resolveB(b0, [...pg.panel.path, "border"]);
   if (shaped) {
     if (main.style === "none" || main.st.width <= 0) return [];
-    const res = inkShape({ pts: poly, closed: true, smooth: true }, { line: main.st, hand: main.hand, rng, ruler: false });
+    const res = inkShape({ pts: poly, closed: true, smooth: !pg.shapeBox }, { line: main.st, hand: main.hand, rng, ruler: false });
     return inksToNodes(res.inks, main.st.color, t);
   }
   const n = pg.polygon.length;
@@ -1075,6 +1109,7 @@ function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["uni
   const bw = toMm(((pg.panel.props.border as Obj)?.width as string) ?? `${0.5 * geom.k}mm`, u);
   const poly = panelShapePoly(pg, geom);
   const n = poly.length;
+  if (n < 3) return [];
   const lines: { p: Vec; d: Vec }[] = [];
   for (let i = 0; i < n; i++) {
     const a = poly[i];
@@ -2083,7 +2118,7 @@ function collectTranscript(el: RElement, panel: string | undefined, info: PageLa
 }
 
 function checkPanelOcclusion(items: Item[], panels: { pg: PanelGeom; clipped: Item[] }[], geom: PageGeom, bag: DiagnosticBag, page: RPage) {
-  const contour = (pg: PanelGeom) => pointPolygon(flattenPath(panelClip(pg, panelShapePoly(pg, geom)), 0.05)[0].pts);
+  const contour = (pg: PanelGeom) => pointPolygon(flattenPath(panelClip(pg, panelShapePoly(pg, geom)), 0.05)[0]?.pts ?? []);
   const lettering = (item: Item) => item.lettering?.length ? item.lettering.map(({ el, bbox }) => ({ ...item, el, bbox })) : [item];
   const visibleArea = (item: Item) => {
     let area: polygonClipping.MultiPolygon = [pointPolygon(rectPts(item.bbox))];
