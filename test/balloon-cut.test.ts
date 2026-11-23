@@ -129,6 +129,17 @@ pages:
     const { bbox } = r.layout[0].elements.find(e => e.id === "b")!;
     expect(bbox.y + bbox.h - 70).toBeGreaterThan(bbox.h * 0.2);
   });
+  it.each([
+    ["two narrations cut by the bottom", "as: narration, cut: [bottom]"],
+    ["two flowing balloons cut by the left", "autoPlace: flow, cut: [left]"],
+  ])("keeps %s apart", async (_name, style) => {
+    const r = await validate({ yaml: page(`          - { balloon: ひとつめ, id: a, ${style}, tail: none }\n          - { balloon: ふたつめ, id: b, ${style}, tail: none }`) });
+    const [a, b] = ["a", "b"].map(id => r.layout[0].elements.find(e => e.id === id)!.bbox);
+    const gx = Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w);
+    const gy = Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h);
+    expect(Math.max(gx, gy)).toBeGreaterThanOrEqual(-0.01);
+    expect(r.diagnostics.map(d => d.code)).not.toContain("BALLOON_TEXT_HIDDEN");
+  });
   it("keeps the lettering size of a short horizontal box cut left and right", async () => {
     const box = async (cut: string) => {
       const r = await validate({ yaml: page(`          - { balloon: はい, id: b, writing: horizontal, shape: { kind: rect }, ${cut} tail: none }`) });
