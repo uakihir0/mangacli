@@ -681,7 +681,7 @@ function applyDominant(panels: PanelGeom[], geom: PageGeom, area: Rect, gRow: nu
       if (!interior) return 0;
       const candidates: number[] = [];
       for (const [otherPanel, other] of originals) {
-        if (otherPanel === pg) continue;
+        if (otherPanel === pg || otherPanel.panel.props.overlay) continue;
         for (let j = 0; j < other.length; j++) {
           const c = other[j], d = other[(j + 1) % other.length];
           const distance = (c.x - a.x) * nx + (c.y - a.y) * ny;
@@ -703,7 +703,7 @@ function applyDominant(panels: PanelGeom[], geom: PageGeom, area: Rect, gRow: nu
     };
     update(pg, grow());
     for (const other of panels) {
-      if (other === pg || other.panel.props.dominant || other.polygon.length < 3) continue;
+      if (other === pg || other.panel.props.dominant || other.panel.props.overlay || other.polygon.length < 3) continue;
       const cut = grow(true);
       if (cut.length < 3) continue;
       if (!polygonClipping.intersection([ring(other.polygon)], [ring(cut)]).length) continue;

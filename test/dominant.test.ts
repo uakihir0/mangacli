@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import sharp from "sharp";
 import { render } from "../src/api.js";
 import { DiagnosticBag } from "../src/core/diagnostics.js";
 import { polygonArea } from "../src/geom/path.js";
@@ -17,6 +18,21 @@ function layout(props: Record<string, unknown>[] = [{ dominant: true }, {}], spe
 }
 
 describe("dominant panels", () => {
+  it.each([undefined, 1])("preserves overlays above a dominant panel (z=%s)", async (z) => {
+    const props = [{ dominant: { overlap: "8mm" } }, {}, { overlay: true, z, coords: "page", box: ["20mm", "10mm", "20mm", "20mm"], background: "black" }];
+    const { panels, bag } = layout(props);
+    expect(bag.hasErrors).toBe(false);
+    expect(panels[2].fullBox).toEqual({ x: 20, y: 10, w: 20, h: 20 });
+    const r = await render({ mangacli: 1, page: { ...settings, bleed: 0 }, pages: [{ layout: { rows: [{}, {}] }, panels: props }] }, { profile: "preview", format: "png", width: 300, crop: "trim" });
+    expect(r.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    const { data, info } = await sharp(r.pages[0].data).extractChannel(0).raw().toBuffer({ resolveWithObject: true });
+    expect(data[Math.round(info.height * 0.2) * info.width + Math.round(info.width * 0.3)]).toBe(0);
+  });
+  it("honors explicit z above a dominant without overlap", async () => {
+    const r = await render({ mangacli: 1, page: { ...settings, bleed: 0 }, pages: [{ layout: "free", panels: [{ box: [0, 0, "100mm", "100mm"], dominant: true }, { box: ["20mm", "10mm", "20mm", "20mm"], z: 1, background: "black" }] }] }, { profile: "preview", format: "png", width: 300, crop: "trim" });
+    const { data, info } = await sharp(r.pages[0].data).extractChannel(0).raw().toBuffer({ resolveWithObject: true });
+    expect(data[Math.round(info.height * 0.2) * info.width + Math.round(info.width * 0.3)]).toBe(0);
+  });
   it("automatically bleeds only layout edges and honors both overrides", () => {
     const automatic = layout();
     expect(automatic.panels[0].bledSides.sort()).toEqual(["left", "right", "top"]);
