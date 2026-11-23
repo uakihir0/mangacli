@@ -224,8 +224,10 @@ export function editorClient(cfg) {
   if (left) app.style.setProperty("--left", left);
   split.addEventListener("pointerdown", (e) => {
     split.setPointerCapture(e.pointerId);
+    split.classList.add("drag");
     const move = (ev) => app.style.setProperty("--left", Math.min(Math.max(ev.clientX, 200), window.innerWidth - 400) + "px");
     const up = () => {
+      split.classList.remove("drag");
       split.removeEventListener("pointermove", move);
       split.removeEventListener("pointerup", up);
       localStorage.setItem("mangacli-edit-left", app.style.getPropertyValue("--left"));
@@ -234,10 +236,49 @@ export function editorClient(cfg) {
     split.addEventListener("pointermove", move);
     split.addEventListener("pointerup", up);
   });
+  // the problems dock below the pages: drag its edge to resize, click its header to fold it
+  const right = $("#right");
+  const hsplit = $("#hsplit");
+  const dock = localStorage.getItem("mangacli-edit-dock");
+  if (dock) right.style.setProperty("--dock", dock);
+  right.classList.toggle("collapsed", localStorage.getItem("mangacli-edit-dock-collapsed") === "1");
+  const fold = (on) => {
+    right.classList.toggle("collapsed", on);
+    localStorage.setItem("mangacli-edit-dock-collapsed", on ? "1" : "0");
+    requestAnimationFrame(drawOverlays);
+  };
+  $("#dockToggle").onclick = (e) => {
+    e.stopPropagation();
+    fold(!right.classList.contains("collapsed"));
+  };
+  $("#dockhead").addEventListener("dblclick", () => fold(!right.classList.contains("collapsed")));
+  hsplit.addEventListener("pointerdown", (e) => {
+    hsplit.setPointerCapture(e.pointerId);
+    hsplit.classList.add("drag");
+    const box = right.getBoundingClientRect();
+    const move = (ev) => {
+      const h = Math.min(Math.max(box.bottom - ev.clientY, 60), box.height - 160);
+      right.classList.remove("collapsed");
+      right.style.setProperty("--dock", h + "px");
+    };
+    const up = () => {
+      hsplit.classList.remove("drag");
+      hsplit.removeEventListener("pointermove", move);
+      hsplit.removeEventListener("pointerup", up);
+      localStorage.setItem("mangacli-edit-dock", right.style.getPropertyValue("--dock"));
+      localStorage.setItem("mangacli-edit-dock-collapsed", "0");
+      drawOverlays();
+    };
+    hsplit.addEventListener("pointermove", move);
+    hsplit.addEventListener("pointerup", up);
+  });
+  document.querySelector("button.icon").onclick = () => toast(T.help);
   const zoom = $("#zoom");
   zoom.value = localStorage.getItem("mangacli-edit-zoom") || zoom.value;
   const applyZoom = () => {
     document.body.style.setProperty("--ph", zoom.value + "vh");
+    zoom.style.setProperty("--val", ((zoom.value - zoom.min) / (zoom.max - zoom.min)) * 100 + "%");
+    $("#zoomValue").textContent = zoom.value + "%";
     localStorage.setItem("mangacli-edit-zoom", zoom.value);
     requestAnimationFrame(drawOverlays);
   };
@@ -996,15 +1037,21 @@ export function editorClient(cfg) {
     marks = {};
     for (const d of r.diagnostics) if (d.line && !d.file && d.severity !== "info" && marks[d.line] !== "error") marks[d.line] = d.severity;
     paintGutter(true);
-    diagEl.innerHTML = r.diagnostics
-      .filter((d) => d.severity !== "info")
-      .map((d) => {
-        const where = d.file ? d.file + (d.line ? ":" + d.line : "") : d.line ? d.line + ":" + (d.column || 1) : "";
-        const attrs = (d.line && !d.file ? ' data-line="' + d.line + '" data-column="' + (d.column || 1) + '"' : "") + (d.elementId ? ' data-el="' + escape(d.elementId) + '"' : "");
-        return '<div class="d ' + d.severity + '"' + attrs + '><span class="code">' + escape(d.code) + "</span>" + (where ? '<span class="at">' + escape(where) + "</span>" : "") + escape(d.message) + (d.hint ? '<span class="hint">' + escape(d.hint) + "</span>" : "") + "</div>";
-      })
-      .join("");
-    const counts = [r.pages.length + " " + T.pages, errors ? T.errors + " " + errors : "", warnings ? T.warnings + " " + warnings : "", r.ms + " ms"].filter(Boolean).join(" · ");
+    const shown = r.diagnostics.filter((d) => d.severity !== "info");
+    diagEl.innerHTML = shown.length
+      ? shown
+          .map((d) => {
+            const where = d.file ? d.file + (d.line ? ":" + d.line : "") : d.line ? d.line + ":" + (d.column || 1) : "";
+            const attrs = (d.line && !d.file ? ' data-line="' + d.line + '" data-column="' + (d.column || 1) + '"' : "") + (d.elementId ? ' data-el="' + escape(d.elementId) + '"' : "");
+            return '<div class="d ' + d.severity + '"' + attrs + '><span class="code">' + escape(d.code) + "</span>" + (where ? '<span class="at">' + escape(where) + "</span>" : "") + '<span class="msg">' + escape(d.message) + (d.hint ? '<span class="hint">' + escape(d.hint) + "</span>" : "") + "</span></div>";
+          })
+          .join("")
+      : '<div class="dnone">' + escape(T.noProblems) + "</div>";
+    $("#dcounts").innerHTML = errors || warnings
+      ? (errors ? '<span class="badge error">' + escape(T.errors) + " " + errors + "</span> " : "") + (warnings ? '<span class="badge warning">' + escape(T.warnings) + " " + warnings + "</span>" : "")
+      : '<span class="badge none">' + escape(T.noProblems) + "</span>";
+    // the counts are in the problems dock; the status shows what was drawn and how long it took
+    const counts = r.pages.length + " " + T.pages + " · " + (r.ms < 1000 ? r.ms + " ms" : (r.ms / 1000).toFixed(1) + " s");
     if (!r.pages.length && errors) {
       pagesEl.classList.toggle("stale", !!pagesEl.querySelector("figure"));
       status(counts + (pagesEl.querySelector("figure") ? " — " + T.stale : ""), "error");
@@ -1046,7 +1093,7 @@ export function editorClient(cfg) {
       drawOverlays();
       inspect();
     });
-    status(counts, errors ? "error" : warnings ? "" : "ok");
+    status(counts, errors ? "error" : warnings ? "warn" : "ok");
     return true;
   }
 
