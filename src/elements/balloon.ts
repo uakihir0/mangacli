@@ -850,11 +850,13 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
       const perp = { x: -dir.y, y: dir.x };
       const advance = (dir[axis] + perp[axis] * bend * 0.25) * sign;
       const distance = (target[axis] - R[axis]) * sign;
-      const frameLength = Math.max(0, distance - offscreenOvershoot) / advance;
       const requested = t.length !== undefined ? toMm(t.length as string, u) : 0;
-      if (t.length !== undefined && requested < frameLength)
-        ctx.bag.warn("BALLOON_OFFSCREEN_LENGTH_IGNORED", `length of ${plan.el.id} was ignored because off-panel tails run to the frame`, { path: plan.el.path, elementId: plan.el.id });
-      length = Math.max(requested, distance / advance);
+      if (advance > 1e-9) {
+        const frameLength = Math.max(0, distance - offscreenOvershoot) / advance;
+        if (t.length !== undefined && requested < frameLength)
+          ctx.bag.warn("BALLOON_OFFSCREEN_LENGTH_IGNORED", `length of ${plan.el.id} was ignored because off-panel tails run to the frame`, { path: plan.el.path, elementId: plan.el.id });
+        length = Math.max(requested, distance / advance);
+      } else length = t.length !== undefined ? requested : Math.min(maxLen, Math.hypot(target.x - R.x, target.y - R.y));
     } else if (t.length !== undefined) length = toMm(t.length as string, u);
     else if (target) {
       const dist = Math.hypot(target.x - R.x, target.y - R.y);

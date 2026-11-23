@@ -321,6 +321,25 @@ pages:
     const near = await outline(`{${balloon.replace("26mm", "12mm")}, tail: { offscreen: left, bend: 0 }}`);
     expect(left(near.pts)).toBeLessThan(near.origin.x);
   });
+  it.each(["0deg", "270deg"])("keeps off-panel tails finite when root %s cannot advance toward the frame", async (root) => {
+    for (const length of ["", ", length: 5mm"]) {
+      const yaml = `mangacli: 1
+page: { size: [100mm, 100mm], bleed: 0mm }
+pages:
+  - panels:
+      - layers:
+          - { balloon: "", id: b, at: [50%, 50%], size: [20mm, 20mm], shape: { kind: ellipse, irregularity: 0 }, tail: { offscreen: bottom, root: ${root}, bend: 0${length} } }
+`;
+      const result = await r.render({ filename: "/v/offscreen-root.yaml", yaml }, { layoutOnly: true, keepLists: true });
+      expect(result.diagnostics.some(d => d.severity === "error" || d.code === "BALLOON_OFFSCREEN_LENGTH_IGNORED")).toBe(false);
+      const [fill] = paths(result.lists![0].root, n => n.tag?.elementId === "b" && n.tag.role === "fill");
+      const points = vertices(fill);
+      expect(points.length).toBeGreaterThan(0);
+      expect(points.every(p => Number.isFinite(p.x) && Number.isFinite(p.y))).toBe(true);
+      expect(Math.max(...points.map(p => p.x)) - Math.min(...points.map(p => p.x))).toBeLessThan(40);
+      expect(Math.max(...points.map(p => p.y)) - Math.min(...points.map(p => p.y))).toBeLessThan(40);
+    }
+  });
   it.each(["top", "right", "bottom", "left"])("warns only for short explicit off-panel lengths toward %s", async (side) => {
     const codes = async (tail: string, from = `from: ${side},`) => {
       const result = await r.render({ filename: "/v/offscreen-length.yaml", yaml: `mangacli: 1
