@@ -179,6 +179,21 @@ describe("manga finish filter", () => {
     expect(new Set(row(65, 5, 115))).toEqual(new Set([255]));
   });
 
+  it("preserves the full quarter-millimetre rim of a hard black-to-white background edge", async () => {
+    const px = sourcePixels();
+    for (let i = 0; i < px.data.length; i += 4) {
+      const shade = i < px.width * 40 * 4 ? 0 : 255;
+      px.data[i] = px.data[i + 1] = px.data[i + 2] = shade;
+    }
+    const out = await applyFilters(px, [{ name: "manga", args: [], opts: { lpi: 60 } }], 0.05);
+    const rimStart = 35 * px.width;
+    const rimEnd = 40 * px.width;
+    const ink = out.data.filter((_, i) => i % 4 === 0);
+    expect(ink.slice(rimStart, rimEnd).every((v) => v === 0)).toBe(true);
+    expect(ink.slice(30 * px.width, rimStart)).toContain(255);
+    expect(ink.slice(rimEnd).every((v) => v === 255)).toBe(true);
+  });
+
   it("makes non-zero grain visibly roughen existing ink edges", async () => {
     const base = { ...mangaOpts, cut: 0, grain: 0 };
     const zero = await applyFilters(sourcePixels(), [{ ...mangaFilter, opts: base }], 0.05);

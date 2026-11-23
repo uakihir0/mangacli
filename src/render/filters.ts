@@ -541,18 +541,24 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
   for (let i = 0; i < n; i++) lines[i] = data[i * 4 + 3] && lum01[i] < line ? 1 : 0;
   const large = largeBetaMask(dark, lines, w, h, betaSize, betaReplace);
   const grad = betaTone === "gradient" ? betaGradient(large, w, h) : null;
-  const toneOutside = new Uint8Array(n);
-  for (let i = 0; i < n; i++) toneOutside[i] = large[i] ? 0 : 1;
-  const toneEdge = distanceSquared(toneOutside, w, h);
+  const rimOutside = new Uint8Array(n);
+  if (betaReplace === "all") {
+    for (let i = 0; i < n; i++) rimOutside[i] = large[i] ? 0 : 1;
+  } else if (betaReplace === "background") {
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (!large[i]) continue;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const xx = x + dx, yy = y + dy;
+        if (xx < 0 || xx >= w || yy < 0 || yy >= h) continue;
+        const j = yy * w + xx;
+        if (!large[j] && (!data[j * 4 + 3] || lum01[j] - lum01[i] > 0.12)) rimOutside[j] = 1;
+      }
+    }
+  }
+  const rimDistance = distanceSquared(rimOutside, w, h);
   const rimPx = Math.max(1, Math.round(0.25 / mmPerPx));
   const rimSq = rimPx * rimPx;
-  const softBackgroundEdge = (x: number, y: number, brightness: number) => {
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      const xx = x + dx, yy = y + dy;
-      if (xx >= 0 && xx < w && yy >= 0 && yy < h && Math.abs(lum01[yy * w + xx] - brightness) > 0.12) return false;
-    }
-    return true;
-  };
 
   const sr = image?.sourceRect;
   const sx = sr ? w / Math.max(1e-9, sr.w) : 1;
@@ -607,9 +613,8 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
     if (!alpha) continue;
     const yv = lum01[i];
     if (dark[i] || yv < line) {
-      const inTone = dark[i] && toneEdge[i] > rimSq;
-      const softEdge = !inTone && betaReplace === "background" && large[i] && softBackgroundEdge(x, y, yv);
-      density[i] = large[i] && (inTone || softEdge) && !inKeep(x, y) ? grad ? grad[i] : (betaTone as number) : 1;
+      const inTone = large[i] && (dark[i] || betaReplace === "background") && rimDistance[i] > rimSq;
+      density[i] = inTone && !inKeep(x, y) ? grad ? grad[i] : (betaTone as number) : 1;
       continue;
     }
     let d = smooth[i];
