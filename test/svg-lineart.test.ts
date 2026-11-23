@@ -50,6 +50,23 @@ describe("SVG embedded line art", () => {
     expect([e.width, e.height]).toEqual([300, 300]);
   });
 
+  it("accounts for image scale when adapting the manga screen ruling", async () => {
+    const art = await sharp({ create: { width: 600, height: 600, channels: 3, background: "#888888" } }).png().toBuffer();
+    const yaml = `mangacli: 1
+page: { size: [100mm, 100mm], bleed: 0mm, color: mono }
+assets:
+  art: { src: art.png }
+pages:
+  - layers:
+      - { image: art, size: [25.4mm, 25.4mm], at: [5mm, 5mm], anchor: top-left, scale: 2, filters: [manga] }
+`;
+    const r = await render({ yaml }, { profile: "print-mono", dpi: 96, format: "svg", assets: { art } });
+    const svg = Buffer.from(r.pages[0].data).toString("utf8");
+    const b64 = svg.match(/<image[^>]*href="data:image\/png;base64,([^"]+)"/)![1];
+    const meta = await sharp(Buffer.from(b64, "base64")).metadata();
+    expect([meta.width, meta.height]).toEqual([180, 180]);
+  });
+
   it("leaves the raster output's line art intact when rendered together", async () => {
     const { r } = await embedded("lineart", 600, ["svg", "png"]);
     const png = r.pages.find((p) => p.format === "png")!;
