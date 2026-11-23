@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import { DiagnosticBag } from "../src/core/diagnostics.js";
 import { Rng } from "../src/core/random.js";
 import { inksToNodes } from "../src/elements/inkir.js";
-import { pointInPolygon } from "../src/geom/path.js";
+import { pointInPolygon, polygonArea } from "../src/geom/path.js";
 import { add, dist, mul, norm, sub } from "../src/geom/vec.js";
 import { HAND_PRESETS, PEN_PRESETS } from "../src/ink/presets.js";
 import { inkShape } from "../src/ink/shape.js";
+import { strokeOutline } from "../src/ink/stroke.js";
 import { resolveDocument } from "../src/model/resolve.js";
 import { BODY_GENERATORS, type BodyGeom, type ShapeParams } from "../src/shapes/balloon.js";
 
@@ -24,6 +25,17 @@ function ellipsePoint(w: number, h: number, t: number) {
 }
 
 describe("shout contours", () => {
+  it("preserves the ink where an entry pool overlaps a spike flank", () => {
+    const inks = strokeOutline([{ x: 0, y: 0 }, { x: 4, y: 0 }], {
+      hand: HAND_PRESETS.ink, pen: { ...PEN_PRESETS["g-pen"], inkPool: 1 },
+      rng: new Rng(6), width: 0.45, miterEnd: { x: 1, y: 0 },
+    });
+    expect(inks).toHaveLength(2);
+    const overlap = { x: 0.3, y: 0 };
+    expect(inks.every(ink => pointInPolygon(overlap, ink.pts))).toBe(true);
+    expect(polygonArea(inks[0].pts) * polygonArea(inks[1].pts)).toBeGreaterThan(0);
+  });
+
   it.each(["spike", "burst"])("keeps both %s flanks at nominal width at the tip and closes them with a sharp miter", (kind) => {
     const { body } = spikes(kind, 40, 60, 42);
     const width = 0.45;
