@@ -309,7 +309,7 @@ function largeBetaMask(core: Uint8Array, lines: Uint8Array, w: number, h: number
     if (runLabel >= 0) topRun[runLabel] = Math.max(topRun[runLabel], runLength);
   };
   for (let x = 0; x < w; x++) {
-    const label = comp[x];
+    const label = core[x] ? comp[x] : -1;
     if (label === runLabel && label >= 0) {
       runLength++;
     } else {

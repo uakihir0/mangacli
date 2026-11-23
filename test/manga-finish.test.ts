@@ -95,6 +95,17 @@ describe("manga finish filter", () => {
     expect(paper).toBe(true);
   });
 
+  it("does not count dark-grey top contact as beta background", async () => {
+    const opts = { betaMinSize: 1, tones: [0.2], lpi: 30, seed: 9 };
+    const px = sourcePixels();
+    for (let y = 0; y <= 9; y++) for (let x = 5; x <= 39; x++) {
+      const i = (y * px.width + x) * 4;
+      px.data[i] = px.data[i + 1] = px.data[i + 2] = 60;
+    }
+    const out = await applyFilters(px, [{ name: "manga", args: [], opts }], 0.05);
+    for (let y = 30; y <= 50; y++) for (let x = 15; x <= 30; x++) expect(out.data[(y * out.width + x) * 4]).toBe(0);
+  });
+
   it("keeps light paper and skin-tone shading free of dots by default", async () => {
     const width = 20;
     const height = 20;
