@@ -48,7 +48,7 @@ pages:
           - { balloon: 電話の声, as: electronic, at: [50%, 40%], tail: { direction: 120deg } }
           - text: electronic
       - layers:
-          - { balloon: その日の放課後, as: narration, maxChars: 4, at: [50%, 45%] }
+          - { balloon: その日の　放課後, as: narration, at: [50%, 45%] }
           - text: narration
       - background: black
         layers:
