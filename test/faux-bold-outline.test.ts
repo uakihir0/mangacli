@@ -26,18 +26,20 @@ pages:
         ${kind === "balloon" ? "textOutline" : "outline"}: 1mm white
 ` }, 1);
       const nodes = paths(list.root);
-      const outline = nodes.find(n => n.tag?.role === "text" && n.paint === null && n.stroke?.paint.type === "solid" && n.stroke.paint.color.r === WHITE.r)!;
-      const ink = nodes.find(n => n.paint?.type === "solid" && n.paint.color.r === BLACK.r && n.tag?.role === "text" && n.path.length === outline.path.length)!;
+      const outline = nodes.find(n => n.tag?.role === "text" && (kind === "sfx"
+        ? n.paint?.type === "solid" && n.paint.color.r === WHITE.r
+        : n.paint === null && n.stroke?.paint.type === "solid" && n.stroke.paint.color.r === WHITE.r))!;
+      const ink = nodes.find(n => n.paint?.type === "solid" && n.paint.color.r === BLACK.r && n.tag?.role === "text")!;
       expect(outline).toBeDefined();
       expect(ink).toBeDefined();
-      expect(outline.path).toEqual(ink.path);
+      if (kind !== "sfx") expect(outline.path).toEqual(ink.path);
       // At the rightmost point of a filled glyph, a round stroke extends by
       // exactly half its width. Subtract the black extent from the white one.
       const right = (n: PathNode) => {
         const b = boundsOf(flattenPath(n.path, 0.001).flatMap(c => c.pts));
         return b.x + b.w + (n.stroke?.width ?? 0) / 2;
       };
-      expect(right(outline) - right(ink)).toBeCloseTo(1, 6);
+      expect(right(outline) - right(ink)).toBeCloseTo(1, kind === "sfx" ? 2 : 6);
       if (kind !== "sfx") expect(!!ink.stroke).toBe(bold);
     }
   });

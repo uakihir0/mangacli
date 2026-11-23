@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { DiagnosticBag } from "../src/core/diagnostics.js";
-import { pointInPolygon } from "../src/geom/path.js";
-import { cross, dist, dot, sub } from "../src/geom/vec.js";
+import { Rng } from "../src/core/random.js";
+import { inksToNodes } from "../src/elements/inkir.js";
+import { pointInPolygon, polygonArea } from "../src/geom/path.js";
+import { add, cross, dist, dot, mul, norm, sub } from "../src/geom/vec.js";
+import { HAND_PRESETS, PEN_PRESETS } from "../src/ink/presets.js";
+import { inkShape } from "../src/ink/shape.js";
+import { strokeOutline } from "../src/ink/stroke.js";
 import { resolveDocument } from "../src/model/resolve.js";
 import { BODY_GENERATORS, type BodyGeom, type ShapeParams } from "../src/shapes/balloon.js";
 
@@ -20,6 +25,56 @@ function ellipsePoint(w: number, h: number, t: number) {
 }
 
 describe("shout contours", () => {
+  it("preserves the ink where an entry pool overlaps a spike flank", () => {
+    const inks = strokeOutline([{ x: 0, y: 0 }, { x: 4, y: 0 }], {
+      hand: HAND_PRESETS.ink, pen: { ...PEN_PRESETS["g-pen"], inkPool: 1 },
+      rng: new Rng(6), width: 0.45, miterEnd: { x: 1, y: 0 },
+    });
+    expect(inks).toHaveLength(2);
+    const overlap = { x: 0.3, y: 0 };
+    expect(inks.every(ink => pointInPolygon(overlap, ink.pts))).toBe(true);
+    expect(polygonArea(inks[0].pts) * polygonArea(inks[1].pts)).toBeGreaterThan(0);
+  });
+
+  it.each(["spike", "burst"])("keeps both %s flanks at nominal width and miters tips within the miter limit", (kind) => {
+    const { body } = spikes(kind, 40, 60, 42);
+    const width = 0.45;
+    const { inks, fill } = inkShape(body.contour, {
+      hand: HAND_PRESETS.ink, rng: new Rng(42), join: "gap",
+      line: { width, pen: { ...PEN_PRESETS["g-pen"], inkPool: 0 }, style: "solid" },
+    });
+    const miters = inks.filter(ink => ink.straight);
+    const sides = inks.filter(ink => !ink.straight);
+    const n = tips(body).length;
+    expect(miters).toHaveLength(n);
+    expect(sides).toHaveLength(2 * n);
+    for (let i = 0; i < n; i++) {
+      const join = miters[i].pts;
+      const b = join[0], a = join.at(-2)!, tip = join.at(-1)!;
+      const tipIndex = fill.indexOf(tip);
+      const incoming = norm(sub(tip, fill[tipIndex - 1]));
+      const outgoing = norm(sub(fill[tipIndex + 1], tip));
+      const withinMiterLimit = 1 + dot(incoming, outgoing) >= 0.02;
+      expect(join).toHaveLength(withinMiterLimit ? 4 : 3);
+      if (withinMiterLimit) {
+        const apex = join[1];
+        expect(dist(apex, a)).toBeGreaterThan(0);
+        expect(dist(apex, add(a, mul(incoming, dist(apex, a))))).toBeCloseTo(0, 8);
+        expect(dist(apex, add(b, mul(outgoing, -dist(apex, b))))).toBeCloseTo(0, 8);
+      }
+      for (const [flank, outside] of [a, b].entries()) {
+        const { pts } = sides[2 * i + flank];
+        const inside = sub(mul(tip, 2), outside);
+        expect(dist(inside, outside)).toBeCloseTo(width, 8);
+        expect(pts.some(p => dist(p, outside) < 1e-8)).toBe(true);
+        expect(pts.some(p => dist(p, inside) < 1e-8)).toBe(true);
+        expect(dist(pts[0], pts.at(-1)!)).toBeLessThan(width * 0.9);
+      }
+    }
+    const [node] = inksToNodes(inks, { r: 0, g: 0, b: 0, a: 1 });
+    expect(node.kind === "path" && node.path.slice(0, 5).map(cmd => cmd[0])).toEqual(["M", "L", "L", "L", "Z"]);
+  });
+
   it.each(["spike", "burst"])("gives %s deterministic, uniformly long spikes outside the text core", (kind) => {
     const make = (seed: number) => BODY_GENERATORS[kind](40, 40, { kind, irregularity: 0, egg: 0, tilt: 0, count: 20 }, seed);
     const body = make(42);

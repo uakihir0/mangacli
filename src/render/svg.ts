@@ -2,7 +2,7 @@
 import sharp from "sharp";
 import type { DiagnosticBag } from "../core/diagnostics.js";
 import { type RGBA, linearToSrgb, srgbToLinear } from "../core/color.js";
-import type { PathData } from "../geom/path.js";
+import { type PathData, pathBounds } from "../geom/path.js";
 import type { Matrix } from "../geom/vec.js";
 import type { AssetRegistry } from "./assets.js";
 import { applyFilters } from "./filters.js";
@@ -137,6 +137,20 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
     const parts: string[] = [];
     const dd = d(p.path);
     if (!dd) return "";
+    if (p.backdrop) {
+      const b = p.backdrop;
+      const color = rgb(gray(b.color, o.colorMode));
+      const bb = pathBounds(p.path);
+      let filter = "";
+      if (bb && b.feather > 0) {
+        const fid = id("backdrop");
+        const pad = b.padding + 2 * b.feather;
+        defs.push(`<filter id="${fid}" filterUnits="userSpaceOnUse" x="${n(bb.x - pad)}" y="${n(bb.y - pad)}" width="${n(bb.w + 2 * pad)}" height="${n(bb.h + 2 * pad)}"><feGaussianBlur stdDeviation="${n(b.feather / 2)}"/></filter>`);
+        filter = ` filter="url(#${fid})"`;
+      }
+      const stroke = b.padding > 0 ? ` stroke="${color}" stroke-width="${n(b.padding * 2)}" stroke-linejoin="round" stroke-linecap="round"` : "";
+      return `<g opacity="${n(b.color.a)}"${filter}${tagAttr(p.tag)}><path d="${dd}" fill="${color}" fill-rule="${p.fillRule}"${stroke}/></g>`;
+    }
     if (p.stroke) {
       const sc = p.stroke.paint.type === "solid" ? gray(p.stroke.paint.color, o.colorMode) : { r: 0, g: 0, b: 0, a: 1 };
       parts.push(`<path d="${dd}" fill="none" stroke="${rgb(sc)}" stroke-width="${n(p.stroke.width)}" stroke-linejoin="${p.stroke.join}"${p.stroke.miterLimit ? ` stroke-miterlimit="${p.stroke.miterLimit}"` : ""} stroke-linecap="round"/>`);
