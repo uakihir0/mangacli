@@ -251,7 +251,7 @@ tail: none
 | `bend` | -1〜1 | `0.15` | しっぽ全体の曲がり。正で時計回りに曲がる |
 | `sideCurve` | 0〜1 | `0.25` | 両側の辺の内側への反り。大きいほど先端が鋭く見える |
 | `root` | `auto` \| Angle | `auto` | 本体のどこから出すか。`auto` は本体の中心から向き先への方向。角度は本体の中心から見た方向 |
-| `offscreen` | `top` \| `right` \| `bottom` \| `left` | - | 画面外の話者。`as: offscreen` で辺を省略すると最も近い辺を使う。`length` を指定するとその長さで止まり、省略すると `maxLength` まで伸ばす。枠に届かなければ短い三角形になり、届いた場合は `clip: auto` でコマ間の枠でも切る（P1） |
+| `offscreen` | `top` \| `right` \| `bottom` \| `left` | - | 画面外の話者。`as: offscreen` で辺を省略すると最も近い辺を使う。`from` で指定した場合も同じ。尾は `maxLength` にかかわらず話者側のコマ枠まで伸ばし、枠で切れた部分は開いた形にする。枠に届かない `length` は無視して延長し、`BALLOON_OFFSCREEN_LENGTH_IGNORED` を警告する。`clip: auto` ではコマ間の枠でも切る（P1） |
 | `count` | 整数 | `3` | `bubbles` の泡の数 |
 | `bubbleSize` | Length | 本体の短辺の 20 %（1.5〜5 mm に制限）。顔までの距離に収まらない場合は 55 % まで縮める | `bubbles` の最初の泡の直径 |
 | `shrink` | 0〜1 | 未指定時は直径比 `1 → 0.6 → 0.35 → 0.22`（以後は約 0.63 倍） | 指定時は各泡に同じ縮小率を適用 |
@@ -422,6 +422,8 @@ panels:
 | `attach` | コマ枠への密着 | `top-right` / `top-left` / `bottom-right` / `bottom-left` / `top` / `right` / `bottom` / `left` / `none` |
 | `from` | `top` \| `right` \| `bottom` \| `left` | `as: offscreen` の話者の方向（`tail.offscreen` に展開する） |
 | その他 | 吹き出しのプロパティ | `id`、`at`、`shape`、`fontSize` など、吹き出しのすべてのプロパティを書ける |
+
+画面外の話者の尾は、`offscreen` または吹き出しの `from` で指定した側のコマ枠まで伸ばして切る。`maxLength` では短く止めない。枠に届かない `length` は無視して延長し、`BALLOON_OFFSCREEN_LENGTH_IGNORED` を警告する。尾を描かない場合は `tail: none` を使う。
 
 `as: narration` の箱ネームは、既定で `at` に最も近いコマの角に密着する。`at` がなければ右上に置く。`attach: none` は従来の浮いた配置に戻す。他の吹き出しは `attach` を指定しない限り変わらない。
 四辺の指定では、もう一方の軸は `at` の位置を保ち、箱がはみ出ない範囲に収める（`at` なしは右上を基準）。箱の外縁を枠線の内縁に合わせ、枠との間に隙間を作らない。変形コマは表示領域の外接矩形を基準にし、断ち切り辺は仕上がり端に合わせる。手描きの線の揺れや回転は密着を保証しないため、厳密な箱には `hand: clean` と回転なしを使う。密着した箱は自動配置の障害物になる。

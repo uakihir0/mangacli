@@ -257,7 +257,7 @@ export const Tail = z
     bend: z.number().min(-1).max(1).optional(),
     sideCurve: z.number().min(0).max(1).optional(),
     root: z.union([z.literal("auto"), Angle]).optional(),
-    offscreen: z.enum(["top", "right", "bottom", "left"]).optional(),
+    offscreen: z.enum(["top", "right", "bottom", "left"]).optional().describe("画面外の話者の方向。尾は maxLength にかかわらずコマ枠まで伸ばして切る。枠に届かない length は無視して警告する。"),
     count: z.number().int().optional(),
     bubbleSize: Length.optional(),
     shrink: z.number().optional(),
