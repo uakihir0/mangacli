@@ -61,3 +61,19 @@ it("keeps the padded glyph silhouette white in print-mono and only screens the o
   expect(fringe(softPixels)).toBeGreaterThan(100);
   expect(fringe(faintPixels)).toBeLessThan(fringe(softPixels));
 });
+
+it.each(["web", "print-mono"] as const)("blurs across the trim edge before cropping (%s)", async profile => {
+  const source = input(effect);
+  source.yaml = source.yaml.replace("bleed: 0mm", "bleed: 3mm").replace("[50%, 50%]", "[2mm, 50%]");
+  const options = { profile, format: "png", dpi: 254 } as const;
+  const [trim, bleed] = await Promise.all([
+    render(source, { ...options, crop: "trim" }),
+    render(source, { ...options, crop: "bleed" }),
+  ]);
+  const sharpTrim = sharp(trim.pages[0].data);
+  const { width, height } = await sharpTrim.metadata();
+  const actual = await sharpTrim.extractChannel(0).raw().toBuffer();
+  const expected = await sharp(bleed.pages[0].data).extract({ left: 30, top: 30, width, height }).extractChannel(0).raw().toBuffer();
+  expect(actual.some((value, i) => i % width === 0 && value > 0)).toBe(true);
+  expect(actual.equals(expected)).toBe(true);
+});

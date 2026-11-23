@@ -94,7 +94,7 @@ function nodeBounds(n: Node, m: Matrix): Rect | null {
     const b = pathBounds(n.path, m);
     if (b && n.backdrop) {
       const sx = Math.hypot(m[0], m[2]), sy = Math.hypot(m[1], m[3]);
-      const blurReach = n.backdrop.feather * 2 * Math.max(sx, sy);
+      const blurReach = 4 * backdropSigma(n.backdrop.feather, m);
       const dx = n.backdrop.padding * sx + blurReach;
       const dy = n.backdrop.padding * sy + blurReach;
       return { x: b.x - dx, y: b.y - dy, w: b.w + 2 * dx, h: b.h + 2 * dy };
@@ -119,11 +119,15 @@ function nodeBounds(n: Node, m: Matrix): Rect | null {
   return r;
 }
 
-function clampRect(r: Rect, W: number, H: number): { x: number; y: number; w: number; h: number } | null {
-  const x0 = Math.max(0, Math.floor(r.x) - 1);
-  const y0 = Math.max(0, Math.floor(r.y) - 1);
-  const x1 = Math.min(W, Math.ceil(r.x + r.w) + 1);
-  const y1 = Math.min(H, Math.ceil(r.y + r.h) + 1);
+function backdropSigma(feather: number, m: Matrix): number {
+  return feather * Math.max(Math.hypot(m[0], m[2]), Math.hypot(m[1], m[3])) / 2;
+}
+
+function clampRect(r: Rect, W: number, H: number, halo = 0): { x: number; y: number; w: number; h: number } | null {
+  const x0 = Math.max(-halo, Math.floor(r.x) - 1);
+  const y0 = Math.max(-halo, Math.floor(r.y) - 1);
+  const x1 = Math.min(W + halo, Math.ceil(r.x + r.w) + 1);
+  const y1 = Math.min(H + halo, Math.ceil(r.y + r.h) + 1);
   if (x1 <= x0 || y1 <= y0) return null;
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
@@ -139,7 +143,8 @@ export function monoNodeWorkingBytes(list: DisplayList, dpi: number, crop: "trim
       const pad = Math.ceil((Math.abs(n.shadow.dx) + Math.abs(n.shadow.dy) + n.shadow.blur * 2) * s) + 4;
       bounds = { x: bounds.x - pad, y: bounds.y - pad, w: bounds.w + 2 * pad, h: bounds.h + 2 * pad };
     }
-    const r = bounds && clampRect(bounds, w + 2 * edge, h + 2 * edge);
+    const halo = n.kind === "path" && n.backdrop ? Math.ceil(4 * backdropSigma(n.backdrop.feather, m)) : 0;
+    const r = bounds && clampRect(bounds, w + 2 * edge, h + 2 * edge, halo);
     if (!r) return 0;
     const pixels = r.w * r.h;
     if (n.kind === "image") return pixels * 64;
@@ -648,9 +653,9 @@ export class RasterBackend {
   }
 
   private drawBackdrop(dev: Dev, pd: PathData, rule: PathNode["fillRule"], b: NonNullable<PathNode["backdrop"]>, m: Matrix, bounds: Rect) {
-    const r = clampRect(bounds, dev.W, dev.H);
+    const sigma = backdropSigma(b.feather, m);
+    const r = clampRect(bounds, dev.W, dev.H, Math.ceil(4 * sigma));
     if (!r) return;
-    const sigma = b.feather * Math.max(Math.hypot(m[0], m[2]), Math.hypot(m[1], m[3])) / 2;
     const color = grayize(b.color, dev.opts.colorMode);
     const silhouette = createCanvas(r.w, r.h);
     const sctx = silhouette.getContext("2d");
