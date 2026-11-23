@@ -18,6 +18,12 @@ async function halo(props: Record<string, unknown> = {}, extra = {}) {
   return paths([list.root]).find(n => n.tag?.elementId === "b" && n.tag.role === "fill" && n.stroke);
 }
 
+const burstPage = (background: string, halo: string, haloColor: string) => ({
+  mangacli: 1,
+  page: { size: ["45mm", "45mm"], bleed: "0mm", background },
+  pages: [{ layers: [{ balloon: "", id: "b", as: "scream", shape: { kind: "burst", depth: [0.45, 0.45], count: 18 }, at: ["50%", "50%"], size: ["24mm", "24mm"], hand: "clean", tail: "none", halo, haloColor, stroke: { width: "0.7mm" } }] }],
+});
+
 describe("balloon halo", () => {
   it("gives inverted and explicitly black balloons a white rim around the filled body and tail", async () => {
     const rim = (await halo())!;
@@ -31,11 +37,7 @@ describe("balloon halo", () => {
   });
 
   it("keeps a thin rim outside the miter apex of a burst balloon", async () => {
-    const result = await createRenderer({ profile: "web", dpi: 600 }).render({
-      mangacli: 1,
-      page: { size: ["45mm", "45mm"], bleed: "0mm", background: "#ff0000" },
-      pages: [{ layers: [{ balloon: "", id: "b", as: "scream", shape: { kind: "burst", depth: [0.45, 0.45], count: 18 }, at: ["50%", "50%"], size: ["24mm", "24mm"], hand: "clean", tail: "none", halo: "0.18mm", haloColor: "#00ff00", stroke: { width: "0.7mm" } }] }],
-    }, { keepLists: true, colorMode: "color" });
+    const result = await createRenderer({ profile: "web", dpi: 600 }).render(burstPage("#ff0000", "0.18mm", "#00ff00"), { keepLists: true, colorMode: "color" });
     const ink = paths([result.lists![0].root]).find(n => n.tag?.elementId === "b" && n.tag.role === "ink")!;
     const [, apex, , tip] = ink.path;
     const outer = { x: apex[1] as number, y: apex[2] as number };
@@ -48,6 +50,20 @@ describe("balloon halo", () => {
     };
     expect(pixel(1, 1)).toEqual([255, 0, 0]);
     expect(pixel(probe.x, probe.y)).toEqual([0, 255, 0]);
+  });
+
+  it("applies the opacity only once where the two burst rims overlap in PNG", async () => {
+    const result = await createRenderer({ profile: "web", dpi: 600 }).render(burstPage("white", "0.4mm", "#00000080"), { colorMode: "color", format: "png" });
+    const { data, info } = await sharp(result.pages[0].data).extractChannel(0).raw().toBuffer({ resolveWithObject: true });
+    const pixel = data[231 * info.width + 523];
+    expect(pixel).toBeGreaterThanOrEqual(126);
+    expect(pixel).toBeLessThanOrEqual(129);
+  });
+
+  it("applies the same group opacity to both rim strokes in SVG", async () => {
+    const result = await createRenderer({ profile: "web", dpi: 600 }).render(burstPage("white", "0.4mm", "#00000080"), { colorMode: "color", format: "svg" });
+    const svg = Buffer.from(result.pages[0].data).toString("utf8");
+    expect(svg).toMatch(/<g opacity="0\.502"[^>]*><path[^>]*stroke-width="1\.5"[^>]*\/><path[^>]*stroke-width="0\.8"[^>]*\/>/);
   });
 
   it.each(["none", false, 0])("supports halo: %s", async value => {
