@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { render } from "../src/api.js";
-import { applyFilters, mangaOutputFilters, parseFilter } from "../src/render/filters.js";
+import { applyFilters, mangaOutputFilters, mangaTempScale, parseFilter } from "../src/render/filters.js";
 import type { ImageFilter } from "../src/render/ir.js";
 import type { Node } from "../src/render/ir.js";
 
@@ -79,6 +79,14 @@ describe("manga finish filter", () => {
     expect(output[0].opts?.lpi).toBe(150);
     const constrained = mangaOutputFilters(output, outputMm / 0.5);
     expect(constrained[0].opts?.lpi).toBeCloseTo(150 / 2, 6);
+  });
+
+  it("caps the temporary manga image within the shared pixel budget", () => {
+    expect(mangaTempScale(1000, 1000, 2, 200_000_000)).toBe(2);
+    const scale = mangaTempScale(1000, 1000, 10, 200_000_000);
+    expect(scale).toBeCloseTo(2.5, 6);
+    expect(1000 * 1000 * scale * scale).toBeLessThanOrEqual(6_250_000);
+    expect(mangaTempScale(1000, 1000, 100, Number.MAX_SAFE_INTEGER)).toBeCloseTo(4, 6);
   });
 
   it("keeps interior solids black by default but tones an edge-touching background solid", async () => {

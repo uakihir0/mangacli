@@ -52,6 +52,16 @@ export function mangaResolutionBoost(filters: ImageFilter[], mmPerPx: number): n
   return boost;
 }
 
+/** scale a manga filter's temporary image within the shared memory budget */
+export function mangaTempScale(outW: number, outH: number, boost: number, maxPixels?: number): number {
+  const budget = Math.max(1, Math.floor((maxPixels ?? 200_000_000) / 32));
+  // Packed mono deliberately leaves maxPixels unbounded; keep an absolute ceiling
+  // for temporary RGBA/filter buffers regardless of that output-only exemption.
+  const cap = Math.min(16_000_000, budget);
+  const wanted = boost * boost * outW * outH;
+  return wanted <= cap ? boost : Math.sqrt(cap / Math.max(1e-9, outW * outH));
+}
+
 /** lower the effective screen ruling when the final output cannot resolve a 60-ish lpi dot cell */
 export function mangaOutputFilters(filters: ImageFilter[], mmPerPx: number): ImageFilter[] {
   let changed = false;

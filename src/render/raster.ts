@@ -7,7 +7,7 @@ import type { AssetRegistry } from "./assets.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
 import { makeBinaryRoundToneSampler, makeToneSampler } from "./screen.js";
 import { distanceSquared } from "./edt.js";
-import { applyFilters, mangaOutputFilters, mangaResolutionBoost } from "./filters.js";
+import { applyFilters, mangaOutputFilters, mangaResolutionBoost, mangaTempScale } from "./filters.js";
 import { MONO_BAND_PIXELS, packBand, type MonoRaster } from "./mono.js";
 import { setImmediate } from "node:timers/promises";
 import { imageInkMask } from "./image-ink.js";
@@ -130,15 +130,6 @@ function clampRect(r: Rect, W: number, H: number, halo = 0): { x: number; y: num
   const y1 = Math.min(H + halo, Math.ceil(r.y + r.h) + 1);
   if (x1 <= x0 || y1 <= y0) return null;
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
-}
-
-function mangaTempScale(outW: number, outH: number, boost: number, maxPixels?: number): number {
-  const budget = Math.max(1, Math.floor((maxPixels ?? 200_000_000) / 32));
-  // Packed mono deliberately leaves maxPixels unbounded; keep an absolute ceiling
-  // for temporary RGBA/filter buffers regardless of that output-only exemption.
-  const cap = Math.min(16_000_000, budget);
-  const wanted = boost * boost * outW * outH;
-  return wanted <= cap ? boost : Math.sqrt(cap / Math.max(1e-9, outW * outH));
 }
 
 export function monoNodeWorkingBytes(list: DisplayList, dpi: number, crop: "trim" | "bleed" | "marks", margin = 10, maxPixels?: number): number {

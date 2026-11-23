@@ -71,6 +71,24 @@ pages:
     expect(await embeddedSize(4)).toEqual([384, 384]);
   });
 
+  it("caps scale-aware manga intermediates at the output pixel budget", async () => {
+    const art = await sharp({ create: { width: 100, height: 100, channels: 3, background: "#888888" } }).png().toBuffer();
+    const yaml = `mangacli: 1
+page: { size: [10mm, 10mm], bleed: 0mm }
+assets:
+  art: { src: art.png }
+pages:
+  - layers:
+      - { image: art, size: [1mm, 1mm], at: [0mm, 0mm], anchor: top-left, scale: 100, filters: [manga] }
+`;
+    const r = await render({ yaml }, { profile: "web", dpi: 96, format: "svg", assets: { art }, limits: { maxOutputPixels: 20000 } });
+    const svg = Buffer.from(r.pages[0].data).toString("utf8");
+    const b64 = svg.match(/<image[^>]*href="data:image\/png;base64,([^"]+)"/)![1];
+    const meta = await sharp(Buffer.from(b64, "base64")).metadata();
+    expect(meta.width).toBeLessThan(50);
+    expect(meta.height).toBeLessThan(50);
+  });
+
   it("leaves the raster output's line art intact when rendered together", async () => {
     const { r } = await embedded("lineart", 600, ["svg", "png"]);
     const png = r.pages.find((p) => p.format === "png")!;
