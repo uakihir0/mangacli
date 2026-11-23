@@ -584,7 +584,7 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
 
   if (grain > 0) {
     const before = Uint8Array.from(ink);
-    const threshold = 1.1 - grain * 0.8;
+    const threshold = 1 - grain * 0.7;
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const i = y * w + x;
       const v0 = before[i];
@@ -604,7 +604,7 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
       const ymm = (y + 0.5) * mmPerPx;
       const smooth = noise2((seed + 101) >>> 0, xmm / 0.16, ymm / 0.16) / 1.414;
       const speck = (hash2((seed + 211) >>> 0, x, y) / 4294967296) * 2 - 1;
-      const v = smooth * 0.75 + speck * 0.25;
+      const v = (smooth * 0.75 + speck * 0.25) / 0.78;
       if (v0 && v > threshold) ink[i] = 0;
       else if (!v0 && v < -threshold) ink[i] = 1;
     }

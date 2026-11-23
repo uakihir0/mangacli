@@ -104,6 +104,15 @@ describe("manga finish filter", () => {
     for (let i = 0; i < out.data.length; i += 4) expect(out.data[i]).toBe(255);
   });
 
+  it("makes non-zero grain visibly roughen existing ink edges", async () => {
+    const base = { ...mangaOpts, cut: 0, grain: 0 };
+    const zero = await applyFilters(sourcePixels(), [{ ...mangaFilter, opts: base }], 0.05);
+    const rough = await applyFilters(sourcePixels(), [{ ...mangaFilter, opts: { ...base, grain: 1 } }], 0.05);
+    let changed = 0;
+    for (let i = 0; i < zero.data.length; i += 4) if (zero.data[i] !== rough.data[i]) changed++;
+    expect(changed).toBeGreaterThan(0);
+  });
+
   it("is deterministic for the same input and seed", async () => {
     const a = await applyFilters(sourcePixels(), [mangaFilter], 0.05);
     const b = await applyFilters(sourcePixels(), [mangaFilter], 0.05);
