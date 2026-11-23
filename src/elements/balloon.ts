@@ -677,7 +677,7 @@ function spliceTail(contour: ShapeContour, { A, B }: TailBase, { sideA, sideB, z
   return { outline: { pts, closed: true, corners, smooth: false }, rootIndex };
 }
 
-function* spikeTailBases(contour: ShapeContour, s: number[], at: number, width: number): Generator<TailBase & { peak?: Vec }> {
+function* spikeTailBases(contour: ShapeContour, s: number[], at: number, width: number): Generator<TailBase> {
   const corners = (contour.corners ?? []).slice().sort((a, b) => a.index - b.index);
   const n = corners.length;
   const perimeter = s[s.length - 1];
@@ -689,9 +689,9 @@ function* spikeTailBases(contour: ShapeContour, s: number[], at: number, width: 
     const spanA = around(apex - s[left.index]), spanB = around(s[right.index] - apex);
     const offset = around(at - s[left.index]);
     const distance = offset <= spanA + spanB ? 0 : Math.min(offset - spanA - spanB, perimeter - offset);
-    return [{ apex, peak: contour.pts[peak.index], spanA, spanB, distance }];
+    return [{ apex, spanA, spanB, distance }];
   }).sort((a, b) => a.distance - b.distance);
-  for (const { apex, peak, spanA, spanB } of candidates) {
+  for (const { apex, spanA, spanB } of candidates) {
     const roots = (f: number) => ({
       A: pointAtArc(contour.pts, s, apex - spanA * f),
       B: pointAtArc(contour.pts, s, apex + spanB * f),
@@ -707,7 +707,7 @@ function* spikeTailBases(contour: ShapeContour, s: number[], at: number, width: 
       }
       base = roots(lo);
     }
-    yield { ...base, peak };
+    yield base;
   }
   for (const half of [width / 2, width / 4]) {
     yield { A: pointAtArc(contour.pts, s, at - half), B: pointAtArc(contour.pts, s, at + half) };
@@ -1243,11 +1243,24 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
         sideB: Array.from({ length: steps + 1 }, (_, i) => lerp(B.p, end, i / steps)),
         zigCorners: [],
       });
-      const end = { x: R.x + dir.x * length, y: R.y + dir.y * length };
-      if (!straight) fitted = tryBases(sR, drawStraight(end));
+      const along = (d: number) => ({ x: R.x + dir.x * d, y: R.y + dir.y * d });
+      const back = { x: -dir.x, y: -dir.y };
+      let run = length;
+      if (pointInPolygon(along(run), cur.pts)) {
+        const entry = rayPolygon(along(run), back, cur.pts);
+        if (entry && entry.t < run) {
+          const beforeEntry = run - entry.t - 1e-7 * u.k;
+          if (beforeEntry > 0 && !pointInPolygon(along(beforeEntry), cur.pts)) {
+            const exit = rayPolygon(along(beforeEntry), back, cur.pts);
+            run = beforeEntry - Math.min(beforeEntry, exit?.t ?? beforeEntry) / 2;
+          }
+        }
+      }
+      const end = along(run);
+      if (!straight || run < length) fitted = tryBases(sR, drawStraight(end));
       if (!fitted && !pointInPolygon(end, contour.pts)) {
-        const visible = rayPolygon(end, { x: -dir.x, y: -dir.y }, cur.pts);
-        if (visible && visible.t <= length) {
+        const visible = rayPolygon(end, back, cur.pts);
+        if (visible && visible.t <= run + 1e-7 * u.k) {
           const at = s[visible.index] + visible.u * (s[visible.index + 1] - s[visible.index]);
           const draw = drawStraight(end);
           for (const half of [bw / 2, bw / 4, bw / 8, bw / 16, bw / 32, bw / 64]) {
@@ -1255,25 +1268,6 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
             fitted = fit(base, draw(base));
             if (fitted) break;
           }
-        }
-      }
-      if (!fitted && !target) {
-        const far = Math.hypot(plan.outer.w, plan.outer.h) + length;
-        const origin = { x: R.x + dir.x * far, y: R.y + dir.y * far };
-        const outer = rayPolygon(origin, { x: -dir.x, y: -dir.y }, cur.pts);
-        if (outer) {
-          const at = s[outer.index] + outer.u * (s[outer.index + 1] - s[outer.index]);
-          const distance = far - outer.t + length;
-          fitted = tryBases(at, drawStraight({ x: R.x + dir.x * distance, y: R.y + dir.y * distance }));
-        }
-        if (!fitted) for (const base of spikeTailBases(cur, s, sR, bw)) {
-          if (!base.peak) continue;
-          const axis = sub(base.peak, lerp(base.A.p, base.B.p, 0.5));
-          const depth = Math.hypot(axis.x, axis.y);
-          if (depth < 1e-9 || dot(axis, dir) <= 0) continue;
-          const end = { x: base.peak.x + axis.x / depth * length, y: base.peak.y + axis.y / depth * length };
-          fitted = fit(base, drawStraight(end)(base));
-          if (fitted) break;
         }
       }
       ctx.bag.warn("BALLOON_TAIL_NO_CLEAR_BASE", fitted

@@ -71,7 +71,14 @@ describe("physical spike tail fitting", () => {
     const ink = vi.spyOn(shape, "inkShape");
     try {
       renderBalloon(plan, ctx);
-      expectOutwardTail(ink.mock.calls[0][0], body);
+      const { pts, corners } = ink.mock.calls[0][0];
+      const tip = corners?.find(c => c.kind === "point");
+      if (tip) {
+        const p = pts[tip.index];
+        expect(cross(dir, p)).toBeCloseTo(0, 7);
+        expect(p.x * dir.x + p.y * dir.y - hit.t).toBeLessThanOrEqual(0.3 + 1e-7);
+        expectOutwardTail(ink.mock.calls[0][0], body);
+      }
       expect(ctx.bag.items).toContainEqual(expect.objectContaining({ code: "BALLOON_TAIL_NO_CLEAR_BASE", severity: "warning" }));
     } finally {
       ink.mockRestore();
