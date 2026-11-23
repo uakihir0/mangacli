@@ -1957,7 +1957,7 @@ function hasBody(pl: BalloonPlan): boolean {
 function faceMarginOf(pl: BalloonPlan, face: Rect, u: ElemCtx["u"]): number {
   const m = pl.props.faceMargin;
   if (m === "none" || m === false) return 0;
-  if (typeof m === "string" && m !== "auto") return toMm(m, u);
+  if (typeof m === "number" || (typeof m === "string" && m !== "auto")) return toMm(m, u);
   return Math.max(3 * u.k, face.w * 0.2);
 }
 

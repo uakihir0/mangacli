@@ -50,5 +50,6 @@ describe("face margin", () => {
     expect(d).toBeGreaterThan(1);
     expect((await scene(at(`${(d + 1).toFixed(1)}mm`))).near).toHaveLength(1);
     expect((await scene(at(`${(d - 1).toFixed(1)}mm`))).near).toEqual([]);
+    expect((await scene(at((d + 1).toFixed(1)))).near).toHaveLength(1);
   });
 });
