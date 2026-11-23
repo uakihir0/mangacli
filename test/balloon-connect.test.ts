@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import sharp from "sharp";
 import { createRenderer } from "../src/api.js";
 import { flattenPath, polygonArea } from "../src/geom/path.js";
 import type { Node, PathNode } from "../src/render/ir.js";
@@ -10,16 +11,24 @@ const fills = (nodes: PathNode[]) => nodes.filter(n => n.tag?.role === "fill");
 const lettering = (nodes: PathNode[], id: string) => nodes.filter(n => n.tag?.role === "text" && n.tag.elementId === id);
 const area = (node: PathNode) => flattenPath(node.path).reduce((total, path) => total + Math.abs(polygonArea(path.pts)), 0);
 
-async function scene(at: number, connect = "", extra = "") {
-  const result = await renderer.render({ yaml: `mangacli: 1
+async function scene(at: number, connect = "", extra = "", obstacle?: "monologue" | "mouth") {
+  const withMouth = obstacle === "mouth";
+  const sceneRenderer = withMouth ? createRenderer({ profile: "preview", assets: {
+    face: await sharp({ create: { width: 32, height: 32, channels: 3, background: "white" } }).png().toBuffer(),
+  } }) : renderer;
+  const layer = obstacle === "monologue" ? "- {balloon: Word, id: obstacle, as: monologue, at: [48mm, 28mm]}" :
+    withMouth ? "- {image: face, at: [48mm, 28mm], anchor: center, size: [8mm, 8mm]}" : "";
+  const result = await sceneRenderer.render({ yaml: `mangacli: 1
 meta: {lang: en}
 page: {size: [120mm, 80mm], bleed: 0mm}
 book: {readingDirection: ltr}
+${withMouth ? "assets: {face: {src: face.png, character: speaker, anchors: {mouth: [16, 16]}}}" : ""}
 pages:
   - panels:
       - layers:
           - {balloon: A, id: first, at: [28mm, 28mm], size: [20mm, 20mm], shape: {kind: rect}, hand: clean, halo: none, tail: none}
           - {balloon: B, id: second, at: [${at}mm, 28mm], size: [20mm, 20mm], shape: {kind: rect}, hand: clean, halo: none, tail: none${connect}${extra}}
+          ${layer}
 ` }, { layoutOnly: true, keepLists: true });
   expect(result.diagnostics.filter(d => d.severity === "error")).toEqual([]);
   return { nodes: paths(result.lists![0].root), diagnostics: result.diagnostics.filter(d => d.code === "BALLOON_CONNECT_DISJOINT") };
@@ -52,6 +61,14 @@ describe("balloon connections", () => {
   it("draws a frame-attached balloon separately with an info diagnostic", async () => {
     const separate = await scene(75, "", ", attach: right");
     const result = await scene(75, ", connect: {to: first}", ", attach: right");
+    expect(result.nodes).toEqual(separate.nodes);
+    expect(result.diagnostics).toEqual([expect.objectContaining({ severity: "info", elementId: "second" })]);
+  });
+
+  it.each(["monologue", "mouth"] as const)("does not move the second balloon over a %s", async obstacle => {
+    const separate = await scene(75, "", "", obstacle);
+    const result = await scene(75, ", connect: {to: first}", "", obstacle);
+    expect(fills(result.nodes)).toHaveLength(2);
     expect(result.nodes).toEqual(separate.nodes);
     expect(result.diagnostics).toEqual([expect.objectContaining({ severity: "info", elementId: "second" })]);
   });

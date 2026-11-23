@@ -27,6 +27,12 @@ export function bodyPolygon(plan: BalloonPlan, center = plan.center!): Vec[] {
   return plan.body.contour.pts.map(q => ({ x: center.x + q.x * Math.cos(a) - q.y * Math.sin(a), y: center.y + q.x * Math.sin(a) + q.y * Math.cos(a) }));
 }
 
+export function balloonObstacleBounds(plan: BalloonPlan): Rect[] {
+  if (!plan.center) return [];
+  if (plan.params.kind !== "none") return [boundsOf(bodyPolygon(plan))];
+  return plan.text.plain ? [boundsOf(textPolygon(plan))] : [];
+}
+
 export function overlapBalloonCenter(a: BalloonPlan, b: BalloonPlan, ctx: ElemCtx, occupied: Rect[], settled: boolean): Vec | undefined {
   if (!a.center || !b.center || a.params.kind === "none" || b.params.kind === "none") return;
   const from = b.center;

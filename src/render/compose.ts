@@ -32,7 +32,7 @@ import { defaultTextStyle, layoutText, parseLayoutText } from "../text/layout.js
 import { parseMarkup } from "../text/markup.js";
 import { type AssetRegistry, resolveAssetBlend } from "./assets.js";
 import { cleanClippedBalloonInk } from "./balloon-clip.js";
-import { autoEdgeCutFits, bodyPolygon, containBalloon, containsBalloon, frameClearance, overlapBalloonCenter, polygonFits, warnBalloonInGutter } from "./balloon-contain.js";
+import { autoEdgeCutFits, balloonObstacleBounds, bodyPolygon, containBalloon, containsBalloon, frameClearance, overlapBalloonCenter, polygonFits, warnBalloonInGutter } from "./balloon-contain.js";
 import type { DisplayList, GroupNode, Node, PathNode } from "./ir.js";
 import { FILTER_NAMES, parseFilter } from "./filters.js";
 
@@ -331,6 +331,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     pageBalloons.push(...plans.map(({ plan, idx }) => ({ plan, idx, panel: ctx.panel?.panel.id, order: ctx.panel?.order ?? panels.length })));
     const consumed = new Set<string>();
     const balloonPlans = plans.map(p => p.plan);
+    const mouths = balloonMouthObstacles(ctx);
     prepareBalloonObstacles(balloonPlans);
     const byId = new Map(plans.map((x) => [x.plan.el.id, x]));
     for (const { plan, idx } of plans) {
@@ -348,7 +349,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
           const c2 = { ...ctx, coordsBox: coordsFor(plan.el, ctx, geom) };
           let position = original;
           if (style === "overlap") {
-            const obstacles = balloonPlans.filter(p => p !== plan && p !== other.plan && p.center && p.params.kind !== "none").map(p => boundsOf(bodyPolygon(p)));
+            const obstacles = [...mouths, ...balloonPlans.filter(p => p !== plan && p !== other.plan).flatMap(balloonObstacleBounds)];
             position = overlapBalloonCenter(other.plan, plan, c2, obstacles, consumed.has(plan.el.id));
             if (position && position !== original) {
               plan.center = position;
@@ -1518,6 +1519,22 @@ function fitFlashPlacement(box: Rect, panel: Rect, poly: Vec[], margin: number):
   return { ...box, ...lerp(at, middle, hi) };
 }
 
+function balloonSpeakerImages(ctx: ElemCtx): RefTarget[] {
+  const pid = ctx.panel?.panel.id;
+  return ctx.refs.allSpeakers().filter(t => t.type === "image" && (!pid || t.panelId === undefined || t.panelId === pid));
+}
+
+function balloonMouthObstacles(ctx: ElemCtx, speakers = balloonSpeakerImages(ctx)): Rect[] {
+  const panelBox = ctx.panel?.box ?? ctx.geom.baseFrame;
+  const radius = 2 * ctx.u.k;
+  return speakers.flatMap(t => {
+    const p = t.anchors.mouth;
+    if (!p) return [];
+    const box = { x: p.x - radius, y: p.y - radius, w: 2 * radius, h: 2 * radius };
+    return rectIntersect(box, panelBox) ? [box] : [];
+  });
+}
+
 function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, processed: Map<string, { bbox: Rect }>, sils: Silhouette[] = [], replan?: (pl: BalloonPlan, props: Obj) => BalloonPlan | null) {
   plans = [...plans].sort((a, b) => Number(a.props.as === "aside") - Number(b.props.as === "aside"));
   const u = ctx.u;
@@ -1551,15 +1568,11 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     else if (el && el.type === "mark" && rectIntersect(it.bbox, panelBox)) obstacles.push({ r: it.bbox, w: 30 });
   }
   const pid = ctx.panel?.panel.id;
-  const hard: Rect[] = [];
-  for (const t of refs.allSpeakers()) {
-    if (t.type !== "image" || (pid && t.panelId !== undefined && t.panelId !== pid)) continue;
+  const speakers = balloonSpeakerImages(ctx);
+  const hard = balloonMouthObstacles(ctx, speakers);
+  for (const t of speakers) {
     // faces are roughly elliptical: the corners of the face box are free space
     for (const [k, rg] of Object.entries(t.regions)) if ((k === "face" || k === "avoid") && rectIntersect(rg.bbox, panelBox)) obstacles.push({ r: rg.bbox, w: 60, ellipse: k === "face" });
-    if (t.anchors.mouth) {
-      const mouth = { x: t.anchors.mouth.x - 2 * u.k, y: t.anchors.mouth.y - 2 * u.k, w: 4 * u.k, h: 4 * u.k };
-      if (rectIntersect(mouth, panelBox)) hard.push(mouth);
-    }
   }
   const placedRects: Rect[] = [];
   const attachedRects: Rect[] = [];
