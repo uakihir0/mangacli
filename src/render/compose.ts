@@ -1541,10 +1541,13 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   const faceShortfall = (vp: BalloonPlan, c: Vec, rect: Rect): number => {
     if (!faces.length || !hasBody(vp)) return 0;
     let worst = 0;
+    // the rotated body can reach past the unrotated box
+    const poly = bodyPolygon(vp, { x: c.x - (vp.outer.x + rect.w / 2), y: c.y - (vp.outer.y + rect.h / 2) });
+    const box = boundsOf(poly);
     for (const f of faces) {
       const m = faceMarginOf(vp, f, u);
-      if (m <= 0 || !rectIntersect(rectInset(rect, -m), f)) continue;
-      const d = faceDistance(bodyPolygon(vp, { x: c.x - (vp.outer.x + rect.w / 2), y: c.y - (vp.outer.y + rect.h / 2) }), f);
+      if (m <= 0 || !rectIntersect(rectInset(box, -m), f)) continue;
+      const d = faceDistance(poly, f);
       if (d < m - 1e-6) worst = Math.max(worst, (m - d) / m);
     }
     return worst;
