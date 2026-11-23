@@ -157,6 +157,16 @@ pages:
     const b = r.layout[0].elements.find(e => e.id === "b")!.bbox;
     expect(b.y + b.h).toBeLessThanOrEqual(70.01);
   });
+  it("moves a bottom-cut flowing balloon to the row start even when the next row would not fit", async () => {
+    const r = await validate({
+      yaml: page(`          - { balloon: あああああああああああああ, id: a, autoPlace: flow, maxChars: 13, tail: none }
+          - { balloon: うう, id: d, autoPlace: flow, tail: none }
+          - { balloon: いちいち, id: c, at: [62%, 88%], tail: none }
+          - { balloon: にいにい, id: b, autoPlace: flow, cut: [bottom], tail: none }`),
+    });
+    expect(r.diagnostics.map(d => d.code)).not.toContain("BALLOON_OVERLAP");
+    expect(r.diagnostics.map(d => d.code)).not.toContain("BALLOON_TEXT_HIDDEN");
+  });
   it("moves a cut flowing balloon off a balloon placed by at", async () => {
     const r = await validate({ yaml: page(`          - { balloon: いちいち, id: a, at: [90%, 15%], tail: none }\n          - { balloon: にいにい, id: b, autoPlace: flow, cut: [right], tail: none }`) });
     expect(r.diagnostics.map(d => d.code)).not.toContain("BALLOON_TEXT_HIDDEN");
