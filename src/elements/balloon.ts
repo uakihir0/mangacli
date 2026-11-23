@@ -695,9 +695,15 @@ function faceOf(face: Rect | undefined, target: Vec): Rect | undefined {
   return target.x >= face.x - mx && target.x <= face.x + face.w + mx && target.y >= face.y - my && target.y <= face.y + face.h + my ? face : undefined;
 }
 
-export function automaticTailWidth(minSide: number, length: number, k: number, kind: string, offscreen = false, whisper = false): number {
-  const bw0 = Math.min(1.87 * k, Math.max(1.07 * k, minSide * 0.087));
-  return kind === "zigzag" ? bw0 * 1.5 : offscreen ? bw0 : whisper ? minSide / 9 : Math.max(bw0, Math.min(minSide / 9, length * 0.4));
+const AUTO_WEDGE_LENGTH = 3.5;
+const AUTO_WEDGE_MIN_LENGTH = 2.5;
+const AUTO_WEDGE_MAX_LENGTH = 5;
+
+export function automaticTailWidth(minSide: number, k: number, kind: string): number {
+  const bw0 = kind === "zigzag"
+    ? Math.min(1.87 * k, Math.max(1.07 * k, minSide * 0.087))
+    : Math.min(1.3 * k, Math.max(0.9 * k, minSide * 0.087));
+  return kind === "zigzag" ? bw0 * 1.5 : bw0;
 }
 
 function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult {
@@ -744,7 +750,10 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       if (own.curl === undefined && (tail.kind === undefined || tail.kind === "wedge")) for (const root of roots) for (const curl of [false, true]) candidates.push({ ...root, curl });
       if (own.bend === undefined) for (const root of roots) for (const bend of [-0.3, 0.3, -0.5, 0.5]) candidates.push({ ...root, bend, ...(own.curl === undefined ? { curl: false } : {}) });
       if (own.length === undefined && initial.length !== undefined) {
-        const minimum = Math.min(initial.length, 2 * ctx.u.k);
+        const tailKind = (tail.kind as string) ?? "wedge";
+        const spiky = plan.params.kind === "spike" || plan.params.kind === "burst";
+        const plainWedge = tailKind === "wedge" && !spiky && offscreenTailSide(tail, plan.props) === undefined;
+        const minimum = Math.min(initial.length, (plainWedge ? AUTO_WEDGE_MIN_LENGTH : 2) * ctx.u.k);
         for (const factor of [0.75, 0.5, 0.25, 0]) for (const root of roots) candidates.push({ ...root, length: `${Math.max(minimum, initial.length * factor)}mm` });
       }
       for (const changes of candidates) {
@@ -862,11 +871,11 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     }
     const gap = t.gap !== undefined ? toMm(t.gap as string, u) : 2 * u.k;
     const whisperWedge = plan.props.as === "whisper" && kind === "wedge";
-    // a tail with a speaker reaches a little further than a bare pointer, enough to read as aimed at
-    // the mouth, but stays a short wedge: a balloon far from its speaker is moved, not given a needle
+    // an ordinary wedge only points toward the speaker; spiky and off-panel tails keep their own reach
     const spiky = plan.params.kind === "spike" || plan.params.kind === "burst";
+    const plainWedge = kind === "wedge" && !offSide && !spiky;
     const pointerMax = Math.min(9 * u.k, Math.max((whisperWedge ? 6 : 4.5) * u.k, minSide * 0.4));
-    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : target && !offSide && !spiky ? Math.min(12 * u.k, Math.max(6 * u.k, minSide * 0.5)) : pointerMax;
+    const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : plainWedge ? AUTO_WEDGE_MAX_LENGTH * u.k : target && !offSide && !spiky ? Math.min(12 * u.k, Math.max(6 * u.k, minSide * 0.5)) : pointerMax;
     let length: number;
     let reach = 0;
     if (offSide && target) {
@@ -886,42 +895,45 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     } else if (t.length !== undefined) length = toMm(t.length as string, u);
     else if (target) {
       const dist = Math.hypot(target.x - R.x, target.y - R.y);
-      let avail = dist - gap;
-      let stopped = false;
-      // do not run into the speaker's face
-      const tgtRef = typeof t.to === "string" ? ctx.refs.target(t.to, ctx.panel?.panel.id) : who ? ctx.refs.target(who, ctx.panel?.panel.id) : undefined;
-      // the face region is the speaker's only when the target lies on it (an image may also carry
-      // anchors for other characters: `close.hayato`)
-      const face = faceOf(tgtRef?.regions.face?.bbox, target);
-      if (face) {
-        // a clear gap before the face box (hair, beard and glasses spill past the face ellipse);
-        // the ellipse only when the balloon already sits on the box
-        const box = rayRectEntry(R, dir, face);
-        const tf = box !== null && box > 0 ? box : rayEllipseEntry(R, dir, face);
-        if (tf !== null) {
-          avail = Math.min(avail, tf - gap);
-          stopped = true;
-        }
-      }
-      // nor into the speaker's figure: the tip stops just short of the art's silhouette
-      const sil = tgtRef ? ctx.silhouettes?.find((q) => q.id === tgtRef.id) : undefined;
-      if (sil && !face) {
-        const step = 0.25 * u.k;
-        for (let d = step; d < avail; d += step)
-          if (silhouetteHit(sil, { x: R.x + dir.x * d, y: R.y + dir.y * d })) {
-            avail = Math.min(avail, d - 0.5 * u.k);
+      if (plainWedge) {
+        length = Math.min(maxLen, AUTO_WEDGE_LENGTH * u.k);
+      } else {
+        let avail = dist - gap;
+        let stopped = false;
+        // do not run into the speaker's face
+        const tgtRef = typeof t.to === "string" ? ctx.refs.target(t.to, ctx.panel?.panel.id) : who ? ctx.refs.target(who, ctx.panel?.panel.id) : undefined;
+        // the face region is the speaker's only when the target lies on it (an image may also carry
+        // anchors for other characters: `close.hayato`)
+        const face = faceOf(tgtRef?.regions.face?.bbox, target);
+        if (face) {
+          // a clear gap before the face box (hair, beard and glasses spill past the face ellipse);
+          // the ellipse only when the balloon already sits on the box
+          const box = rayRectEntry(R, dir, face);
+          const tf = box !== null && box > 0 ? box : rayEllipseEntry(R, dir, face);
+          if (tf !== null) {
+            avail = Math.min(avail, tf - gap);
             stopped = true;
-            break;
           }
+        }
+        // nor into the speaker's figure: the tip stops just short of the art's silhouette
+        const sil = tgtRef ? ctx.silhouettes?.find((q) => q.id === tgtRef.id) : undefined;
+        if (sil && !face) {
+          const step = 0.25 * u.k;
+          for (let d = step; d < avail; d += step)
+            if (silhouetteHit(sil, { x: R.x + dir.x * d, y: R.y + dir.y * d })) {
+              avail = Math.min(avail, d - 0.5 * u.k);
+              stopped = true;
+              break;
+            }
+        }
+        // a bare point (a mouth or face anchor, no face region to stop at) is the middle of the face:
+        // the tip stops a face's half-width short of it (halfway when the speaker is close)
+        if (!stopped) avail = Math.min(avail, dist - Math.max(gap, Math.min(dist * 0.5, 6 * u.k)));
+        // a tail always reads as a pointer, even when the speaker's face is right beside the body
+        length = Math.min(maxLen, Math.max(4.5 * u.k, avail));
+        reach = avail;
       }
-      // a bare point (a mouth or face anchor, no face region to stop at) is the middle of the face:
-      // the tip stops a face's half-width short of it (halfway when the speaker is close)
-      if (!stopped) avail = Math.min(avail, dist - Math.max(gap, Math.min(dist * 0.5, 6 * u.k)));
-      // a tail always reads as a pointer, even when the speaker's face is right beside the body
-      length = Math.min(maxLen, Math.max(4.5 * u.k, avail));
-      reach = avail;
-    } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
-    if (whisperWedge && !target && !offSide && t.length === undefined) length = Math.min(maxLen, Math.max(length, 6 * u.k));
+    } else length = (kind === "zigzag" ? 11 : plainWedge ? AUTO_WEDGE_LENGTH : 4.5) * u.k;
     if (spiky && !offSide && kind === "wedge" && t.length === undefined && plan.body.spikeLength !== undefined) {
       const rotation = plan.props.rotate === undefined ? 0 : parseAngle(plan.props.rotate as string);
       const coreHit = rayPolygon({ x: 0, y: 0 }, rot(rootDir, -rotation), plan.body.spikeCore ?? plan.body.inner);
@@ -930,13 +942,9 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
       if (length <= 1e-8) continue;
     }
     tailLength = length;
-    const shortBy = reach - length;
-    if (shortBy > 20 * u.k && t.length === undefined)
-      ctx.bag.warn("BALLOON_TAIL_SHORT", `the tail of ${plan.el.id} ends ${shortBy.toFixed(1)} mm short of its speaker; move the balloon closer to them`, { path: plan.el.path, elementId: plan.el.id });
     const widthScale = typeof t.widthScale === "number" ? t.widthScale : 1;
-    // a lightning-bolt tail is a narrower band than a wedge
-    // a wedge's base is about a ninth of the body
-    const bwAuto = automaticTailWidth(minSide, length, u.k, kind, !!offSide, whisperWedge);
+    // a lightning-bolt tail is a wider band than a wedge
+    const bwAuto = automaticTailWidth(minSide, u.k, kind);
     const bw = (t.width !== undefined ? toMm(t.width as string, u) : bwAuto) * widthScale;
     // on a spiky body the tail is one more, larger spike of the outline (the shout/scream presets
     // also set bend/sideCurve 0 for straight sides)
@@ -944,10 +952,10 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : 0.12;
     const perp = { x: -dir.y, y: dir.x };
     let tip = { x: R.x + dir.x * length, y: R.y + dir.y * length };
-    // a tail with a speaker curls toward the face: its centre line is a circular arc whose centre
+    // an explicitly curled tail turns toward the face: its centre line is a circular arc whose centre
     // lies on the face's side, leaving the body along `dir` and turning toward the face
     let arcFn: ((tt: number) => Vec) | null = null;
-    if (kind === "wedge" && !offSide && (t.curl === true || (t.curl !== false && !spiky)) && target) {
+    if (kind === "wedge" && !offSide && t.curl === true && target) {
       const ref = typeof t.to === "string" ? ctx.refs.target(t.to, ctx.panel?.panel.id) : who ? ctx.refs.target(who, ctx.panel?.panel.id) : undefined;
       const fb = faceOf(ref?.regions.face?.bbox, target);
       const F = fb ? { x: fb.x + fb.w / 2, y: fb.y + fb.h / 2 } : target;
