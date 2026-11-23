@@ -31,6 +31,21 @@ export function offsetInk(paths: Paths, radius: number, tolerance: number, miter
   return result;
 }
 
+export function weightInk(paths: Paths, radius: number, tolerance: number): Paths {
+  const components = (ink: Paths) => ink.filter(Clipper.Orientation).length;
+  const count = components(paths);
+  const expanded = offsetInk(paths, radius, tolerance);
+  if (count < 2 || components(expanded) === count) return expanded;
+  // Leave clearance when the requested weight would join separate strokes.
+  let lo = 0, hi = radius;
+  for (let i = 0; i < 8; i++) {
+    const mid = (lo + hi) / 2;
+    if (components(offsetInk(paths, mid, tolerance)) === count) lo = mid;
+    else hi = mid;
+  }
+  return offsetInk(paths, lo * 0.75, tolerance);
+}
+
 export function partitionInk(ink: Paths, region: Paths, inside: boolean): Paths {
   const op = new Clipper();
   op.AddPaths(ink, PolyType.ptSubject, true);

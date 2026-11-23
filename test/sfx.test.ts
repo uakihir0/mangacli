@@ -190,6 +190,18 @@ describe("SFX lettering", () => {
     expect(layers.slice(2).map(l => l.color)).toEqual(expect.arrayContaining(["#000000", "#ff0000", "#0000ff"]));
     expect(layers.filter(l => l.color === "#ffffff")).toHaveLength(1);
   });
+  it("keeps both dakuten strokes separate after adding weight to ゴ", async () => {
+    const [fill] = await svgPaths("outline: none", "ゴ");
+    expect(fill.contours.filter(c => polygonArea(c.pts) > 0)).toHaveLength(3);
+  });
+  it("shapes square brush terminals before rounding the weighted ink", async () => {
+    const style = "font: 'catalog:rocknroll-one', grow: 0, outline: none, distort: { roughen: 0, warp: 0 }";
+    const plain = await svgPaths(`${style}, brush: false`, "I");
+    const tapered = await svgPaths(`${style}, brush: { taper: 1, entry: 1, wobble: 0 }`, "I");
+    expect(tapered).not.toEqual(plain);
+    const custom = await svgPaths(`${style}, brush: { taper: 1, entry: 1, wobble: 0 }, chars: [{ index: 0, color: red }, { index: 1, color: blue }]`, "II");
+    expect(custom.map(layer => layer.color)).toEqual(["#ff0000", "#0000ff"]);
+  });
   it("keeps interior counters in the ink and narrow custom outlines", async () => {
     const layers = await svgPaths("writing: horizontal, outline: [{ width: 0.2mm, color: white }]", "O");
     expect(layers).toHaveLength(2);

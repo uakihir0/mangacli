@@ -16,8 +16,8 @@ import { type TextLayout, layoutText, parseLayoutText } from "../text/layout.js"
 import { type ElemCtx, placeCtx, tag } from "./context.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
 import { fullSizeKana, isSmallKana, sfxInkGap, sfxInkHeadDepth, sfxScale, sfxShifts, sfxStretch, sfxWeightRadius, type SfxScaleRamp } from "../text/sfx.js";
-import { brushGlyph, emboldenGlyph, type BrushSpec } from "../text/brush.js";
-import { glyphInk, inkPath, offsetInk, partitionInk, unionInk } from "../text/sfx-ink.js";
+import { brushGlyph, type BrushSpec } from "../text/brush.js";
+import { glyphInk, inkPath, offsetInk, partitionInk, unionInk, weightInk } from "../text/sfx-ink.js";
 
 type Obj = Record<string, unknown>;
 
@@ -335,15 +335,11 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   // Normalize each glyph's winding before unioning different font faces.
   const glyphs = paths.map(path => glyphInk(path, tolerance));
   const union = unionInk(glyphs.flat());
-  const kanaInk = paths.map((path, i) => {
-    const index = idxOf.get(tl.glyphs[i].unit)!;
-    const extra = kanaRadius(index);
-    if (extra <= radius) return [];
-    return glyphInk(emboldenGlyph(path, em * perCharT[index].s, extra), tolerance);
-  });
-  const weight = unionInk([...offsetInk(union, radius, tolerance), ...kanaInk.flat()]);
-  const brushed = brushGlyph(inkPath(weight), inkEm, el.seed, brush);
-  const ink = distortInk(brushed);
+  const brushInk = (raw: typeof union) => glyphInk(brushGlyph(inkPath(raw), inkEm, el.seed, brush), tolerance);
+  const glyphRadius = (i: number) => Math.max(radius, kanaRadius(idxOf.get(tl.glyphs[i].unit)!));
+  const extraKana = glyphs.flatMap((glyph, i) => glyphRadius(i) > radius ? weightInk(brushInk(glyph), glyphRadius(i), tolerance) : []);
+  const weight = unionInk([...weightInk(brushInk(union), radius, tolerance), ...extraKana]);
+  const ink = distortInk(inkPath(weight));
   let footprintScale = 1;
   let normalize = matTranslate(0, 0);
   {
@@ -389,7 +385,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     // Partition the word's ink into color regions; the first character wins at overlaps.
     let remaining = placed;
     for (const [i, glyph] of glyphs.entries()) {
-      const path = inkPath(unionInk([...offsetInk(glyph, radius, tolerance), ...kanaInk[i]]));
+      const path = inkPath(weightInk(brushInk(glyph), glyphRadius(i), tolerance));
       const region = glyphInk(transformPath(distortInk(path), matrix), tolerance);
       const visible = inkPath(partitionInk(remaining, region, true));
       if (visible.length) nodes.push(fill(visible, inkColor(colorsPer[i])));
