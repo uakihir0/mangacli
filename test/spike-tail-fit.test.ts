@@ -34,7 +34,31 @@ function outlineIntersects(pts: Vec[]): boolean {
   });
 }
 
+function expectOutwardTail(outline: shape.ShapeContour, body: Vec[]) {
+  const { pts, corners } = outline;
+  const roots = corners?.filter(c => c.kind === "concave").map(c => c.index) ?? [];
+  expect(roots).toHaveLength(2);
+  expect(corners?.filter(c => c.kind === "point")).toHaveLength(1);
+  expect(pts.slice(Math.max(...roots) + 1).some(p => pointInPolygon(p, body))).toBe(false);
+  expect(outlineIntersects(pts)).toBe(false);
+}
+
 describe("physical spike tail fitting", () => {
+  it("falls back to an outward tail instead of a notch for a short bent burst tail", async () => {
+    const { plan, ctx } = await setup();
+    plan.body = BODY_GENERATORS.burst(120, 24, { kind: "burst", irregularity: 0, egg: 0, tilt: 0 }, 42);
+    const body = plan.body.contour.pts;
+    plan.outer = boundsOf(body);
+    plan.props.tail = { kind: "wedge", direction: "80deg", allowVertical: true, bend: -0.7, length: "0.3mm" };
+    const ink = vi.spyOn(shape, "inkShape");
+    try {
+      renderBalloon(plan, ctx);
+      expectOutwardTail(ink.mock.calls[0][0], body);
+      expect(ctx.bag.items.some(d => d.code === "BALLOON_TAIL_NO_CLEAR_BASE")).toBe(true);
+    } finally {
+      ink.mockRestore();
+    }
+  });
   it("warns when an explicitly short burst tail would end inside a neighbouring spike", async () => {
     const { plan, ctx } = await setup();
     plan.body = BODY_GENERATORS.burst(120, 24, { kind: "burst", irregularity: 0, egg: 0, tilt: 0 }, 42);
@@ -43,14 +67,18 @@ describe("physical spike tail fitting", () => {
     const dir = rot({ x: 1, y: 0 }, Math.PI / 6);
     const hit = rayPolygon({ x: 0, y: 0 }, dir, body)!;
     expect(pointInPolygon({ x: dir.x * (hit.t + 0.3), y: dir.y * (hit.t + 0.3) }, body)).toBe(true);
-    plan.props.tail = { kind: "none" };
-    const withoutTail = renderBalloon(plan, ctx).contour;
     plan.props.tail = { kind: "wedge", direction: "30deg", allowVertical: true, length: "0.3mm" };
-    expect(renderBalloon(plan, ctx).contour).toEqual(withoutTail);
-    expect(ctx.bag.items).toContainEqual(expect.objectContaining({ code: "BALLOON_TAIL_NO_CLEAR_BASE", severity: "warning" }));
+    const ink = vi.spyOn(shape, "inkShape");
+    try {
+      renderBalloon(plan, ctx);
+      expectOutwardTail(ink.mock.calls[0][0], body);
+      expect(ctx.bag.items).toContainEqual(expect.objectContaining({ code: "BALLOON_TAIL_NO_CLEAR_BASE", severity: "warning" }));
+    } finally {
+      ink.mockRestore();
+    }
   });
 
-  it.each([[15, false], [90, true]] as const)("keeps a bent burst tail at %i° from crossing the outline", async (angle, drawsTail) => {
+  it.each([[15, true], [90, false]] as const)("keeps a bent burst tail at %i° from crossing the outline", async (angle, fallback) => {
     const { plan, ctx } = await setup();
     plan.body = BODY_GENERATORS.burst(120, 24, { kind: "burst", irregularity: 0, egg: 0, tilt: 0 }, 42);
     plan.outer = boundsOf(plan.body.contour.pts);
@@ -58,10 +86,8 @@ describe("physical spike tail fitting", () => {
     const ink = vi.spyOn(shape, "inkShape");
     try {
       renderBalloon(plan, ctx);
-      const { pts, corners } = ink.mock.calls[0][0];
-      expect(corners?.filter(c => c.kind === "point")).toHaveLength(drawsTail ? 1 : 0);
-      expect(ctx.bag.items.some(d => d.code === "BALLOON_TAIL_NO_CLEAR_BASE")).toBe(!drawsTail);
-      expect(outlineIntersects(pts)).toBe(false);
+      expectOutwardTail(ink.mock.calls[0][0], plan.body.contour.pts);
+      expect(ctx.bag.items.some(d => d.code === "BALLOON_TAIL_NO_CLEAR_BASE")).toBe(fallback);
     } finally {
       ink.mockRestore();
     }
@@ -136,9 +162,16 @@ describe("physical spike tail fitting", () => {
     const face = { x: mouth.x - 2, y: mouth.y - 2, w: 4, h: 4 };
     ctx.refs.add({ id: "speaker", type: "image", bbox: face, anchors: { mouth }, regions: target === "face" ? { face: { bbox: face, poly: [] } } : {} });
     plan.props.tail = { kind: "wedge", to: "speaker.mouth", root: `${Math.atan2(dir.y, dir.x)}rad`, gap: "0mm", bend: 0, sideCurve: 0 };
-    const contour = renderBalloon(plan, ctx).contour;
-    const reach = Math.max(...contour.map(q => q.x * dir.x + q.y * dir.y)) - radius;
-    expect(reach).toBeLessThanOrEqual((target === "face" ? 6.5 : 6) + 1e-6);
+    const ink = vi.spyOn(shape, "inkShape");
+    try {
+      renderBalloon(plan, ctx);
+      const { pts, corners } = ink.mock.calls[0][0];
+      const tip = pts[corners!.find(c => c.kind === "point")!.index];
+      const reach = tip.x * dir.x + tip.y * dir.y - radius;
+      expect(reach).toBeLessThanOrEqual((target === "face" ? 6.5 : 6) + 1e-6);
+    } finally {
+      ink.mockRestore();
+    }
   });
   it("does not extend into the requested gap when a speaker is against a spike", async () => {
     const { plan, ctx } = await setup();
