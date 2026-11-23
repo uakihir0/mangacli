@@ -65,7 +65,7 @@ describe("multi-speaker images", () => {
       } } },
       pages: [{ layers: [
         { image: "art", id: "img", at: ["0mm", "0mm"], anchor: "top-left", size: ["100mm", "80mm"], fit: "fill", characters: { hana: { anchors: { mouth: [900, 600] } } } },
-        ...["taro", "hana", "explicit"].map((who) => ({ balloon: "Hi", id: `speech-${who}`, ...(who === "explicit" ? {} : { who }), tail: { maxLength: "60mm", ...(who === "explicit" ? { to: "img.hana.mouth" } : {}) }, at: ["50mm", "20mm"], size: ["14mm", "12mm"], hand: "ruler" })),
+        ...["taro", "hana", "explicit"].map((who) => ({ balloon: "Hi", id: `speech-${who}`, ...(who === "explicit" ? {} : { who }), tail: { length: "35mm", ...(who === "explicit" ? { to: "img.hana.mouth" } : {}) }, at: ["50mm", "20mm"], size: ["14mm", "12mm"], hand: "ruler" })),
       ] }],
     };
     const result = await renderer.displayList(doc, 1);
