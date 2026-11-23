@@ -4,7 +4,7 @@ import { planBalloon, renderBalloon } from "../src/elements/balloon.js";
 import type { ElemCtx } from "../src/elements/context.js";
 import { FontRegistry } from "../src/fonts/registry.js";
 import { rayPolygon } from "../src/geom/path.js";
-import { boundsOf, cross, dist, rot } from "../src/geom/vec.js";
+import { type Vec, boundsOf, cross, dist, rot, sub } from "../src/geom/vec.js";
 import * as shape from "../src/ink/shape.js";
 import { RefRegistry } from "../src/layout/place.js";
 import { resolveDocument } from "../src/model/resolve.js";
@@ -24,6 +24,34 @@ async function setup(w = 40, h = 40) {
 }
 
 describe("physical spike tail fitting", () => {
+  it.each(["spike", "burst"] as const)("preserves a simple %s outline with a tail on a wide balloon", async (kind) => {
+    const { plan, ctx } = await setup();
+    plan.params.kind = kind;
+    plan.body = BODY_GENERATORS[kind](120, 24, { kind, irregularity: 0, egg: 0, tilt: 0 }, 42);
+    plan.outer = boundsOf(plan.body.contour.pts);
+    const orient = (a: Vec, b: Vec, p: Vec) => cross(sub(b, a), sub(p, a));
+    const intersects = (pts: Vec[]) => pts.some((a, i) => {
+      const b = pts[(i + 1) % pts.length];
+      return pts.slice(i + 2).some((c, j) => {
+        const d = pts[(i + j + 3) % pts.length];
+        return orient(a, b, c) * orient(a, b, d) < -1e-14 && orient(c, d, a) * orient(c, d, b) < -1e-14;
+      });
+    });
+    expect(intersects(plan.body.contour.pts)).toBe(false);
+    const ink = vi.spyOn(shape, "inkShape");
+    try {
+      for (const angle of [15, 35, 60, 90, 130, 165]) {
+        plan.props.tail = { kind: "wedge", direction: `${angle}deg`, allowVertical: true };
+        ink.mockClear();
+        renderBalloon(plan, ctx);
+        const { pts, corners } = ink.mock.calls[0][0];
+        expect(corners?.filter(c => c.kind === "point"), `${angle}°`).toHaveLength(1);
+        expect(intersects(pts), `${angle}°`).toBe(false);
+      }
+    } finally {
+      ink.mockRestore();
+    }
+  });
   it.each([90, -90])("measures the core and contour in the same frame for a %s degree rotation", async (degrees) => {
     const { plan, ctx } = await setup(80, 30);
     plan.props.rotate = `${degrees}deg`;

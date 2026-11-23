@@ -4,7 +4,7 @@ import { DiagnosticBag } from "../core/diagnostics.js";
 import { Rng } from "../core/random.js";
 import { type UnitContext, parseAngle, toMm } from "../core/units.js";
 import { type PathData, distToPolyline, flattenPath, offsetPolygon, pointInPolygon, polyPath, polygonArea, rayPolygon, transformPath } from "../geom/path.js";
-import { type Matrix, type Rect, type Vec, boundsOf, dot, lerp, matMul, matTranslate, rectUnion, rot, sub } from "../geom/vec.js";
+import { type Matrix, type Rect, type Vec, boundsOf, cross, dot, lerp, matMul, matTranslate, rectUnion, rot, sub } from "../geom/vec.js";
 import type { HandSpec } from "../ink/presets.js";
 import { type ShapeContour, inkShape } from "../ink/shape.js";
 import { isObj } from "../load/normalize.js";
@@ -603,38 +603,69 @@ function pointAtArc(pts: Vec[], s: number[], at: number): { p: Vec; i: number } 
   return { p: { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, i: lo };
 }
 
-function spikeTailBase(contour: ShapeContour, s: number[], at: number, tip: Vec, dir: Vec, width: number) {
+type TailBase = { A: ReturnType<typeof pointAtArc>; B: ReturnType<typeof pointAtArc> };
+
+function clearsTailBase(pts: Vec[], { A, B }: TailBase, tip: Vec): boolean {
+  if (cross(sub(B.p, A.p), sub(tip, A.p)) >= -1e-9) return false;
+  const a = sub(tip, A.p);
+  const b = sub(tip, B.p);
+  const crosses = (root: Vec, side: Vec, p: Vec, edge: Vec) => {
+    const den = cross(side, edge);
+    if (Math.abs(den) < 1e-12) return false;
+    const offset = sub(p, root);
+    const t = cross(offset, edge) / den;
+    const u = cross(offset, side) / den;
+    return t > 1e-9 && t <= 1 + 1e-9 && u >= -1e-9 && u <= 1 + 1e-9;
+  };
+  const crossesEitherSide = (p: Vec, q: Vec) => {
+    const edge = sub(q, p);
+    return crosses(A.p, a, p, edge) || crosses(B.p, b, p, edge);
+  };
+  let p = B.p;
+  for (let i = (B.i + 1) % pts.length; ; i = (i + 1) % pts.length) {
+    const q = pts[i];
+    if (crossesEitherSide(p, q)) return false;
+    if (i === A.i) return !crossesEitherSide(q, A.p);
+    p = q;
+  }
+}
+
+function spikeTailBase(contour: ShapeContour, s: number[], at: number, tip: Vec, dir: Vec, width: number): TailBase | undefined {
   const corners = (contour.corners ?? []).slice().sort((a, b) => a.index - b.index);
   const n = corners.length;
   const perimeter = s[s.length - 1];
-  if (n < 5) return;
-  const after = corners.findIndex(c => s[c.index] > at % perimeter + 1e-8);
-  const next = after < 0 ? 0 : after;
-  const corner = (i: number) => corners[(next + i + n) % n];
-  const [leftOffset, rightOffset] = corner(0).kind === "tip" ? [-1, 1] : [-2, 0];
-  const left = corner(leftOffset);
-  const right = corner(rightOffset);
-  const peak = corner(leftOffset + 1);
-  if (left.kind !== "valley" || right.kind !== "valley" || peak.kind !== "tip") return;
-  const apex = s[peak.index];
-  const spanA = (apex - s[left.index] + perimeter) % perimeter;
-  const spanB = (s[right.index] - apex + perimeter) % perimeter;
-  const roots = (f: number) => ({
-    A: pointAtArc(contour.pts, s, apex - spanA * f),
-    B: pointAtArc(contour.pts, s, apex + spanB * f),
-  });
-  let lo = 0, hi = 1;
-  const fits = ({ A, B }: ReturnType<typeof roots>) => Math.hypot(A.p.x - B.p.x, A.p.y - B.p.y) <= width;
-  let base = roots(1);
-  if (!fits(base)) {
-    for (let i = 0; i < 20; i++) {
-      const f = (lo + hi) / 2;
-      if (fits(roots(f))) lo = f;
-      else hi = f;
+  const around = (a: number) => (a + perimeter) % perimeter;
+  const candidates = corners.flatMap((peak, i) => {
+    const left = corners[(i + n - 1) % n], right = corners[(i + 1) % n];
+    if (left.kind !== "valley" || right.kind !== "valley" || peak.kind !== "tip") return [];
+    const apex = s[peak.index];
+    const spanA = around(apex - s[left.index]), spanB = around(s[right.index] - apex);
+    const offset = around(at - s[left.index]);
+    const distance = offset <= spanA + spanB ? 0 : Math.min(offset - spanA - spanB, perimeter - offset);
+    return [{ apex, spanA, spanB, distance }];
+  }).sort((a, b) => a.distance - b.distance);
+  const clears = (base: TailBase) =>
+    dot(sub(tip, base.A.p), dir) > 0 && dot(sub(tip, base.B.p), dir) > 0 && clearsTailBase(contour.pts, base, tip);
+  for (const { apex, spanA, spanB } of candidates) {
+    const roots = (f: number) => ({
+      A: pointAtArc(contour.pts, s, apex - spanA * f),
+      B: pointAtArc(contour.pts, s, apex + spanB * f),
+    });
+    let lo = 0, hi = 1;
+    const fits = ({ A, B }: TailBase) => Math.hypot(A.p.x - B.p.x, A.p.y - B.p.y) <= width;
+    let base = roots(1);
+    if (!fits(base)) {
+      for (let i = 0; i < 20; i++) {
+        const f = (lo + hi) / 2;
+        if (fits(roots(f))) lo = f;
+        else hi = f;
+      }
+      base = roots(lo);
     }
-    base = roots(lo);
+    if (clears(base)) return base;
   }
-  if (dot(sub(tip, base.A.p), dir) > 0 && dot(sub(tip, base.B.p), dir) > 0) return base;
+  const fallback = { A: pointAtArc(contour.pts, s, at - width / 2), B: pointAtArc(contour.pts, s, at + width / 2) };
+  if (clears(fallback)) return fallback;
 }
 
 interface TailResult {
@@ -1056,10 +1087,10 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     // wedge / zigzag: splice into contour
     const s = arcLengths(cur.pts);
     const sR = s[hit.index] + hit.u * (s[hit.index + 1] - s[hit.index]);
-    const spikeBase = thinSpike ? spikeTailBase(cur, s, sR, tipBent, dir, bw) : undefined;
-    const { A, B } = spikeBase ?? (thinSpike
-      ? { A: pointAtArc(cur.pts, s, sR - bw / 2), B: pointAtArc(cur.pts, s, sR + bw / 2) }
-      : { A: pointAtChord(cur.pts, s, sR, bw / 2, -1), B: pointAtChord(cur.pts, s, sR, bw / 2, 1) });
+    const base = thinSpike ? spikeTailBase(cur, s, sR, tipBent, dir, bw)
+      : { A: pointAtChord(cur.pts, s, sR, bw / 2, -1), B: pointAtChord(cur.pts, s, sR, bw / 2, 1) };
+    if (!base) continue;
+    const { A, B } = base;
     const sideA: Vec[] = [];
     const sideB: Vec[] = [];
     const N = Math.max(12, Math.ceil(length / (0.3 * u.k)));
