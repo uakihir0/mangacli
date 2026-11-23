@@ -846,7 +846,7 @@ export class RasterBackend {
     tctx.putImageData(id, 0, 0);
     const k: Matrix = matMul(mm, [n.dest.w / pix.width, 0, 0, n.dest.h / pix.height, n.dest.x, n.dest.y]);
     const mono = dev.opts.colorMode === "mono";
-    const lineartLike = n.lineart || manga;
+    const lineartLike = n.lineart || (n.filters.length > 0 && n.filters[n.filters.length - 1].name === "manga");
     const b = nodeBounds({ ...n, outline: undefined }, m);
     const r = b ? clampRect(b, dev.W, dev.H) : null;
     if (!r) return;

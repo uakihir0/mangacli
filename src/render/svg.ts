@@ -147,7 +147,7 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
 
   const image = async (im: ImageNode): Promise<string> => {
     const manga = im.filters.some((f) => f.name === "manga");
-    const binary = im.lineart || manga;
+    const binary = im.lineart || (im.filters.length > 0 && im.filters[im.filters.length - 1].name === "manga");
     const dpi = binary ? o.imageDpi ?? 200 : Math.min(o.imageDpi ?? 200, o.maxImageDpi ?? Infinity);
     const outputFilters = manga ? mangaOutputFilters(im.filters, 25.4 / dpi) : im.filters;
     const boost = manga ? mangaResolutionBoost(outputFilters, 25.4 / dpi) : 1;
