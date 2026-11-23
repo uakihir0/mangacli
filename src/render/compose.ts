@@ -164,7 +164,8 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   const checkArtCoverage = () => {
     for (const pg of panels) {
       const shape = panelShapePoly(pg, geom);
-      const poly = shape === pg.polygon ? shape : flattenPath(smoothPath(shape, true), 0.02)[0].pts;
+      const poly = shape === pg.polygon ? shape : flattenPath(panelClip(pg, shape), 0.02)[0]?.pts ?? [];
+      if (poly.length < 3) continue;
       const eligible = (el: RElement) => {
         if (el.props.visible === false || el.props.opacity === 0) return false;
         const clip = el.props.clip;
@@ -225,7 +226,8 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     for (const pg of panels) {
       if (el.props.visible === false || el.props.opacity === 0 || (ids ? !ids.includes(pg.panel.id) : target.panelId !== undefined && target.panelId !== pg.panel.id)) continue;
       const shape = panelShapePoly(pg, geom);
-      const poly = shape === pg.polygon ? shape : flattenPath(smoothPath(shape, true), 0.02)[0].pts;
+      const poly = shape === pg.polygon ? shape : flattenPath(panelClip(pg, shape), 0.02)[0]?.pts ?? [];
+      if (poly.length < 3) continue;
       const visible = target.shape ?? rectPts(target.bbox);
       if (sil && target.imagePx) {
         let hits = 0;
@@ -484,7 +486,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     it.openClip = targets.flatMap((pg) => openClipPath(pg, clip, geom, u));
     const panelPolys = targets.map((pg) => {
       const poly = panelShapePoly(pg, geom);
-      const pts = poly !== pg.polygon ? flattenPath(smoothPath(poly, true), 0.02)[0].pts : poly;
+      const pts = poly !== pg.polygon ? flattenPath(panelClip(pg, poly), 0.02)[0]?.pts ?? [] : poly;
       return [pts.map((p) => [p.x, p.y] as [number, number])];
     });
     const panelUnion = panelPolys.length ? polygonClipping.union(panelPolys[0], ...panelPolys.slice(1)) : [];
@@ -867,9 +869,18 @@ function coordsFor(el: RElement, ctx: ElemCtx, geom: PageGeom): Rect {
 }
 
 function panelShapePoly(pg: PanelGeom, geom: PageGeom): Vec[] {
+  const poly = uncutPanelShapePoly(pg, geom);
+  if (!pg.shapeBox || poly === pg.polygon) return poly;
+  const contour = flattenPath(smoothPath(poly, true), 0.02)[0]?.pts ?? [];
+  if (contour.length < 3 || pg.polygon.length < 3) return [];
+  const result = polygonClipping.intersection(pointPolygon(contour), pointPolygon(pg.polygon));
+  return result.map((p) => p[0].slice(0, -1).map(([x, y]) => ({ x, y }))).sort((a, b) => Math.abs(polygonArea(b)) - Math.abs(polygonArea(a)))[0] ?? [];
+}
+
+function uncutPanelShapePoly(pg: PanelGeom, geom: PageGeom): Vec[] {
   const sh = pg.panel.props.shape as Obj | undefined;
   if (!isObj(sh) || sh.kind === "rect") return pg.polygon;
-  const b = pg.fullBox;
+  const b = pg.shapeBox ?? pg.fullBox;
   if (sh.kind === "ellipse") {
     const n = 160;
     return Array.from({ length: n }, (_, i) => ({ x: b.x + b.w / 2 + Math.cos((i / n) * Math.PI * 2) * b.w / 2, y: b.y + b.h / 2 + Math.sin((i / n) * Math.PI * 2) * b.h / 2 }));
@@ -887,7 +898,7 @@ function panelShapePoly(pg: PanelGeom, geom: PageGeom): Vec[] {
 }
 
 function panelClip(pg: PanelGeom, poly: Vec[]) {
-  return poly === pg.polygon ? polyPath(poly, true) : smoothPath(poly, true);
+  return poly === pg.polygon || pg.shapeBox ? polyPath(poly, true) : smoothPath(poly, true);
 }
 
 function panelGlyphClip(pg: PanelGeom, geom: PageGeom): polygonClipping.Polygon {
@@ -924,6 +935,7 @@ function panelTree(pg: PanelGeom, clipped: Item[], geom: PageGeom, pageBg: Retur
   const p = pg.panel.props;
   const out: Node[] = [];
   const poly = panelShapePoly(pg, geom);
+  if (poly.length < 3) return [];
   const isShaped = poly !== pg.polygon;
   const clip = panelClip(pg, poly);
   if (p.knockout !== undefined) {
@@ -974,7 +986,7 @@ function borderNodes(pg: PanelGeom, poly: Vec[], shaped: boolean, geom: PageGeom
   const main = resolveB(b0, [...pg.panel.path, "border"]);
   if (shaped) {
     if (main.style === "none" || main.st.width <= 0) return [];
-    const res = inkShape({ pts: poly, closed: true, smooth: true }, { line: main.st, hand: main.hand, rng, ruler: false });
+    const res = inkShape({ pts: poly, closed: true, smooth: !pg.shapeBox }, { line: main.st, hand: main.hand, rng, ruler: false });
     return inksToNodes(res.inks, main.st.color, t);
   }
   const n = pg.polygon.length;
@@ -2105,7 +2117,7 @@ function collectTranscript(el: RElement, panel: string | undefined, info: PageLa
 }
 
 function checkPanelOcclusion(items: Item[], panels: { pg: PanelGeom; clipped: Item[] }[], geom: PageGeom, bag: DiagnosticBag, page: RPage) {
-  const contour = (pg: PanelGeom) => pointPolygon(flattenPath(panelClip(pg, panelShapePoly(pg, geom)), 0.05)[0].pts);
+  const contour = (pg: PanelGeom) => pointPolygon(flattenPath(panelClip(pg, panelShapePoly(pg, geom)), 0.05)[0]?.pts ?? []);
   const lettering = (item: Item) => item.lettering?.length ? item.lettering.map(({ el, bbox }) => ({ ...item, el, bbox })) : [item];
   const visibleArea = (item: Item) => {
     let area: polygonClipping.MultiPolygon = [pointPolygon(rectPts(item.bbox))];

@@ -67,6 +67,7 @@ export interface PanelGeom {
   bledSides: string[];
   box: Rect; // visible box (polygon ∩ trim)
   fullBox: Rect;
+  shapeBox?: Rect;
   order: number;
   edgeSides: (string | null)[]; // for each polygon edge i->i+1: side name if edge lies on area boundary
 }
@@ -733,6 +734,7 @@ function applyDominant(panels: PanelGeom[], geom: PageGeom, area: Rect, gRow: nu
       if (cut.length < 3) continue;
       if (!polygonClipping.intersection([ring(other.polygon)], [ring(cut)]).length) continue;
       const result = polygonClipping.difference([ring(other.polygon)], [ring(cut)]);
+      other.shapeBox ??= other.fullBox;
       const pieces = result.map((p) => p[0].slice(0, -1).map(([x, y]) => ({ x, y }))).sort((a, b) => Math.abs(polygonArea(b)) - Math.abs(polygonArea(a)));
       if (pieces.length > 1) bag.warn("LAYOUT_DOMINANT_SPLIT", `panel ${other.panel.id}: dominant clipping split the panel; keeping the largest piece`, { path: other.panel.path });
       update(other, pieces[0] ?? []);

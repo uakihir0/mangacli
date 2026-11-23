@@ -94,8 +94,30 @@ describe("dominant panels", () => {
     expect(bag.hasErrors).toBe(false);
     for (const [x, y] of [[68, 20], [20, 68], [73, 20], [20, 73], [73, 7], [7, 73], [33, 33]]) expect(pointInPolygon({ x, y }, panels[0].polygon), `${x},${y}`).toBe(true);
     expect(pointInPolygon({ x: 50, y: 50 }, panels[0].polygon)).toBe(false);
-    expect(panels[1].fullBox.x).toBeCloseTo(45);
-    expect(panels[1].fullBox.y).toBeCloseTo(45);
+    expect(pointInPolygon({ x: 50, y: 42 }, panels[1].polygon)).toBe(false);
+    expect(pointInPolygon({ x: 42, y: 50 }, panels[1].polygon)).toBe(false);
+    expect(pointInPolygon({ x: 50, y: 50 }, panels[1].polygon)).toBe(true);
+  });
+  it.each(["ellipse", "rounded", "cloud"])("clips the generated %s neighbour outline, art and border", async (kind) => {
+    const art = await sharp({ create: { width: 20, height: 20, channels: 3, background: "black" } }).png().toBuffer();
+    const r = await render({ mangacli: 1, page: { ...settings, bleed: 0 }, assets: { art: { src: "art.png" } }, pages: [{ layout: "free", panels: [
+      { box: ["45mm", 0, "55mm", "40mm"], dominant: { overlap: "8mm", bleed: false } },
+      { box: [0, "44mm", "100mm", "56mm"], shape: { kind }, background: "black", border: { width: "0.8mm", ruler: true }, layers: [{ image: "art", fit: "cover" }] },
+    ] }] }, { profile: "preview", format: "png", width: 500, crop: "trim", assets: { art } });
+    expect(r.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    const { data, info } = await sharp(r.pages[0].data).extractChannel(0).raw().toBuffer({ resolveWithObject: true });
+    const at = (x: number, y: number) => data[Math.round(y * info.height / 100) * info.width + Math.round(x * info.width / 100)];
+    expect(at(50, 50)).toBe(255);
+    expect(at(50, 52)).toBe(0);
+    expect(at(60, 75)).toBe(0);
+  });
+  it("renders when a dominant cut removes an entire shaped outline", async () => {
+    const r = await render({ mangacli: 1, page: { ...settings, bleed: 0 }, pages: [{ layout: "free", panels: [
+      { polygon: [[0, 20], [20, 0], [100, 0], [100, 100], [0, 100]], dominant: { bleed: false } },
+      { box: [0, 0, "100mm", "100mm"], shape: { kind: "ellipse" }, background: "black" },
+    ] }] }, { profile: "preview", format: "png", width: 500, crop: "trim" });
+    expect(r.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(r.pages).toHaveLength(1);
   });
   it("expands a column slant while staying within unbled layout edges", () => {
     const spec = { rows: [{ cols: [1, 1], colSlant: ["10mm"] }] };
