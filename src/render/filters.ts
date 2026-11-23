@@ -594,10 +594,11 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
   const probe = Math.min(12, Math.max(2, Math.ceil(0.22 / mmPerPx)));
   const axes = [[1, 0], [0, 1], [1, 1], [1, -1]];
   const sharpFlank = (x: number, y: number, dx: number, dy: number, threshold: number, steps: number) => {
-    let previous = lum01[y * w + x];
-    let strongest = 0;
-    let secondStrongest = 0;
-    let contrast = 0;
+    const center = lum01[y * w + x];
+    const edgeNeed = Math.max(0.025, (threshold - center) * 0.5);
+    const values: number[] = [];
+    const rises: number[] = [];
+    let previous = center;
     for (let step = 1; step <= steps; step++) {
       const xx = x + dx * step;
       const yy = y + dy * step;
@@ -605,17 +606,21 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
       const j = yy * w + xx;
       if (!data[j * 4 + 3]) break;
       const next = lum01[j];
-      const rise = next - previous;
-      if (rise > strongest) {
-        secondStrongest = strongest;
-        strongest = rise;
-      } else {
-        secondStrongest = Math.max(secondStrongest, rise);
-      }
-      contrast = Math.max(contrast, next);
+      values.push(next);
+      rises.push(next - previous);
       previous = next;
     }
-    return contrast >= threshold && strongest >= Math.max(0.045, 1.6 * secondStrongest);
+    let approach = 0;
+    for (let k = 0; k < values.length; k++) {
+      const rise = rises[k];
+      if (values[k] >= threshold && rise >= edgeNeed && rise >= 1.6 * approach) {
+        let following = 0;
+        for (let q = k + 1; q < Math.min(values.length, k + 3); q++) following = Math.max(following, rises[q]);
+        return rise >= 1.1 * following;
+      }
+      approach = Math.max(approach, rise);
+    }
+    return false;
   };
   const strokeCore = new Uint8Array(n);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
