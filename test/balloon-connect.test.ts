@@ -11,23 +11,26 @@ const fills = (nodes: PathNode[]) => nodes.filter(n => n.tag?.role === "fill");
 const lettering = (nodes: PathNode[], id: string) => nodes.filter(n => n.tag?.role === "text" && n.tag.elementId === id);
 const area = (node: PathNode) => flattenPath(node.path).reduce((total, path) => total + Math.abs(polygonArea(path.pts)), 0);
 
-async function scene(at: number, connect = "", extra = "", obstacle?: "monologue" | "mouth" | "ellipse-corner" | "hidden-mouth" | "transparent-mouth" | "panel-cropped-mouth") {
+async function scene(at: number, connect = "", extra = "", obstacle?: "monologue" | "mouth" | "ellipse-corner" | "hidden-mouth" | "transparent-mouth" | "panel-cropped-mouth" | "zoomed-mouth") {
   const withMouth = obstacle !== undefined && obstacle !== "monologue";
   const ellipse = obstacle === "ellipse-corner";
   const clipped = obstacle === "panel-cropped-mouth";
+  const zoomed = obstacle === "zoomed-mouth";
   const art = obstacle === "hidden-mouth" ? ", visible: false" : obstacle === "transparent-mouth" ? ", opacity: 0" : "";
-  const panel = clipped ? "polygon: [[10mm, 10mm], [55mm, 10mm], [55mm, 44mm], [61mm, 44mm], [61mm, 10mm], [110mm, 10mm], [110mm, 70mm], [10mm, 70mm]]\n        coords: page\n        layers:" : "layers:";
+  const panel = clipped ? "polygon: [[10mm, 10mm], [55mm, 10mm], [55mm, 44mm], [61mm, 44mm], [61mm, 10mm], [110mm, 10mm], [110mm, 70mm], [10mm, 70mm]]\n        coords: page\n        layers:" :
+    zoomed ? "box: [0mm, 0mm, 120mm, 80mm]\n        coords: page\n        layers:" : "layers:";
   const balloonClip = clipped ? ", clip: none" : "";
   const sceneRenderer = withMouth ? createRenderer({ profile: "preview", assets: {
     face: await sharp({ create: { width: 32, height: 32, channels: 3, background: "white" } }).png().toBuffer(),
   } }) : renderer;
   const layer = obstacle === "monologue" ? "- {balloon: Word, id: obstacle, as: monologue, at: [48mm, 28mm]}" :
+    zoomed ? "- {image: face, at: [130mm, 28mm], anchor: center, zoom: 2}" :
     withMouth ? `- {image: face, at: [${ellipse ? "41mm, 36mm" : "48mm, 28mm"}], anchor: center, size: [8mm, 8mm]${art}}` : "";
   const result = await sceneRenderer.render({ yaml: `mangacli: 1
 meta: {lang: en}
 page: {size: [120mm, 80mm], bleed: 0mm}
 book: {readingDirection: ltr}
-${withMouth ? "assets: {face: {src: face.png, character: speaker, anchors: {mouth: [16, 16]}}}" : ""}
+${withMouth ? `assets: {face: {src: face.png, character: speaker, anchors: {mouth: [${zoomed ? 5.1 : 16}, 16]}}}` : ""}
 pages:
   - panels:
       - ${panel}
@@ -70,7 +73,7 @@ describe("balloon connections", () => {
     expect(result.diagnostics).toEqual([expect.objectContaining({ severity: "info", elementId: "second" })]);
   });
 
-  it.each(["monologue", "mouth"] as const)("does not move the second balloon over a %s", async obstacle => {
+  it.each(["monologue", "mouth", "zoomed-mouth"] as const)("does not move the second balloon over a %s", async obstacle => {
     const separate = await scene(75, "", "", obstacle);
     const result = await scene(75, ", connect: {to: first}", "", obstacle);
     expect(fills(result.nodes)).toHaveLength(2);

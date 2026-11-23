@@ -1530,8 +1530,12 @@ function balloonMouthObstacles(ctx: ElemCtx, images: Map<string, Item>, drawOrde
   return balloonSpeakerImages(ctx).flatMap(t => {
     const p = t.anchors.mouth;
     const item = images.get(t.id);
-    if (!p || !item?.nodes.length || item.el.props.opacity === 0 || !t.imagePx ||
-      !pointInPolygon(p, t.shape ?? rectPts(t.bbox))) return [];
+    const art = t.imageSilhouette;
+    const image = art?.children.find(node => node.kind === "image");
+    if (!p || !item?.nodes.length || item.el.props.opacity === 0 || !image) return [];
+    const local = image.transform ? applyMat(invertMat(image.transform), p) : p;
+    if (!pointInPolygon(local, rectPts(image.dest)) ||
+      (art?.clip && !flattenPath(art.clip, 0.05).some(c => pointInPolygon(p, c.pts)))) return [];
     const owner = item.source === 0 ? drawOrder[item.panelIdx] : undefined;
     if (!item.free && owner) {
       const poly = panelShapePoly(owner, ctx.geom);
