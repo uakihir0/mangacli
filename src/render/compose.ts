@@ -1575,8 +1575,9 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const b = dialogueBounds(q);
     return { x: b.x + c.x - q.outer.w / 2 - q.outer.x, y: b.y + c.y - q.outer.h / 2 - q.outer.y, w: b.w, h: b.h };
   };
-  const connectIds = (q: BalloonPlan) => (q.props.connect === undefined ? [] : (Array.isArray(q.props.connect) ? q.props.connect : [q.props.connect]).map(c => String((c as Obj).to)));
-  const linked = (a: BalloonPlan, b: BalloonPlan) => connectIds(a).includes(b.el.id) || connectIds(b).includes(a.el.id);
+  // only an overlap connection draws the two bodies as one, so only it may overlap its partner
+  const overlapIds = (q: BalloonPlan) => (q.props.connect === undefined ? [] : (Array.isArray(q.props.connect) ? q.props.connect : [q.props.connect]) as Obj[]).filter(c => (c.style ?? "overlap") === "overlap").map(c => String(c.to));
+  const linked = (a: BalloonPlan, b: BalloonPlan) => overlapIds(a).includes(b.el.id) || overlapIds(b).includes(a.el.id);
   const panelDialogueCenter = (b: Rect, c: Vec): Vec | undefined => {
     const box = rectInset(panelBox, 0.25 * u.k);
     if (b.w > box.w || b.h > box.h) return;

@@ -154,6 +154,11 @@ pages:
     expect(r.diagnostics.map(d => d.code)).not.toContain("BALLOON_TEXT_HIDDEN");
     expect(r.diagnostics.map(d => d.code)).not.toContain("BALLOON_OVERLAP");
   });
+  it("keeps a cut flowing balloon off the balloon it connects to by a line", async () => {
+    const r = await validate({ yaml: page(`          - { balloon: いちいち, id: a, autoPlace: flow, tail: none }\n          - { balloon: にいにい, id: b, autoPlace: flow, cut: [right], connect: { to: a, style: line }, tail: none }`) });
+    // the pair is reported as one element; stacked apart it is about two bodies tall
+    expect(r.layout[0].elements.find(e => e.id === "a")!.bbox.h).toBeGreaterThan(25);
+  });
   it("keeps the lettering size of a short horizontal box cut left and right", async () => {
     const box = async (cut: string) => {
       const r = await validate({ yaml: page(`          - { balloon: はい, id: b, writing: horizontal, shape: { kind: rect }, ${cut} tail: none }`) });
