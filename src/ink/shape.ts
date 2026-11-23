@@ -1,7 +1,7 @@
 // Shape -> strokes decomposition (spec 9.3.2, 9.5).
 import { fbm1, fbm1p, type Rng } from "../core/random.js";
 import { polygonArea } from "../geom/path.js";
-import type { Vec } from "../geom/vec.js";
+import { add, cross, dot, mul, norm, perp, sub, type Vec } from "../geom/vec.js";
 import type { HandSpec, PenSpec } from "./presets.js";
 import { type InkPoly, blobPoly, rotateAboutMid, strokeOutline } from "./stroke.js";
 
@@ -207,6 +207,7 @@ export function inkShape(c: ShapeContour, o: InkShapeOptions): InkResult {
       const off = prng.range(hand.passOffset[0], hand.passOffset[1]);
       const ang = prng.range(0, Math.PI * 2);
       inks = inks.map((k) => ({
+        ...k,
         opacity: k.opacity * hand.passOpacity,
         pts: k.pts.map((p) => ({ x: p.x + Math.cos(ang) * off, y: p.y + Math.sin(ang) * off })),
       }));
@@ -286,6 +287,20 @@ function shiftNormal(pts: Vec[], off: number): Vec[] {
   return pts.map((p) => ({ x: p.x + nx * off, y: p.y + ny * off }));
 }
 
+function spikeMiter(tip: Vec, incoming: Vec, outgoing: Vec, width: number, opacity: number): InkPoly | undefined {
+  const turn = cross(incoming, outgoing);
+  if (Math.abs(turn) < 1e-8) return;
+  const side = -Math.sign(turn) * width / 2;
+  const a = mul(perp(incoming), side);
+  const b = mul(perp(outgoing), side);
+  const pts = [tip, add(tip, a)];
+  const denom = 1 + dot(incoming, outgoing);
+  if (denom >= 0.02) pts.push(add(tip, mul(add(a, b), 1 / denom)));
+  pts.push(add(tip, b));
+  if (turn > 0) pts.reverse();
+  return { pts, opacity, straight: true };
+}
+
 function solid(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, rng: Rng): InkPoly[] {
   const hand = o.hand;
   const step = Math.max(0.1, hand.resolution);
@@ -298,7 +313,7 @@ function solid(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, r
   const ruler = !!o.ruler;
   const angErr = ruler ? hand.rulerAngleError : 0;
 
-  const draw = (pts: Vec[], tin: boolean, tout: boolean, tinLen?: number, toutLen?: number, startWidth?: number, endWidth?: number) => {
+  const draw = (pts: Vec[], tin: boolean, tout: boolean, startWidth?: number, endWidth?: number, miterEnd?: Vec) => {
     let p = pts;
     if (angErr > 0 && !d.closed && corners.length === 0) p = rotateAboutMid(p, rng.range(-angErr, angErr));
     inks.push(
@@ -309,10 +324,9 @@ function solid(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, r
         rng: rng.fork("s"),
         taperIn: taper && tin,
         taperOut: taper && tout,
-        taperInLen: tinLen,
-        taperOutLen: toutLen,
         startWidth,
         endWidth,
+        miterEnd,
         ruler,
         profile: hand.pressure > 0 ? c.segmentProfile : undefined,
       }),
@@ -329,6 +343,16 @@ function solid(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, r
   };
 
   if (corners.length > 0) {
+    const tipTangents = new Map<number, { incoming: Vec; outgoing: Vec }>();
+    for (const { index, kind } of corners) {
+      if (kind !== "tip") continue;
+      const tip = d.pts[index];
+      const incoming = norm(sub(tip, d.pts[(index - 1 + d.pts.length) % d.pts.length]));
+      const outgoing = norm(sub(d.pts[(index + 1) % d.pts.length], tip));
+      tipTangents.set(index, { incoming, outgoing });
+      const miter = spikeMiter(tip, incoming, outgoing, line.width, line.pen.opacity ?? 1);
+      if (miter) inks.push(miter);
+    }
     const segs: { a: Corner; b: Corner; s0: number; s1: number }[] = [];
     if (d.closed) {
       for (let i = 0; i < corners.length; i++) {
@@ -372,18 +396,22 @@ function solid(d: Dense, c: ShapeContour, line: LineStyle, o: InkShapeOptions, r
           pts = slice(d, p0 + a0, p1 - a1, step);
         }
         pts = extend(pts, Math.max(0, e0), Math.max(0, e1));
-        // direction: draw toward tips; concave/valley start strongly (short entry)
-        let reverse = false;
-        if (endKind === "tip" || endKind === "point") reverse = false;
-        else if (startKind === "tip" || startKind === "point") reverse = true;
+        const reverse = endKind !== "tip" && (startKind === "tip" || (startKind === "point" && endKind !== "point"));
         if (reverse) pts = pts.reverse();
         const sKind = reverse ? endKind : startKind;
         const eKind = reverse ? startKind : endKind;
         const sharpStart = sKind === "concave" || sKind === "valley" || sKind === "point" || (sKind === "convex" && join !== "overshoot");
         const sharpEnd = eKind === "concave" || eKind === "valley" || eKind === "point" || (eKind === "convex" && join !== "overshoot");
-        if (!firstPart || !lastPart) pts = shiftNormal(pts, rng.normal() * hand.misalign * 0.3);
-        // corners where strokes meet are drawn with pressure (no taper) so joints stay clean
-        draw(pts, !sharpStart, !sharpEnd, undefined, undefined, sKind === "point" ? o.pointWidth : undefined, eKind === "point" ? o.pointWidth : undefined);
+        const spikeEdge = sg.a.kind === "tip" || sg.b.kind === "tip";
+        const tip = eKind === "tip" ? tipTangents.get(reverse ? sg.a.index : sg.b.index) : undefined;
+        const miterEnd = tip && (reverse ? mul(tip.outgoing, -1) : tip.incoming);
+        if (!firstPart || !lastPart) {
+          const offset = rng.normal() * hand.misalign * 0.3;
+          if (!spikeEdge) pts = shiftNormal(pts, offset);
+        }
+        const taperAtBase = (kind: string) => kind === "valley" || kind === "concave";
+        draw(pts, spikeEdge ? taperAtBase(sKind) : !sharpStart, spikeEdge ? taperAtBase(eKind) : !sharpEnd,
+          sKind === "point" ? o.pointWidth : undefined, eKind === "point" ? o.pointWidth : undefined, miterEnd);
       }
     }
     return inks;

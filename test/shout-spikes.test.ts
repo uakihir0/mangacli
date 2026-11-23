@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { DiagnosticBag } from "../src/core/diagnostics.js";
+import { Rng } from "../src/core/random.js";
+import { inksToNodes } from "../src/elements/inkir.js";
 import { pointInPolygon } from "../src/geom/path.js";
-import { dist } from "../src/geom/vec.js";
+import { add, dist, mul, norm, sub } from "../src/geom/vec.js";
+import { HAND_PRESETS, PEN_PRESETS } from "../src/ink/presets.js";
+import { inkShape } from "../src/ink/shape.js";
 import { resolveDocument } from "../src/model/resolve.js";
 import { BODY_GENERATORS, type BodyGeom, type ShapeParams } from "../src/shapes/balloon.js";
 
@@ -20,6 +24,39 @@ function ellipsePoint(w: number, h: number, t: number) {
 }
 
 describe("shout contours", () => {
+  it.each(["spike", "burst"])("keeps both %s flanks at nominal width at the tip and closes them with a sharp miter", (kind) => {
+    const { body } = spikes(kind, 40, 60, 42);
+    const width = 0.45;
+    const { inks, fill } = inkShape(body.contour, {
+      hand: HAND_PRESETS.ink, rng: new Rng(42), join: "gap",
+      line: { width, pen: { ...PEN_PRESETS["g-pen"], inkPool: 0 }, style: "solid" },
+    });
+    const miters = inks.filter(ink => ink.straight);
+    const sides = inks.filter(ink => !ink.straight);
+    const n = tips(body).length;
+    expect(miters).toHaveLength(n);
+    expect(sides).toHaveLength(2 * n);
+    for (let i = 0; i < n; i++) {
+      const [b, apex, a, tip] = miters[i].pts;
+      const tipIndex = fill.indexOf(tip);
+      const incoming = norm(sub(tip, fill[tipIndex - 1]));
+      const outgoing = norm(sub(fill[tipIndex + 1], tip));
+      expect(dist(apex, a)).toBeGreaterThan(0);
+      expect(dist(apex, add(a, mul(incoming, dist(apex, a))))).toBeCloseTo(0, 8);
+      expect(dist(apex, add(b, mul(outgoing, -dist(apex, b))))).toBeCloseTo(0, 8);
+      for (const [flank, outside] of [a, b].entries()) {
+        const { pts } = sides[2 * i + flank];
+        const inside = sub(mul(tip, 2), outside);
+        expect(dist(inside, outside)).toBeCloseTo(width, 8);
+        expect(pts.some(p => dist(p, outside) < 1e-8)).toBe(true);
+        expect(pts.some(p => dist(p, inside) < 1e-8)).toBe(true);
+        expect(dist(pts[0], pts.at(-1)!)).toBeLessThan(width * 0.9);
+      }
+    }
+    const [node] = inksToNodes(inks, { r: 0, g: 0, b: 0, a: 1 });
+    expect(node.kind === "path" && node.path.slice(0, 5).map(cmd => cmd[0])).toEqual(["M", "L", "L", "L", "Z"]);
+  });
+
   it.each(["spike", "burst"])("gives %s deterministic, uniformly long spikes outside the text core", (kind) => {
     const make = (seed: number) => BODY_GENERATORS[kind](40, 40, { kind, irregularity: 0, egg: 0, tilt: 0, count: 20 }, seed);
     const body = make(42);

@@ -1,7 +1,7 @@
 // Stroke model (spec 9.4): centerline -> variable-width filled outline.
 import { fbm1, noise1, type Rng } from "../core/random.js";
 import { resample } from "../geom/path.js";
-import { type Vec, rot, sub } from "../geom/vec.js";
+import { type Vec, norm, rot, sub } from "../geom/vec.js";
 import type { HandSpec, PenSpec } from "./presets.js";
 
 export interface StrokeOptions {
@@ -19,6 +19,8 @@ export interface StrokeOptions {
   profile?: (t: number) => number;
   startWidth?: number;
   endWidth?: number;
+  /** Nominal-width flat end aligned with the tangent of a separate miter join. */
+  miterEnd?: Vec;
   noPull?: boolean;
   inkPool?: boolean;
   /** sampling step override (mm) for long straight strokes */
@@ -28,6 +30,7 @@ export interface StrokeOptions {
 export interface InkPoly {
   pts: Vec[];
   opacity: number;
+  straight?: boolean;
 }
 
 const PULL_R = norm2(-0.45, 1);
@@ -52,7 +55,7 @@ export function strokeOutline(center: readonly Vec[], o: StrokeOptions): InkPoly
   const s = new Float64Array(n);
   for (let i = 1; i < n; i++) s[i] = s[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
   const L = s[n - 1];
-  if (L < Math.max(0.15, w0 * 0.5)) {
+  if (!o.miterEnd && L < Math.max(0.15, w0 * 0.5)) {
     const c = { x: (pts[0].x + pts[n - 1].x) / 2, y: (pts[0].y + pts[n - 1].y) / 2 };
     return [{ pts: circlePoly(c, Math.max(w0 / 2, L / 2), 10), opacity }];
   }
@@ -89,7 +92,7 @@ export function strokeOutline(center: readonly Vec[], o: StrokeOptions): InkPoly
   const pAmp = o.pen.pressure * o.hand.pressure * (ruler ? 0.3 : 1);
   const tipRatio = Math.min(1, o.pen.tipWidth / Math.max(1e-6, w0));
   const taperIn = o.taperIn !== false;
-  const taperOut = o.taperOut !== false;
+  const taperOut = !o.miterEnd && o.taperOut !== false;
   const lin = taperIn ? Math.min(o.taperInLen ?? o.pen.taperIn * o.hand.taper, 0.3 * L) : 0;
   const lout = taperOut ? Math.min(o.taperOutLen ?? o.pen.taperOut * o.hand.taper, 0.45 * L) : 0;
   const pull = o.hand.handedness === "left" ? PULL_L : PULL_R;
@@ -129,17 +132,21 @@ export function strokeOutline(center: readonly Vec[], o: StrokeOptions): InkPoly
   const left: Vec[] = [];
   const right: Vec[] = [];
   for (let i = 0; i < n; i++) {
-    const nx = -ty[i];
-    const ny = tx[i];
-    const e = tremAmp > 0 ? tremAmp * Math.min(1, w[i] / w0) * noise1(seedT, s[i] / tremLen) : 0;
+    const blend = o.miterEnd ? Math.max(0, 1 - (L - s[i]) / Math.min(0.5 * L, w0 * 2)) : 0;
+    const tangent = o.miterEnd && blend > 0
+      ? norm({ x: tx[i] * (1 - blend) + o.miterEnd.x * blend, y: ty[i] * (1 - blend) + o.miterEnd.y * blend })
+      : { x: tx[i], y: ty[i] };
+    const nx = -tangent.y;
+    const ny = tangent.x;
+    const e = tremAmp > 0 ? (1 - blend) * tremAmp * Math.min(1, w[i] / w0) * noise1(seedT, s[i] / tremLen) : 0;
     const cx = pts[i].x + nx * e;
     const cy = pts[i].y + ny * e;
-    const hw = w[i] / 2;
+    const hw = (w[i] * (1 - blend) + w0 * blend) / 2;
     left.push({ x: cx + nx * hw, y: cy + ny * hw });
     right.push({ x: cx - nx * hw, y: cy - ny * hw });
   }
   const poly: Vec[] = [...left];
-  if (o.pen.cap === "round") poly.push(...capArc(pts[n - 1], { x: tx[n - 1], y: ty[n - 1] }, w[n - 1] / 2, false));
+  if (!o.miterEnd && o.pen.cap === "round") poly.push(...capArc(pts[n - 1], { x: tx[n - 1], y: ty[n - 1] }, w[n - 1] / 2, false));
   for (let i = n - 1; i >= 0; i--) poly.push(right[i]);
   if (o.pen.cap === "round") poly.push(...capArc(pts[0], { x: tx[0], y: ty[0] }, w[0] / 2, true));
 
