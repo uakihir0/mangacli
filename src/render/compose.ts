@@ -1109,6 +1109,7 @@ function openClipPath(pg: PanelGeom, clip: Obj, geom: PageGeom, u: PageGeom["uni
   const bw = toMm(((pg.panel.props.border as Obj)?.width as string) ?? `${0.5 * geom.k}mm`, u);
   const poly = panelShapePoly(pg, geom);
   const n = poly.length;
+  if (n < 3) return [];
   const lines: { p: Vec; d: Vec }[] = [];
   for (let i = 0; i < n; i++) {
     const a = poly[i];

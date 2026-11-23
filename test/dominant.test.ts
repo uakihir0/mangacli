@@ -111,11 +111,12 @@ describe("dominant panels", () => {
     expect(at(50, 52)).toBe(0);
     expect(at(60, 75)).toBe(0);
   });
-  it("renders when a dominant cut removes an entire shaped outline", async () => {
-    const r = await render({ mangacli: 1, page: { ...settings, bleed: 0 }, pages: [{ layout: "free", panels: [
+  it.each([[], ["right"]])("renders an empty shaped outline targeted by clip.open=%j", async (open) => {
+    const art = await sharp({ create: { width: 20, height: 20, channels: 3, background: "black" } }).png().toBuffer();
+    const r = await render({ mangacli: 1, page: { ...settings, bleed: 0 }, assets: { art: { src: "art.png" } }, pages: [{ layout: "free", layers: [{ image: "art", size: ["100mm", "100mm"], clip: { to: ["empty"], open } }], panels: [
       { polygon: [[0, 20], [20, 0], [100, 0], [100, 100], [0, 100]], dominant: { bleed: false } },
-      { box: [0, 0, "100mm", "100mm"], shape: { kind: "ellipse" }, background: "black" },
-    ] }] }, { profile: "preview", format: "png", width: 500, crop: "trim" });
+      { id: "empty", box: [0, 0, "100mm", "100mm"], shape: { kind: "ellipse" }, background: "black" },
+    ] }] }, { profile: "preview", format: "png", width: 500, crop: "trim", assets: { art } });
     expect(r.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
     expect(r.pages).toHaveLength(1);
   });
