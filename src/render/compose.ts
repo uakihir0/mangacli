@@ -1813,6 +1813,8 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         const cursor = { flowX: st.flowX, flowY: st.flowY, rowH: st.rowH };
         let first: { cx: number; cy: number; dx: number; dy: number } | undefined;
         let prev: Vec | undefined;
+        // a balloon cut at the top or bottom keeps its height, so a new row only moves it to the row start
+        const pinned = cutSides(pl.props).some(sd => sd === "top" || sd === "bottom");
         for (let attempt = 0; ; attempt++) {
           if ((rtl ? st.flowX - w < area.x : st.flowX + w > area.x + area.w) && st.rowH > 0) {
             st.flowX = rtl ? area.x + area.w : area.x;
@@ -1863,8 +1865,6 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
           // taken: try the next row, below the row and below what the balloon ran into,
           // while one is left in the area and a new row moves the balloon
           const nextY = st.flowY + Math.max(st.rowH, ...hit.map(r => r.y + r.h - own.y), 0) + 1 * u.k;
-          // a balloon cut at the top or bottom keeps its height, so a new row only moves it to the row start
-          const pinned = cutSides(pl.props).some(sd => sd === "top" || sd === "bottom");
           if (!moved || (!pinned && nextY + h > area.y + area.h) || attempt > 8) {
             ({ cx, cy, dx, dy } = first);
             Object.assign(st, cursor);
@@ -1876,6 +1876,8 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
           st.flowY = pinned ? Math.max(st.flowY, Math.min(nextY, area.y + area.h - h)) : nextY;
           st.rowH = 0;
         }
+        // moved to the row start at its own height, it leaves the row going on from where it first stood
+        if (pinned && prev) Object.assign(st, cursor);
         st.centers.set(pl, { x: cx, y: cy });
         st.rects.push({ x: cx - w / 2, y: cy - h / 2, w, h });
         st.flowX += dx + (rtl ? -(w + 1 * u.k) : w + 1 * u.k);

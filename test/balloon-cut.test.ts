@@ -167,6 +167,17 @@ pages:
     expect(r.diagnostics.map(d => d.code)).not.toContain("BALLOON_OVERLAP");
     expect(r.diagnostics.map(d => d.code)).not.toContain("BALLOON_TEXT_HIDDEN");
   });
+  it("lets the flow go on from the row a bottom-cut balloon left", async () => {
+    const r = await validate({
+      yaml: page(`          - { balloon: あああああああああああああ, id: a, autoPlace: flow, maxChars: 13, tail: none }
+          - { balloon: うう, id: d, autoPlace: flow, tail: none }
+          - { balloon: いちいち, id: c, at: [62%, 88%], tail: none }
+          - { balloon: にいにい, id: b, autoPlace: flow, cut: [bottom], tail: none }
+          - { balloon: さんさんさんさんさん, id: e, autoPlace: flow, contain: none, tail: none }`),
+    });
+    expect(r.diagnostics.map(d => d.code)).not.toContain("BALLOON_OVERLAP");
+    expect(r.diagnostics.map(d => d.code)).not.toContain("BALLOON_TEXT_HIDDEN");
+  });
   it("moves a cut flowing balloon off a balloon placed by at", async () => {
     const r = await validate({ yaml: page(`          - { balloon: いちいち, id: a, at: [90%, 15%], tail: none }\n          - { balloon: にいにい, id: b, autoPlace: flow, cut: [right], tail: none }`) });
     expect(r.diagnostics.map(d => d.code)).not.toContain("BALLOON_TEXT_HIDDEN");
