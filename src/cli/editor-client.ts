@@ -230,11 +230,13 @@ export function editorClient(cfg) {
       split.classList.remove("drag");
       split.removeEventListener("pointermove", move);
       split.removeEventListener("pointerup", up);
+      split.removeEventListener("pointercancel", up);
       localStorage.setItem("mangacli-edit-left", app.style.getPropertyValue("--left"));
       drawOverlays();
     };
     split.addEventListener("pointermove", move);
     split.addEventListener("pointerup", up);
+    split.addEventListener("pointercancel", up);
   });
   // the problems dock below the pages: drag its edge to resize, click its header to fold it
   const right = $("#right");
@@ -265,12 +267,14 @@ export function editorClient(cfg) {
       hsplit.classList.remove("drag");
       hsplit.removeEventListener("pointermove", move);
       hsplit.removeEventListener("pointerup", up);
+      hsplit.removeEventListener("pointercancel", up);
       localStorage.setItem("mangacli-edit-dock", right.style.getPropertyValue("--dock"));
       localStorage.setItem("mangacli-edit-dock-collapsed", "0");
       drawOverlays();
     };
     hsplit.addEventListener("pointermove", move);
     hsplit.addEventListener("pointerup", up);
+    hsplit.addEventListener("pointercancel", up);
   });
   document.querySelector("button.icon").onclick = () => toast(T.help);
   const zoom = $("#zoom");
