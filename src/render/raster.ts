@@ -670,12 +670,12 @@ export class RasterBackend {
     if (off !== silhouette) {
       octx.filter = `blur(${sigma}px)`;
       octx.drawImage(silhouette, 0, 0);
-      silhouette.width = silhouette.height = 1;
     }
     const mono = dev.opts.colorMode === "mono";
     if (mono) {
       const id = octx.getImageData(0, 0, r.w, r.h);
       const data = id.data;
+      const core = off === silhouette ? data : sctx.getImageData(0, 0, r.w, r.h).data;
       const alpha = new Uint8Array(r.w * r.h);
       for (let i = 0; i < alpha.length; i++) alpha[i] = data[4 * i + 3];
       const fwd = matMul([1, 0, 0, 1, -r.x, -r.y], dev.base);
@@ -683,7 +683,7 @@ export class RasterBackend {
         const q = applyMat(fwd, { x, y });
         const px = Math.min(r.w - 1, Math.max(0, Math.floor(q.x)));
         const py = Math.min(r.h - 1, Math.max(0, Math.floor(q.y)));
-        return alpha[py * r.w + px] * color.a / 255;
+        return Math.min(1, 2 * alpha[py * r.w + px] / 255) * color.a;
       };
       const target = this.target(dev, r);
       const spec = { density: 0, lpi: dev.opts.monoLpi, angle: Math.PI / 4, dot: "round" as const, grain: 0.08, invert: false, offset: [0, 0] as [number, number], seed: 7 };
@@ -691,12 +691,13 @@ export class RasterBackend {
       const ink = color.r > 0 && color.r < 1 ? makeToneSampler({ ...spec, density: 1 - color.r, angle: 0 }, target) : null;
       for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
         const i = y * r.w + x, j = 4 * i;
-        const opaque = alpha[i] === 255 && color.a >= 0.999;
-        data[j + 3] = opaque || (alpha[i] > 0 && coverage(x, y)) ? 255 : 0;
+        const inside = core[j + 3] >= 128;
+        data[j + 3] = inside || (off !== silhouette && alpha[i] > 0 && coverage(x, y)) ? 255 : 0;
         data[j] = data[j + 1] = data[j + 2] = (ink ? !ink(x, y) : color.r >= 0.5) ? 255 : 0;
       }
       octx.putImageData(id, 0, 0);
     }
+    if (off !== silhouette) silhouette.width = silhouette.height = 1;
     const ctx = dev.ctx;
     ctx.save();
     setDeviceM(dev);

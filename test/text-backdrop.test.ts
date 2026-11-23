@@ -44,13 +44,20 @@ it("draws the glyph-shaped fill with soft edges behind sharp text, including in 
   expect(svg.lastIndexOf('fill="#000000" data-id')).toBeGreaterThan(svg.indexOf('stroke="#ffffff"'));
 });
 
-it("screens translucent white onto black in print-mono without producing gray pixels", async () => {
+it("keeps the padded glyph silhouette white in print-mono and only screens the outer feather", async () => {
   const options = { profile: "print-mono", format: "png", dpi: 254, crop: "trim" } as const;
-  const soft = await render(input(effect), options);
-  const hard = await render(input(effect.replace("feather: 3mm", "feather: 0mm")), options);
   const channel = (data: Uint8Array) => sharp(data).extractChannel(0).raw().toBuffer();
-  const [softPixels, hardPixels] = await Promise.all([channel(soft.pages[0].data), channel(hard.pages[0].data)]);
-  expect(new Set(softPixels)).toEqual(new Set([0, 255]));
-  expect(softPixels.filter((v, i) => v === 255 && hardPixels[i] === 0).length).toBeGreaterThan(100);
-  expect(softPixels.filter((v, i) => v === 0 && hardPixels[i] === 255).length).toBeGreaterThan(100);
+  const opaqueCore = effect.replace("feather: 3mm", "feather: 0mm").replace("0.8", "1");
+  const [hardPixels, softPixels, faintPixels] = await Promise.all(
+    [opaqueCore, effect, effect.replace("0.8", "0.15")].map(async style =>
+      channel((await render(input(style), options)).pages[0].data)),
+  );
+  expect(hardPixels.filter(v => v === 255).length).toBeGreaterThan(100);
+  for (const pixels of [softPixels, faintPixels]) {
+    expect(new Set(pixels)).toEqual(new Set([0, 255]));
+    expect(pixels.some((v, i) => v === 0 && hardPixels[i] === 255)).toBe(false);
+  }
+  const fringe = (pixels: Buffer) => pixels.filter((v, i) => v === 255 && hardPixels[i] === 0).length;
+  expect(fringe(softPixels)).toBeGreaterThan(100);
+  expect(fringe(faintPixels)).toBeLessThan(fringe(softPixels));
 });
