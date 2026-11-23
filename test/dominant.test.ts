@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { render } from "../src/api.js";
 import { DiagnosticBag } from "../src/core/diagnostics.js";
-import { polygonArea } from "../src/geom/path.js";
+import { pointInPolygon, polygonArea } from "../src/geom/path.js";
 import { computePageGeom, layoutPanels } from "../src/layout/page.js";
 import { resolveDocument } from "../src/model/resolve.js";
 import { bodyPolygon, containBalloon, polygonFits } from "../src/render/balloon-contain.js";
@@ -85,6 +85,17 @@ describe("dominant panels", () => {
     const split = layout([{ box: ["40mm", "0mm", "20mm", "70mm"], dominant: { overlap: "26mm", bleed: false } }, { box: ["0mm", "74mm", "100mm", "26mm"] }], "free");
     expect(split.bag.items.map((d) => d.code)).toContain("LAYOUT_DOMINANT_SPLIT");
     expect(split.panels[1].fullBox.w).toBeCloseTo(10);
+  });
+  it("grows both arms of an L-shaped dominant and fills its outer joins", () => {
+    const { panels, bag } = layout([
+      { polygon: [[10, 10], [70, 10], [70, 30], [30, 30], [30, 70], [10, 70]], dominant: { overlap: "5mm", bleed: false } },
+      { box: ["40mm", "40mm", "40mm", "40mm"] },
+    ], "free");
+    expect(bag.hasErrors).toBe(false);
+    for (const [x, y] of [[68, 20], [20, 68], [73, 20], [20, 73], [73, 7], [7, 73], [33, 33]]) expect(pointInPolygon({ x, y }, panels[0].polygon), `${x},${y}`).toBe(true);
+    expect(pointInPolygon({ x: 50, y: 50 }, panels[0].polygon)).toBe(false);
+    expect(panels[1].fullBox.x).toBeCloseTo(45);
+    expect(panels[1].fullBox.y).toBeCloseTo(45);
   });
   it("expands a column slant while staying within unbled layout edges", () => {
     const spec = { rows: [{ cols: [1, 1], colSlant: ["10mm"] }] };

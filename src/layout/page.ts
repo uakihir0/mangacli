@@ -694,9 +694,34 @@ function applyDominant(panels: PanelGeom[], geom: PageGeom, area: Rect, gRow: nu
       return candidates.length ? Math.min(...candidates) : Math.abs(nx) * gCol + Math.abs(ny) * gRow;
     });
     const grow = (withGap = false) => {
+      const offsets = edges.map(({ interior }, i) => interior ? overlap + (withGap ? gaps[i] : 0) : 0);
+      const convex = original.every((a, i) => {
+        const b = original[(i + 1) % original.length], c = original[(i + 2) % original.length];
+        return (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x) >= -1e-8;
+      });
+      if (!convex) {
+        const pieces: polygonClipping.Polygon[] = [[ring(original)]];
+        edges.forEach(({ a, b, nx, ny }, i) => {
+          const offset = offsets[i];
+          if (offset > 0) pieces.push([ring([a, b, { x: b.x + nx * offset, y: b.y + ny * offset }, { x: a.x + nx * offset, y: a.y + ny * offset }])]);
+          const prev = edges[(i + edges.length - 1) % edges.length];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const px = prev.b.x - prev.a.x, py = prev.b.y - prev.a.y;
+          const cross = px * dy - py * dx;
+          if (cross <= 1e-8) return;
+          const previousOffset = offsets[(i + offsets.length - 1) % offsets.length];
+          const p = { x: a.x + prev.nx * previousOffset, y: a.y + prev.ny * previousOffset };
+          const q = { x: a.x + nx * offset, y: a.y + ny * offset };
+          const t = ((q.x - p.x) * dy - (q.y - p.y) * dx) / cross;
+          const join = [a, p, { x: p.x + t * px, y: p.y + t * py }, q];
+          if (Math.abs(polygonArea(join)) > 1e-8) pieces.push([ring(join)]);
+        });
+        const result = polygonClipping.intersection(polygonClipping.union(pieces[0], ...pieces.slice(1)), [ring(rectPoly(limits))]);
+        return result.map((p) => p[0].slice(0, -1).map(([x, y]) => ({ x, y }))).sort((a, b) => Math.abs(polygonArea(b)) - Math.abs(polygonArea(a)))[0] ?? [];
+      }
       let poly = rectPoly(limits);
       for (const [i, { a, b, nx, ny, interior }] of edges.entries()) {
-        const offset = interior ? overlap + (withGap ? gaps[i] : 0) : 0;
+        const offset = offsets[i];
         poly = clipHalf(poly, { x: a.x + nx * offset, y: a.y + ny * offset }, { x: b.x + nx * offset, y: b.y + ny * offset }, true);
       }
       return poly;
