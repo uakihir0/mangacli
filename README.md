@@ -88,7 +88,7 @@ mangacli fonts verify | fonts licenses [file]
 mangacli cache info | cache clean
 ```
 
-In `edit`, the YAML is rendered as you type (without saving). Click an element on a page to jump to its line, click a diagnostic to jump to the line and highlight the element, and press ⌘/Ctrl+S to save. If the file changes on disk, the editor reloads it, or asks first when you have unsaved edits.
+In `edit`, the YAML is rendered as you type (without saving), and you can also work on the page directly: drag balloons, text and art to move them, use the handles to resize and rotate them, drag a tail's tip to aim it, drag gutters to resize and tilt panels, and split, remove or freely reshape panels. Each drag is written back into the YAML (only the values it changes) and can be undone with ⌘/Ctrl+Z. A side panel lists the selected item's keys for editing. Press ⌘/Ctrl+S to save. If the file changes on disk, the editor reloads it, or asks first when you have unsaved edits.
 
 In live preview, click an element warning to locate it with a highlight frame. Click again or press Esc to clear; selection survives auto-reload independently of Guides.
 
