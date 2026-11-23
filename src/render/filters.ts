@@ -253,89 +253,120 @@ type LenFn = (v: unknown, fallback: number) => number;
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
-/** circular morphological opening (erosion, then dilation) of a binary mask, using exact Euclidean distances */
-function openMask(src: Uint8Array, w: number, h: number, size: number): Uint8Array {
-  if (size <= 1) return Uint8Array.from(src);
-  const n = w * h;
-  const outside = new Uint8Array(n);
-  for (let i = 0; i < n; i++) outside[i] = src[i] ? 0 : 1;
-  const radius = size / 2;
-  const rr = radius * radius;
-  const clearance = distanceSquared(outside, w, h);
-  const seed = new Uint8Array(n);
-  for (let i = 0; i < n; i++) seed[i] = src[i] && clearance[i] >= rr ? 1 : 0;
-  const grown = distanceSquared(seed, w, h);
-  const out = new Uint8Array(n);
-  for (let i = 0; i < n; i++) out[i] = src[i] && grown[i] <= rr ? 1 : 0;
-  return out;
+function convexHullArea(points: number[], stride: number): number {
+  if (points.length < 3) return 1;
+  points.sort((a, b) => a - b);
+  const px = (p: number) => Math.floor(p / stride);
+  const py = (p: number) => p % stride;
+  const cross = (o: number, a: number, b: number) => (px(a) - px(o)) * (py(b) - py(o)) - (py(a) - py(o)) * (px(b) - px(o));
+  const lower: number[] = [];
+  for (const p of points) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper: number[] = [];
+  for (let i = points.length - 1; i >= 0; i--) {
+    const p = points[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  const hull = lower.slice(0, -1).concat(upper.slice(0, -1));
+  if (hull.length < 3) return 1;
+  let twice = 0;
+  for (let i = 0; i < hull.length; i++) {
+    const j = (i + 1) % hull.length;
+    twice += px(hull[i]) * py(hull[j]) - px(hull[j]) * py(hull[i]);
+  }
+  return Math.max(1, Math.abs(twice) / 2);
 }
 
 /** classify connected dark shapes as beta, so each accepted shape is toned as a whole */
-function largeBetaMask(core: Uint8Array, lines: Uint8Array, w: number, h: number, size: number, mode: "background" | "all" | "none"): Uint8Array {
+function largeBetaMask(core: Uint8Array, lines: Uint8Array, w: number, h: number, size: number): { mask: Uint8Array; clearance: Float64Array } {
   const n = w * h;
-  // cut pixel-wide connections before component labelling, without erasing the shape itself
-  const cutSize = Math.max(3, Math.round(size * 0.08));
-  const base = openMask(lines, w, h, cutSize);
-  const comp = new Int32Array(n).fill(-1);
-  const stack = new Int32Array(n);
-  const areas: number[] = [];
-  const solid: number[] = [];
-  const outsideCore = new Uint8Array(n);
-  for (let i = 0; i < n; i++) outsideCore[i] = core[i] ? 0 : 1;
-  const clearance = distanceSquared(outsideCore, w, h);
+  const outside = new Uint8Array(n);
+  for (let i = 0; i < n; i++) outside[i] = lines[i] ? 0 : 1;
+  const clearance = distanceSquared(outside, w, h);
   const radius = size / 2;
   const rr = radius * radius;
+  // Seed thick cores by erosion. Thin necks disappear at this stage, so hair
+  // spikes, small drips and strokes do not merge into the compact mass they
+  // merely touch. The seeds are then grown back through the original dark
+  // mask by nearest-neighbour flood fill, partitioning those thin connections
+  // instead of erasing the accepted shape's own outline.
+  const cutRadius = Math.max(1.5, size * 0.06);
+  const cutSq = cutRadius * cutRadius;
+  const owner = new Int32Array(n).fill(-1);
+  const queue = new Int32Array(n);
+  const areas: number[] = [];
+  const solid: number[] = [];
+  const ink: number[] = [];
   for (let start = 0; start < n; start++) {
-    if (!base[start] || comp[start] >= 0) continue;
+    if (!lines[start] || clearance[start] < cutSq || owner[start] >= 0) continue;
     const label = areas.length;
     areas.push(0);
     solid.push(0);
+    ink.push(0);
     let top = 0;
-    comp[start] = label;
-    stack[top++] = start;
+    owner[start] = label;
+    queue[top++] = start;
     while (top) {
-      const cur = stack[--top];
+      const cur = queue[--top];
       const cx = cur % w;
       const cy = Math.floor(cur / w);
-      areas[label]++;
-      if (core[cur] && clearance[cur] >= rr) solid[label]++;
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue;
         const x = cx + dx;
         const y = cy + dy;
         if (x < 0 || y < 0 || x >= w || y >= h) continue;
         const ni = y * w + x;
-        if (!base[ni] || comp[ni] >= 0) continue;
-        comp[ni] = label;
-        stack[top++] = ni;
+        if (!lines[ni] || clearance[ni] < cutSq || owner[ni] >= 0) continue;
+        owner[ni] = label;
+        queue[top++] = ni;
       }
     }
   }
-  const minArea = Math.PI * rr * 0.5;
-  const topRun = areas.map(() => 0);
-  let runLabel = -1;
-  let runLength = 0;
-  const flushTopRun = () => {
-    if (runLabel >= 0) topRun[runLabel] = Math.max(topRun[runLabel], runLength);
-  };
-  for (let x = 0; x < w; x++) {
-    const label = core[x] ? comp[x] : -1;
-    if (label === runLabel && label >= 0) {
-      runLength++;
-    } else {
-      flushTopRun();
-      runLabel = label;
-      runLength = label >= 0 ? 1 : 0;
+  let tail = 0;
+  for (let i = 0; i < n; i++) if (owner[i] >= 0) queue[tail++] = i;
+  for (let head = 0; head < tail; head++) {
+    const cur = queue[head];
+    const label = owner[cur];
+    const cx = cur % w;
+    const cy = Math.floor(cur / w);
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dy) continue;
+      const x = cx + dx;
+      const y = cy + dy;
+      if (x < 0 || y < 0 || x >= w || y >= h) continue;
+      const ni = y * w + x;
+      if (!lines[ni] || owner[ni] >= 0) continue;
+      owner[ni] = label;
+      queue[tail++] = ni;
     }
   }
-  flushTopRun();
-  const accepted = areas.map((area, i) => {
-    const background = topRun[i] >= size;
-    return mode !== "none" && area >= minArea && solid[i] / area >= 0.05 && (mode === "all" || background);
-  });
+  const boundary: number[][] = areas.map(() => []);
+  const stride = h + 1;
+  for (let i = 0; i < n; i++) {
+    const label = owner[i];
+    if (label < 0) continue;
+    areas[label]++;
+    if (clearance[i] >= rr) solid[label]++;
+    if (core[i]) ink[label]++;
+    const x = i % w;
+    const y = Math.floor(i / w);
+    let edge = x === 0 || y === 0 || x + 1 === w || y + 1 === h;
+    if (!edge) {
+      if (owner[i - 1] !== label || owner[i + 1] !== label || owner[i - w] !== label || owner[i + w] !== label) edge = true;
+    }
+    if (edge) boundary[label].push(x * stride + y);
+  }
+  const minArea = Math.PI * rr * 0.5;
+  const convexities = areas.map((area, i) => area / convexHullArea(boundary[i], stride));
+  const coreNeed = minArea * 0.5;
+  const accepted = areas.map((area, i) => area >= minArea && solid[i] >= coreNeed && ink[i] / area >= 0.05 && convexities[i] >= 0.38);
   const out = new Uint8Array(n);
-  for (let i = 0; i < n; i++) if (base[i] && accepted[comp[i]]) out[i] = 1;
-  return out;
+  for (let i = 0; i < n; i++) if (owner[i] >= 0 && accepted[owner[i]]) out[i] = 1;
+
+  return { mask: out, clearance };
 }
 
 /** edge-preserving local mean of midtone density, suppressing raster/texture noise before quantization */
@@ -502,7 +533,7 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
     const n = typeof v === "string" ? parseFloat(v) : Number(v);
     return Number.isFinite(n) ? n : fallback;
   };
-  const defaults = [0.2, 0.3, 0.5];
+  const defaults = [0.2, 0.3, 0.5, 0.7];
   const rawTones = Array.isArray(o.tones) ? o.tones : defaults;
   const tones = [...new Set(rawTones.map((v) => clamp01(Number(v))).filter((v) => Number.isFinite(v)).sort((a, b) => a - b))];
   if (!tones.length) tones.push(...defaults);
@@ -514,8 +545,6 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
   const rawBetaTone = o.betaTone ?? f.args[5] ?? 0.7;
   const betaTone = rawBetaTone === "gradient" ? "gradient" : Math.max(0.6, Math.min(0.8, numberOpt("betaTone", 5, 0.7)));
   const autoPaper = o.paper == null && f.args[9] == null;
-  const rawBetaReplace = String(o.betaReplace ?? f.args[10] ?? "background");
-  const betaReplace = rawBetaReplace === "all" || rawBetaReplace === "none" ? rawBetaReplace : "background";
   const cut = clamp01(numberOpt("cut", 6, 0));
   const grain = clamp01(numberOpt("grain", 7, 0));
   const seed = Math.floor(numberOpt("seed", 8, 1)) >>> 0;
@@ -539,26 +568,43 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
   const paper = histogram ? mangaPaperCutoff(histogram, visible) : clamp01(numberOpt("paper", 9, 0.15));
   const lines = new Uint8Array(n);
   for (let i = 0; i < n; i++) lines[i] = data[i * 4 + 3] && lum01[i] < line ? 1 : 0;
-  const large = largeBetaMask(dark, lines, w, h, betaSize, betaReplace);
+  const betaMask = largeBetaMask(dark, lines, w, h, betaSize);
+  const large = betaMask.mask;
   const grad = betaTone === "gradient" ? betaGradient(large, w, h) : null;
   const rimOutside = new Uint8Array(n);
-  if (betaReplace === "all") {
-    for (let i = 0; i < n; i++) rimOutside[i] = large[i] ? 0 : 1;
-  } else if (betaReplace === "background") {
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      const i = y * w + x;
-      if (!large[i]) continue;
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-        const xx = x + dx, yy = y + dy;
-        if (xx < 0 || xx >= w || yy < 0 || yy >= h) continue;
-        const j = yy * w + xx;
-        if (!large[j] && (!data[j * 4 + 3] || lum01[j] - lum01[i] > 0.12)) rimOutside[j] = 1;
-      }
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    if (!large[i]) continue;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || xx >= w || yy < 0 || yy >= h) continue;
+      const j = yy * w + xx;
+      if (!large[j] && (!data[j * 4 + 3] || lum01[j] - lum01[i] > 0.12)) rimOutside[j] = 1;
     }
   }
   const rimDistance = distanceSquared(rimOutside, w, h);
   const rimPx = Math.max(1, Math.round(0.25 / mmPerPx));
   const rimSq = rimPx * rimPx;
+  // Preserve true ink strokes before broad beta shapes are replaced. The core
+  // must reach the strict beta threshold, so a merely dark grey gradient does
+  // not become ink; one-pixel dilation restores the anti-aliased width of a
+  // real stroke without spreading black along a soft ramp.
+  const strokeRadius = Math.max(1.5, betaSize * 0.08);
+  const strokeSq = strokeRadius * strokeRadius;
+  const strokeCore = new Uint8Array(n);
+  for (let i = 0; i < n; i++) if (dark[i] && lines[i] && betaMask.clearance[i] <= strokeSq) strokeCore[i] = 1;
+  const strokes = new Uint8Array(n);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    if (!strokeCore[i]) continue;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx;
+      const yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+      const j = yy * w + xx;
+      if (lines[j]) strokes[j] = 1;
+    }
+  }
 
   const sr = image?.sourceRect;
   const sx = sr ? w / Math.max(1e-9, sr.w) : 1;
@@ -612,9 +658,13 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
     const alpha = data[i * 4 + 3];
     if (!alpha) continue;
     const yv = lum01[i];
-    if (dark[i] || yv < line) {
-      const inTone = large[i] && (dark[i] || betaReplace === "background") && rimDistance[i] > rimSq;
-      density[i] = inTone && !inKeep(x, y) ? grad ? grad[i] : (betaTone as number) : 1;
+    const inTone = large[i] && rimDistance[i] > rimSq && !strokes[i];
+    if (inTone && !inKeep(x, y)) {
+      density[i] = grad ? grad[i] : (betaTone as number);
+      continue;
+    }
+    if (dark[i] || strokes[i]) {
+      density[i] = 1;
       continue;
     }
     let d = smooth[i];

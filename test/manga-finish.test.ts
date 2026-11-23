@@ -24,7 +24,7 @@ function sourcePixels() {
   return { data, width, height };
 }
 
-const mangaOpts = { betaMinSize: 1, tones: [0.2], lpi: 30, cut: 0.4, grain: 0.3, seed: 9, betaReplace: "all" };
+const mangaOpts = { betaMinSize: 1, tones: [0.2], lpi: 30, cut: 0.4, grain: 0.3, seed: 9 };
 const mangaFilter: ImageFilter = { name: "manga", args: [], opts: mangaOpts };
 
 describe("manga finish filter", () => {
@@ -89,32 +89,72 @@ describe("manga finish filter", () => {
     expect(mangaTempScale(1000, 1000, 100, Number.MAX_SAFE_INTEGER)).toBeCloseTo(4, 6);
   });
 
-  it("keeps interior solids black by default but tones an edge-touching background solid", async () => {
+  it("classifies beta by thickness rather than image-edge contact", async () => {
     const opts = { betaMinSize: 1, tones: [0.2], lpi: 30, seed: 9 };
     const filter: ImageFilter = { name: "manga", args: [], opts };
     const interior = await applyFilters(sourcePixels(), [filter], 0.05);
-    for (let y = 30; y <= 50; y++) for (let x = 15; x <= 30; x++) expect(interior.data[(y * interior.width + x) * 4]).toBe(0);
+    let paper = false;
+    for (let y = 30; y <= 50; y++) for (let x = 15; x <= 30; x++) if (interior.data[(y * interior.width + x) * 4] === 255) paper = true;
+    expect(paper).toBe(true);
 
     const edged = sourcePixels();
     for (let y = 0; y <= 9; y++) for (let x = 5; x <= 39; x++) {
       const i = (y * edged.width + x) * 4;
       edged.data[i] = edged.data[i + 1] = edged.data[i + 2] = 0;
     }
-    const background = await applyFilters(edged, [filter], 0.05);
-    let paper = false;
-    for (let y = 30; y <= 50; y++) for (let x = 15; x <= 30; x++) if (background.data[(y * background.width + x) * 4] === 255) paper = true;
+    const touching = await applyFilters(edged, [filter], 0.05);
+    paper = false;
+    for (let y = 30; y <= 50; y++) for (let x = 15; x <= 30; x++) if (touching.data[(y * touching.width + x) * 4] === 255) paper = true;
     expect(paper).toBe(true);
   });
 
-  it("does not count dark-grey top contact as beta background", async () => {
-    const opts = { betaMinSize: 1, tones: [0.2], lpi: 30, seed: 9 };
+  it("keeps thin-connected hair-like black masses solid", async () => {
     const px = sourcePixels();
-    for (let y = 0; y <= 9; y++) for (let x = 5; x <= 39; x++) {
+    for (let i = 0; i < px.data.length; i += 4) px.data[i] = px.data[i + 1] = px.data[i + 2] = 255;
+    const black = (x: number, y: number) => {
+      const j = (y * px.width + x) * 4;
+      px.data[j] = px.data[j + 1] = px.data[j + 2] = 0;
+    };
+    for (let y = 0; y < 4; y++) for (let x = 20; x < 100; x++) black(x, y);
+    for (const cx of [22, 38, 54, 70, 86]) for (let y = 4; y < 34; y++) for (let dx = -1; dx <= 1; dx++) black(cx + dx, y);
+    const out = await applyFilters(px, [{ name: "manga", args: [], opts: { betaMinSize: 1, tones: [0.2], lpi: 30, seed: 9 } }], 0.05);
+    for (const cx of [22, 38, 54, 70, 86]) for (const y of [2, 12, 24]) expect(out.data[(y * out.width + cx) * 4]).toBe(0);
+  });
+
+  it("keeps thin strokes attached to a toned beta mass fully black", async () => {
+    const px = sourcePixels();
+    for (let y = 30; y <= 32; y++) for (let x = 40; x < 90; x++) {
       const i = (y * px.width + x) * 4;
-      px.data[i] = px.data[i + 1] = px.data[i + 2] = 60;
+      px.data[i] = px.data[i + 1] = px.data[i + 2] = 0;
     }
-    const out = await applyFilters(px, [{ name: "manga", args: [], opts }], 0.05);
-    for (let y = 30; y <= 50; y++) for (let x = 15; x <= 30; x++) expect(out.data[(y * out.width + x) * 4]).toBe(0);
+    const out = await applyFilters(px, [{ name: "manga", args: [], opts: { betaMinSize: 1, tones: [0.2], lpi: 30, seed: 9 } }], 0.05);
+    for (let x = 45; x < 88; x++) expect(out.data[(31 * out.width + x) * 4]).toBe(0);
+  });
+
+  it("keeps a smooth dark-to-light ramp out of solid black", async () => {
+    const width = 180;
+    const height = 60;
+    const data = new Uint8Array(width * height * 4);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const v = Math.round((x / (width - 1)) * 255);
+      data[i] = data[i + 1] = data[i + 2] = v;
+      data[i + 3] = 255;
+    }
+    const out = await applyFilters({ data, width, height }, [{ name: "manga", args: [], opts: { betaMinSize: 10, lpi: 30, seed: 9 } }], 0.05);
+    const blackFraction = (x0: number, x1: number) => {
+      let black = 0;
+      let count = 0;
+      for (let y = 10; y < 50; y++) for (let x = x0; x <= x1; x++) {
+        if (out.data[(y * width + x) * 4] === 0) black++;
+        count++;
+      }
+      return black / count;
+    };
+    expect(blackFraction(7, 12)).toBeGreaterThan(0.95);
+    const ramp = blackFraction(42, 48);
+    expect(ramp).toBeGreaterThan(0.4);
+    expect(ramp).toBeLessThan(0.9);
   });
 
   it("keeps light paper and skin-tone shading free of dots by default", async () => {
@@ -137,7 +177,7 @@ describe("manga finish filter", () => {
       const shade = shades[x < 60 ? 0 : x < 85 ? 1 : x < 110 ? 2 : 3];
       px.data[i] = px.data[i + 1] = px.data[i + 2] = shade;
     }
-    const filter: ImageFilter = { name: "manga", args: [], opts: { betaReplace: "none", lpi: 60 } };
+    const filter: ImageFilter = { name: "manga", args: [], opts: { lpi: 60 } };
     const auto = await applyFilters(px, [filter], 0.08);
     const fixed = await applyFilters(px, [{ ...filter, opts: { ...filter.opts, paper: 0.15 } }], 0.08);
     const shadesAt = (out: typeof auto, start: number, end: number) => new Set(Array.from({ length: (end - start) * 60 }, (_, i) => {

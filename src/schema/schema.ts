@@ -315,7 +315,6 @@ const MangaFinish = z.union([
       beta: z.number().min(0).max(1).optional(),
       betaMinSize: Length.optional(),
       betaTone: z.union([z.number().min(0.6).max(0.8), z.literal("gradient")]).optional(),
-      betaReplace: z.enum(["background", "all", "none"]).optional(),
       paper: z.number().min(0).max(1).optional(),
       keepBeta: z.array(z.union([z.string(), z.tuple([z.number(), z.number(), z.number(), z.number()])])).optional(),
       cut: z.number().min(0).max(1).optional(),
