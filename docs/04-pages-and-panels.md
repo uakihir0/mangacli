@@ -392,6 +392,7 @@ layout:
 | `shape` | `rect` \| `ellipse` \| `cloud` \| `{ kind: rounded, radius }` | `rect` | コマの形（[4.10](#410-特殊なコマ)） |
 | `border` | Border \| `none` | [4.9](#49-枠線border) | 枠線 |
 | `bleed` | 辺[] \| `all` \| `false` | `false` | 断ち切りにする辺（`top`、`right`、`bottom`、`left`） |
+| `dominant` | `true` \| `{ overlap?: Length, bleed?: 辺[] \| all \| false }` | - | 周囲のコマより手前に描く大ゴマ（[4.8.1](#481-大ゴマdominant)） |
 | `background` | Paint | `paper` | コマの地の塗り |
 | `mood` | `flashback` | ページに従う | 回想。周囲の余白・間白を黒くする |
 | `flashbackBorder` | `none` \| `white` | ページに従う（`none`） | 回想の枠線。明示した `border` が優先 |
@@ -420,6 +421,25 @@ panels:
 4. 断ち切りにした辺の枠線は描かない。
 5. 断ち切りのコマの表示領域（% の基準）は、コマの多角形と仕上がりの共通部分の外接矩形とする（[3.6](03-document-format.md#36-座標系)）。一方、画像の `fit` の基準は塗り足しを含むコマ全体の外接矩形とする（[5.5](05-elements-and-images.md#55-画像image)）。これにより、背景画像は塗り足しまで覆い、配置の % は見えている範囲を基準にできる。
 6. 1 コマのページで `bleed: all` とすると、ページ全面の断ち切り（1 ページ大ゴマ）になる。
+
+### 4.8.1 大ゴマ（dominant）
+
+クライマックスなどで、ひとつのコマを間白の向こうへ張り出させる。
+
+```yaml
+panels:
+  - dominant: { overlap: 8mm, bleed: [top, right] }
+  - {}
+```
+
+- `dominant: true` は外周に接する辺だけを自動で断ち切りにする。外周にない辺の警告は出さない。
+- `dominant.bleed` で断ち切りの辺を選べる。コマ自身の `bleed` があればそちらを優先する。`false` は断ち切りなし。
+- `overlap`（既定値 `0`）は内部の各辺を法線方向へ広げる量。斜めの間白や `split.line` にも使える。外周はレイアウト領域（断ち切りの辺では塗り足し）を越えない。
+- 隣のコマを切り詰め、もとの間白の幅を保つ。分断されたコマは最大の部分だけを残し、`LAYOUT_DOMINANT_SPLIT` を警告する。小さくなりすぎた場合は `LAYOUT_DEGENERATE_PANEL` エラー。
+- 大ゴマは隣のコマより手前に描き、内部の枠線は残す。読み順は張り出す前の配置で決める（`order` の指定も有効）。吹き出しの `contain: panel` は切り詰めた輪郭を使い、文字の安全領域や回想の黒い間白は通常どおり適用する。
+- 1 ページに 1 コマを想定する。複数指定すると `LAYOUT_DOMINANT_MULTIPLE` を警告する。
+
+作例: [dominant-panel.yaml](examples/dominant-panel.yaml) / [描画結果](images/dominant-panel.png)。
 
 ## 4.9 枠線（border）
 
@@ -613,6 +633,9 @@ pages:
 | `LAYOUT_DEGENERATE_PANEL` | エラー | コマが細すぎる、自己交差する |
 | `LAYOUT_PANELS_OVERLAP` | 警告 | 自由配置のコマが重なる（`overlay` を除く） |
 | `LAYOUT_BLEED_NOT_ON_EDGE` | 警告 | 外周に接していない辺を断ち切りに指定した |
+| `LAYOUT_DOMINANT_MULTIPLE` | 警告 | 1 ページに複数の大ゴマを指定した |
+| `LAYOUT_DOMINANT_SPLIT` | 警告 | 大ゴマで隣のコマが分断され、最大の部分だけを残した |
+| `LAYOUT_DOMINANT_HOLE` | 警告 | 大ゴマの拡張で穴ができるため、重なりを適用しなかった |
 | `LAYOUT_ORDER_DUPLICATE` | エラー | `order` が重複する |
 | `LAYOUT_SPREAD_PARITY` | 警告 | 見開きの位置が左右の規則に合わない |
 | `TEXT_NEAR_FOLD` | 警告 | 見開きの中央付近に文字がある |

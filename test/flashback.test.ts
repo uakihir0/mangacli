@@ -80,6 +80,29 @@ describe("flashback mood", () => {
     expect(at(40, 40)).toBe(255);
   });
 
+  it.each(["12mm", "-12mm"])("cuts the outer margin along the dominant gutter centre (%s)", async (slant) => {
+    const { at, layout } = await sample({ mangacli: 1, page: settings, pages: [{
+      layout: { rows: [{ cols: [1], slant }, { cols: [1, 1] }] },
+      panels: [{ dominant: { overlap: "8mm" } }, { mood: "flashback" }, {}],
+    }] });
+    const dominant = layout.panels[0].polygon;
+    const flashback = layout.panels[1].polygon;
+    const i = dominant.findIndex((a, j) => {
+      const b = dominant[(j + 1) % dominant.length];
+      return b.x < a.x && Math.abs(b.y - a.y) > 0.1;
+    });
+    expect(i).toBeGreaterThanOrEqual(0);
+    const a = dominant[i], b = dominant[(i + 1) % dominant.length];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    const nx = (b.y - a.y) / len, ny = (a.x - b.x) / len;
+    const gap = Math.min(...flashback.map((p) => (p.x - a.x) * nx + (p.y - a.y) * ny));
+    for (const x of [76, 80, 82]) {
+      const centreY = a.y + (gap / 2 - (x - a.x) * nx) / ny;
+      expect(at(x, centreY + 0.6), `black below gutter centre at ${x}`).toBe(0);
+      expect(at(x, centreY - 0.6), `white above gutter centre at ${x}`).toBe(255);
+    }
+  });
+
   it.each(["ellipse", "cloud", "rounded"])("paints black up to the rendered %s flashback outline", async (shape) => {
     const { at } = await sample({ mangacli: 1, page: settings, pages: [{ layout, panels: [{ mood: "flashback", shape: { kind: shape, radius: "6mm" } }, {}, {}, {}] }] });
     expect(at(44, 11)).toBe(0);

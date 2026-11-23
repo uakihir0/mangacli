@@ -2748,6 +2748,58 @@
                   }
                 ]
               },
+              "dominant": {
+                "anyOf": [
+                  {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "overlap": {
+                            "$ref": "#/$defs/__schema0"
+                          },
+                          "bleed": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "top",
+                                    "right",
+                                    "bottom",
+                                    "left"
+                                  ]
+                                }
+                              },
+                              {
+                                "type": "string",
+                                "const": "all"
+                              },
+                              {
+                                "type": "boolean",
+                                "const": false
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": [
+                          "string",
+                          "number",
+                          "boolean",
+                          "array"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
               "background": {
                 "$ref": "#/$defs/__schema16"
               },
