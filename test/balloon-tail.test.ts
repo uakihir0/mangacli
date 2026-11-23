@@ -148,6 +148,16 @@ describe("balloon tails", () => {
     const width = Math.hypot(pts[a].x - pts[0].x, pts[a].y - pts[0].y);
     expect(width).toBeCloseTo((1.3 * 80) / 182, 5);
   });
+  it.each(["say", "whisper"])("clamps a direction-only automatic %s wedge by maxLength", async as => {
+    const balloon = `balloon: "おはよう", id: b, as: ${as}, hand: clean, size: [24mm, 24mm], at: [40mm, 35mm], shape: { kind: ellipse, irregularity: 0, tilt: 0deg }`;
+    const tail = "direction: 0deg, bend: 0";
+    const uncapped = await outline(`{ ${balloon}, tail: { ${tail} } }`);
+    const capped = await outline(`{ ${balloon}, tail: { ${tail}, maxLength: 1mm } }`);
+    const reach = (out: { pts: Vec[]; origin: Vec }) => tip(out.pts).x - rightOf(out.pts, out.origin.x + 40);
+    expect(reach(uncapped)).toBeGreaterThan(1.4);
+    expect(reach(uncapped) - reach(capped)).toBeGreaterThan(0.45);
+    expect(reach(uncapped) - reach(capped)).toBeLessThan(0.65);
+  });
   it.each(["say", "whisper"])("applies widthScale to the thinner automatic %s width", async as => {
     const balloon = `balloon: "おはよう", id: b, as: ${as}, hand: clean, size: [30mm, 24mm], at: [40mm, 35mm], shape: { kind: ellipse, irregularity: 0, tilt: 0deg }`;
     const tail = "direction: 0deg, length: 10mm, curl: false, bend: 0, sideCurve: 0, widthScale: 1.5";
