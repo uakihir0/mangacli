@@ -1544,9 +1544,14 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         w: sides.includes("top") && sides.includes("bottom") ? Math.min(b.w, pl.text.width * 1.6) : b.w,
         h: sides.includes("left") && sides.includes("right") ? Math.min(b.h, pl.text.height * 1.6) : b.h,
       };
-      const grown = cutSize(own, panelBox, sides, side => cutDepth(pl.props, side));
-      const size = [`${pl.outer.w * grown.w / b.w}mm`, `${pl.outer.h * grown.h / b.h}mm`];
-      const vp = replan(pl, { ...pl.props, size });
+      const grow = (o: { w: number; h: number }) => {
+        const g = cutSize(o, panelBox, sides, side => cutDepth(pl.props, side));
+        const size = [`${pl.outer.w * g.w / b.w}mm`, `${pl.outer.h * g.h / b.h}mm`];
+        return { size, vp: replan(pl, { ...pl.props, size }) };
+      };
+      let { size, vp } = grow(own);
+      // a band too thin for the shape's padding would shrink the lettering: keep the uncut depth instead
+      if (vp && vp.fontScaleApplied < pl.fontScaleApplied - 1e-6 && (own.w < b.w || own.h < b.h)) ({ size, vp } = grow(b));
       if (vp) plans[i] = Object.assign(pl, { ...vp, el: pl.el, explicit: pl.explicit, props: { ...pl.props, size } });
     }
   }
