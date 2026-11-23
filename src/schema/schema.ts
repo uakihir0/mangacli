@@ -449,6 +449,7 @@ const Panel = z
     shape: BorderShape.optional(),
     border: Stroke.optional(),
     bleed: z.union([z.array(z.enum(["top", "right", "bottom", "left"])), z.literal(false)]).optional(),
+    dominant: z.union([z.literal(true), z.object({ overlap: Length.optional(), bleed: z.union([z.array(z.enum(["top", "right", "bottom", "left"])), z.literal("all"), z.literal(false)]).optional() })]).optional(),
     background: Paint.optional(),
     mood: z.enum(["flashback"]).meta({ id: "FlashbackMoodValue" }).optional().meta({ id: "FlashbackMood" }),
     flashbackBorder: z.enum(["none", "white"]).meta({ id: "FlashbackBorderValue" }).optional().meta({ id: "FlashbackBorder" }),

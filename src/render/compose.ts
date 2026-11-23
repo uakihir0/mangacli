@@ -137,7 +137,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     characters: doc.characters,
     outputDpi: o.outputDpi(geom),
   });
-  const drawOrder = panels.slice().sort((a, b) => ((a.panel.props.z as number) ?? 0) - ((b.panel.props.z as number) ?? 0) || a.order - b.order);
+  const drawOrder = panels.slice().sort((a, b) => Number(!!a.panel.props.dominant) - Number(!!b.panel.props.dominant) || ((a.panel.props.z as number) ?? 0) - ((b.panel.props.z as number) ?? 0) || a.order - b.order);
 
   // phase A: images (refs)
   const processed = new Map<string, Item>();
