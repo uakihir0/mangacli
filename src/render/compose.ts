@@ -661,6 +661,27 @@ function flashbackMargins(pg: PanelGeom, panels: PanelGeom[], geom: PageGeom): p
   const pieces: polygonClipping.MultiPolygon = [];
   const ring = (poly: Vec[]): polygonClipping.Ring => poly.map(({ x, y }) => [x, y]);
   const bleed = geom.bleedBox;
+  const dominantCuts: polygonClipping.Polygon[] = [];
+  for (const other of panels) {
+    if (!other.panel.props.dominant || other === pg || other.panel.props.visible === false) continue;
+    const sign = polygonArea(other.polygon) > 0 ? 1 : -1;
+    for (let i = 0; i < other.polygon.length; i++) {
+      const a = other.polygon[i], b = other.polygon[(i + 1) % other.polygon.length];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (len < 1e-8) continue;
+      const n = { x: sign * (b.y - a.y) / len, y: sign * (a.x - b.x) / len };
+      const distance = (p: Vec) => (p.x - a.x) * n.x + (p.y - a.y) * n.y;
+      const gap = Math.min(...pg.polygon.map(distance));
+      if (gap <= 0.01) continue;
+      const tangent = (p: Vec) => (p.x - a.x) * -n.y + (p.y - a.y) * n.x;
+      const ts = pg.polygon.map(tangent);
+      if (Math.max(...ts) <= 0 || Math.min(...ts) >= len) continue;
+      const reach = 4 * (bleed.w + bleed.h);
+      const p = { x: a.x + n.x * gap / 2 + n.y * reach, y: a.y + n.y * gap / 2 - n.x * reach };
+      const q = { x: p.x - 2 * n.y * reach, y: p.y + 2 * n.x * reach };
+      dominantCuts.push([ring([p, q, { x: q.x + n.x * reach, y: q.y + n.y * reach }, { x: p.x + n.x * reach, y: p.y + n.y * reach }])]);
+    }
+  }
   const sign = polygonArea(pg.polygon) > 0 ? 1 : -1;
   for (let i = 0; i < pg.polygon.length; i++) {
     const a = pg.polygon[i], b = pg.polygon[(i + 1) % pg.polygon.length];
@@ -679,7 +700,7 @@ function flashbackMargins(pg: PanelGeom, panels: PanelGeom[], geom: PageGeom): p
     let visible = [[0, 1]];
     const blocked: number[] = [];
     for (const other of panels) {
-      if (other.panel.props.visible === false || other.polygon.length < 3) continue;
+      if (other.panel.props.visible === false || other.polygon.length < 3 || other.panel.props.dominant) continue;
       const overlap = polygonClipping.intersection(corridor, [ring(other.polygon)]);
       for (const poly of overlap) {
         const contour = poly[0].map(([x, y]) => ({ x, y }));
@@ -695,7 +716,7 @@ function flashbackMargins(pg: PanelGeom, panels: PanelGeom[], geom: PageGeom): p
     let lower = horizontal ? bleed.y : bleed.x;
     let upper = horizontal ? bleed.y + bleed.h : bleed.x + bleed.w;
     for (const other of panels) {
-      if (other === pg || other.panel.props.visible === false || other.polygon.length < 3) continue;
+      if (other === pg || other.panel.props.visible === false || other.polygon.length < 3 || other.panel.props.dominant) continue;
       const outward = other.polygon.map((p) => horizontal ? p.x : p.y);
       const edge = horizontal ? [a.x, b.x] : [a.y, b.y];
       if (positive ? Math.max(...outward) < Math.min(...edge) - 0.01 : Math.min(...outward) > Math.max(...edge) + 0.01) continue;
@@ -712,7 +733,7 @@ function flashbackMargins(pg: PanelGeom, panels: PanelGeom[], geom: PageGeom): p
       pieces.push([ring([p, q, project(q), project(p)])]);
     }
   }
-  return pieces.length ? polygonClipping.intersection(polygonClipping.union(pieces[0], ...pieces.slice(1)), [ring(rectPts(bleed))]) : [];
+  return pieces.length ? polygonClipping.intersection(polygonClipping.union(pieces[0], ...pieces.slice(1)), [ring(rectPts(bleed))], ...dominantCuts) : [];
 }
 function flashbackRegion(pg: PanelGeom, panels: PanelGeom[], area: Rect, page: RPage, geom: PageGeom): polygonClipping.MultiPolygon {
   if (pg.polygon.length < 3 || Math.abs(polygonArea(pg.polygon)) < 1e-8) return [];
