@@ -82,7 +82,7 @@ describe("manga finish filter", () => {
     for (let y = 30; y <= 50; y++) for (let x = 15; x <= 30; x++) expect(interior.data[(y * interior.width + x) * 4]).toBe(0);
 
     const edged = sourcePixels();
-    for (let y = 10; y <= 69; y++) for (let x = 0; x <= 5; x++) {
+    for (let y = 0; y <= 9; y++) for (let x = 5; x <= 39; x++) {
       const i = (y * edged.width + x) * 4;
       edged.data[i] = edged.data[i + 1] = edged.data[i + 2] = 0;
     }

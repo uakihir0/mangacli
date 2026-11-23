@@ -270,7 +270,7 @@ function largeBetaMask(core: Uint8Array, lines: Uint8Array, w: number, h: number
   const stack = new Int32Array(n);
   const areas: number[] = [];
   const solid: number[] = [];
-  const touchesEdge: boolean[] = [];
+  const touchesEdge: number[] = [];
   const outsideCore = new Uint8Array(n);
   for (let i = 0; i < n; i++) outsideCore[i] = core[i] ? 0 : 1;
   const clearance = distanceSquared(outsideCore, w, h);
@@ -281,7 +281,7 @@ function largeBetaMask(core: Uint8Array, lines: Uint8Array, w: number, h: number
     const label = areas.length;
     areas.push(0);
     solid.push(0);
-    touchesEdge.push(false);
+    touchesEdge.push(0);
     let top = 0;
     comp[start] = label;
     stack[top++] = start;
@@ -289,7 +289,10 @@ function largeBetaMask(core: Uint8Array, lines: Uint8Array, w: number, h: number
       const cur = stack[--top];
       const cx = cur % w;
       const cy = Math.floor(cur / w);
-      if (cx === 0 || cy === 0 || cx === w - 1 || cy === h - 1) touchesEdge[label] = true;
+      if (cy === 0) touchesEdge[label] |= 1;
+      if (cx === w - 1) touchesEdge[label] |= 2;
+      if (cy === h - 1) touchesEdge[label] |= 4;
+      if (cx === 0) touchesEdge[label] |= 8;
       areas[label]++;
       if (core[cur] && clearance[cur] >= rr) solid[label]++;
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
@@ -305,7 +308,11 @@ function largeBetaMask(core: Uint8Array, lines: Uint8Array, w: number, h: number
     }
   }
   const minArea = Math.PI * rr * 0.5;
-  const accepted = areas.map((area, i) => mode !== "none" && area >= minArea && solid[i] / area >= 0.05 && (mode === "all" || touchesEdge[i]));
+  const accepted = areas.map((area, i) => {
+    const touch = touchesEdge[i];
+    const background = (touch & 1) !== 0 || (touch & 8) !== 0 && (touch & 2) !== 0;
+    return mode !== "none" && area >= minArea && solid[i] / area >= 0.05 && (mode === "all" || background);
+  });
   const out = new Uint8Array(n);
   for (let i = 0; i < n; i++) if (base[i] && accepted[comp[i]]) out[i] = 1;
   return out;
