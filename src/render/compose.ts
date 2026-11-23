@@ -1629,8 +1629,10 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   }
   const placedRects: Rect[] = [];
   const attachedRects: Rect[] = [];
+  const placedPlans: BalloonPlan[] = [];
   const setCenter = (pl: BalloonPlan, c: Vec) => {
     pl.center = c;
+    placedPlans.push(pl);
     placedRects.push({ x: c.x + pl.outer.x, y: c.y + pl.outer.y, w: pl.outer.w, h: pl.outer.h });
   };
   /** the centre that cuts `pl` by its `cut` sides, keeping `free` on an uncut axis */
@@ -1833,7 +1835,9 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
           // nothing may land on a cut balloon of the flow, nor a cut one on anything placed before it
           const own = drawnRect(pl, { x: cx, y: cy });
           const others = [...st.centers].filter(([q]) => !linked(pl, q) && (cut || (isFlow(q) && cutSides(q.props).length))).map(([q, c]) => drawnRect(q, c));
-          if (!(cut ? [...others, ...attachedRects] : others).some(r => rectOverlapArea(own, r) > 0)) break;
+          const fixed = cut ? placedPlans.filter(q => !linked(pl, q)).map(q => drawnRect(q, { x: q.center!.x + q.outer.x + q.outer.w / 2, y: q.center!.y + q.outer.y + q.outer.h / 2 })) : [];
+          const hit = [...others, ...fixed].filter(r => rectOverlapArea(own, r) > 0);
+          if (!hit.length) break;
           const moved = !prev || Math.abs(cx - prev.x) > 1e-6 || Math.abs(cy - prev.y) > 1e-6;
           prev = { x: cx, y: cy };
           first ??= { cx, cy, dx, dy };
@@ -1846,7 +1850,8 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
             break;
           }
           st.flowX = rtl ? area.x + area.w : area.x;
-          st.flowY += Math.max(st.rowH, 0) + 1 * u.k;
+          // the next row starts below the row and below what the balloon ran into
+          st.flowY += Math.max(st.rowH, ...hit.map(r => r.y + r.h - own.y), 0) + 1 * u.k;
           st.rowH = 0;
         }
         st.centers.set(pl, { x: cx, y: cy });
