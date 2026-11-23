@@ -3,7 +3,7 @@ import { DiagnosticBag } from "../src/core/diagnostics.js";
 import { planBalloon, renderBalloon } from "../src/elements/balloon.js";
 import type { ElemCtx } from "../src/elements/context.js";
 import { FontRegistry } from "../src/fonts/registry.js";
-import { rayPolygon } from "../src/geom/path.js";
+import { pointInPolygon, rayPolygon } from "../src/geom/path.js";
 import { type Vec, boundsOf, cross, dist, rot, sub } from "../src/geom/vec.js";
 import * as shape from "../src/ink/shape.js";
 import { RefRegistry } from "../src/layout/place.js";
@@ -23,21 +23,55 @@ async function setup(w = 40, h = 40) {
   return { plan, ctx };
 }
 
+function outlineIntersects(pts: Vec[]): boolean {
+  const orient = (a: Vec, b: Vec, p: Vec) => cross(sub(b, a), sub(p, a));
+  return pts.some((a, i) => {
+    const b = pts[(i + 1) % pts.length];
+    return pts.slice(i + 2).some((c, j) => {
+      const d = pts[(i + j + 3) % pts.length];
+      return orient(a, b, c) * orient(a, b, d) < -1e-14 && orient(c, d, a) * orient(c, d, b) < -1e-14;
+    });
+  });
+}
+
 describe("physical spike tail fitting", () => {
+  it("warns when an explicitly short burst tail would end inside a neighbouring spike", async () => {
+    const { plan, ctx } = await setup();
+    plan.body = BODY_GENERATORS.burst(120, 24, { kind: "burst", irregularity: 0, egg: 0, tilt: 0 }, 42);
+    const body = plan.body.contour.pts;
+    plan.outer = boundsOf(body);
+    const dir = rot({ x: 1, y: 0 }, Math.PI / 6);
+    const hit = rayPolygon({ x: 0, y: 0 }, dir, body)!;
+    expect(pointInPolygon({ x: dir.x * (hit.t + 0.3), y: dir.y * (hit.t + 0.3) }, body)).toBe(true);
+    plan.props.tail = { kind: "none" };
+    const withoutTail = renderBalloon(plan, ctx).contour;
+    plan.props.tail = { kind: "wedge", direction: "30deg", allowVertical: true, length: "0.3mm" };
+    expect(renderBalloon(plan, ctx).contour).toEqual(withoutTail);
+    expect(ctx.bag.items).toContainEqual(expect.objectContaining({ code: "BALLOON_TAIL_NO_CLEAR_BASE", severity: "warning" }));
+  });
+
+  it.each([[15, false], [90, true]] as const)("keeps a bent burst tail at %i° from crossing the outline", async (angle, drawsTail) => {
+    const { plan, ctx } = await setup();
+    plan.body = BODY_GENERATORS.burst(120, 24, { kind: "burst", irregularity: 0, egg: 0, tilt: 0 }, 42);
+    plan.outer = boundsOf(plan.body.contour.pts);
+    plan.props.tail = { kind: "wedge", direction: `${angle}deg`, allowVertical: true, bend: 0.7 };
+    const ink = vi.spyOn(shape, "inkShape");
+    try {
+      renderBalloon(plan, ctx);
+      const { pts, corners } = ink.mock.calls[0][0];
+      expect(corners?.filter(c => c.kind === "point")).toHaveLength(drawsTail ? 1 : 0);
+      expect(ctx.bag.items.some(d => d.code === "BALLOON_TAIL_NO_CLEAR_BASE")).toBe(!drawsTail);
+      expect(outlineIntersects(pts)).toBe(false);
+    } finally {
+      ink.mockRestore();
+    }
+  });
   it.each(["spike", "burst"] as const)("preserves a simple %s outline with a tail on a wide balloon", async (kind) => {
     const { plan, ctx } = await setup();
     plan.params.kind = kind;
     plan.body = BODY_GENERATORS[kind](120, 24, { kind, irregularity: 0, egg: 0, tilt: 0 }, 42);
     plan.outer = boundsOf(plan.body.contour.pts);
-    const orient = (a: Vec, b: Vec, p: Vec) => cross(sub(b, a), sub(p, a));
-    const intersects = (pts: Vec[]) => pts.some((a, i) => {
-      const b = pts[(i + 1) % pts.length];
-      return pts.slice(i + 2).some((c, j) => {
-        const d = pts[(i + j + 3) % pts.length];
-        return orient(a, b, c) * orient(a, b, d) < -1e-14 && orient(c, d, a) * orient(c, d, b) < -1e-14;
-      });
-    });
-    expect(intersects(plan.body.contour.pts)).toBe(false);
+    expect(outlineIntersects(plan.body.contour.pts)).toBe(false);
     const ink = vi.spyOn(shape, "inkShape");
     try {
       for (const angle of [15, 35, 60, 90, 130, 165]) {
@@ -46,7 +80,7 @@ describe("physical spike tail fitting", () => {
         renderBalloon(plan, ctx);
         const { pts, corners } = ink.mock.calls[0][0];
         expect(corners?.filter(c => c.kind === "point"), `${angle}°`).toHaveLength(1);
-        expect(intersects(pts), `${angle}°`).toBe(false);
+        expect(outlineIntersects(pts), `${angle}°`).toBe(false);
       }
     } finally {
       ink.mockRestore();

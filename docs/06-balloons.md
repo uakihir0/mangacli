@@ -550,6 +550,7 @@ dialogue:
 | `BALLOON_NO_SPACE` | 警告 | 自動配置で適切な位置が見つからない |
 | `BALLOON_SHIFTED` | 情報 | 位置を指定した吹き出しが仕上がりの外にはみ出すため、仕上がりの 1 bmm 内側へ移動した（コマの枠・ノドをまたぐのはそのまま） |
 | `BALLOON_TAIL_TARGET_INSIDE` | 警告 | しっぽの向き先が本体の内側にある |
+| `BALLOON_TAIL_NO_CLEAR_BASE` | 警告 | トゲ・爆発のしっぽが本体の輪郭と交差せずにつながる付け根がない。しっぽは描かず、付け根・向き・長さ・反りの調整が必要 |
 | `BALLOON_TAIL_SHORT` | 警告 | 吹き出しが話者から遠く、しっぽの先端が話者まで 20 bmm 以上届かない。吹き出しを話者へ寄せる |
 | `BALLOON_TAIL_CROSSES` | 警告 | 自動調整後もしっぽが他の吹き出し本体と重なる。相手の ID を通知 |
 | `BALLOON_TAIL_UNSUPPORTED` | 警告 | 形状が対応しないしっぽの種類を指定した |
