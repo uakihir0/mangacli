@@ -1964,6 +1964,11 @@ function faceMarginOf(pl: BalloonPlan, face: Rect, u: ElemCtx["u"]): number {
   return Math.max(3 * u.k, face.w * 0.2);
 }
 
+function segmentsCross(a: Vec, b: Vec, c: Vec, d: Vec): boolean {
+  const side = (p: Vec, q: Vec, r: Vec) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+  return side(a, b, c) * side(a, b, d) < 0 && side(c, d, a) * side(c, d, b) < 0;
+}
+
 /** distance from a closed contour to a rectangle; 0 when they overlap */
 function faceDistance(poly: Vec[], r: Rect): number {
   const corners = rectPts(r);
@@ -1978,6 +1983,9 @@ function faceDistance(poly: Vec[], r: Rect): number {
     if (pointInPolygon(q, poly)) return 0;
     best = Math.min(best, distToPolyline(q, poly, true));
   }
+  // a body crossing the face as a band has no vertex inside the other shape
+  for (let i = 0; i < poly.length; i++)
+    for (let j = 0; j < 4; j++) if (segmentsCross(poly[i], poly[(i + 1) % poly.length], corners[j], corners[(j + 1) % 4])) return 0;
   return best;
 }
 

@@ -42,6 +42,14 @@ describe("face margin", () => {
     expect(s.near[0].message).toMatch(/say .*figure.* \d+\.\d mm/);
   });
 
+  it("counts a body crossing the face as a band as overlapping", async () => {
+    const s = await scene("{ balloon: あ, id: say, tail: none, shape: rect, size: [40mm, 5mm], at: [70mm, 32mm], anchor: center }");
+    expect(s.balloon.w).toBeGreaterThan(s.face.w);
+    expect(s.balloon.h).toBeLessThan(s.face.h);
+    expect(s.near).toHaveLength(1);
+    expect(s.near[0].message).toMatch(/overlaps the face/);
+  });
+
   it("measures a custom faceMargin and can be turned off", async () => {
     const at = (m: string) => `{ balloon: あ, id: say, tail: none, size: [10mm, 10mm], at: [47mm, 45mm], faceMargin: ${m} }`;
     const base = await scene(at("none"));
