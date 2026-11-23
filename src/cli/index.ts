@@ -678,6 +678,32 @@ new EventSource("/events").onmessage=()=>location.reload()</script>`;
   return new Promise<number>(() => {});
 }
 
+async function cmdEdit(file: string, o: Obj): Promise<number> {
+  const entry = resolve(file);
+  if (!existsSync(entry)) throw new MangaError("IO_NOT_FOUND", `${t("ファイルが見つかりません", "file not found")}: ${file}`);
+  const port = o.port !== undefined ? Number(o.port) : 4174;
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new UsageError(`--port: ${t("0〜65535 の整数を指定してください", "expected an integer from 0 to 65535")} (${String(o.port)})`);
+  const host = (o.host as string) ?? "127.0.0.1";
+  const { startEditor } = await import("./editor.js");
+  const editor = await startEditor({
+    entry,
+    port,
+    host,
+    ja: out.ja,
+    options: () => renderOptions({ ...o, profile: o.profile ?? "preview" }, file),
+    onRender: (r) => log("info", `${paint("2", new Date().toLocaleTimeString())} ${r.pages} page(s)${r.errors ? `, ${r.errors} error(s)` : ""}${r.warnings ? `, ${r.warnings} warning(s)` : ""} ${paint("2", `${r.ms} ms`)}`),
+    onSave: () => log("info", `${paint("2", new Date().toLocaleTimeString())} ${paint("32", "✔")} ${t("保存しました", "saved")}: ${relative(process.cwd(), entry) || entry}`),
+  });
+  log("info", `${paint("32", "✔")} ${t("エディター", "editor")}: ${editor.url}`);
+  if (!["127.0.0.1", "localhost", "::1"].includes(host)) log("warn", `${paint("33", "⚠")} ${t(`${host} で待ち受けています。ネットワーク上の誰でもこのファイルを書き換えられます`, `listening on ${host}: anyone on the network can overwrite this file`)}`);
+  if (o.open) {
+    const { spawn } = await import("node:child_process");
+    const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
+    spawn(cmd, process.platform === "win32" ? ["/c", "start", editor.url] : [editor.url], { stdio: "ignore", detached: true }).unref();
+  }
+  return new Promise<number>(() => {});
+}
+
 async function cmdSchema(o: Obj): Promise<number> {
   const s = JSON.stringify(jsonSchema(), null, 2) + "\n";
   if (o.out) {
@@ -1039,6 +1065,11 @@ renderOpts(cli.command("preview <file>", "Live preview in the browser"))
   .option("--open", "Open the browser")
   .option("--guides", "Start with the trim, bleed and safe lines and fold band overlay on")
   .action(wrap((file: string, o: Obj) => cmdPreview(file, o)));
+renderOpts(cli.command("edit <file>", "Edit the YAML in the browser with a live preview, and save it back"))
+  .option("--port <n>", "Port (default 4174)")
+  .option("--host <host>", "Host (default 127.0.0.1)")
+  .option("--open", "Open the browser")
+  .action(wrap((file: string, o: Obj) => cmdEdit(file, o)));
 common(cli.command("schema", "Print the JSON Schema"))
   .option("--out <file>", "Write to a file")
   .action(wrap((o: Obj) => cmdSchema(o)));
