@@ -179,6 +179,23 @@ describe("mangacli edit", () => {
     expect(after.pages.map((p: { id: string }) => p.id)).toEqual(["p1", "p2b"]);
   });
 
+  it("refuses to edit through an alias, and checks the file itself before saving", async () => {
+    const text = "mangacli: 1\npage: { size: [60mm, 80mm], bleed: 0 }\npages:\n  - panels:\n      - layers:\n          - &line { balloon: やあ, at: [30%, 30%] }\n          - *line\n";
+    const { api, file } = await start(text);
+    const r = await (await api("/api/render", { method: "POST", body: text })).json();
+    const ids = Object.keys(r.items).filter((id) => r.items[id].type === "balloon");
+    expect(ids).toHaveLength(2);
+    const second = ids.find((id) => r.items[id].line === 7)!;
+    const res = await api("/api/op", { method: "POST", body: JSON.stringify({ yaml: text, op: { op: "move", id: second, dx: 5, dy: 0 } }) });
+    expect(res.status).toBe(422);
+    // saved from elsewhere a moment ago, before the watcher noticed
+    const { hash } = await (await api("/api/state")).json();
+    writeFileSync(file, text + "# outside\n");
+    const put = await api("/api/file", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ yaml: text, base: hash }) });
+    expect(put.status).toBe(409);
+    expect(readFileSync(file, "utf8")).toContain("# outside");
+  });
+
   it("rejects requests for other host names", async () => {
     const { editor: e } = await start();
     const http = await import("node:http");

@@ -309,6 +309,8 @@ export async function startEditor(o: EditorOptions): Promise<EditorServer> {
     const src = target.kind === "element" ? st.elements.get(target.id)?.src : target.kind === "page" ? st.pages.get(target.id)?.src : [...st.pages.values()].flatMap((p) => p.panels).find((p) => p.id === target.id)?.src;
     if (src === undefined) return { status: 200, body: { editable: false, pairs: [] } };
     const y = new YamlText(yaml);
+    // an alias is shared with its anchor: it is edited in the text
+    if (y.find(src) && y.shared(src) && !y.pairs(src).length) return { status: 200, body: { editable: false, pairs: [] } };
     const node = y.value(src);
     const pairs = node && typeof node === "object" && !Array.isArray(node) ? y.pairs(src) : [{ key: "text", value: node, source: String(node) }];
     return { status: 200, body: { editable: true, pairs: pairs.map((p) => ({ key: p.key, string: typeof p.value === "string" ? p.value.replace(/\n$/, "") : undefined, yaml: typeof p.value === "string" ? undefined : p.source.includes("\n") ? flow(p.value) : p.source })) } };
@@ -361,7 +363,8 @@ export async function startEditor(o: EditorOptions): Promise<EditorServer> {
     const hostName = (req.headers.host ?? "").replace(/:\d+$/, "");
     if (loopbackOnly && !LOOPBACK.has(hostName)) return void res.writeHead(403).end();
     if (url.pathname === "/" && req.method === "GET") {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+      // the editor writes files: another site must not frame it and steer clicks
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "content-security-policy": "frame-ancestors 'none'" });
       res.end(editorPage({ title: basename(entry), token, ja: !!o.ja }));
       return;
     }
@@ -398,8 +401,9 @@ export async function startEditor(o: EditorOptions): Promise<EditorServer> {
     if (url.pathname === "/api/file" && req.method === "PUT") {
       const b = JSON.parse(await body(req)) as { yaml?: unknown; base?: unknown; force?: unknown };
       if (typeof b.yaml !== "string") return json(res, 400, { error: "yaml must be a string" });
-      // the file changed on disk since the browser loaded it
-      if (!b.force && b.base !== diskHash) return json(res, 409, { hash: diskHash });
+      // the file changed on disk since the browser loaded it: compare with the file itself, not with what the watcher last read
+      const now = hashOf(read());
+      if (!b.force && b.base !== now) return json(res, 409, { hash: now });
       return json(res, 200, { hash: await save(b.yaml) });
     }
     const m = url.pathname.match(/^\/api\/page\/(\d+)\/(\d+)\.\w+$/);

@@ -2,7 +2,7 @@
 // Each edit rewrites only the characters of the value it changes, so comments, blank lines, quoting
 // and the layout of everything else stay as the author wrote them.
 
-import { type Node, type Pair, type YAMLMap, type YAMLSeq, isMap, isScalar, isSeq, parse, parseDocument, visit } from "yaml";
+import { type Node, type Pair, type YAMLMap, type YAMLSeq, isAlias, isMap, isScalar, isSeq, parse, parseDocument, visit } from "yaml";
 
 type Obj = Record<string, unknown>;
 type Key = string | number;
@@ -62,9 +62,9 @@ export class YamlText {
   }
 
   /** the collection (or else scalar) that starts at `offset` */
-  nodeAt(offset: number): Node | undefined {
+  nodeAt(offset: number, doc = this.doc()): Node | undefined {
     let found: Node | undefined;
-    visit(this.doc(), (_key, n) => {
+    visit(doc, (_key, n) => {
       const node = n as Node;
       if (!node || isPairLike(node) || node.range?.[0] !== offset) return;
       if (!found || (!isMap(found) && !isSeq(found) && (isMap(node) || isSeq(node)))) found = node;
@@ -72,8 +72,8 @@ export class YamlText {
     return found;
   }
 
-  find(offset: number, keys: Key[] = []): Node | undefined {
-    let cur: Node | undefined = this.nodeAt(offset);
+  find(offset: number, keys: Key[] = [], doc = this.doc()): Node | undefined {
+    let cur: Node | undefined = this.nodeAt(offset, doc);
     for (const k of keys) {
       if (!cur) return undefined;
       cur = child(cur, k);
@@ -83,19 +83,35 @@ export class YamlText {
 
   /** value of the node as JS */
   value(offset: number, keys: Key[] = []): unknown {
+    const doc = this.doc();
+    const n = this.find(offset, keys, doc);
+    // aliases read as the values they stand for
+    return n ? (n as unknown as { toJS(d: unknown): unknown }).toJS(doc) : undefined;
+  }
+
+  /** whether the node is an alias (`*name`) or holds an anchor (`&name`) or alias: editing it would change shared text */
+  shared(offset: number, keys: Key[] = []): boolean {
     const n = this.find(offset, keys);
-    return n ? (n as { toJSON(): unknown }).toJSON() : undefined;
+    if (!n) return false;
+    if (isAlias(n)) return true;
+    let found = false;
+    visit(n as never, (_k, x) => {
+      const node = x as Node & { anchor?: string };
+      if (isAlias(node) || node?.anchor) found = true;
+    });
+    return found || !!(n as { anchor?: string }).anchor;
   }
 
   /** the pairs of a mapping: key, the value as JS, and its source text */
   pairs(offset: number, keys: Key[] = []): { key: string; value: unknown; source: string }[] {
-    const n = this.find(offset, keys);
+    const doc = this.doc();
+    const n = this.find(offset, keys, doc);
     if (!n) return [];
     if (isScalar(n)) return [];
     if (!isMap(n)) return [];
     return n.items.map((p) => ({
       key: String(isScalar(p.key) ? p.key.value : p.key),
-      value: p.value ? (p.value as { toJSON(): unknown }).toJSON() : null,
+      value: p.value ? (p.value as unknown as { toJS(d: unknown): unknown }).toJS(doc) : null,
       source: p.value && (p.value as Node).range ? this.text.slice((p.value as Node).range![0], trimEnd(this.text, (p.value as Node).range![1])) : "",
     }));
   }
@@ -104,6 +120,7 @@ export class YamlText {
   set(offset: number, keys: Key[], value: unknown, o: { raw?: string; wrap?: Record<string, string> | ((k: Key) => string | undefined); rootWrap?: string } = {}): void {
     let cur = this.nodeAt(offset);
     if (!cur) throw new YamlEditError("node not found");
+    if (isAlias(cur)) throw new YamlEditError("an alias (*name) is shared; edit its anchor in the text");
     if (isScalar(cur) || isSeq(cur)) {
       if (!o.rootWrap) throw new YamlEditError("not a mapping");
       this.wrapScalar(cur, o.rootWrap);

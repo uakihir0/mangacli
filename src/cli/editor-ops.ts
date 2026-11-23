@@ -70,6 +70,8 @@ export type Target = { kind: "element" | "panel" | "page"; id: string };
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
 const r2 = (v: number) => Math.round(v * 100) / 100;
+/** a ratio to three significant digits, never rounded down to 0 */
+const ratio = (v: number) => (v > 0 ? Number(v.toPrecision(3)) : 0);
 const mm = (v: number) => `${r1(v)}mm`;
 const pct = (v: number, base: number) => `${r1(base ? (v / base) * 100 : 0)}%`;
 const deg = (rad: number) => `${r1((rad * 180) / Math.PI)}deg`;
@@ -139,7 +141,7 @@ export function applyOp(state: EditState, op: Op): string {
       const own = y.value(e.src);
       const props = isObj(own) ? own : {};
       // sizes are written before `scale`, which place() applies again
-      const [sx, sy] = g.scale ?? [1, 1];
+      const [sx, sy] = (g.scale ?? [1, 1]).map((v) => Math.abs(v) || 1);
       if (e.type === "text" || e.type === "sfx") {
         const f = Math.sqrt(fx * fy);
         if (g.fontSize) y.set(e.src, ["fontSize"], lengthLike(props.fontSize, g.fontSize * f), { rootWrap: "text" });
@@ -217,7 +219,14 @@ export function applyOp(state: EditState, op: Op): string {
         }
       }
       if (ok) y.text = tryRaw.text;
-      else y.set(src, op.key, value, { rootWrap: "text" });
+      else {
+        // rewriting would drop an anchor that other places refer to
+        if (y.find(src, op.key) && y.shared(src, op.key)) fail("this value has an anchor or alias; edit it in the text");
+        if (raw !== undefined && /(^|[\s,[{])[&*][^\s,\]}]/.test(raw)) fail("a value with an anchor or alias must be written in the text");
+        y.set(src, op.key, value, { rootWrap: "text" });
+      }
+      // the whole document must still read
+      y.value(src);
       break;
     }
     case "add": {
@@ -257,10 +266,10 @@ export function applyOp(state: EditState, op: Op): string {
       sizes[i + 1] -= m;
       const spec = (j: number) => {
         const s = d.specs[j] ?? 1;
-        if (typeof s === "number") return r2((s * sizes[j]) / (d.sizes[j] || 1));
+        if (typeof s === "number") return ratio((s * sizes[j]) / (d.sizes[j] || 1));
         const t = String(s).trim();
         // a bare number in quotes is a ratio, a percentage stays a percentage of the run
-        if (/^[-+]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t)) return r2((Number(t) * sizes[j]) / (d.sizes[j] || 1));
+        if (/^[-+]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t)) return ratio((Number(t) * sizes[j]) / (d.sizes[j] || 1));
         if (t.endsWith("%")) return pct(sizes[j], d.total);
         return lengthLike(s, sizes[j]);
       };
@@ -322,15 +331,20 @@ export function applyOp(state: EditState, op: Op): string {
         if (lay.mode === "free") {
           const box = boundsOf(lay.polys[panel.id] ?? panel.polygon);
           const [a, b] = op.dir === "v" ? halves(box, "x", lay.rtl) : halves(box, "y", false);
-          y.set(panel.src ?? fail("panel not in this file"), ["box"], boxValue(a, lay.area));
-          y.delete(panel.src!, ["polygon"]);
-          y.insert(src, ["panels"], panel.index + 1, { box: boxValue(b, lay.area), layers: [] });
+          const psrc = (panel.src ?? fail("panel not in this file")) as number;
+          const base = freeBase(y, psrc, lay.area, page.trim);
+          const pageCoords = base !== lay.area;
+          y.set(psrc, ["box"], boxValue(a, base));
+          y.delete(psrc, ["polygon"]);
+          y.insert(src, ["panels"], panel.index + 1, { box: boxValue(b, base), ...(pageCoords && { coords: "page" }), layers: [] });
           break;
         }
+        if (bindsPanels(layout)) fail("panels bound by id ({ panel: ID }) are split in the text");
         const next = splitLayout(layout, lay.mode, slot, op.dir);
         y.insert(src, ["panels"], panel.index + 1, { layers: [] });
         writeLayout(y, src, layout, next);
       } else {
+        if (bindsPanels(layout)) fail("panels bound by id ({ panel: ID }) are removed in the text");
         if (lay.mode === "rows" || lay.mode === "split") writeLayout(y, src, layout, removeSlot(layout, lay.mode, slot));
         y.delete(src, ["panels", panel.index]);
       }
@@ -347,7 +361,7 @@ export function applyOp(state: EditState, op: Op): string {
       const lay = page.layout;
       if (lay?.mode !== "free") fail("only free layout panels can be reshaped");
       const psrc = panel.src ?? fail("panel not in this file");
-      const area = lay!.area;
+      const area = freeBase(y, psrc as number, lay!.area, page.trim);
       if (op.box) {
         y.set(psrc as number, ["box"], boxValue(boundsOf(op.points), area));
         y.delete(psrc as number, ["polygon"]);
@@ -362,6 +376,8 @@ export function applyOp(state: EditState, op: Op): string {
       const lay = page.layout ?? fail("no layout");
       const src = pageSrc(page);
       const area = lay.area;
+      // a panel the layout makes itself (the yonkoma title) has nowhere to go in `panels`
+      if (page.panels.some((p) => !p.overlay && p.src === undefined)) fail("this layout makes panels of its own (a title); convert it in the text");
       // the panels as they are now, from the last one so that earlier offsets stay valid
       for (const p of [...page.panels].filter((x) => !x.overlay).sort((a, b) => b.index - a.index)) {
         const poly = lay.polys[p.id];
@@ -379,6 +395,17 @@ export function applyOp(state: EditState, op: Op): string {
     }
   }
   return y.text;
+}
+
+/** whether a split tree assigns panels by id */
+function bindsPanels(layout: unknown): boolean {
+  return JSON.stringify(layout ?? null).includes('"panel":');
+}
+
+/** the box a free panel's `box` / `polygon` is measured in: the trim with `coords: page`, else the layout area */
+function freeBase(y: YamlText, panelSrc: number, area: Rect, trim: Rect): Rect {
+  const v = y.value(panelSrc);
+  return isObj(v) && v.coords === "page" ? trim : area;
 }
 
 function targetSrc(state: EditState, t: Target): number {
@@ -459,7 +486,7 @@ type Layout = unknown;
 type Slot = LayoutEdit["slots"][string] | undefined;
 
 const halfSpec = (s: unknown): [unknown, unknown] => {
-  if (typeof s === "number") return [r2(s / 2), r2(s / 2)];
+  if (typeof s === "number") return [ratio(s / 2), ratio(s / 2)];
   if (typeof s === "string") {
     const m = s.match(/^([\d.]+)\s*([a-zA-Z%]*)$/);
     if (m) return [`${r1(Number(m[1]) / 2)}${m[2]}`, `${r1(Number(m[1]) / 2)}${m[2]}`];
@@ -630,6 +657,8 @@ function writeLayout(y: YamlText, pageSrc: number, old: Layout, next0: Obj | und
   const kept = isObj(old) ? Object.fromEntries(Object.entries(old).filter(([k]) => !STRUCTURE.includes(k))) : {};
   // a rows layout's gutter moved into the split tree, where the layout's own gutter no longer applies
   if (isObj(old) && Array.isArray(old.rows) && next0?.split) delete kept.gutter;
+  // in a split tree the root's gutter belongs to that split; a new root brings its own (or none)
+  if (isObj(old) && old.split) delete kept.gutter;
   const next = next0 === undefined ? (Object.keys(kept).length ? kept : undefined) : { ...kept, ...next0 };
   if (next === undefined) return y.delete(pageSrc, ["layout"]);
   if (old === undefined || old === null || typeof old === "string") return y.set(pageSrc, ["layout"], next);

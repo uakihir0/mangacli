@@ -909,12 +909,10 @@ export function editorClient(cfg) {
           return;
         }
         if (res.status === 409) {
-          // the page on screen is older than the text: render first
-          if (!(await render()) || attempt) {
-            toast(T.fixErrorsFirst);
-            return;
-          }
-          continue;
+          // the page on screen is older than the text: draw it again, and let the user aim again
+          // (ids and positions from the old picture may now name something else)
+          toast((await render()) ? T.redrawn : T.fixErrorsFirst);
+          return;
         }
         const j = await res.json().catch(() => ({}));
         if (!res.ok) {

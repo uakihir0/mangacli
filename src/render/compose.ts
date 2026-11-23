@@ -520,11 +520,13 @@ async function composePageInner(doc: ResolvedDoc, page: RPage, physicalIndex: nu
     }
     const rec = store!.placements.get(pathKey(el.path));
     if (!rec) return undefined;
-    const w = rec.w * rec.scale[0];
-    const h = rec.h * rec.scale[1];
-    const box = { x: rec.at.x - w * rec.uv[0], y: rec.at.y - h * rec.uv[1], w, h };
+    // a negative scale mirrors the box about the anchor: the anchor sits at the other side of it
+    const w = rec.w * Math.abs(rec.scale[0]);
+    const h = rec.h * Math.abs(rec.scale[1]);
+    const uv: [number, number] = [rec.scale[0] < 0 ? 1 - rec.uv[0] : rec.uv[0], rec.scale[1] < 0 ? 1 - rec.uv[1] : rec.uv[1]];
+    const box = { x: rec.at.x - w * uv[0], y: rec.at.y - h * uv[1], w, h };
     const text = info.text.find((x) => x.id === el.id);
-    return { frame: rec.frame, at: rec.at, offset: rec.offset, uv: rec.uv, box, rotate: rec.rotate, pivot: rec.at, size: [w, h], scale: rec.scale, fontSize: text?.fontSize ?? fontSize };
+    return { frame: rec.frame, at: rec.at, offset: rec.offset, uv, box, rotate: rec.rotate, pivot: rec.at, size: [w, h], scale: rec.scale, fontSize: text?.fontSize ?? fontSize };
   };
 
   // collect items

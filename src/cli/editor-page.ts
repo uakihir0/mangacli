@@ -66,6 +66,7 @@ const MESSAGES = {
   cannotEdit: ["この操作はできません", "cannot do this"],
   fixErrorsFirst: ["エラーを直してから操作してください", "fix the errors first"],
   diagnostics: ["診断", "Problems"],
+  redrawn: ["ページが古かったので描き直しました。もう一度操作してください", "the page was out of date and has been redrawn; please try again"],
   noProblems: ["問題はありません", "no problems"],
   collapse: ["たたむ・広げる", "collapse / expand"],
 } as const;
@@ -170,7 +171,7 @@ input[type=range]:focus{outline:0}
 #hsplit{height:1px}
 #hsplit::after{content:"";position:absolute;inset:-3px 0;cursor:row-resize}
 #split:hover,#hsplit:hover,#split.drag,#hsplit.drag{background:var(--accent-strong)}
-#right{display:grid;grid-template-rows:1fr 1px var(--dock,180px);min-width:0;min-height:0}
+#right{display:grid;grid-template-rows:minmax(0,1fr) 1px min(var(--dock,180px),calc(100% - 160px));min-width:0;min-height:0}
 #right.collapsed{grid-template-rows:1fr 1px 32px}
 #work{min-height:0;display:grid;grid-template-columns:1fr 300px}
 #pages{overflow:auto;display:flex;flex-wrap:wrap;flex-direction:row-reverse;align-content:flex-start;justify-content:center;gap:28px;padding:32px 24px;outline:0;background:var(--bg) radial-gradient(rgba(255,255,255,.035) 1px,transparent 1px) 0 0/18px 18px}
