@@ -291,6 +291,7 @@ const balloonProps = {
   textOutline: Outline.optional(),
   overflow: z.enum(["shrink", "grow", "clip", "error"]).optional(),
   minFontScale: z.number().min(0).max(1).optional(),
+  faceMargin: z.union([Length, z.literal("auto"), z.literal("none"), z.literal(false)]).optional(),
   halo: z.union([Length, z.literal("none"), z.literal(false)]).optional(),
   haloColor: ColorStr.optional(),
   autoConnect: z.boolean().optional(),
