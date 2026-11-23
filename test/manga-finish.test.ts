@@ -48,6 +48,16 @@ describe("manga finish filter", () => {
     for (let y = 20; y <= 50; y++) for (const x of [71, 72]) expect(out.data[(y * out.width + x) * 4]).toBe(0);
   });
 
+  it("tones a whole accepted beta shape rather than only its deep core", async () => {
+    const out = await applyFilters(sourcePixels(), [mangaFilter], 0.05);
+    // betaMinSize is 20 px here and the black rectangle starts at x=5. With only
+    // the opened deep core toned, x=12–13 is still solid black; whole-shape
+    // replacement leaves only the thinner ink rim black and uses tone there.
+    let paper = false;
+    for (let y = 30; y <= 50; y++) for (const x of [12, 13]) if (out.data[(y * out.width + x) * 4] === 255) paper = true;
+    expect(paper).toBe(true);
+  });
+
   it("keeps large beta solid black inside keepBeta regions and rects", async () => {
     const context = { sourceRect: { x: 0, y: 0, w: 120, h: 80 }, regions: { hair: [5, 10, 35, 60] as [number, number, number, number] } };
     for (const keepBeta of [["hair"], [[5, 10, 35, 60]]]) {

@@ -242,6 +242,52 @@ function openMask(src: Uint8Array, w: number, h: number, size: number): Uint8Arr
   return out;
 }
 
+/** classify connected dark shapes as beta, so each accepted shape is toned as a whole */
+function largeBetaMask(core: Uint8Array, lines: Uint8Array, w: number, h: number, size: number): Uint8Array {
+  const n = w * h;
+  // cut pixel-wide connections before component labelling, without erasing the shape itself
+  const cutSize = Math.max(3, Math.round(size * 0.08));
+  const base = openMask(lines, w, h, cutSize);
+  const comp = new Int32Array(n).fill(-1);
+  const stack = new Int32Array(n);
+  const areas: number[] = [];
+  const solid: number[] = [];
+  const outsideCore = new Uint8Array(n);
+  for (let i = 0; i < n; i++) outsideCore[i] = core[i] ? 0 : 1;
+  const clearance = distanceSquared(outsideCore, w, h);
+  const radius = size / 2;
+  const rr = radius * radius;
+  for (let start = 0; start < n; start++) {
+    if (!base[start] || comp[start] >= 0) continue;
+    const label = areas.length;
+    let top = 0;
+    comp[start] = label;
+    stack[top++] = start;
+    while (top) {
+      const cur = stack[--top];
+      const cx = cur % w;
+      const cy = Math.floor(cur / w);
+      areas[label] = (areas[label] ?? 0) + 1;
+      if (core[cur] && clearance[cur] >= rr) solid[label] = (solid[label] ?? 0) + 1;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const x = cx + dx;
+        const y = cy + dy;
+        if (x < 0 || y < 0 || x >= w || y >= h) continue;
+        const ni = y * w + x;
+        if (!base[ni] || comp[ni] >= 0) continue;
+        comp[ni] = label;
+        stack[top++] = ni;
+      }
+    }
+  }
+  const minArea = Math.PI * rr * 0.5;
+  const accepted = areas.map((area, i) => area >= minArea && (solid[i] ?? 0) / area >= 0.05);
+  const out = new Uint8Array(n);
+  for (let i = 0; i < n; i++) if (base[i] && accepted[comp[i]]) out[i] = 1;
+  return out;
+}
+
 /** per-component vertical gradient density (0.8 at the top to 0.4 at the bottom) */
 function betaGradient(mask: Uint8Array, w: number, h: number): Float32Array {
   const n = w * h;
@@ -318,8 +364,15 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
     lum01[i] = y;
     dark[i] = data[j + 3] && y < beta ? 1 : 0;
   }
-  const large = openMask(dark, w, h, betaSize);
+  const lines = new Uint8Array(n);
+  for (let i = 0; i < n; i++) lines[i] = data[i * 4 + 3] && lum01[i] < line ? 1 : 0;
+  const large = largeBetaMask(dark, lines, w, h, betaSize);
   const grad = betaTone === "gradient" ? betaGradient(large, w, h) : null;
+  const toneOutside = new Uint8Array(n);
+  for (let i = 0; i < n; i++) toneOutside[i] = large[i] ? 0 : 1;
+  const toneEdge = distanceSquared(toneOutside, w, h);
+  const rimPx = Math.max(1, Math.round(0.25 / mmPerPx));
+  const rimSq = rimPx * rimPx;
 
   const sr = image?.sourceRect;
   const sx = sr ? w / Math.max(1e-9, sr.w) : 1;
@@ -372,7 +425,7 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
     if (!alpha) continue;
     const yv = lum01[i];
     if (dark[i]) {
-      if (large[i] && !inKeep(x, y)) density[i] = grad ? grad[i] : (betaTone as number);
+      if (large[i] && !inKeep(x, y)) density[i] = toneEdge[i] <= rimSq ? 1 : grad ? grad[i] : (betaTone as number);
       else density[i] = 1;
       continue;
     }
