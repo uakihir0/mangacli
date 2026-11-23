@@ -66,8 +66,8 @@ export function sfxScale(index: number, count: number, char: string, grow?: numb
 }
 
 export function sfxWeightRadius(style: "impact" | "speed", smallScale = 1): number {
-  const body = style === "impact" ? 0.025 : 0.005;
-  return body + (0.08 + body) * (1 / smallScale - 1);
+  const body = style === "impact" ? 0.062 : 0.045;
+  return body + 0.06 * (1 / smallScale - 1);
 }
 
 export function sfxShifts(scales: number[], em: number): number[] {
