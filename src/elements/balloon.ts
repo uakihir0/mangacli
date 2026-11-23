@@ -114,6 +114,10 @@ function genBody(kind: string, w: number, h: number, p: ShapeParams, seed: numbe
   return BODY_GENERATORS.ellipse(w, h, p, seed);
 }
 
+function fixedSpikeScale(shortSide: number, burst: boolean, unitScale: number): number {
+  return Math.min(1, shortSide * 0.9 / (2.2 * defaultSpikeDepth(burst) * unitScale));
+}
+
 function fitFixedSpikeRect(w: number, h: number, params: ShapeParams, seed: number): { w: number; h: number } | undefined {
   const c = Math.abs(Math.cos(params.tilt));
   const s = Math.abs(Math.sin(params.tilt));
@@ -125,14 +129,20 @@ function fitFixedSpikeRect(w: number, h: number, params: ShapeParams, seed: numb
 
   // The four corner tips bound the unrotated contour and add the same overhang to both axes.
   const untilted = { ...params, tilt: 0 };
+  const shortSide = Math.min(width, height);
+  const spikeScaleAt = (inset: number) => params.depth === undefined
+    ? fixedSpikeScale(shortSide - inset, false, params.unitScale ?? 1)
+    : params.spikeScale;
   let lo = 0;
-  let hi = Math.min(width, height);
+  let hi = shortSide;
   for (let i = 0; i < 24; i++) {
     const inset = (lo + hi) / 2;
+    untilted.spikeScale = spikeScaleAt(inset);
     const outer = boundsOf(genBody("spike-rect", width - inset, height - inset, untilted, seed).contour.pts);
     if (outer.w > width || outer.h > height) lo = inset;
     else hi = inset;
   }
+  params.spikeScale = spikeScaleAt(hi);
   return { w: width - hi, h: height - hi };
 }
 
@@ -274,9 +284,9 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       const fh = sizeValue(fixedSize[1], ctx.coordsBox.h, pc);
       if (fw !== "auto" && fh !== "auto") {
         const physicalSpikes = isSpikyShape(kind) && params.depth === undefined;
-        if (physicalSpikes) params.spikeScale = Math.min(1, Math.min(fw, fh) * 0.9 / (2.2 * defaultSpikeDepth(kind === "burst") * u.k));
         fixedBase = kind === "spike-rect" ? fitFixedSpikeRect(fw, fh, params, shapeSeed) : undefined;
         if (!fixedBase) {
+          if (physicalSpikes) params.spikeScale = fixedSpikeScale(Math.min(fw, fh), kind === "burst", u.k);
           const ob = boundsOf(genBody(kind, fw, fh, params, shapeSeed).contour.pts);
           fixedBase = { w: fw * (fw / ob.w), h: fh * (fh / ob.h) };
           if (physicalSpikes || kind === "spike-rect") {
