@@ -9,7 +9,7 @@ type Obj = Record<string, unknown>;
 
 export interface LoadedDocument {
   data: Obj;
-  locate: (path: (string | number)[]) => SourceLocation | undefined;
+  locate: (path: (string | number)[], exact?: boolean) => SourceLocation | undefined;
   files: string[];
   baseDir: string;
   entry?: string;
@@ -148,7 +148,7 @@ export function loadDocumentFromString(text: string, file: string, bag: Diagnost
     }
     data.pages = pages;
   }
-  const locate = (path: (string | number)[]) => mainLoaded.locate(path);
+  const locate = (path: (string | number)[], exact?: boolean) => mainLoaded.locate(path, exact);
   return { data, locate, files, baseDir, entry: file };
 }
 

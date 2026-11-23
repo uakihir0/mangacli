@@ -9,8 +9,8 @@ const TEXT_KEYS = new Set(["text", "balloon", "sfx", "placeholder", "title", "na
 
 export interface Loaded {
   data: unknown;
-  /** path -> location, path joined by "\u0000" */
-  locate: (path: (string | number)[]) => SourceLocation | undefined;
+  /** path -> location, path joined by "\u0000"; falls back to the nearest ancestor unless `exact` */
+  locate: (path: (string | number)[], exact?: boolean) => SourceLocation | undefined;
   files: string[];
 }
 
@@ -97,8 +97,8 @@ export function loadYamlFile(path: string, bag: DiagnosticBag): Loaded {
 
 export function loadYamlString(text: string, file: string, bag: DiagnosticBag): Loaded {
   const { data, map } = parseYamlText(text, file, bag);
-  const locate = (path: (string | number)[]): SourceLocation | undefined => {
-    for (let n = path.length; n >= 0; n--) {
+  const locate = (path: (string | number)[], exact = false): SourceLocation | undefined => {
+    for (let n = path.length; n >= (exact ? path.length : 0); n--) {
       const key = path.slice(0, n).join("\u0000");
       const e = map.get(key + (n === path.length ? "\u0001key" : "")) ?? map.get(key);
       if (e) {

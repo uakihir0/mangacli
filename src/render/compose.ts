@@ -23,7 +23,8 @@ import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
 import { isObj } from "../load/normalize.js";
 import { type PageGeom, type PanelGeom, bookOf, computePageGeom, layoutPagePanels } from "../layout/page.js";
-import { type RefTarget, RefRegistry, center, place, resolvePoint, sizeValue } from "../layout/place.js";
+import { type RefTarget, RefRegistry, anchorOf, center, place, resolvePoint, sizeValue } from "../layout/place.js";
+import { type EditStore, type ElementEdit, type LayoutEdit, pathKey, withEditStore } from "../layout/edit-info.js";
 import { attachedBalloonCenter } from "../layout/balloon-attach.js";
 import type { RElement, RPage, ResolvedDoc } from "../model/resolve.js";
 import { parsePaint, resolveHand, resolvePen, resolveStroke } from "../model/values.js";
@@ -52,12 +53,16 @@ export interface ComposeOptions {
   outputDpi: (geom: PageGeom) => number;
   /** characters (names for the transcript) */
   characters?: Record<string, Record<string, unknown>>;
+  /** record the geometry the browser editor needs (`info.elements[].edit`, `info.layoutEdit`) */
+  editInfo?: boolean;
 }
 
 export interface PageLayoutInfo {
   geom: PageGeom;
   panels: { id: string; polygon: Vec[]; order: number; box: Rect }[];
-  elements: { id: string; type: string; bbox: Rect; panel?: string }[];
+  elements: { id: string; type: string; bbox: Rect; panel?: string; edit?: ElementEdit }[];
+  /** with `editInfo`: the layout's dividers and where each panel's slot comes from */
+  layoutEdit?: LayoutEdit;
   transcript: { panel?: string; id: string; type: string; who?: string; name?: string; as?: string; text: string; raw?: string }[];
   /** typesetting results per text-bearing element (inspect --text) */
   text: { id: string; lines: string[]; fontSize: number; fonts: string[]; autoBreaks: number; missing: string[] }[];
@@ -112,6 +117,12 @@ async function prepareFonts(page: RPage, o: ComposeOptions) {
 }
 
 export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: number, o: ComposeOptions): Promise<{ list: DisplayList; info: PageLayoutInfo }> {
+  if (!o.editInfo) return composePageInner(doc, page, physicalIndex, o);
+  const store: EditStore = { placements: new Map() };
+  return withEditStore(store, () => composePageInner(doc, page, physicalIndex, o, store));
+}
+
+async function composePageInner(doc: ResolvedDoc, page: RPage, physicalIndex: number, o: ComposeOptions, store?: EditStore): Promise<{ list: DisplayList; info: PageLayoutInfo }> {
   const bag = o.bag;
   const diagnosticStart = bag.items.length;
   const book = bookOf(doc.doc);
@@ -123,6 +134,8 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   const items: Item[] = [];
   const panelNodes: { pg: PanelGeom; clipped: Item[] }[] = [];
   const info: PageLayoutInfo = { geom, panels: panels.map((p) => ({ id: p.panel.id, polygon: p.polygon, order: p.order, box: p.box })), elements: [], transcript: [], text: [] };
+  if (store?.layout) info.layoutEdit = store.layout;
+  const balloonTips = new Map<string, { tip: Vec; root: Vec }[]>();
   const baseCtx = (pg?: PanelGeom): ElemCtx => ({
     u,
     geom,
@@ -384,6 +397,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       if (consumed.has(plan.el.id)) continue;
       try {
         const r = renderBalloon(plan, { ...ctx, coordsBox: coordsFor(plan.el, ctx, geom) });
+        if (store && r.tips) balloonTips.set(plan.el.id, r.tips);
         warnBalloonInGutter(plan.el, r.contour, ctx);
         const item = mkItem(plan.el, r.nodes, r.bbox, panelIdx, idx, source, ctx, [balloonGlyphRun(plan)]);
         if (plan.edgeCut && plan.text.plain) item.safetyBox = boundsOf(textPolygon(plan));
@@ -457,6 +471,61 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     }
   }
 
+  // where the editor can move, size and turn an element (spec 12.3.12)
+  const editOf = (el: RElement, ctx: ElemCtx): ElementEdit | undefined => {
+    const p = el.props;
+    const fontSize = (() => {
+      try {
+        return p.fontSize !== undefined && p.fontSize !== "auto" ? toMm(p.fontSize as string, u) : undefined;
+      } catch {
+        return undefined;
+      }
+    })();
+    const offsetOf = (frame: Rect): Vec => {
+      if (!Array.isArray(p.offset)) return { x: 0, y: 0 };
+      try {
+        return { x: toMm(p.offset[0] as string, { ...u, base: frame.w }), y: toMm(p.offset[1] as string, { ...u, base: frame.h }) };
+      } catch {
+        return { x: 0, y: 0 };
+      }
+    };
+    if (el.type === "balloon") {
+      const plan = pageBalloons.find((b) => b.plan.el.id === el.id)?.plan;
+      if (!plan?.center) return undefined;
+      const frame = coordsFor(el, { ...ctx, bag: new DiagnosticBag() }, geom);
+      const uv = anchorOf(p);
+      const box = { x: plan.center.x + plan.outer.x, y: plan.center.y + plan.outer.y, w: plan.outer.w, h: plan.outer.h };
+      const rotate = p.rotate !== undefined ? parseAngle(p.rotate as string) : 0;
+      const cr = Math.cos(rotate);
+      const sr = Math.sin(rotate);
+      const pts = plan.body.contour.pts;
+      const step = Math.max(1, Math.ceil(pts.length / 96));
+      const body = pts.filter((_, i) => i % step === 0).map((q) => ({ x: q.x * cr - q.y * sr + plan.center!.x, y: q.x * sr + q.y * cr + plan.center!.y }));
+      const bb = boundsOf(pts);
+      return {
+        frame,
+        at: { x: box.x + box.w * uv[0], y: box.y + box.h * uv[1] },
+        offset: offsetOf(frame),
+        uv,
+        box,
+        rotate,
+        pivot: plan.center,
+        size: [bb.w, bb.h],
+        fontSize: plan.text.fontSize,
+        body,
+        center: plan.center,
+        tails: balloonTips.get(el.id),
+      };
+    }
+    const rec = store!.placements.get(pathKey(el.path));
+    if (!rec) return undefined;
+    const w = rec.w * rec.scale[0];
+    const h = rec.h * rec.scale[1];
+    const box = { x: rec.at.x - w * rec.uv[0], y: rec.at.y - h * rec.uv[1], w, h };
+    const text = info.text.find((x) => x.id === el.id);
+    return { frame: rec.frame, at: rec.at, offset: rec.offset, uv: rec.uv, box, rotate: rec.rotate, pivot: rec.at, size: [w, h], fontSize: text?.fontSize ?? fontSize };
+  };
+
   // collect items
   for (const pg of drawOrder) {
     const clipped: Item[] = [];
@@ -486,7 +555,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
           if (glyph) bag.warn("TEXT_CLIPPED", `${run.el.id}: 「${glyph.char}」 is cut by the panel frame`, { path: run.el.path, elementId: run.el.id, pageId: page.id });
         }
       }
-      info.elements.push({ id: el.id, type: el.type, bbox: it.bbox, panel: pg.panel.id });
+      info.elements.push({ id: el.id, type: el.type, bbox: it.bbox, panel: pg.panel.id, ...(store && { edit: editOf(el, baseCtx(pg)) }) });
     }
     clipped.sort((a, b) => a.z - b.z || a.listIdx - b.listIdx);
     panelNodes.push({ pg, clipped });
@@ -498,7 +567,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     it.free = true;
     it.stackUnder = el.props.stack === "under";
     items.push(it);
-    info.elements.push({ id: el.id, type: el.type, bbox: it.bbox });
+    info.elements.push({ id: el.id, type: el.type, bbox: it.bbox, ...(store && { edit: editOf(el, baseCtx()) }) });
   }
 
   for (const it of items) {
