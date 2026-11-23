@@ -52,6 +52,24 @@ export function mangaResolutionBoost(filters: ImageFilter[], mmPerPx: number): n
   return boost;
 }
 
+/** lower the effective screen ruling when the final output cannot resolve a 60-ish lpi dot cell */
+export function mangaOutputFilters(filters: ImageFilter[], mmPerPx: number): ImageFilter[] {
+  let changed = false;
+  const out = filters.map((f) => {
+    if (f.name !== "manga") return f;
+    const raw = f.opts?.lpi ?? f.args[0];
+    const n = typeof raw === "string" ? parseFloat(raw) : Number(raw);
+    const lpi = Number.isFinite(n) && n > 0 ? n : 60;
+    const cellPx = (25.4 / lpi) / mmPerPx;
+    if (cellPx >= 3) return f;
+    const adjusted = 25.4 / (mmPerPx * 4);
+    if (adjusted >= lpi) return f;
+    changed = true;
+    return { ...f, opts: { ...(f.opts ?? {}), lpi: adjusted } };
+  });
+  return changed ? out : filters;
+}
+
 export async function applyFilters(px: { data: Uint8Array | Uint8ClampedArray; width: number; height: number }, filters: ImageFilter[], mmPerPx: number, image?: MangaFilterContext): Promise<{ data: Uint8Array; width: number; height: number }> {
   let data = new Uint8Array(px.data);
   const { width: w, height: h } = px;

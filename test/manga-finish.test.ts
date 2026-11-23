@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { render } from "../src/api.js";
-import { applyFilters, parseFilter } from "../src/render/filters.js";
+import { applyFilters, mangaOutputFilters, parseFilter } from "../src/render/filters.js";
 import type { ImageFilter } from "../src/render/ir.js";
 import type { Node } from "../src/render/ir.js";
 
@@ -64,6 +64,15 @@ describe("manga finish filter", () => {
       const out = await applyFilters(sourcePixels(), [{ ...mangaFilter, opts: { ...mangaOpts, keepBeta } }], 0.05, context);
       for (let y = 20; y <= 50; y++) for (let x = 10; x <= 30; x++) expect(out.data[(y * out.width + x) * 4]).toBe(0);
     }
+  });
+
+  it("lowers the effective lpi instead of producing unresolvable dots at low output resolution", () => {
+    const filter: ImageFilter = { name: "manga", args: [], opts: { lpi: 60 } };
+    const adapted = mangaOutputFilters([filter], 25.4 / 96);
+    expect(adapted[0]).not.toBe(filter);
+    expect(adapted[0].opts?.lpi).toBeCloseTo((25.4 / (25.4 / 96)) / 4, 6);
+    expect(filter.opts?.lpi).toBe(60);
+    expect(mangaOutputFilters([filter], 0.01)[0]).toBe(filter);
   });
 
   it("keeps interior solids black by default but tones an edge-touching background solid", async () => {

@@ -7,7 +7,7 @@ import type { AssetRegistry } from "./assets.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
 import { makeBinaryRoundToneSampler, makeToneSampler } from "./screen.js";
 import { distanceSquared } from "./edt.js";
-import { applyFilters, mangaResolutionBoost } from "./filters.js";
+import { applyFilters, mangaOutputFilters, mangaResolutionBoost } from "./filters.js";
 import { MONO_BAND_PIXELS, packBand, type MonoRaster } from "./mono.js";
 import { setImmediate } from "node:timers/promises";
 import { imageInkMask } from "./image-ink.js";
@@ -170,7 +170,9 @@ export function monoNodeWorkingBytes(list: DisplayList, dpi: number, crop: "trim
         const scY = Math.hypot(mm[2], mm[3]);
         const outW = n.dest.w * scX;
         const outH = n.dest.h * scY;
-        const boost = mangaResolutionBoost(n.filters, 1 / Math.max(1e-9, Math.min(scX, scY)));
+        const mmPerPx = 1 / Math.max(1e-9, Math.min(scX, scY));
+        const outputFilters = mangaOutputFilters(n.filters, mmPerPx);
+        const boost = mangaResolutionBoost(outputFilters, mmPerPx);
         const scale = mangaTempScale(outW, outH, boost, maxPixels);
         cost = Math.max(cost, Math.ceil(outW * scale) * Math.ceil(outH * scale) * 64);
       }
@@ -824,7 +826,9 @@ export class RasterBackend {
     const outH = n.dest.h * scY;
     if (outW < 1 || outH < 1) return;
     const manga = n.filters.some((f) => f.name === "manga");
-    const boostWanted = manga ? mangaResolutionBoost(n.filters, 1 / Math.max(1e-9, Math.min(scX, scY))) : 1;
+    const outputMmPerPx = 1 / Math.max(1e-9, Math.min(scX, scY));
+    const outputFilters = manga ? mangaOutputFilters(n.filters, outputMmPerPx) : n.filters;
+    const boostWanted = manga ? mangaResolutionBoost(outputFilters, outputMmPerPx) : 1;
     const boost = manga ? mangaTempScale(outW, outH, boostWanted, dev.opts.maxPixels) : 1;
     const pix0 = await dev.opts.assets.pixels(
       n.assetKey,
@@ -834,7 +838,7 @@ export class RasterBackend {
     );
     if (!pix0) return;
     const filterImage = { sourceRect: n.sourceRect, regions: dev.opts.assets.get(n.assetKey)?.regions };
-    const pix = n.filters.length ? await applyFilters(pix0, n.filters, n.dest.w / pix0.width, filterImage) : pix0;
+    const pix = outputFilters.length ? await applyFilters(pix0, outputFilters, n.dest.w / pix0.width, filterImage) : pix0;
     const tmp = createCanvas(pix.width, pix.height);
     const tctx = tmp.getContext("2d");
     const id = tctx.createImageData(pix.width, pix.height);
