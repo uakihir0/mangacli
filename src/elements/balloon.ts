@@ -774,7 +774,7 @@ function lineFootprint(pts: Vec[], radius: number): Vec[][] {
 }
 
 function bubbleContours(t: Obj, plan: BalloonPlan, u: UnitContext, body: Vec[], at: (d: number) => Vec, length: number, gap: number, strokeWidth: number): Vec[][] {
-  const count = typeof t.count === "number" ? t.count : 3;
+  const count = typeof t.count === "number" ? Math.min(t.count, 10) : 3;
   if (count <= 0 || length <= 0) return [];
   const minSide = Math.min(plan.outer.w, plan.outer.h);
   const diameter = t.bubbleSize !== undefined ? toMm(t.bubbleSize as string, u) : Math.min(5 * u.k, Math.max(1.5 * u.k, minSide * 0.2));

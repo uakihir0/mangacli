@@ -112,4 +112,15 @@ pages:
     const expected = shrink === undefined ? [1, 0.6, 0.35, 0.22] : [1, 0.5, 0.25, 0.125];
     for (let i = 0; i < expected.length; i++) expect(diameters[i] / diameters[0]).toBeCloseTo(expected[i], 1);
   });
+
+  it("caps oversized bubble counts before layout", async () => {
+    const r = createRenderer({ profile: "preview" });
+    const result = await r.displayList({ yaml: `mangacli: 1
+page: { size: [160mm, 100mm] }
+pages:
+  - layers:
+      - { id: thought, balloon: 考えごと, as: think, at: [20%, 30%], tail: { count: 1000000000, shrink: 0.9, bubbleSize: 1mm, length: 60mm, direction: 0deg } }
+`, filename: "/v/cloud.yaml" }, 1);
+    expect(fills(result.root).slice(1)).toHaveLength(10);
+  });
 });
