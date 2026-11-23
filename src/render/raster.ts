@@ -139,7 +139,16 @@ function clampRect(r: Rect, W: number, H: number): { x: number; y: number; w: nu
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
-export function monoNodeWorkingBytes(list: DisplayList, dpi: number, crop: "trim" | "bleed" | "marks", margin = 10): number {
+function mangaTempScale(outW: number, outH: number, boost: number, maxPixels?: number): number {
+  const budget = Math.max(1, Math.floor((maxPixels ?? 200_000_000) / 32));
+  // Packed mono deliberately leaves maxPixels unbounded; keep an absolute ceiling
+  // for temporary RGBA/filter buffers regardless of that output-only exemption.
+  const cap = Math.min(16_000_000, budget);
+  const wanted = boost * boost * outW * outH;
+  return wanted <= cap ? boost : Math.sqrt(cap / Math.max(1e-9, outW * outH));
+}
+
+export function monoNodeWorkingBytes(list: DisplayList, dpi: number, crop: "trim" | "bleed" | "marks", margin = 10, maxPixels?: number): number {
   const s = dpi / 25.4, bleed = -list.boxes.bleed.x;
   const w = Math.round(list.boxes.trim.w * s + 1e-6), h = Math.round(list.boxes.trim.h * s + 1e-6);
   const edge = (crop === "trim" ? 0 : Math.round(bleed * s + 1e-6)) + (crop === "marks" ? Math.round(margin * s + 1e-6) : 0);
@@ -153,7 +162,20 @@ export function monoNodeWorkingBytes(list: DisplayList, dpi: number, crop: "trim
     const r = bounds && clampRect(bounds, w + 2 * edge, h + 2 * edge);
     if (!r) return 0;
     const pixels = r.w * r.h;
-    if (n.kind === "image") return pixels * 64;
+    if (n.kind === "image") {
+      let cost = pixels * 64;
+      if (n.filters.some((f) => f.name === "manga")) {
+        const mm = matMul(m, n.transform ?? [1, 0, 0, 1, 0, 0]);
+        const scX = Math.hypot(mm[0], mm[1]);
+        const scY = Math.hypot(mm[2], mm[3]);
+        const outW = n.dest.w * scX;
+        const outH = n.dest.h * scY;
+        const boost = mangaResolutionBoost(n.filters, 1 / Math.max(1e-9, Math.min(scX, scY)));
+        const scale = mangaTempScale(outW, outH, boost, maxPixels);
+        cost = Math.max(cost, Math.ceil(outW * scale) * Math.ceil(outH * scale) * 64);
+      }
+      return cost;
+    }
     if (n.kind === "path") {
       if (n.stroke && n.tag?.elementType === "sfx") return pixels * 8;
       const p = n.paint;
@@ -802,7 +824,8 @@ export class RasterBackend {
     const outH = n.dest.h * scY;
     if (outW < 1 || outH < 1) return;
     const manga = n.filters.some((f) => f.name === "manga");
-    const boost = manga ? mangaResolutionBoost(n.filters, 1 / Math.max(1e-9, Math.min(scX, scY))) : 1;
+    const boostWanted = manga ? mangaResolutionBoost(n.filters, 1 / Math.max(1e-9, Math.min(scX, scY))) : 1;
+    const boost = manga ? mangaTempScale(outW, outH, boostWanted, dev.opts.maxPixels) : 1;
     const pix0 = await dev.opts.assets.pixels(
       n.assetKey,
       manga ? outW * boost : Math.min(outW, n.sourceRect.w * 4),

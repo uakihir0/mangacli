@@ -622,7 +622,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const g = composed.info.geom, dpi = resolution(page, g);
       const rasterCrop = g.type === "spread" && spreadMode === "split" && crop === "marks" ? "bleed" : crop;
       const outputScale = options.output === "print" ? g.printScale : 1;
-      const cost = (d: number) => Math.max(...outputSizes(g, d).map((s) => monoWorkingBytes(s.w, s.h))) + monoNodeWorkingBytes(composed.list, d * outputScale, rasterCrop, (prof.marks?.margin ?? 10) / outputScale);
+      const cost = (d: number) => Math.max(...outputSizes(g, d).map((s) => monoWorkingBytes(s.w, s.h))) + monoNodeWorkingBytes(composed.list, d * outputScale, rasterCrop, (prof.marks?.margin ?? 10) / outputScale, lim.maxOutputPixels);
       const estimated = cost(dpi);
       if (estimated <= limit) continue;
       let lo = 0, hi = Math.floor(dpi);
