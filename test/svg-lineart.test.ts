@@ -60,11 +60,15 @@ pages:
   - layers:
       - { image: art, size: [25.4mm, 25.4mm], at: [5mm, 5mm], anchor: top-left, scale: 2, filters: [manga] }
 `;
-    const r = await render({ yaml }, { profile: "print-mono", dpi: 96, format: "svg", assets: { art } });
-    const svg = Buffer.from(r.pages[0].data).toString("utf8");
-    const b64 = svg.match(/<image[^>]*href="data:image\/png;base64,([^"]+)"/)![1];
-    const meta = await sharp(Buffer.from(b64, "base64")).metadata();
-    expect([meta.width, meta.height]).toEqual([180, 180]);
+    const embeddedSize = async (scale: number) => {
+      const r = await render({ yaml: yaml.replace("scale: 2,", `scale: ${scale},`) }, { profile: "print-mono", dpi: 96, format: "svg", assets: { art } });
+      const svg = Buffer.from(r.pages[0].data).toString("utf8");
+      const b64 = svg.match(/<image[^>]*href="data:image\/png;base64,([^"]+)"/)![1];
+      const meta = await sharp(Buffer.from(b64, "base64")).metadata();
+      return [meta.width, meta.height];
+    };
+    expect(await embeddedSize(2)).toEqual([360, 360]);
+    expect(await embeddedSize(4)).toEqual([384, 384]);
   });
 
   it("leaves the raster output's line art intact when rendered together", async () => {

@@ -168,8 +168,8 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
     const outputMmPerPx = (25.4 / dpi) / Math.max(1e-9, Math.min(scX, scY));
     const outputFilters = manga ? mangaOutputFilters(im.filters, outputMmPerPx) : im.filters;
     const boost = manga ? mangaResolutionBoost(outputFilters, outputMmPerPx) : 1;
-    const baseW = (im.dest.w / 25.4) * dpi;
-    const baseH = (im.dest.h / 25.4) * dpi;
+    const baseW = (im.dest.w / 25.4) * dpi * scX;
+    const baseH = (im.dest.h / 25.4) * dpi * scY;
     const w = Math.max(1, manga ? Math.round(baseW * boost) : Math.min(im.sourceRect.w, Math.round(baseW)));
     const h = Math.max(1, manga ? Math.round(baseH * boost) : Math.min(im.sourceRect.h, Math.round(baseH)));
     const px0 = await o.assets.pixels(im.assetKey, w, h, im.sourceRect);
