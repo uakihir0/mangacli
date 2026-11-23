@@ -167,6 +167,7 @@ diagnostics:
 | `TEXT_MISSING_TRANSLATION` | W | 指定した言語の本文がない | ○ |
 | `BALLOON_TOO_LARGE` | W | 吹き出しが `maxSize` を超えた | ○ |
 | `BALLOON_NO_SPACE` | W | 自動配置で適切な位置がない | ○ |
+| `BALLOON_NEAR_FACE` | W | 吹き出しの本体が顔（`face` 領域）から `faceMargin`（既定 `max(3 bmm, 顔の幅の 20 %)`）未満の距離にある | ○ |
 | `BALLOON_SHIFTED` | I | 位置を指定した吹き出しが仕上がりの外にはみ出すため、内側へ移動した | ○ |
 | `BALLOON_TAIL_TARGET_INSIDE` | W | しっぽの向き先が本体の内側にある | ○ |
 | `BALLOON_TAIL_CUT` | W | `cut` の吹き出しのしっぽが、付け根・曲がり・長さの調整後も切る辺からコマの外に出る | ○ |
