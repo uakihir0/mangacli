@@ -5,6 +5,7 @@ import { parseAngle, toMm } from "../core/units.js";
 import { hash2, noise2 } from "../core/random.js";
 import type { ImageFilter } from "./ir.js";
 import { makeToneSampler } from "./screen.js";
+import { distanceSquared } from "./edt.js";
 
 type Obj = Record<string, unknown>;
 
@@ -224,34 +225,21 @@ type LenFn = (v: unknown, fallback: number) => number;
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
-function axisMorph(src: Uint8Array, dst: Uint8Array, w: number, h: number, horizontal: boolean, before: number, after: number, dilate: boolean) {
-  const len = horizontal ? w : h;
-  const pref = new Int32Array(len + 1);
-  const outerLen = horizontal ? h : w;
-  for (let outer = 0; outer < outerLen; outer++) {
-    for (let pos = 0; pos < len; pos++) pref[pos + 1] = pref[pos] + src[horizontal ? outer * w + pos : pos * w + outer];
-    for (let pos = 0; pos < len; pos++) {
-      const left = Math.max(0, pos - before);
-      const right = Math.min(len - 1, pos + after);
-      const count = pref[right + 1] - pref[left];
-      const on = dilate ? count > 0 : count === right - left + 1;
-      dst[horizontal ? outer * w + pos : pos * w + outer] = on ? 1 : 0;
-    }
-  }
-}
-
-/** rectangular morphological opening (erosion, then dilation) of a binary mask */
+/** circular morphological opening (erosion, then dilation) of a binary mask, using exact Euclidean distances */
 function openMask(src: Uint8Array, w: number, h: number, size: number): Uint8Array {
   if (size <= 1) return Uint8Array.from(src);
-  const before = Math.floor((size - 1) / 2);
-  const after = size - 1 - before;
-  const a = new Uint8Array(src.length);
-  const b = new Uint8Array(src.length);
-  axisMorph(src, a, w, h, true, before, after, false);
-  axisMorph(a, b, w, h, false, before, after, false);
-  axisMorph(b, a, w, h, true, before, after, true);
-  axisMorph(a, b, w, h, false, before, after, true);
-  return b;
+  const n = w * h;
+  const outside = new Uint8Array(n);
+  for (let i = 0; i < n; i++) outside[i] = src[i] ? 0 : 1;
+  const radius = size / 2;
+  const rr = radius * radius;
+  const clearance = distanceSquared(outside, w, h);
+  const seed = new Uint8Array(n);
+  for (let i = 0; i < n; i++) seed[i] = src[i] && clearance[i] >= rr ? 1 : 0;
+  const grown = distanceSquared(seed, w, h);
+  const out = new Uint8Array(n);
+  for (let i = 0; i < n; i++) out[i] = src[i] && grown[i] <= rr ? 1 : 0;
+  return out;
 }
 
 /** per-component vertical gradient density (0.8 at the top to 0.4 at the bottom) */
