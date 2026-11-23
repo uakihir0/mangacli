@@ -1247,7 +1247,11 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
     const halo = plan.props.halo === "none" || plan.props.halo === false ? 0 : plan.props.halo !== undefined ? toMm(plan.props.halo as string, ctx.u) : 0.3 * ctx.u.k;
     if (fn && halo > 0 && !isFlash && fn.kind === "path" && fn.paint?.type === "solid" && fn.paint.color.a > 0.99) {
       const color = plan.props.haloColor !== undefined ? parseColor(plan.props.haloColor as string) : paintAvgLuminance(fn.paint) < 0.5 ? WHITE : fn.paint.color;
-      nodes.push({ kind: "path", path: polyPath(res.fill, true), fillRule: "nonzero", paint: null, stroke: { width: bb.stroke.width + halo * 2, paint: { type: "solid", color: color ?? WHITE }, join: "round" }, tag: tag(el, "fill") });
+      const paint: Paint = { type: "solid", color: color ?? WHITE };
+      const fillTag = tag(el, "fill");
+      nodes.push({ kind: "path", path: polyPath(res.fill, true), fillRule: "nonzero", paint: null, stroke: { width: bb.stroke.width + halo * 2, paint, join: "round" }, tag: fillTag });
+      const tips = res.inks.filter(ink => ink.straight).flatMap(ink => polyPath(ink.pts, true));
+      if (tips.length) nodes.push({ kind: "path", path: tips, fillRule: "nonzero", paint, stroke: { width: halo * 2, paint, join: "round" }, tag: fillTag });
     }
     if (fn) nodes.push(fn);
     if (isFlash) {

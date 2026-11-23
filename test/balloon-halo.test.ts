@@ -1,6 +1,8 @@
+import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { createRenderer, validate } from "../src/api.js";
 import { BLACK, WHITE } from "../src/core/color.js";
+import { add, mul, norm, sub } from "../src/geom/vec.js";
 import type { Node, PathNode } from "../src/render/ir.js";
 
 function paths(nodes: Node[]): PathNode[] {
@@ -26,6 +28,26 @@ describe("balloon halo", () => {
 
   it("keeps white balloons' fill-colored rim", async () => {
     expect((await halo({ as: "say" }))?.stroke?.paint).toEqual({ type: "solid", color: WHITE });
+  });
+
+  it("keeps a thin rim outside the miter apex of a burst balloon", async () => {
+    const result = await createRenderer({ profile: "web", dpi: 600 }).render({
+      mangacli: 1,
+      page: { size: ["45mm", "45mm"], bleed: "0mm", background: "#ff0000" },
+      pages: [{ layers: [{ balloon: "", id: "b", as: "scream", shape: { kind: "burst", depth: [0.45, 0.45], count: 18 }, at: ["50%", "50%"], size: ["24mm", "24mm"], hand: "clean", tail: "none", halo: "0.18mm", haloColor: "#00ff00", stroke: { width: "0.7mm" } }] }],
+    }, { keepLists: true, colorMode: "color" });
+    const ink = paths([result.lists![0].root]).find(n => n.tag?.elementId === "b" && n.tag.role === "ink")!;
+    const [, apex, , tip] = ink.path;
+    const outer = { x: apex[1] as number, y: apex[2] as number };
+    const center = { x: tip[1] as number, y: tip[2] as number };
+    const probe = add(outer, mul(norm(sub(outer, center)), 0.08));
+    const { data, info } = await sharp(result.pages[0].data).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const pixel = (x: number, y: number) => {
+      const offset = (Math.floor(y * info.height / 45) * info.width + Math.floor(x * info.width / 45)) * info.channels;
+      return [...data.subarray(offset, offset + 3)];
+    };
+    expect(pixel(1, 1)).toEqual([255, 0, 0]);
+    expect(pixel(probe.x, probe.y)).toEqual([0, 255, 0]);
   });
 
   it.each(["none", false, 0])("supports halo: %s", async value => {
