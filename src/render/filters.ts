@@ -626,15 +626,32 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
   // fill. No dilation is applied: dense hatching keeps the gaps drawn by the
   // source art, while broad smooth gradients have too little local contrast
   // to become ink.
-  const tophatRadius = Math.min(6, Math.max(1, Math.ceil(0.11 / mmPerPx)));
+  const tophatDiameter = Math.ceil(0.22 / mmPerPx) + 2;
+  const tophatRadius = Math.min(12, Math.max(1, Math.ceil((tophatDiameter - 1) / 2)));
+  const smallRadius = Math.max(1, tophatRadius - 1);
   const closingInput = new Float32Array(n);
   for (let i = 0; i < n; i++) closingInput[i] = data[i * 4 + 3] ? lum01[i] : 1;
   const closing = grayClosing(closingInput, w, h, tophatRadius);
+  const smallClosing = grayClosing(closingInput, w, h, smallRadius);
+  const gradient = new Float32Array(n);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    const gx = Math.abs(closingInput[y * w + Math.min(w - 1, x + 1)] - closingInput[i]);
+    const gy = Math.abs(closingInput[Math.min(h - 1, y + 1) * w + x] - closingInput[i]);
+    gradient[i] = Math.max(gx, gy);
+  }
+  const gradientWide = new Float32Array(n);
+  const gradientLocal = new Float32Array(n);
+  slidingExtrema(gradient, w, h, tophatRadius, true, true, gradientWide);
+  slidingExtrema(gradientWide, w, h, tophatRadius, false, true, gradientLocal);
   const strokes = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
     if (!dark[i] || !lines[i]) continue;
     const local = closing[i];
-    if (local - lum01[i] >= 0.045 && lum01[i] <= local * 0.55) strokes[i] = 1;
+    const topHat = local - lum01[i];
+    const smallTopHat = smallClosing[i] - lum01[i];
+    const sharp = gradientLocal[i] >= 0.08;
+    if (topHat >= 0.045 && lum01[i] <= local * 0.55 && sharp) strokes[i] = 1;
   }
 
   const sr = image?.sourceRect;

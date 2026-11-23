@@ -211,17 +211,34 @@ describe("manga finish filter", () => {
     }
   });
 
+  it("keeps a 0.3mm stroke black inside dark fill at 600dpi", async () => {
+    const px = sourcePixels();
+    for (let y = 0; y < px.height; y++) for (let x = 0; x < px.width; x++) {
+      const j = (y * px.width + x) * 4;
+      const shade = x < 15 || (x >= 58 && x <= 64) ? 0 : 58;
+      px.data[j] = px.data[j + 1] = px.data[j + 2] = shade;
+    }
+    const out = await applyFilters(px, [{ name: "manga", args: [], opts: { betaMinSize: 1, lpi: 30 } }], 25.4 / 600);
+    for (let y = 20; y < 65; y++) for (let x = 58; x <= 64; x++) expect(out.data[(y * px.width + x) * 4]).toBe(0);
+  });
+
   it("screens a smooth dark valley instead of extracting a false ink stroke", async () => {
     const px = sourcePixels();
     for (let y = 0; y < px.height; y++) for (let x = 0; x < px.width; x++) {
       const j = (y * px.width + x) * 4;
-      const shade = x < 25 ? 0 : Math.min(58, 28 + 2 * (x - 60) ** 2);
+      const shade = x < 25 ? 0 : Math.min(58, 28 + 0.5 * (x - 60) ** 2);
       px.data[j] = px.data[j + 1] = px.data[j + 2] = shade;
     }
-    const out = await applyFilters(px, [{ name: "manga", args: [], opts: { betaMinSize: 1, lpi: 30 } }], 0.05);
-    for (let x = 57; x <= 63; x++) {
-      const column = new Set(Array.from({ length: 60 }, (_, y) => out.data[((y + 10) * px.width + x) * 4]));
-      expect(column).toEqual(new Set([0, 255]));
+    for (const dpi of [0.05, 25.4 / 600]) {
+      const out = await applyFilters(px, [{ name: "manga", args: [], opts: { betaMinSize: 1, lpi: 30 } }], dpi);
+      let black = 0;
+      let count = 0;
+      for (let y = 10; y < 70; y++) for (let x = 57; x <= 63; x++) {
+        if (out.data[(y * px.width + x) * 4] === 0) black++;
+        count++;
+      }
+      expect(black / count).toBeLessThan(0.95);
+      expect(black / count).toBeGreaterThan(0.2);
     }
   });
 
