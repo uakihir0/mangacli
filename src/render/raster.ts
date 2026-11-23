@@ -1,7 +1,7 @@
 // Raster backend (Skia via @napi-rs/canvas) with tone screening and mono pipeline (spec 2.6, 10.2, 10.3).
 import { type Canvas, type SKRSContext2D, Path2D, StrokeCap, StrokeJoin, createCanvas } from "@napi-rs/canvas";
 import { type RGBA, cssColor, luminanceLinear, srgbToLinear, linearToSrgb } from "../core/color.js";
-import type { PathData } from "../geom/path.js";
+import { type PathData, pathBounds } from "../geom/path.js";
 import { type Matrix, type Rect, applyMat, matMul } from "../geom/vec.js";
 import type { AssetRegistry } from "./assets.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
@@ -80,24 +80,6 @@ function buildPath(pd: PathData): Path2D {
   return p;
 }
 
-function pathBounds(pd: PathData, m: Matrix): Rect | null {
-  let x0 = Infinity;
-  let y0 = Infinity;
-  let x1 = -Infinity;
-  let y1 = -Infinity;
-  for (const c of pd) {
-    for (let i = 1; i + 1 < c.length; i += 2) {
-      const q = applyMat(m, { x: c[i] as number, y: c[i + 1] as number });
-      if (q.x < x0) x0 = q.x;
-      if (q.y < y0) y0 = q.y;
-      if (q.x > x1) x1 = q.x;
-      if (q.y > y1) y1 = q.y;
-    }
-  }
-  if (!isFinite(x0)) return null;
-  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
-}
-
 function union(a: Rect | null, b: Rect | null): Rect | null {
   if (!a) return b;
   if (!b) return a;
@@ -110,6 +92,13 @@ function union(a: Rect | null, b: Rect | null): Rect | null {
 function nodeBounds(n: Node, m: Matrix): Rect | null {
   if (n.kind === "path") {
     const b = pathBounds(n.path, m);
+    if (b && n.backdrop) {
+      const sx = Math.hypot(m[0], m[2]), sy = Math.hypot(m[1], m[3]);
+      const blurReach = n.backdrop.feather * 2 * Math.max(sx, sy);
+      const dx = n.backdrop.padding * sx + blurReach;
+      const dy = n.backdrop.padding * sy + blurReach;
+      return { x: b.x - dx, y: b.y - dy, w: b.w + 2 * dx, h: b.h + 2 * dy };
+    }
     if (b && n.stroke) {
       const s = n.stroke.width * Math.hypot(m[0], m[1]);
       return { x: b.x - s, y: b.y - s, w: b.w + 2 * s, h: b.h + 2 * s };
@@ -155,6 +144,7 @@ export function monoNodeWorkingBytes(list: DisplayList, dpi: number, crop: "trim
     const pixels = r.w * r.h;
     if (n.kind === "image") return pixels * 64;
     if (n.kind === "path") {
+      if (n.backdrop) return pixels * 32;
       if (n.stroke && n.tag?.elementType === "sfx") return pixels * 8;
       const p = n.paint;
       const gray = p?.type === "solid" ? linearToSrgb(luminanceLinear(p.color)) : 0;
@@ -592,6 +582,10 @@ export class RasterBackend {
     const ctx = dev.ctx;
     const bounds = nodeBounds(n, m);
     if (!bounds || !intersectsViewport(dev, { x: bounds.x - 2, y: bounds.y - 2, w: bounds.w + 4, h: bounds.h + 4 })) return;
+    if (n.backdrop) {
+      this.drawBackdrop(dev, n.path, n.fillRule, n.backdrop, m, bounds);
+      return;
+    }
     if (n.stroke) {
       if (n.tag?.elementType === "sfx") {
         // Keep outline antialiasing in logical page pixels across folds and bands.
@@ -651,6 +645,65 @@ export class RasterBackend {
     if (st) ctx.fillStyle = st as string;
     ctx.fill(buildPath(n.path), n.fillRule);
     ctx.restore();
+  }
+
+  private drawBackdrop(dev: Dev, pd: PathData, rule: PathNode["fillRule"], b: NonNullable<PathNode["backdrop"]>, m: Matrix, bounds: Rect) {
+    const r = clampRect(bounds, dev.W, dev.H);
+    if (!r) return;
+    const sigma = b.feather * Math.max(Math.hypot(m[0], m[2]), Math.hypot(m[1], m[3])) / 2;
+    const color = grayize(b.color, dev.opts.colorMode);
+    const silhouette = createCanvas(r.w, r.h);
+    const sctx = silhouette.getContext("2d");
+    setM(sctx, [m[0], m[1], m[2], m[3], m[4] - r.x, m[5] - r.y]);
+    const path = buildPath(pd);
+    const solid = cssColor({ ...color, a: 1 });
+    if (b.padding > 0) {
+      sctx.strokeStyle = solid;
+      sctx.lineWidth = b.padding * 2;
+      sctx.lineJoin = sctx.lineCap = "round";
+      sctx.stroke(path);
+    }
+    sctx.fillStyle = solid;
+    sctx.fill(path, rule);
+    const off = b.feather > 0 ? createCanvas(r.w, r.h) : silhouette;
+    const octx = off.getContext("2d");
+    if (off !== silhouette) {
+      octx.filter = `blur(${sigma}px)`;
+      octx.drawImage(silhouette, 0, 0);
+      silhouette.width = silhouette.height = 1;
+    }
+    const mono = dev.opts.colorMode === "mono";
+    if (mono) {
+      const id = octx.getImageData(0, 0, r.w, r.h);
+      const data = id.data;
+      const alpha = new Uint8Array(r.w * r.h);
+      for (let i = 0; i < alpha.length; i++) alpha[i] = data[4 * i + 3];
+      const fwd = matMul([1, 0, 0, 1, -r.x, -r.y], dev.base);
+      const alphaAt = (x: number, y: number) => {
+        const q = applyMat(fwd, { x, y });
+        const px = Math.min(r.w - 1, Math.max(0, Math.floor(q.x)));
+        const py = Math.min(r.h - 1, Math.max(0, Math.floor(q.y)));
+        return alpha[py * r.w + px] * color.a / 255;
+      };
+      const target = this.target(dev, r);
+      const spec = { density: 0, lpi: dev.opts.monoLpi, angle: Math.PI / 4, dot: "round" as const, grain: 0.08, invert: false, offset: [0, 0] as [number, number], seed: 7 };
+      const coverage = makeToneSampler(spec, target, alphaAt);
+      const ink = color.r > 0 && color.r < 1 ? makeToneSampler({ ...spec, density: 1 - color.r, angle: 0 }, target) : null;
+      for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
+        const i = y * r.w + x, j = 4 * i;
+        const opaque = alpha[i] === 255 && color.a >= 0.999;
+        data[j + 3] = opaque || (alpha[i] > 0 && coverage(x, y)) ? 255 : 0;
+        data[j] = data[j + 1] = data[j + 2] = (ink ? !ink(x, y) : color.r >= 0.5) ? 255 : 0;
+      }
+      octx.putImageData(id, 0, 0);
+    }
+    const ctx = dev.ctx;
+    ctx.save();
+    setDeviceM(dev);
+    ctx.globalAlpha = mono ? 1 : color.a;
+    blit(dev, off, r.x, r.y);
+    ctx.restore();
+    off.width = off.height = 1;
   }
 
   private async drawTone(dev: Dev, n: PathNode, m: Matrix, p: Paint, tile?: Rect): Promise<void> {

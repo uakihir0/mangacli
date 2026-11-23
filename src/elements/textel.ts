@@ -90,7 +90,24 @@ export function renderText(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: R
   const corners = [applyMat(pl.matrix, { x: 0, y: 0 }), applyMat(pl.matrix, { x: bw, y: 0 }), applyMat(pl.matrix, { x: bw, y: bh }), applyMat(pl.matrix, { x: 0, y: bh })];
   const color = textPaint(p.color, ctx, el, pl.bbox);
   const runs = glyphNodes(tl.glyphs, (g) => transformPath(g, m), color, tl.fontSize, tag(el, "text"));
-  const textNodes: Node[] = [...glyphOutlineNodes(outlineNodes(glyphPath, p.outline, ctx, el), runs), ...runs];
+  const textNodes: Node[] = [];
+  if (glyphPath.length && isObj(p.backdrop)) {
+    const b = p.backdrop;
+    const units = { ...u, em: tl.fontSize, base: tl.fontSize };
+    const color = parseColor((b.color as string | undefined) ?? "white") ?? WHITE;
+    const alpha = color.a * ((b.opacity as number | undefined) ?? 0.9);
+    if (alpha > 0) {
+      textNodes.push({
+        kind: "path", path: glyphPath, fillRule: "nonzero", paint: null, tag: tag(el, "text"),
+        backdrop: {
+          padding: toMm((b.padding as string | number | undefined) ?? "1.5bmm", units),
+          feather: toMm((b.feather as string | number | undefined) ?? "3bmm", units),
+          color: { ...color, a: alpha },
+        },
+      });
+    }
+  }
+  textNodes.push(...glyphOutlineNodes(outlineNodes(glyphPath, p.outline, ctx, el), runs), ...runs);
   if (fixed && p.overflow === "clip") nodes.push({ kind: "group", clip: polyPath(corners, true), children: textNodes });
   else nodes.push(...textNodes);
   // the plate's outline
