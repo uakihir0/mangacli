@@ -42,10 +42,11 @@ export function overlapBalloonCenter(a: BalloonPlan, b: BalloonPlan, ctx: ElemCt
   const smaller = Math.min(Math.abs(polygonArea(first)), Math.abs(polygonArea(second)));
   if (smaller <= 1e-8) return;
   const ring = (pts: Vec[]): polygonClipping.Ring => pts.map(p => [p.x, p.y]);
+  const intersectionArea = (a: polygonClipping.Polygon, b: polygonClipping.Polygon) => polygonClipping.intersection(a, b)
+    .reduce((area, poly) => area + poly.reduce((sum, r, i) => sum + (i === 0 ? 1 : -1) * Math.abs(polygonArea(r.map(([x, y]) => ({ x, y })))), 0), 0);
   const fixed = [ring(first)];
-  const overlap = (pts: Vec[]) => polygonClipping.intersection(fixed, [ring(pts)])
-    .reduce((area, poly) => area + poly.reduce((sum, r, i) => sum + (i === 0 ? 1 : -1) * Math.abs(polygonArea(r.map(([x, y]) => ({ x, y })))), 0), 0) / smaller;
-  const start = overlap(second);
+  const originalBody = [ring(second)];
+  const start = intersectionArea(fixed, originalBody) / smaller;
   if (start >= 0.15) return from;
   if (settled || b.edgeCut || (ctx.panel && b.props.attach !== "none" && (b.props.attach || b.props.as === "narration"))) return;
   const distance = Math.hypot(target.x - from.x, target.y - from.y);
@@ -53,20 +54,25 @@ export function overlapBalloonCenter(a: BalloonPlan, b: BalloonPlan, ctx: ElemCt
   const radius = (p: Vec[], c: Vec) => Math.max(...p.map(q => Math.hypot(q.x - c.x, q.y - c.y)));
   const reach = Math.min(distance, radius(first, target) + radius(second, from));
   const original = boundsOf(second);
+  const obstacles = occupied.map(r => {
+    const polygon: polygonClipping.Polygon = [[[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.h], [r.x, r.y + r.h]]];
+    return { r, polygon, covered: rectOverlapArea(r, original) > 0 ? intersectionArea(polygon, originalBody) : 0 };
+  });
   const limits = rectInset(ctx.geom.trim, ctx.u.k);
   const panel = containsBalloon(b.el, ctx) ? ctx.panelPoly : undefined;
   const clearance = panel ? frameClearance(ctx) : 0;
   const candidate = (d: number) => {
     const center = lerp(target, from, d / distance);
     const points = bodyPolygon(b, center);
-    return { center, points, ratio: overlap(points) };
+    const polygon = [ring(points)];
+    return { center, points, polygon, ratio: intersectionArea(fixed, polygon) / smaller };
   };
-  const fits = ({ points }: ReturnType<typeof candidate>) => {
+  const fits = ({ points, polygon }: ReturnType<typeof candidate>) => {
     const box = boundsOf(points);
     return (hasOffscreenTail(b.props) || (box.x >= limits.x - 0.01 && box.y >= limits.y - 0.01 &&
       box.x + box.w <= limits.x + limits.w + 0.01 && box.y + box.h <= limits.y + limits.h + 0.01)) &&
       (!panel || polygonFits(points, panel, clearance)) &&
-      occupied.every(r => rectOverlapArea(r, box) <= rectOverlapArea(r, original) + 1e-8);
+      obstacles.every(o => rectOverlapArea(o.r, box) === 0 || intersectionArea(o.polygon, polygon) <= o.covered + 1e-8);
   };
   let prev = { d: reach, ratio: start };
   for (let i = 0; i <= 48; i++) {
