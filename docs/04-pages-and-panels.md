@@ -635,6 +635,7 @@ pages:
 | `LAYOUT_BLEED_NOT_ON_EDGE` | 警告 | 外周に接していない辺を断ち切りに指定した |
 | `LAYOUT_DOMINANT_MULTIPLE` | 警告 | 1 ページに複数の大ゴマを指定した |
 | `LAYOUT_DOMINANT_SPLIT` | 警告 | 大ゴマで隣のコマが分断され、最大の部分だけを残した |
+| `LAYOUT_DOMINANT_HOLE` | 警告 | 大ゴマの拡張で穴ができるため、重なりを適用しなかった |
 | `LAYOUT_ORDER_DUPLICATE` | エラー | `order` が重複する |
 | `LAYOUT_SPREAD_PARITY` | 警告 | 見開きの位置が左右の規則に合わない |
 | `TEXT_NEAR_FOLD` | 警告 | 見開きの中央付近に文字がある |

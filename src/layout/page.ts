@@ -694,7 +694,7 @@ function applyDominant(panels: PanelGeom[], geom: PageGeom, area: Rect, gRow: nu
       }
       return candidates.length ? Math.min(...candidates) : Math.abs(nx) * gCol + Math.abs(ny) * gRow;
     });
-    const grow = (withGap = false) => {
+    const grow = (withGap = false): polygonClipping.MultiPolygon => {
       const offsets = edges.map(({ interior }, i) => interior ? overlap + (withGap ? gaps[i] : 0) : 0);
       const convex = original.every((a, i) => {
         const b = original[(i + 1) % original.length], c = original[(i + 2) % original.length];
@@ -718,22 +718,28 @@ function applyDominant(panels: PanelGeom[], geom: PageGeom, area: Rect, gRow: nu
           if (Math.abs(polygonArea(join)) > 1e-8) pieces.push([ring(join)]);
         });
         const result = polygonClipping.intersection(polygonClipping.union(pieces[0], ...pieces.slice(1)), [ring(rectPoly(limits))]);
-        return result.map((p) => p[0].slice(0, -1).map(([x, y]) => ({ x, y }))).sort((a, b) => Math.abs(polygonArea(b)) - Math.abs(polygonArea(a)))[0] ?? [];
+        return result;
       }
       let poly = rectPoly(limits);
       for (const [i, { a, b, nx, ny, interior }] of edges.entries()) {
         const offset = offsets[i];
         poly = clipHalf(poly, { x: a.x + nx * offset, y: a.y + ny * offset }, { x: b.x + nx * offset, y: b.y + ny * offset }, true);
       }
-      return poly;
+      return poly.length >= 3 ? [[ring(poly)]] : [];
     };
-    update(pg, grow());
+    const grown = grow();
+    if (grown.some((p) => p.length > 1)) {
+      bag.warn("LAYOUT_DOMINANT_HOLE", `panel ${pg.panel.id}: dominant overlap would create a hole; keeping the original panel without overlap`, { path: pg.panel.path });
+      continue;
+    }
+    const outlines = grown.map((p) => p[0].slice(0, -1).map(([x, y]) => ({ x, y }))).sort((a, b) => Math.abs(polygonArea(b)) - Math.abs(polygonArea(a)));
+    update(pg, outlines[0] ?? []);
+    const cut = grow(true);
     for (const other of panels) {
       if (other === pg || other.panel.props.dominant || other.panel.props.overlay || other.polygon.length < 3) continue;
-      const cut = grow(true);
-      if (cut.length < 3) continue;
-      if (!polygonClipping.intersection([ring(other.polygon)], [ring(cut)]).length) continue;
-      const result = polygonClipping.difference([ring(other.polygon)], [ring(cut)]);
+      if (!cut.length) continue;
+      if (!polygonClipping.intersection([ring(other.polygon)], cut).length) continue;
+      const result = polygonClipping.difference([ring(other.polygon)], cut);
       other.shapeBox ??= other.fullBox;
       const pieces = result.map((p) => p[0].slice(0, -1).map(([x, y]) => ({ x, y }))).sort((a, b) => Math.abs(polygonArea(b)) - Math.abs(polygonArea(a)));
       if (pieces.length > 1) bag.warn("LAYOUT_DOMINANT_SPLIT", `panel ${other.panel.id}: dominant clipping split the panel; keeping the largest piece`, { path: other.panel.path });

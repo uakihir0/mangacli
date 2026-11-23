@@ -98,6 +98,22 @@ describe("dominant panels", () => {
     expect(pointInPolygon({ x: 42, y: 50 }, panels[1].polygon)).toBe(false);
     expect(pointInPolygon({ x: 50, y: 50 }, panels[1].polygon)).toBe(true);
   });
+  it.each([2, 6])("preserves enclosed neighbours when C-shaped growth has overlap %s", (overlap) => {
+    const polygon = [[5, 5], [95, 5], [95, 45], [70, 45], [70, 20], [20, 20], [20, 80], [70, 80], [70, 55], [95, 55], [95, 95], [5, 95]];
+    const before = layout([{ polygon }, { box: ["35mm", "35mm", "20mm", "30mm"] }], "free");
+    const { panels, bag } = layout([{ polygon, dominant: { overlap: `${overlap}mm`, bleed: false } }, { box: ["35mm", "35mm", "20mm", "30mm"] }], "free");
+    expect(bag.hasErrors).toBe(false);
+    expect(pointInPolygon({ x: 45, y: 50 }, panels[0].polygon)).toBe(false);
+    expect(pointInPolygon({ x: 45, y: 50 }, panels[1].polygon)).toBe(true);
+    if (overlap === 6) {
+      expect(bag.items.some((d) => d.code === "LAYOUT_DOMINANT_HOLE")).toBe(true);
+      expect(panels[0].polygon).toEqual(before.panels[0].polygon);
+      expect(panels[1].polygon).toEqual(before.panels[1].polygon);
+    } else {
+      expect(Math.abs(polygonArea(panels[0].polygon))).toBeGreaterThan(Math.abs(polygonArea(before.panels[0].polygon)));
+      expect(Math.abs(polygonArea(panels[1].polygon))).toBeLessThan(Math.abs(polygonArea(before.panels[1].polygon)));
+    }
+  });
   it.each(["ellipse", "rounded", "cloud"])("clips the generated %s neighbour outline, art and border", async (kind) => {
     const art = await sharp({ create: { width: 20, height: 20, channels: 3, background: "black" } }).png().toBuffer();
     const r = await render({ mangacli: 1, page: { ...settings, bleed: 0 }, assets: { art: { src: "art.png" } }, pages: [{ layout: "free", panels: [

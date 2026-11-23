@@ -149,6 +149,7 @@ diagnostics:
 | `LAYOUT_BLEED_NOT_ON_EDGE` | W | 外周に接しない辺を断ち切りに指定した | ○ |
 | `LAYOUT_DOMINANT_MULTIPLE` | W | 1 ページに複数の大ゴマを指定した | ○ |
 | `LAYOUT_DOMINANT_SPLIT` | W | 大ゴマで隣のコマが分断され、最大の部分だけを残した | ○ |
+| `LAYOUT_DOMINANT_HOLE` | W | 大ゴマの拡張で穴ができるため、重なりを適用しなかった | ○ |
 | `LAYOUT_ORDER_DUPLICATE` | E | コマの `order` が重複する | × |
 | `LAYOUT_SPREAD_PARITY` | W | 見開きの位置が左右の規則に合わない | ○ |
 | `LAYOUT_MONOTONE` | W | 矩形だけのページが 3 ページ以上続き、区間内に描き文字または線の演出がある（空白・コマなしページは区切り）。区間の最初のページにページ範囲を示す | ○ |
