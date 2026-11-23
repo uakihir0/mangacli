@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createRenderer } from "../src/api.js";
 import { Rng } from "../src/core/random.js";
-import { flattenPath } from "../src/geom/path.js";
+import { distToPolyline, flattenPath, pointInPolygon } from "../src/geom/path.js";
+import { boundsOf } from "../src/geom/vec.js";
 import { HAND_PRESETS, PEN_PRESETS } from "../src/ink/presets.js";
 import { inkShape } from "../src/ink/shape.js";
 import { BODY_GENERATORS } from "../src/shapes/balloon.js";
@@ -57,6 +58,36 @@ describe("hand-drawn clouds", () => {
 describe("thought bubble tails", () => {
   const fills = (node: Node): PathNode[] => node.kind === "group" ? node.children.flatMap(fills)
     : node.kind === "path" && node.tag?.elementId === "thought" && node.tag.role === "fill" && node.paint ? [node] : [];
+
+  it.each(["clean", "ink"])("keeps three round bubbles detached on a short tail (%s)", async hand => {
+    const r = createRenderer({ profile: "preview" });
+    const scene = (tail: string) => r.displayList({ yaml: `mangacli: 1
+page: { size: [160mm, 100mm] }
+pages:
+  - layers:
+      - id: thought
+        balloon: 考えごと
+        as: think
+        hand: ${hand}
+        at: [40mm, 35mm]
+        tail: ${tail}
+`, filename: "/v/cloud.yaml" }, 1);
+    const [body, ...bubbles] = fills((await scene("{ to: [100mm, 35mm], maxLength: 4.5mm }")).root);
+    expect(body.path).toEqual(fills((await scene("none")).root)[0].path);
+    expect(bubbles).toHaveLength(3);
+    let previous = flattenPath(body.path, 0.01)[0].pts;
+    let previousWidth = Infinity;
+    for (const bubble of bubbles) {
+      const points = flattenPath(bubble.path, 0.01)[0].pts;
+      const bounds = boundsOf(points);
+      expect(bounds.w).toBeCloseTo(bounds.h, 2);
+      expect(bounds.w).toBeLessThan(previousWidth);
+      expect(bounds.x + bounds.w / 2).toBeGreaterThan(boundsOf(previous).x + boundsOf(previous).w / 2);
+      expect(points.every(p => !pointInPolygon(p, previous) && distToPolyline(p, previous, true) > 0.25)).toBe(true);
+      previous = points;
+      previousWidth = bounds.w;
+    }
+  });
 
   it.each([undefined, 0.5])("preserves explicit count and bubbleSize with shrink %s", async shrink => {
     const r = createRenderer({ profile: "preview" });

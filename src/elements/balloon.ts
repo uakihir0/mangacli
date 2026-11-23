@@ -552,7 +552,6 @@ interface TailCtx {
   ctx: ElemCtx;
   plan: BalloonPlan;
   center: Vec;
-  rng: Rng;
 }
 
 function balloonTails(props: Obj): Obj[] {
@@ -728,11 +727,9 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     return { hits, area: [...hits.values()].reduce((a, b) => a + b, 0) };
   };
   for (const [index, tail] of tails.entries()) {
-    const start = Object.assign(Object.create(Rng.prototype) as Rng, tc.rng);
-    const initial = makeTails(cur, [tail], tc);
+    const initial = makeTails(cur, [tail], tc, stroke.width);
     let best = initial;
     let bestScore = score(initial);
-    let bestRng = Object.assign(Object.create(Rng.prototype) as Rng, tc.rng);
     if (bestScore.area > 0) {
       const explicit = plan.el.tailExplicit;
       const own = explicit ? balloonTails(explicit)[index] ?? {} : tail;
@@ -748,13 +745,11 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         for (const factor of [0.75, 0.5, 0.25, 0]) for (const root of roots) candidates.push({ ...root, length: `${Math.max(minimum, initial.length * factor)}mm` });
       }
       for (const changes of candidates) {
-        const rng = Object.assign(Object.create(Rng.prototype) as Rng, start);
-        const candidate = makeTails(cur, [{ ...tail, ...changes }], { ...tc, rng, ctx: { ...ctx, bag: new DiagnosticBag() } });
+        const candidate = makeTails(cur, [{ ...tail, ...changes }], { ...tc, ctx: { ...ctx, bag: new DiagnosticBag() } }, stroke.width);
         const cost = score(candidate);
-        if (candidate.footprints.length && cost.area === 0) { best = candidate; bestScore = cost; bestRng = rng; }
+        if (candidate.footprints.length && cost.area === 0) { best = candidate; bestScore = cost; }
         if (bestScore.area === 0) break;
       }
-      Object.assign(tc.rng, bestRng);
       for (const id of bestScore.hits.keys()) ctx.bag.warn("BALLOON_TAIL_CROSSES", `the tail of ${plan.el.id} crosses ${id}`, { path: plan.el.path, elementId: plan.el.id });
     }
     cur = best.contour ?? cur;
@@ -778,7 +773,54 @@ function lineFootprint(pts: Vec[], radius: number): Vec[][] {
   return out;
 }
 
-function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult {
+function bubbleContours(t: Obj, plan: BalloonPlan, u: UnitContext, body: Vec[], at: (d: number) => Vec, length: number, gap: number, strokeWidth: number): Vec[][] {
+  const count = typeof t.count === "number" ? t.count : 3;
+  if (count <= 0 || length <= 0) return [];
+  const minSide = Math.min(plan.outer.w, plan.outer.h);
+  const diameter = t.bubbleSize !== undefined ? toMm(t.bubbleSize as string, u) : Math.min(5 * u.k, Math.max(1.5 * u.k, minSide * 0.2));
+  const radii = Array.from({ length: count }, (_, i) => diameter / 2 * (typeof t.shrink === "number"
+    ? t.shrink ** i : i === 0 ? 1 : i === 1 ? 0.6 : 0.35 * (0.22 / 0.35) ** (i - 2)));
+  const separation = Math.max(0.35 * u.k, 1.5 * strokeWidth);
+  const bodyGap = Math.max(gap * 0.4, balloonHalo(plan, u) + separation + plan.hand.wobbleAmp);
+  const layout = (scale: number, extraGap = 0) => {
+    let edge = bodyGap;
+    let end = 0;
+    const circles: { center: Vec; radius: number }[] = [];
+    for (const r of radii) {
+      const radius = r * scale;
+      let d = edge + radius;
+      let c = at(d);
+      // A ray can meet a cloud in a valley: leave room for both lobes and their ink.
+      while (d + radius <= length && signedDist(c, body) > -radius - bodyGap) {
+        d += 0.15 * u.k;
+        c = at(d);
+      }
+      end = d + radius;
+      if (end > length) return null;
+      circles.push({ center: c, radius });
+      edge = end + Math.max(separation, radius * 0.6) + extraGap;
+    }
+    return { circles, end };
+  };
+  let chain = layout(1);
+  if (chain && t.length !== undefined && count > 1) {
+    chain = layout(1, (length - chain.end) / (count - 1)) ?? chain;
+  } else if (!chain) {
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 12; i++) {
+      const scale = (lo + hi) / 2;
+      const fit = layout(scale);
+      if (fit) { lo = scale; chain = fit; }
+      else hi = scale;
+    }
+  }
+  return chain?.circles.map(({ center, radius }) => Array.from({ length: 48 }, (_, j) => {
+    const a = j / 48 * Math.PI * 2;
+    return { x: center.x + radius * Math.cos(a), y: center.y + radius * Math.sin(a) };
+  })) ?? [];
+}
+
+function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx, strokeWidth: number): TailResult {
   const { ctx, plan, center } = tc;
   const u = ctx.u;
   let cur: ShapeContour = { ...contour, pts: contour.pts.slice(), corners: contour.corners?.slice() };
@@ -989,52 +1031,10 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     const frameCut = offSide && target && (tipBent[frameAxis] - target[frameAxis]) * frameSign > -offscreenOvershoot;
 
     if (kind === "bubbles") {
-      const count = typeof t.count === "number" ? t.count : 3;
-      let size = t.bubbleSize !== undefined ? toMm(t.bubbleSize as string, u) : Math.min(5 * u.k, Math.max(1.5 * u.k, minSide * 0.2));
-      const shrinkAt = (i: number) => typeof t.shrink === "number" ? t.shrink : i === 0 ? 0.6 : i === 1 ? 0.35 / 0.6 : 0.22 / 0.35;
-      // the bubble chain must stop short of the speaker (face): scale it down to the available run
-      let spacing = 0.45;
-      if (target && t.length === undefined) {
-        const spanOf = (sp: number, sz0: number) => {
-          let span = gap * 0.6;
-          let sz = sz0;
-          for (let i = 0; i < count; i++) {
-            span += sz + (i + 1 < count ? sz * sp : 0);
-            sz *= shrinkAt(i);
-          }
-          return span;
-        };
-        // a short run tightens the chain first, then shrinks it, but keeps all bubbles readable
-        if (spanOf(spacing, size) > length) spacing = 0.15;
-        const span = spanOf(spacing, size);
-        if (span > length) size = Math.max(1.4 * u.k, size * Math.max(0.5, length / span));
-      }
-      let dpos = gap * 0.6 + size / 2;
-      const total = target ? length : length + size;
-      // an explicit length spreads the chain evenly over it
-      const spread = t.length !== undefined && count > 1 ? Math.max(0, (length - dpos) / (count - 1)) : 0;
-      for (let i = 0; i < count; i++) {
-        if (!spread && dpos + size / 2 > total + 1e-6 && i > 1) break;
-        if (spread) dpos = gap * 0.6 + size / 2 + 0 + i * spread;
-        const tt = Math.min(1, dpos / Math.max(1e-6, total));
-        const c = quad(R, ctrl, tipBent, tt);
-        const r = size / 2;
-        const ratio = tc.rng.range(0.85, 1);
-        const tilt = tc.rng.range(0, Math.PI * 2);
-        const pts = Array.from({ length: 48 }, (_, j) => {
-          const a = j / 48 * Math.PI * 2;
-          const x = r * Math.cos(a), y = r * ratio * Math.sin(a);
-          return { x: c.x + x * Math.cos(tilt) - y * Math.sin(tilt), y: c.y + x * Math.sin(tilt) + y * Math.cos(tilt) };
-        });
+      const at = (d: number) => quad(R, ctrl, tipBent, d / length);
+      for (const pts of bubbleContours(t, plan, u, cur.pts, at, length, gap, strokeWidth)) {
         extra.push({ pts, closed: true, kind: "bubble" });
         footprints.push({ pts, closed: true });
-        if (spread) {
-          size *= shrinkAt(i);
-          continue;
-        }
-        dpos += size / 2 + size * spacing;
-        size *= shrinkAt(i);
-        dpos += size / 2;
       }
       continue;
     }
@@ -1204,7 +1204,7 @@ function buildBody(plan: BalloonPlan, ctx: ElemCtx, skipTails = false): BodyBuil
       tailContour = { pts: translate([{ x, y }, { x: x + b.w, y }, { x: x + b.w, y: y + b.h }, { x, y: y + b.h }]), closed: true };
     }
   }
-  const tr = applyTails(tailContour, tails, { ctx, plan, center, rng });
+  const tr = applyTails(tailContour, tails, { ctx, plan, center });
   if (tr.contour && p.as !== "aside") contour = tr.contour;
   const stroke = resolveStroke(p.stroke, plan.hand, ctx.u, ctx.bag, [...el.path, "stroke"]);
   if (stroke.style === "dashed") {
@@ -1231,6 +1231,12 @@ function balloonFill(poly: Vec[], plan: BalloonPlan): Node | null {
   return { kind: "group", children: [paper, fill], tag: fill.tag };
 }
 
+function balloonHalo(plan: BalloonPlan, u: UnitContext): number {
+  const halo = plan.props.halo;
+  return plan.fill?.type !== "solid" || plan.fill.color.a <= 0.99 || halo === "none" || halo === false ? 0
+    : halo === undefined ? 0.3 * u.k : toMm(halo as string, u);
+}
+
 function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeContour): { nodes: Node[]; fill: Vec[]; flashBounds?: Rect } {
   const el = plan.el;
   const nodes: Node[] = [];
@@ -1244,8 +1250,8 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
     const res = inkShape(contour, { line: isFlash ? { ...bb.stroke, style: "none" } : bb.stroke, hand: plan.hand, rng: bb.rng.fork("body"), ruler: bb.ruler, join: plan.params.join ?? (cleanJoin ? "clean" : "overshoot"), strokes: plan.params.strokes, sizeHint: Math.min(plan.outer.w, plan.outer.h), pointWidth: 0 });
     fillPoly = res.fill;
     const fn = balloonFill(res.fill, plan);
-    const halo = plan.props.halo === "none" || plan.props.halo === false ? 0 : plan.props.halo !== undefined ? toMm(plan.props.halo as string, ctx.u) : 0.3 * ctx.u.k;
-    if (fn && halo > 0 && !isFlash && fn.kind === "path" && fn.paint?.type === "solid" && fn.paint.color.a > 0.99) {
+    const halo = balloonHalo(plan, ctx.u);
+    if (fn && halo > 0 && !isFlash && fn.kind === "path" && fn.paint?.type === "solid") {
       const color = plan.props.haloColor !== undefined ? parseColor(plan.props.haloColor as string) : paintAvgLuminance(fn.paint) < 0.5 ? WHITE : fn.paint.color;
       nodes.push({ kind: "path", path: polyPath(res.fill, true), fillRule: "nonzero", paint: null, stroke: { width: bb.stroke.width + halo * 2, paint: { type: "solid", color: color ?? WHITE }, join: "round" }, tag: tag(el, "fill") });
     }
@@ -1261,7 +1267,7 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
   }
   for (const ex of bb.extra) {
     if (ex.kind === "bubble") {
-      const res = inkShape({ pts: ex.pts, closed: true, smooth: true, segmentProfile: t => 1 - 0.4 * Math.cos(2 * Math.PI * t) }, { line: bb.stroke, hand: plan.hand, rng: bb.rng.fork("bub"), strokes: 1, taper: false });
+      const res = inkShape({ pts: ex.pts, closed: true, smooth: true }, { line: bb.stroke, hand: plan.hand, rng: bb.rng.fork("bub"), strokes: 1, taper: false, wobble: false });
       const fn = balloonFill(res.fill, plan);
       if (fn) nodes.push(fn);
       nodes.push(...inksToNodes(res.inks, bb.stroke.color, t));
