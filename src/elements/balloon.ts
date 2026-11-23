@@ -12,7 +12,7 @@ import type { RElement } from "../model/resolve.js";
 import { paintAvgLuminance, parsePaint, resolveHand, resolveStroke } from "../model/values.js";
 import type { Node, Paint } from "../render/ir.js";
 import polygonClipping from "polygon-clipping";
-import { BODY_GENERATORS, type BodyGeom, type ShapeParams, defaultSpikeDepth } from "../shapes/balloon.js";
+import { BODY_GENERATORS, type BodyGeom, type ShapeParams, defaultSpikeDepth, isSpikyShape } from "../shapes/balloon.js";
 import { Contour, type PluginBalloonShape, activePlugins } from "../plugin.js";
 import { type TextLayout, breakFaults, layoutText, parseLayoutText } from "../text/layout.js";
 import { type ElemCtx, silhouetteHit, tag } from "./context.js";
@@ -251,7 +251,7 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       const fw = sizeValue(fixedSize[0], ctx.coordsBox.w, pc);
       const fh = sizeValue(fixedSize[1], ctx.coordsBox.h, pc);
       if (fw !== "auto" && fh !== "auto") {
-        const physicalSpikes = (kind === "spike" || kind === "burst") && params.depth === undefined;
+        const physicalSpikes = isSpikyShape(kind) && params.depth === undefined;
         if (physicalSpikes) params.spikeScale = Math.min(1, Math.min(fw, fh) * 0.9 / (2.2 * defaultSpikeDepth(kind === "burst") * u.k));
         const probe = genBody(kind, fw, fh, params, shapeSeed);
         const ob = boundsOf(probe.contour.pts);
@@ -342,7 +342,7 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       if (compact && defaultAspectRange) ar = [0.15, 6.7];
       if (dialogueWrap === "panel" && defaultAspectRange) ar = [0.25, 4];
       // a box follows its text block; horizontal lines make wider balloons than vertical columns
-      if (kind === "rect" || kind === "none") ar = [0.05, 20];
+      if (kind === "rect" || kind === "none" || (kind === "spike-rect" && defaultAspectRange)) ar = [0.05, 20];
       else if (style.writing === "horizontal" && defaultAspectRange) ar = [ar[0], Math.max(ar[1], 2.6)];
       const fixedAspect = typeof p.aspect === "number" ? p.aspect : undefined;
       base = fitBody(kind, params, shapeSeed, withMargin, fixedAspect, ar, panelW === undefined ? maxW : panelW - 0.5 * u.k, panelH === undefined ? maxH : panelH - 0.5 * u.k);
@@ -389,7 +389,7 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       scale = Math.max(minFontScale, scale - 0.05);
       continue;
     }
-    if (!fits && !fallback && !fixedSize && p.overflow === undefined && (kind === "spike" || kind === "burst")) {
+    if (!fits && !fallback && !fixedSize && p.overflow === undefined && isSpikyShape(kind)) {
       const depths = params.depth === undefined ? [undefined, 0.22, 0.14] : [undefined];
       let best: { plan: BalloonPlan; bag: DiagnosticBag } | undefined;
       for (const depth of depths) for (const lineEm of [3, 2, 1]) {
@@ -846,7 +846,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
       if (own.bend === undefined) for (const root of roots) for (const bend of [-0.3, 0.3, -0.5, 0.5]) candidates.push({ ...root, bend, ...(own.curl === undefined ? { curl: false } : {}) });
       if (own.length === undefined && initial.length !== undefined) {
         const tailKind = (tail.kind as string) ?? "wedge";
-        const spiky = plan.params.kind === "spike" || plan.params.kind === "burst";
+        const spiky = isSpikyShape(plan.params.kind);
         const plainWedge = tailKind === "wedge" && !spiky && offscreenTailSide(tail, plan.props) === undefined;
         const minimum = Math.min(initial.length, (plainWedge ? AUTO_WEDGE_MIN_LENGTH : 2) * ctx.u.k);
         for (const factor of [0.75, 0.5, 0.25, 0]) for (const root of roots) candidates.push({ ...root, length: `${Math.max(minimum, initial.length * factor)}mm` });
@@ -1018,7 +1018,7 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx, strokeWidth
     const gap = t.gap !== undefined ? toMm(t.gap as string, u) : 2 * u.k;
     const whisperWedge = plan.props.as === "whisper" && kind === "wedge";
     // an ordinary wedge only points toward the speaker; spiky and off-panel tails keep their own reach
-    const spiky = plan.params.kind === "spike" || plan.params.kind === "burst";
+    const spiky = isSpikyShape(plan.params.kind);
     const plainWedge = kind === "wedge" && !offSide && !spiky;
     const pointerMax = Math.min(9 * u.k, Math.max((whisperWedge ? 6 : 4.5) * u.k, minSide * 0.4));
     const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : plainWedge ? AUTO_WEDGE_MAX_LENGTH * u.k : target && !offSide && !spiky ? Math.min(12 * u.k, Math.max(6 * u.k, minSide * 0.5)) : pointerMax;

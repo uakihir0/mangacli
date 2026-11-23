@@ -25,6 +25,28 @@ function ellipsePoint(w: number, h: number, t: number) {
 }
 
 describe("shout contours", () => {
+  it.each([[40, 60], [14, 100], [100, 14]])("keeps four sharp corner spikes and a rectangular %sx%s text core", (w, h) => {
+    const make = (seed: number) => BODY_GENERATORS["spike-rect"](w, h, { kind: "spike-rect", irregularity: 0, tilt: 0 }, seed);
+    const body = make(42);
+    expect(make(42)).toEqual(body);
+    expect(make(43).contour.pts).not.toEqual(body.contour.pts);
+    expect(body.inner).toEqual([{ x: -w / 2, y: -h / 2 }, { x: w / 2, y: -h / 2 }, { x: w / 2, y: h / 2 }, { x: -w / 2, y: h / 2 }]);
+    expect(body.inner.every(p => pointInPolygon(p, body.contour.pts))).toBe(true);
+    const { pts, corners } = body.contour;
+    const peaks = corners!.filter(c => c.kind === "tip");
+    const diagonal = peaks.filter(c => Math.abs(pts[c.index].x) > w / 2 && Math.abs(pts[c.index].y) > h / 2);
+    expect(diagonal.map(c => [Math.sign(pts[c.index].x), Math.sign(pts[c.index].y)])).toEqual([[1, -1], [1, 1], [-1, 1], [-1, -1]]);
+    for (const { index } of diagonal) {
+      const q = pts[index];
+      const a = norm(sub(pts.at(index - 1)!, q));
+      const b = norm(sub(pts[(index + 1) % pts.length], q));
+      expect(Math.acos(dot(a, b)) * 180 / Math.PI).toBeCloseTo(30, 0);
+    }
+    for (const side of ["x", "y"] as const) for (const sign of [-1, 1]) {
+      expect(peaks.some(({ index }) => sign * pts[index][side] > (side === "x" ? w : h) / 2 && !diagonal.some(c => c.index === index))).toBe(true);
+    }
+  });
+
   it("preserves the ink where an entry pool overlaps a spike flank", () => {
     const inks = strokeOutline([{ x: 0, y: 0 }, { x: 4, y: 0 }], {
       hand: HAND_PRESETS.ink, pen: { ...PEN_PRESETS["g-pen"], inkPool: 1 },
@@ -36,7 +58,7 @@ describe("shout contours", () => {
     expect(polygonArea(inks[0].pts) * polygonArea(inks[1].pts)).toBeGreaterThan(0);
   });
 
-  it.each(["spike", "burst"])("keeps both %s flanks at nominal width and miters tips within the miter limit", (kind) => {
+  it.each(["spike", "burst", "spike-rect"])("keeps both %s flanks at nominal width and miters tips within the miter limit", (kind) => {
     const { body } = spikes(kind, 40, 60, 42);
     const width = 0.45;
     const { inks, fill } = inkShape(body.contour, {
@@ -53,7 +75,7 @@ describe("shout contours", () => {
       const b = join[0], a = join.at(-2)!, tip = join.at(-1)!;
       const tipIndex = fill.indexOf(tip);
       const incoming = norm(sub(tip, fill[tipIndex - 1]));
-      const outgoing = norm(sub(fill[tipIndex + 1], tip));
+      const outgoing = norm(sub(fill[(tipIndex + 1) % fill.length], tip));
       const withinMiterLimit = 1 + dot(incoming, outgoing) >= 0.02;
       expect(join).toHaveLength(withinMiterLimit ? 4 : 3);
       if (withinMiterLimit) {

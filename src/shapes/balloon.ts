@@ -2,7 +2,7 @@
 import type { Rng } from "../core/random.js";
 import { Rng as RngCls } from "../core/random.js";
 import { flattenPath, parseSvgPath, pointInPolygon, polygonArea, polylineLength, resample } from "../geom/path.js";
-import { type Vec, dist, rot } from "../geom/vec.js";
+import { type Vec, dist, lerp, rot } from "../geom/vec.js";
 import type { Corner, ShapeContour } from "../ink/shape.js";
 
 export interface ShapeParams {
@@ -254,6 +254,48 @@ const cloud: BodyGenerator = (w, h, p, seed) => {
 export function defaultSpikeDepth(burst: boolean): number {
   return burst ? 6 : 4.5;
 }
+
+export function isSpikyShape(kind: string): boolean {
+  return kind === "spike" || kind === "burst" || kind === "spike-rect";
+}
+
+const spikeRect: BodyGenerator = (w, h, p, seed) => {
+  const rng = new RngCls(seed);
+  const scale = p.unitScale ?? 1;
+  const nominal = defaultSpikeDepth(false) * scale * (p.spikeScale ?? 1);
+  const depth = Array.isArray(p.depth) ? p.depth : typeof p.depth === "number" ? [p.depth * 0.8, p.depth * 1.2] : [0.9, 1.1];
+  const depthScale = p.depth === undefined ? nominal : (w + h) / 4;
+  const meanDepth = (depth[0] + depth[1]) / 2 * depthScale;
+  const core = [{ x: -w / 2, y: -h / 2 }, { x: w / 2, y: -h / 2 }, { x: w / 2, y: h / 2 }, { x: -w / 2, y: h / 2 }];
+  const pts: Vec[] = [];
+  const corners: Corner[] = [];
+  const add = (q: Vec, kind: "tip" | "valley") => {
+    corners.push({ index: pts.length, kind });
+    pts.push(rot(q, p.tilt));
+  };
+  // The roots on the adjacent sides give a diagonal corner tip the same ~30° angle as the side tips.
+  const cornerRoot = Math.min(meanDepth * 0.518, Math.min(w, h) / 4);
+  const cornerDepth = cornerRoot / 0.518 / Math.SQRT2;
+  for (let i = 0; i < core.length; i++) {
+    const a = core[i], b = core[(i + 1) % 4];
+    const length = i % 2 === 0 ? w : h;
+    const start = cornerRoot / length;
+    const count = Math.max(1, Math.round((length - 2 * cornerRoot) / (2.5 * scale)));
+    const step = (1 - 2 * start) / count;
+    const nx = (b.y - a.y) / length, ny = (a.x - b.x) / length;
+    for (let j = 0; j < count; j++) {
+      const t = start + j * step;
+      add(lerp(a, b, t), "valley");
+      const root = lerp(a, b, t + step * (0.5 + rng.range(-0.03, 0.03)));
+      const d = rng.range(depth[0], depth[1]) * depthScale;
+      add({ x: root.x + nx * d, y: root.y + ny * d }, "tip");
+    }
+    add(lerp(a, b, 1 - start), "valley");
+    add({ x: b.x + Math.sign(b.x) * cornerDepth, y: b.y + Math.sign(b.y) * cornerDepth }, "tip");
+  }
+  const inner = core.map(q => rot(q, p.tilt));
+  return { contour: { pts, closed: true, corners }, inner, kind: "spike-rect", smooth: false, ruler: false, spikeLength: meanDepth, spikeCore: inner };
+};
 
 function spiky(w: number, h: number, p: ShapeParams, seed: number, burst: boolean): BodyGeom {
   const rng = new RngCls(seed);
@@ -518,6 +560,7 @@ export const BODY_GENERATORS: Record<string, BodyGenerator> = {
   rect,
   cloud,
   spike: (w, h, p, s) => spiky(w, h, p, s, false),
+  "spike-rect": spikeRect,
   burst: (w, h, p, s) => spiky(w, h, p, s, true),
   wavy,
   flash: ellipse,
