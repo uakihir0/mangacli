@@ -690,7 +690,9 @@ export class RasterBackend {
         const py = Math.min(r.h - 1, Math.max(0, Math.floor(q.y)));
         return Math.min(1, 2 * alpha[py * r.w + px] / 255) * color.a;
       };
-      const target = this.target(dev, r);
+      // Remove the crop offset in device pixels before converting to screen coordinates.
+      const [sx, shy, shx, sy, tx, ty] = dev.base;
+      const target = this.target({ ...dev, base: [sx, shy, shx, sy, 0, 0] }, { x: r.x - tx, y: r.y - ty });
       const spec = { density: 0, lpi: dev.opts.monoLpi, angle: Math.PI / 4, dot: "round" as const, grain: 0.08, invert: false, offset: [0, 0] as [number, number], seed: 7 };
       const coverage = makeToneSampler(spec, target, alphaAt);
       const luminance = dev.opts.toneCurve === "perceptual" ? color.r : luminanceLinear(b.color);

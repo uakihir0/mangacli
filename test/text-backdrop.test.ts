@@ -64,7 +64,7 @@ it("keeps the padded glyph silhouette white in print-mono and only screens the o
 
 it.each(["web", "print-mono"] as const)("blurs across the trim edge before cropping (%s)", async profile => {
   const source = input(effect);
-  source.yaml = source.yaml.replace("bleed: 0mm", "bleed: 3mm").replace("[50%, 50%]", "[2mm, 50%]");
+  source.yaml = source.yaml.replace("bleed: 0mm", "bleed: 3mm").replace("[50%, 50%]", "[2mm, 50%]").replace("outline: none", "outline: none\n        color: transparent");
   const options = { profile, format: "png", dpi: 254 } as const;
   const [trim, bleed] = await Promise.all([
     render(source, { ...options, crop: "trim" }),
