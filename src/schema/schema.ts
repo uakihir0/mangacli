@@ -269,6 +269,13 @@ const balloonProps = {
   ...common,
   ...typo,
   contain: z.enum(["panel", "none"]).optional(),
+  cut: z.union([
+    z.array(z.enum(["top", "right", "bottom", "left"])).min(1).max(3),
+    z.object({
+      sides: z.array(z.enum(["top", "right", "bottom", "left"])).min(1).max(3),
+      depth: z.union([z.number().min(0).max(0.45), z.object({ top: z.number().min(0).max(0.45).optional(), right: z.number().min(0).max(0.45).optional(), bottom: z.number().min(0).max(0.45).optional(), left: z.number().min(0).max(0.45).optional() }).strict()]).optional(),
+    }).strict(),
+  ]).optional(),
   bridge: z.boolean().optional(),
   text: TextValue.optional(),
   who: z.string().optional(),

@@ -20,6 +20,7 @@ import { fillNode, inksToNodes, polysToPath } from "./inkir.js";
 import { type GlyphRun, glyphNodes, glyphOutlineNodes } from "./glyphs.js";
 import { resolveTextStyle, textValue } from "./textstyle.js";
 import { resolvePoint, sizeValue } from "../layout/place.js";
+import { cutSides } from "../render/balloon-contain.js";
 
 type Obj = Record<string, unknown>;
 
@@ -700,6 +701,8 @@ export function automaticTailWidth(minSide: number, length: number, k: number, k
   return kind === "zigzag" ? bw0 * 1.5 : offscreen ? bw0 : whisper ? minSide / 9 : Math.max(bw0, Math.min(minSide / 9, length * 0.4));
 }
 
+const FRAME_HIT = "\0frame";
+
 function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult {
   let cur = contour;
   const extra: TailResult["extra"] = [];
@@ -708,6 +711,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
   const stroke = resolveStroke(plan.props.stroke, plan.hand, ctx.u);
   const clearance = 0.35 * ctx.u.k + stroke.width / 2;
   const obstacles = (plan.tailObstacles ?? []).map(b => ({ ...b, contour: offsetPolygon(b.contour, clearance) }));
+  const frame = ctx.panelPoly && cutSides(plan.props).length ? [ctx.panelPoly.map(p => [p.x, p.y] as [number, number])] : undefined;
   const score = (r: TailResult) => {
     const hits = new Map<string, number>();
     const ring = (pts: Vec[]) => [pts.map(p => [p.x, p.y] as [number, number])];
@@ -724,6 +728,15 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         for (const polygon of intersection) for (const [i, points] of polygon.entries()) area += (i ? -1 : 1) * Math.abs(polygonArea(points.map(([x, y]) => ({ x, y }))));
       }
       if (area > 1e-8) hits.set(b.id, area);
+    }
+    // a body cut by the frame sends its tail out through the sides that remain (spec 6.10.3)
+    if (frame) {
+      let area = 0;
+      for (const footprint of footprints) {
+        if (!footprint.length) continue;
+        for (const polygon of polygonClipping.difference(footprint, frame)) for (const [i, points] of polygon.entries()) area += (i ? -1 : 1) * Math.abs(polygonArea(points.map(([x, y]) => ({ x, y }))));
+      }
+      if (area > 1e-8) hits.set(FRAME_HIT, area);
     }
     return { hits, area: [...hits.values()].reduce((a, b) => a + b, 0) };
   };
@@ -755,7 +768,8 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
         if (bestScore.area === 0) break;
       }
       Object.assign(tc.rng, bestRng);
-      for (const id of bestScore.hits.keys()) ctx.bag.warn("BALLOON_TAIL_CROSSES", `the tail of ${plan.el.id} crosses ${id}`, { path: plan.el.path, elementId: plan.el.id });
+      for (const id of bestScore.hits.keys()) if (id === FRAME_HIT) ctx.bag.warn("BALLOON_TAIL_CUT", `the tail of ${plan.el.id} runs out through a cut side of its panel`, { path: plan.el.path, elementId: plan.el.id });
+      else ctx.bag.warn("BALLOON_TAIL_CROSSES", `the tail of ${plan.el.id} crosses ${id}`, { path: plan.el.path, elementId: plan.el.id });
     }
     cur = best.contour ?? cur;
     extra.push(...best.extra);

@@ -32,7 +32,7 @@ import { defaultTextStyle, layoutText, parseLayoutText } from "../text/layout.js
 import { parseMarkup } from "../text/markup.js";
 import { type AssetRegistry, resolveAssetBlend } from "./assets.js";
 import { cleanClippedBalloonInk } from "./balloon-clip.js";
-import { autoEdgeCutFits, bodyPolygon, containBalloon, containsBalloon, frameClearance, polygonFits, warnBalloonInGutter } from "./balloon-contain.js";
+import { autoEdgeCutFits, bodyPolygon, containBalloon, containsBalloon, cutCenter, cutDepth, cutSides, cutSize, frameClearance, polygonFits, textPolygon, warnBalloonInGutter } from "./balloon-contain.js";
 import type { DisplayList, GroupNode, Node, PathNode } from "./ir.js";
 import { FILTER_NAMES, parseFilter } from "./filters.js";
 
@@ -80,6 +80,8 @@ interface Item {
   stackUnder?: boolean;
   lettering?: { el: RElement; bbox: Rect }[];
   glyphRuns?: GlyphRun[];
+  /** the box the safe-area check reads instead of `bbox` (the lettering of a frame-cut balloon) */
+  safetyBox?: Rect;
   mask?: { path: import("../geom/path.js").PathData; rule: "nonzero" | "evenodd" };
 }
 
@@ -246,7 +248,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   }
 
   // phase B: balloons plans, text, sfx, effects, fills, marks, draw
-  const pageBalloons: { plan: BalloonPlan; panel?: string; order: number; idx: number }[] = [];
+  const pageBalloons: { plan: BalloonPlan; panel?: string; order: number; idx: number; frame?: Vec[] }[] = [];
   const renderOthers = async (els: RElement[], ctx: ElemCtx, panelIdx: number, source: number) => {
     const plans: { plan: BalloonPlan; idx: number; textIndex: number }[] = [];
     const balloonIds = new Set(els.filter((e) => e.type === "balloon").map((e) => e.id));
@@ -333,7 +335,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       info.text[textIndex] = textInfo(plan.el.id, plan.text);
       if (plan.dialogueExceedsMaxSize) ctx.bag.warn("BALLOON_TOO_LARGE", `balloon ${plan.el.id} exceeds maxSize at the dialogue font size`, { path: plan.el.path, elementId: plan.el.id });
     }
-    pageBalloons.push(...plans.map(({ plan, idx }) => ({ plan, idx, panel: ctx.panel?.panel.id, order: ctx.panel?.order ?? panels.length })));
+    pageBalloons.push(...plans.map(({ plan, idx }) => ({ plan, idx, panel: ctx.panel?.panel.id, order: ctx.panel?.order ?? panels.length, frame: plan.edgeCut ? ctx.panelPoly : undefined })));
     const consumed = new Set<string>();
     prepareBalloonObstacles(plans.map(p => p.plan));
     const byId = new Map(plans.map((x) => [x.plan.el.id, x]));
@@ -363,7 +365,9 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       try {
         const r = renderBalloon(plan, { ...ctx, coordsBox: coordsFor(plan.el, ctx, geom) });
         warnBalloonInGutter(plan.el, r.contour, ctx);
-        processed.set(plan.el.id, mkItem(plan.el, r.nodes, r.bbox, panelIdx, idx, source, ctx, [balloonGlyphRun(plan)]));
+        const item = mkItem(plan.el, r.nodes, r.bbox, panelIdx, idx, source, ctx, [balloonGlyphRun(plan)]);
+        if (plan.edgeCut && plan.text.plain) item.safetyBox = boundsOf(textPolygon(plan));
+        processed.set(plan.el.id, item);
         refs.add({ id: plan.el.id, type: "balloon", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id, shape: r.contour });
       } catch (e) {
         bag.error("RENDER_FAILED", `${plan.el.id}: ${(e as Error).message}`, { path: plan.el.path, elementId: plan.el.id });
@@ -407,7 +411,10 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       const angle = plan.props.rotate !== undefined ? parseAngle(plan.props.rotate as string) : 0;
       const cr = Math.cos(angle);
       const sr = Math.sin(angle);
-      const bounds = boundsOf(plan.body.contour.pts.map((q) => ({ x: q.x * cr - q.y * sr + plan.center!.x, y: q.x * sr + q.y * cr + plan.center!.y })));
+      const body = plan.body.contour.pts.map((q) => ({ x: q.x * cr - q.y * sr + plan.center!.x, y: q.x * sr + q.y * cr + plan.center!.y }));
+      // a frame-cut body shows only inside its panel
+      const shown = balloon.frame ? polygonClipping.intersection([body.map((q) => [q.x, q.y] as [number, number])], [balloon.frame.map((q) => [q.x, q.y] as [number, number])]).flat(2).map(([x, y]) => ({ x, y })) : [];
+      const bounds = boundsOf(shown.length ? shown : body);
       return { ...balloon, bounds };
     });
   const tolerance = 1 * u.k;
@@ -1526,6 +1533,23 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     ctx.bag.warn("BALLOON_NO_SPACE", `balloon ${pl.el.id} cannot fit within its panel at the dialogue font size`, { path: pl.el.path, elementId: pl.el.id });
     return c;
   };
+  // a cut body grows so what the frame leaves of it still holds the lines (spec 6.10.3)
+  if (ctx.panel && replan) {
+    for (const [i, pl] of plans.entries()) {
+      const sides = cutSides(pl.props);
+      if (!sides.length || pl.props.size !== undefined) continue;
+      const b = dialogueBounds(pl);
+      // a body cut by two facing sides is a band: across it, it only needs the lines plus a margin
+      const own = {
+        w: sides.includes("top") && sides.includes("bottom") ? Math.min(b.w, pl.text.width * 1.6) : b.w,
+        h: sides.includes("left") && sides.includes("right") ? Math.min(b.h, pl.text.height * 1.6) : b.h,
+      };
+      const grown = cutSize(own, panelBox, sides, side => cutDepth(pl.props, side));
+      const size = [`${pl.outer.w * grown.w / b.w}mm`, `${pl.outer.h * grown.h / b.h}mm`];
+      const vp = replan(pl, { ...pl.props, size });
+      if (vp) plans[i] = Object.assign(pl, { ...vp, el: pl.el, explicit: pl.explicit, props: { ...pl.props, size } });
+    }
+  }
   const obstacles: { r: Rect; w: number; ellipse?: boolean }[] = [];
   for (const it of processed.values()) {
     const el = (it as { el?: RElement }).el;
@@ -1593,6 +1617,12 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     // a balloon must not run off the trimmed page (it may cross gutters and panel borders)
     const lim = rectInset(geom.trim, 1 * u.k);
     const offscreen = hasOffscreenTail(pl.props);
+    const cut = ctx.panel ? cutSides(pl.props) : [];
+    if (cut.length) {
+      pl.edgeCut = true;
+      setCenter(pl, cutCenter(dialogueBounds(pl), panelBox, cut, side => cutDepth(pl.props, side), { x: tl.x - pl.outer.x, y: tl.y - pl.outer.y }));
+      continue;
+    }
     if (ctx.panelPoly && keepFlashInsidePanel(pl)) {
       const fitted = fitFlashPlacement(tl, panelBox, ctx.panelPoly, u.k);
       if (fitted) {
@@ -1764,6 +1794,12 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
       const ys: number[] = [];
       for (let x = area.x + w / 2; x <= Math.max(area.x + w / 2, area.x + area.w - w / 2) + 0.01; x += step) xs.push(x);
       for (let y = area.y + h / 2; y <= Math.max(area.y + h / 2, area.y + area.h - h / 2) + 0.01; y += step) ys.push(y);
+      const cut = ctx.panel ? cutSides(vp.props) : [];
+      if (cut.length) {
+        const c = cutCenter(dialogueBounds(vp), panelBox, cut, side => cutDepth(vp.props, side), { x: NaN, y: NaN });
+        if (!isNaN(c.x)) xs.splice(0, xs.length, c.x + vp.outer.x + w / 2);
+        if (!isNaN(c.y)) ys.splice(0, ys.length, c.y + vp.outer.y + h / 2);
+      }
       if (face) {
         const gap = Math.max(w, h) * 0.05 + 0.4 * u.k;
         xs.push(...[face.x - gap - w / 2, face.x + face.w + gap + w / 2].filter(x => x >= area.x + w / 2 && x <= area.x + area.w - w / 2));
@@ -1773,7 +1809,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         for (const x of xs) {
           const c = { x, y };
           const rect = { x: x - w / 2, y: y - h / 2, w, h };
-          if (containsBalloon(pl.el, ctx) && ctx.panelPoly && !polygonFits(bodyPolygon(vp, { x: x - (vp.outer.x + w / 2), y: y - (vp.outer.y + h / 2) }), ctx.panelPoly, frameClearance(ctx))) continue;
+          if (!cut.length && containsBalloon(pl.el, ctx) && ctx.panelPoly && !polygonFits(bodyPolygon(vp, { x: x - (vp.outer.x + w / 2), y: y - (vp.outer.y + h / 2) }), ctx.panelPoly, frameClearance(ctx))) continue;
           const A = w * h;
           let cost = extra;
           if (flashPanel && !rectPts(rectInset(rect, -u.k / 2)).every(q => pointInPolygon(q, flashPanel))) cost += 1000;
@@ -1799,7 +1835,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
             cost += W.offscreen * Math.max(0, dEdge) / Math.max(1, offSide === "left" || offSide === "right" ? area.w : area.h);
           }
           const inside = rectIntersect(rect, area);
-          cost += W.outside * (1 - (inside ? inside.w * inside.h : 0) / A);
+          if (!cut.length) cost += W.outside * (1 - (inside ? inside.w * inside.h : 0) / A);
           cells.push({ c, rect, base: cost, s: sOf(c, h), vp, w, h });
         }
       }
@@ -1894,7 +1930,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     if ((chosen.costs.get(pl) ?? 0) > threshold) ctx.bag.warn("BALLOON_NO_SPACE", `no good position for balloon ${pl.el.id}`, { path: pl.el.path, elementId: pl.el.id });
     const vp = chosen.shapes.get(pl);
     if (vp && vp !== pl) Object.assign(pl, { ...vp, el: pl.el, props: pl.props });
-    if (edgeCandidates.get(pl)?.some(p => Math.hypot(p.x - c.x, p.y - c.y) < 1e-6)) pl.edgeCut = true;
+    if ((ctx.panel && cutSides(pl.props).length) || edgeCandidates.get(pl)?.some(p => Math.hypot(p.x - c.x, p.y - c.y) < 1e-6)) pl.edgeCut = true;
     const origin = { x: c.x - (pl.outer.x + pl.outer.w / 2), y: c.y - (pl.outer.y + pl.outer.h / 2) };
     pl.center = pl.edgeCut || isFlow(pl) ? origin : fitDialogue(pl, origin);
   }
@@ -2149,7 +2185,7 @@ function checkTextSafety(items: Item[], geom: PageGeom, bag: DiagnosticBag, page
   const movement = (mm: number) => (Math.ceil(mm * 10 - 1e-9) / 10).toFixed(1);
   for (const it of items) {
     if (!["balloon", "text", "sfx"].includes(it.el.type)) continue;
-    const b = it.bbox;
+    const b = it.safetyBox ?? it.bbox;
     const s = geom.safe;
     const intentionalBleed = it.el.type === "sfx" && it.el.props.bleed === true;
     const t = geom.trim;
