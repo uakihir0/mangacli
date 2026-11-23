@@ -292,6 +292,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     }
     // place balloons
     const sils = await silhouettes(refs, ctx);
+    const mouths = balloonMouthObstacles(ctx, processed, drawOrder);
     const replan = (pl: BalloonPlan, props: Obj): BalloonPlan | null => {
       try {
         return planBalloon({ ...pl.el, props }, { ...ctx, bag: new DiagnosticBag(), coordsBox: coordsFor(pl.el, ctx, geom) });
@@ -299,7 +300,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
         return null;
       }
     };
-    placeBalloons(plans.map((p) => p.plan), ctx, refs, processed, sils, replan);
+    placeBalloons(plans.map((p) => p.plan), ctx, refs, processed, mouths, sils, replan);
     ctx = { ...ctx, silhouettes: sils };
     // consecutive auto-placed lines of one speaker that end up side by side are joined (one tail)
     const linkedIds = new Set<string>();
@@ -331,7 +332,6 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     pageBalloons.push(...plans.map(({ plan, idx }) => ({ plan, idx, panel: ctx.panel?.panel.id, order: ctx.panel?.order ?? panels.length })));
     const consumed = new Set<string>();
     const balloonPlans = plans.map(p => p.plan);
-    const mouths = balloonMouthObstacles(ctx);
     prepareBalloonObstacles(balloonPlans);
     const byId = new Map(plans.map((x) => [x.plan.el.id, x]));
     for (const { plan, idx } of plans) {
@@ -1524,18 +1524,32 @@ function balloonSpeakerImages(ctx: ElemCtx): RefTarget[] {
   return ctx.refs.allSpeakers().filter(t => t.type === "image" && (!pid || t.panelId === undefined || t.panelId === pid));
 }
 
-function balloonMouthObstacles(ctx: ElemCtx, speakers = balloonSpeakerImages(ctx)): Rect[] {
+function balloonMouthObstacles(ctx: ElemCtx, images: Map<string, Item>, drawOrder: PanelGeom[]): Rect[] {
   const panelBox = ctx.panel?.box ?? ctx.geom.baseFrame;
   const radius = 2 * ctx.u.k;
-  return speakers.flatMap(t => {
+  return balloonSpeakerImages(ctx).flatMap(t => {
     const p = t.anchors.mouth;
-    if (!p) return [];
+    const item = images.get(t.id);
+    if (!p || !item?.nodes.length || item.el.props.opacity === 0 || !t.imagePx ||
+      !pointInPolygon(p, t.shape ?? rectPts(t.bbox))) return [];
+    const owner = item.source === 0 ? drawOrder[item.panelIdx] : undefined;
+    if (!item.free && owner) {
+      const poly = panelShapePoly(owner, ctx.geom);
+      const contour = poly === owner.polygon ? poly : flattenPath(panelClip(owner, poly), 0.05)[0]?.pts ?? [];
+      if (owner.panel.props.visible === false || !pointInPolygon(p, contour)) return [];
+    }
+    const clip = item.el.props.clip;
+    if (isObj(clip)) {
+      const targets = Array.isArray(clip.to) ? drawOrder.filter(pg => (clip.to as string[]).includes(pg.panel.id)) : owner ? [owner] : [];
+      if ((targets.length || Array.isArray(clip.to)) && !targets.some(pg =>
+        flattenPath(openClipPath(pg, clip, ctx.geom, ctx.u), 0.05).some(c => pointInPolygon(p, c.pts)))) return [];
+    }
     const box = { x: p.x - radius, y: p.y - radius, w: 2 * radius, h: 2 * radius };
     return rectIntersect(box, panelBox) ? [box] : [];
   });
 }
 
-function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, processed: Map<string, { bbox: Rect }>, sils: Silhouette[] = [], replan?: (pl: BalloonPlan, props: Obj) => BalloonPlan | null) {
+function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, processed: Map<string, Item>, hard: Rect[], sils: Silhouette[] = [], replan?: (pl: BalloonPlan, props: Obj) => BalloonPlan | null) {
   plans = [...plans].sort((a, b) => Number(a.props.as === "aside") - Number(b.props.as === "aside"));
   const u = ctx.u;
   const geom = ctx.geom;
@@ -1562,14 +1576,13 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   };
   const obstacles: { r: Rect; w: number; ellipse?: boolean }[] = [];
   for (const it of processed.values()) {
-    const el = (it as { el?: RElement }).el;
+    const el = it.el;
     if (el && (el.type === "text" || el.type === "sfx") && rectIntersect(it.bbox, panelBox)) obstacles.push({ r: it.bbox, w: 50 });
     // marks the author placed (sparkles, sweat, ...) should stay visible
     else if (el && el.type === "mark" && rectIntersect(it.bbox, panelBox)) obstacles.push({ r: it.bbox, w: 30 });
   }
   const pid = ctx.panel?.panel.id;
   const speakers = balloonSpeakerImages(ctx);
-  const hard = balloonMouthObstacles(ctx, speakers);
   for (const t of speakers) {
     // faces are roughly elliptical: the corners of the face box are free space
     for (const [k, rg] of Object.entries(t.regions)) if ((k === "face" || k === "avoid") && rectIntersect(rg.bbox, panelBox)) obstacles.push({ r: rg.bbox, w: 60, ellipse: k === "face" });

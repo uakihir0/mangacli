@@ -11,14 +11,18 @@ const fills = (nodes: PathNode[]) => nodes.filter(n => n.tag?.role === "fill");
 const lettering = (nodes: PathNode[], id: string) => nodes.filter(n => n.tag?.role === "text" && n.tag.elementId === id);
 const area = (node: PathNode) => flattenPath(node.path).reduce((total, path) => total + Math.abs(polygonArea(path.pts)), 0);
 
-async function scene(at: number, connect = "", extra = "", obstacle?: "monologue" | "mouth" | "ellipse-corner") {
-  const withMouth = obstacle === "mouth" || obstacle === "ellipse-corner";
+async function scene(at: number, connect = "", extra = "", obstacle?: "monologue" | "mouth" | "ellipse-corner" | "hidden-mouth" | "transparent-mouth" | "panel-cropped-mouth") {
+  const withMouth = obstacle !== undefined && obstacle !== "monologue";
   const ellipse = obstacle === "ellipse-corner";
+  const clipped = obstacle === "panel-cropped-mouth";
+  const art = obstacle === "hidden-mouth" ? ", visible: false" : obstacle === "transparent-mouth" ? ", opacity: 0" : "";
+  const panel = clipped ? "polygon: [[10mm, 10mm], [55mm, 10mm], [55mm, 44mm], [61mm, 44mm], [61mm, 10mm], [110mm, 10mm], [110mm, 70mm], [10mm, 70mm]]\n        coords: page\n        layers:" : "layers:";
+  const balloonClip = clipped ? ", clip: none" : "";
   const sceneRenderer = withMouth ? createRenderer({ profile: "preview", assets: {
     face: await sharp({ create: { width: 32, height: 32, channels: 3, background: "white" } }).png().toBuffer(),
   } }) : renderer;
   const layer = obstacle === "monologue" ? "- {balloon: Word, id: obstacle, as: monologue, at: [48mm, 28mm]}" :
-    withMouth ? `- {image: face, at: [${ellipse ? "41mm, 36mm" : "48mm, 28mm"}], anchor: center, size: [8mm, 8mm]}` : "";
+    withMouth ? `- {image: face, at: [${ellipse ? "41mm, 36mm" : "48mm, 28mm"}], anchor: center, size: [8mm, 8mm]${art}}` : "";
   const result = await sceneRenderer.render({ yaml: `mangacli: 1
 meta: {lang: en}
 page: {size: [120mm, 80mm], bleed: 0mm}
@@ -26,9 +30,9 @@ book: {readingDirection: ltr}
 ${withMouth ? "assets: {face: {src: face.png, character: speaker, anchors: {mouth: [16, 16]}}}" : ""}
 pages:
   - panels:
-      - layers:
-          - {balloon: A, id: first, at: [28mm, 28mm], size: [20mm, 20mm], shape: {kind: ${ellipse ? "ellipse" : "rect"}}, hand: clean, halo: none, tail: none}
-          - {balloon: B, id: second, at: [${at}mm, 28mm], size: [20mm, 20mm], shape: {kind: ${ellipse ? "ellipse" : "rect"}}, hand: clean, halo: none, tail: none${connect}${extra}}
+      - ${panel}
+          - {balloon: A, id: first, at: [28mm, 28mm], size: [20mm, 20mm], shape: {kind: ${ellipse ? "ellipse" : "rect"}}, hand: clean, halo: none, tail: none${balloonClip}}
+          - {balloon: B, id: second, at: [${at}mm, 28mm], size: [20mm, 20mm], shape: {kind: ${ellipse ? "ellipse" : "rect"}}, hand: clean, halo: none, tail: none${balloonClip}${connect}${extra}}
           ${layer}
 ` }, { layoutOnly: true, keepLists: true });
   expect(result.diagnostics.filter(d => d.severity === "error")).toEqual([]);
@@ -80,6 +84,12 @@ describe("balloon connections", () => {
     expect(fills(result.nodes)).toHaveLength(2);
     expect(result.nodes).toEqual(separate.nodes);
     expect(result.diagnostics).toEqual([expect.objectContaining({ severity: "info", elementId: "second" })]);
+  });
+
+  it.each(["hidden-mouth", "transparent-mouth", "panel-cropped-mouth"] as const)("can still merge past a %s", async obstacle => {
+    const result = await scene(75, ", connect: {to: first}", "", obstacle);
+    expect(fills(result.nodes)).toHaveLength(1);
+    expect(result.diagnostics).toEqual([]);
   });
 
   it("draws a connector line only when explicitly requested", async () => {
