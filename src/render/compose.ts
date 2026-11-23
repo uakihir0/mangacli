@@ -1860,8 +1860,10 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
           const moved = !prev || Math.abs(cx - prev.x) > 1e-6 || Math.abs(cy - prev.y) > 1e-6;
           prev = { x: cx, y: cy };
           first ??= { cx, cy, dx, dy };
-          // taken: try the next row, while one is left in the area and a new row moves the balloon
-          if (!moved || st.flowY + st.rowH + 1 * u.k + h > area.y + area.h || attempt > 8) {
+          // taken: try the next row, below the row and below what the balloon ran into,
+          // while one is left in the area and a new row moves the balloon
+          const nextY = st.flowY + Math.max(st.rowH, ...hit.map(r => r.y + r.h - own.y), 0) + 1 * u.k;
+          if (!moved || nextY + h > area.y + area.h || attempt > 8) {
             ({ cx, cy, dx, dy } = first);
             Object.assign(st, cursor);
             st.costs.set(pl, Infinity);
@@ -1869,8 +1871,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
             break;
           }
           st.flowX = rtl ? area.x + area.w : area.x;
-          // the next row starts below the row and below what the balloon ran into
-          st.flowY += Math.max(st.rowH, ...hit.map(r => r.y + r.h - own.y), 0) + 1 * u.k;
+          st.flowY = nextY;
           st.rowH = 0;
         }
         st.centers.set(pl, { x: cx, y: cy });

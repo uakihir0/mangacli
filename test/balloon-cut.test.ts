@@ -149,6 +149,14 @@ pages:
     const r = await validate({ yaml: page(`          - { balloon: いちいち, id: a, autoPlace: flow, tail: none }\n          - { balloon: にいにい, id: b, autoPlace: flow, cut: [right], connect: { to: a, style: overlap }, tail: none }`) });
     expect(r.diagnostics.map(d => d.code)).not.toContain("BALLOON_CONNECT_DISJOINT");
   });
+  it("keeps a cut flowing balloon in the panel when no row below is free", async () => {
+    const r = await validate({
+      yaml: page(`          - { balloon: いちいちいちいちいちいちいちいちいちいち, id: a, at: [90%, 50%], tail: none }
+          - { balloon: にいにい, id: b, autoPlace: flow, cut: [right], tail: none }`),
+    });
+    const b = r.layout[0].elements.find(e => e.id === "b")!.bbox;
+    expect(b.y + b.h).toBeLessThanOrEqual(70.01);
+  });
   it("moves a cut flowing balloon off a balloon placed by at", async () => {
     const r = await validate({ yaml: page(`          - { balloon: いちいち, id: a, at: [90%, 15%], tail: none }\n          - { balloon: にいにい, id: b, autoPlace: flow, cut: [right], tail: none }`) });
     expect(r.diagnostics.map(d => d.code)).not.toContain("BALLOON_TEXT_HIDDEN");
