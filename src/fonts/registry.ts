@@ -179,7 +179,7 @@ export class FontRegistry {
     };
   }
 
-  private pushSetRole(name: string, items: Chain["items"], fallbackOnly: boolean) {
+  private pushSetRole(name: string, items: Chain["items"], part: "all" | "primary" | "fallback") {
     let role: SetRole | undefined;
     try {
       role = this.setRole(name) ?? this.setRole("dialogue");
@@ -192,14 +192,14 @@ export class FontRegistry {
       const phys = this.catalogPhys(font);
       if (!items.some((i) => i.phys.key === phys.key && !i.ranges)) items.push({ phys, ranges, scale, baselineShift: 0, face });
     };
-    if (!fallbackOnly) {
+    if (part !== "fallback") {
       if (role.compose) for (const it of role.compose) {
         if (it.font) add(it.font, it.ranges, it.scale ?? 1, true);
         else if (it.system?.length) items.push({ phys: this.optionalSystemPhys(it.system), ranges: it.ranges, scale: it.scale ?? 1, baselineShift: 0, face: true });
       }
       if (role.font) add(role.font, undefined, role.scale ?? 1);
     }
-    for (const f of role.fallback ?? []) add(f);
+    if (part !== "primary") for (const f of role.fallback ?? []) add(f);
   }
 
   /** Build a candidate chain for a font name (role or registered name). */
@@ -230,7 +230,7 @@ export class FontRegistry {
     } else if (name === "ui") {
       items.push({ phys: { key: `file:${UI_FONT}`, label: "Lato", index: 0, load: async () => readFileSync(UI_FONT) }, scale: 1, baselineShift: 0 });
     } else {
-      if (name === "sfx") this.pushSetRole(name, items, false);
+      if (name === "sfx") this.pushSetRole(name, items, "primary");
       // role chain through registered defs
       let found = false;
       for (const r of ROLE_CHAINS[name] ?? []) {
@@ -240,12 +240,14 @@ export class FontRegistry {
           break;
         }
       }
-      if (!found && name !== "sfx" && (ROLE_CHAINS[name] || name === "default")) this.pushSetRole(name, items, false);
+      if (name === "sfx") {
+        if (!top) this.pushSetRole(name, items, "fallback");
+      } else if (!found && (ROLE_CHAINS[name] || name === "default")) this.pushSetRole(name, items, "all");
     }
     if (top) {
       for (const g of this.globalFallback) if (g !== name) pushName(g);
       // user-defined fonts still fall back to the font set (CJK coverage, emphasis marks etc.)
-      if (name !== "ui") this.pushSetRole(ROLE_CHAINS[name] ? name : "dialogue", items, true);
+      if (name !== "ui") this.pushSetRole(ROLE_CHAINS[name] ? name : "dialogue", items, "fallback");
       items.push({ phys: { key: `file:${UI_FONT}`, label: "Lato", index: 0, load: async () => readFileSync(UI_FONT) }, scale: 1, baselineShift: 0 });
     }
     const ch = { items };

@@ -3,6 +3,7 @@ import { createRenderer } from "../src/api.js";
 import { BUILTIN_DEFAULTS } from "../src/model/defaults.js";
 import { fullSizeKana, sfxInkHeadDepth, sfxScale, sfxShifts, sfxStretch, sfxWeightRadius, type SfxScaleRamp } from "../src/text/sfx.js";
 import { emboldenGlyph } from "../src/text/brush.js";
+import { FontRegistry } from "../src/fonts/registry.js";
 import { flattenPath, parseSvgPath, polygonArea, polyPath, transformPath } from "../src/geom/path.js";
 import { boundsOf } from "../src/geom/vec.js";
 
@@ -44,6 +45,12 @@ describe("SFX lettering", () => {
     expect(unpinned).not.toEqual(gothic);
     expect(unpinned).toEqual(await render("", ", font: 'catalog:yuji-syuku'"));
     expect(await render("fonts: { sfx: 'catalog:dela-gothic-one' }\n")).toEqual(gothic);
+  });
+  it("uses a registered fallback before the catalog fallback for missing SFX glyphs", async () => {
+    const fonts = new FontRegistry(new Map([["shout", { kind: "catalog", id: "rocknroll-one" }]]), "manga-basic", [], {});
+    await fonts.prepare("sfx", "ゴ〜");
+    expect(fonts.pick("sfx", "ゴ".codePointAt(0)!)?.font.key).toBe("cat:yuji-syuku@400");
+    expect(fonts.pick("sfx", "〜".codePointAt(0)!)?.font.key).toBe("cat:rocknroll-one@400");
   });
   it("limits covered fill area in either direction and handles empty ink", () => {
     const rect = polyPath([{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 10 }, { x: 0, y: 10 }], true);
