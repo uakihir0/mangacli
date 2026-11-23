@@ -275,6 +275,25 @@ describe("balloon tails", () => {
     const t = pts.reduce((p, q) => (q.x - q.y > p.x - p.y ? q : p));
     expect(t.x).toBeLessThan(52 - 1.5);
   });
+  it.each([[60, 30], [60, 28], [26, 30]])("keeps a curled side tail out of the face box under the balloon at [%imm, %imm]", async (x, y) => {
+    const data = await sharp({ create: { width: 1000, height: 800, channels: 3, background: "white" } }).png().toBuffer();
+    const renderer = createRenderer({ profile: "preview", assets: { art: data } });
+    const doc = {
+      mangacli: 1,
+      page: { size: ["100mm", "80mm"], bleed: "0mm", baseFrame: "trim" },
+      assets: { art: { src: "art.png", character: "taro", anchors: { mouth: [450, 500] }, regions: { face: [200, 400, 300, 200] } } },
+      pages: [{ layers: [
+        { image: "art", id: "img", at: ["0mm", "0mm"], anchor: "top-left", size: ["100mm", "80mm"], fit: "fill" },
+        { balloon: "Hi", id: "b", who: "taro", at: [`${x}mm`, `${y}mm`], size: ["24mm", "18mm"], hand: "ruler" },
+      ] }],
+    };
+    const root = (await renderer.displayList(doc, 1)).root;
+    const [fill] = paths(root, (n) => n.tag?.elementId === "b" && n.tag.role === "fill");
+    const pts = vertices(fill);
+    const far = pts.reduce((p, q) => (len(sub(q, { x, y })) > len(sub(p, { x, y })) ? q : p));
+    const outside = Math.max(20 - far.x, far.x - 50, 40 - far.y, far.y - 60);
+    expect(outside).toBeGreaterThan(0.25);
+  });
   it("warns when a balloon sits too far from its speaker for its tail to reach", async () => {
     const yaml = (to: string) => `mangacli: 1
 page: { size: [160mm, 80mm], bleed: 3mm }
