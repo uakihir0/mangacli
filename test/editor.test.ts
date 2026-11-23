@@ -128,6 +128,57 @@ describe("mangacli edit", () => {
     expect(set.yaml).toContain("            size: [20mm, auto]\n");
   });
 
+  it("keeps the author's units, areas and ids when editing", async () => {
+    const text = "mangacli: 1\npage: { size: [100mm, 140mm], bleed: 3mm }\npages:\n  - id: p1\n    layout: { area: trim, rows: [{ height: 30% }, { height: 70% }] }\n    panels:\n      - layers:\n          - { id: pic, image: a, size: [20mm, auto], scale: 2 }\n          - type: group\n            id: g\n            children: [{ id: inner, balloon: やあ }]\n          - { id: b, balloon: よう, tails: [{ kind: none }, { direction: 90deg }] }\n      - layers: []\n  - id: p2\n    layout: { template: impact-diagonal }\n    panels: [{ layers: [] }, { layers: [] }]\n";
+    const { api, file } = await start(text);
+    writeFileSync(join(file, "..", "a.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+    let yaml = text.replace("image: a", "image: ./a.png");
+    const render = async () => (await api("/api/render", { method: "POST", body: yaml })).json();
+    const op = async (o: unknown) => {
+      const r = await api("/api/op", { method: "POST", body: JSON.stringify({ yaml, op: o }) });
+      const body = await r.json();
+      expect(r.status, JSON.stringify(body)).toBe(200);
+      yaml = body.yaml;
+      return parse(yaml);
+    };
+    let r = await render();
+    expect(r.diagnostics.filter((d: { severity: string }) => d.severity === "error")).toEqual([]);
+    // percentages stay percentages
+    let doc = await op({ op: "divider", page: "p1", index: 0, delta: 5 });
+    expect(doc.pages[0].layout.rows.map((row: { height: string }) => row.height)).toEqual([expect.stringMatching(/%$/), expect.stringMatching(/%$/)]);
+    r = await render();
+    // `scale` is not applied twice
+    const pic = r.items.pic.edit;
+    doc = await op({ op: "resize", id: "pic", box: { ...pic.box, w: pic.box.w * 1.5, h: pic.box.h * 1.5 } });
+    expect(parseFloat(doc.pages[0].panels[0].layers[0].size[0])).toBeCloseTo(30, 0);
+    r = await render();
+    // the tail knob of the second tail edits the second tail
+    const tail = r.items.b.edit.tails;
+    expect(tail).toHaveLength(1);
+    expect(tail[0].index).toBe(1);
+    // a duplicate has no ids at all
+    doc = await op({ op: "duplicate", id: "g" });
+    expect(JSON.stringify(doc.pages[0].panels[0].layers[2])).not.toContain('"id"');
+    r = await render();
+    // a value that reads differently in a flow map is written as flow YAML
+    doc = await op({ op: "set", target: { kind: "element", id: "b" }, key: ["note"], yaml: "taro, jiro" });
+    expect(doc.pages[0].panels[0].layers[3].note).toBe("taro, jiro");
+    r = await render();
+    // splitting keeps the layout's area
+    doc = await op({ op: "splitPanel", panel: "p1-k2", dir: "v" });
+    expect(doc.pages[0].layout.area).toBe("trim");
+    r = await render();
+    // an edge template converted to free layout keeps the trim as its area
+    doc = await op({ op: "toFree", page: "p2" });
+    expect(doc.pages[1].layout).toEqual({ free: true, area: "trim" });
+    // a page whose id changes is drawn again, not dropped
+    await render();
+    const set = await api("/api/op", { method: "POST", body: JSON.stringify({ yaml, op: { op: "set", target: { kind: "page", id: "p2" }, key: ["id"], string: "p2b" } }) });
+    const sb = await set.json();
+    const after = await (await api("/api/render?pages=" + sb.pages.join(","), { method: "POST", body: sb.yaml })).json();
+    expect(after.pages.map((p: { id: string }) => p.id)).toEqual(["p1", "p2b"]);
+  });
+
   it("rejects requests for other host names", async () => {
     const { editor: e } = await start();
     const http = await import("node:http");
