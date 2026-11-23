@@ -188,6 +188,27 @@ describe("manga finish filter", () => {
     }
     const out = await applyFilters(px, [{ name: "manga", args: [], opts: { betaMinSize: 1, lpi: 30 } }], 0.05);
     for (const x of [30, 33, 36, 39, 42]) for (let y = 20; y < 65; y++) expect(out.data[(y * px.width + x) * 4]).toBe(0);
+    for (const x of [31, 32, 34, 35]) {
+      const gap = new Set(Array.from({ length: 45 }, (_, y) => out.data[((y + 20) * px.width + x) * 4]));
+      expect(gap).toEqual(new Set([0, 255]));
+    }
+  });
+
+  it.each([
+    ["a weak step before a strong edge", (d: number) => d < 2 ? 0 : d < 3 ? 5 : 58],
+    ["a sharp edge followed by a gentle gradient", (d: number) => d < 2 ? 0 : Math.min(58, 20 + 5 * (d - 2))],
+  ] as const)("keeps a stroke with %s black", async (_name, shadeAt) => {
+    const px = sourcePixels();
+    const distance = (x: number) => Math.abs(x - 59.5);
+    for (let y = 0; y < px.height; y++) for (let x = 0; x < px.width; x++) {
+      const j = (y * px.width + x) * 4;
+      const shade = x < 15 ? 0 : shadeAt(distance(x));
+      px.data[j] = px.data[j + 1] = px.data[j + 2] = shade;
+    }
+    const out = await applyFilters(px, [{ name: "manga", args: [], opts: { betaMinSize: 1, lpi: 30 } }], 0.05);
+    for (let y = 20; y < 65; y++) for (let x = 20; x < 105; x++) {
+      if (distance(x) < 1) expect(out.data[(y * px.width + x) * 4]).toBe(0);
+    }
   });
 
   it("screens a smooth dark valley instead of extracting a false ink stroke", async () => {

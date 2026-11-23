@@ -508,6 +508,43 @@ function betaGradient(mask: Uint8Array, w: number, h: number): Float32Array {
   return out;
 }
 
+function slidingExtrema(src: Float32Array, w: number, h: number, radius: number, horizontal: boolean, maximum: boolean, out: Float32Array) {
+  const lineLen = horizontal ? w : h;
+  const paddedLen = lineLen + radius * 2;
+  const queue = new Int32Array(paddedLen);
+  const values = new Float32Array(paddedLen);
+  const span = radius * 2;
+  for (let line = 0; line < (horizontal ? h : w); line++) {
+    let head = 0;
+    let tail = -1;
+    for (let pos = 0; pos < paddedLen; pos++) {
+      const coord = Math.max(0, Math.min(lineLen - 1, pos - radius));
+      const index = horizontal ? line * w + coord : coord * w + line;
+      const value = src[index];
+      while (tail >= head && (maximum ? values[tail] <= value : values[tail] >= value)) tail--;
+      tail++;
+      queue[tail] = pos;
+      values[tail] = value;
+      while (head <= tail && queue[head] < pos - span) head++;
+      if (pos >= span) {
+        const center = pos - span;
+        out[horizontal ? line * w + center : center * w + line] = values[head];
+      }
+    }
+  }
+}
+
+function grayClosing(src: Float32Array, w: number, h: number, radius: number): Float32Array {
+  const n = w * h;
+  const a = new Float32Array(n);
+  const b = new Float32Array(n);
+  slidingExtrema(src, w, h, radius, true, true, a);
+  slidingExtrema(a, w, h, radius, false, true, b);
+  slidingExtrema(b, w, h, radius, true, false, a);
+  slidingExtrema(a, w, h, radius, false, false, b);
+  return b;
+}
+
 function mangaPaperCutoff(histogram: Uint32Array, visible: number): number {
   const baseline = 0.15;
   if (!visible) return baseline;
@@ -585,71 +622,19 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
   const rimDistance = distanceSquared(rimOutside, w, h);
   const rimPx = Math.max(1, Math.round(0.25 / mmPerPx));
   const rimSq = rimPx * rimPx;
-  // Preserve true ink strokes before broad beta shapes are replaced. The core
-  // must reach the strict beta threshold, so a merely dark grey gradient does
-  // not become ink; one-pixel dilation restores the anti-aliased width of a
-  // real stroke without spreading black along a soft ramp.
-  const strokeRadius = Math.max(1.5, betaSize * 0.08);
-  const strokeSq = strokeRadius * strokeRadius;
-  const probe = Math.min(12, Math.max(2, Math.ceil(0.22 / mmPerPx)));
-  const axes = [[1, 0], [0, 1], [1, 1], [1, -1]];
-  const sharpFlank = (x: number, y: number, dx: number, dy: number, threshold: number, steps: number) => {
-    const center = lum01[y * w + x];
-    const edgeNeed = Math.max(0.025, (threshold - center) * 0.5);
-    const values: number[] = [];
-    const rises: number[] = [];
-    let previous = center;
-    for (let step = 1; step <= steps; step++) {
-      const xx = x + dx * step;
-      const yy = y + dy * step;
-      if (xx < 0 || xx >= w || yy < 0 || yy >= h) break;
-      const j = yy * w + xx;
-      if (!data[j * 4 + 3]) break;
-      const next = lum01[j];
-      values.push(next);
-      rises.push(next - previous);
-      previous = next;
-    }
-    let approach = 0;
-    for (let k = 0; k < values.length; k++) {
-      const rise = rises[k];
-      if (values[k] >= threshold && rise >= edgeNeed && rise >= 1.6 * approach) {
-        let following = 0;
-        for (let q = k + 1; q < Math.min(values.length, k + 3); q++) following = Math.max(following, rises[q]);
-        return rise >= 1.1 * following;
-      }
-      approach = Math.max(approach, rise);
-    }
-    return false;
-  };
-  const strokeCore = new Uint8Array(n);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const i = y * w + x;
-    if (!dark[i] || !lines[i]) continue;
-    if (betaMask.clearance[i] <= strokeSq) {
-      strokeCore[i] = 1;
-      continue;
-    }
-    const flank = lum01[i] + 0.07;
-    for (const [dx, dy] of axes) {
-      const steps = dx && dy ? Math.ceil(probe / Math.SQRT2) : probe;
-      if (sharpFlank(x, y, dx, dy, flank, steps) && sharpFlank(x, y, -dx, -dy, flank, steps)) {
-        strokeCore[i] = 1;
-        break;
-      }
-    }
-  }
+  // Black top-hat closing isolates narrow dark strokes from the surrounding
+  // fill. No dilation is applied: dense hatching keeps the gaps drawn by the
+  // source art, while broad smooth gradients have too little local contrast
+  // to become ink.
+  const tophatRadius = Math.min(6, Math.max(1, Math.ceil(0.11 / mmPerPx)));
+  const closingInput = new Float32Array(n);
+  for (let i = 0; i < n; i++) closingInput[i] = data[i * 4 + 3] ? lum01[i] : 1;
+  const closing = grayClosing(closingInput, w, h, tophatRadius);
   const strokes = new Uint8Array(n);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const i = y * w + x;
-    if (!strokeCore[i]) continue;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      const xx = x + dx;
-      const yy = y + dy;
-      if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
-      const j = yy * w + xx;
-      if (lines[j]) strokes[j] = 1;
-    }
+  for (let i = 0; i < n; i++) {
+    if (!dark[i] || !lines[i]) continue;
+    const local = closing[i];
+    if (local - lum01[i] >= 0.045 && lum01[i] <= local * 0.55) strokes[i] = 1;
   }
 
   const sr = image?.sourceRect;
