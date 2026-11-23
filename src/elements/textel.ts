@@ -299,6 +299,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
         const depth = sfxInkHeadDepth(currentInk, vertical);
         delta = Math.max(delta, end - start - depth);
         const gap = sfxInkGap(previousInk, currentInk, vertical, em);
+        // Let the outline join without letting the weighted letter fills touch.
         if (gap !== undefined) delta = Math.max(delta, 0.12 * em + weightClearance - gap);
       }
       if (end !== undefined) delta += space + offset - previousOffset;

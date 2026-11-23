@@ -78,7 +78,7 @@ describe("SFX lettering", () => {
     const source = `writing: ${writing}, rotate: 0deg, grow: 0, brush: false, distort: { roughen: 0 }`;
     const axis = writing === "vertical" ? "h" : "w";
     const single = await inkBox(source, "ド");
-    const normal = await inkBox(`${source}, perChar: { overlap: 0em }`);
+    const normal = await inkBox(`${source}, perChar: { overlap: 0em }, letterSpacing: 0.15em`);
     const packed = await inkBox(source);
     expect(normal[axis]).toBeGreaterThan(3 * single[axis]);
     expect(packed[axis]).toBeLessThan(normal[axis]);
