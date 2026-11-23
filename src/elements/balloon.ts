@@ -1378,7 +1378,7 @@ export function renderBalloon(plan: BalloonPlan, ctx: ElemCtx): { nodes: Node[];
 }
 
 /** two balloons joined by a neck or merged outline (spec 6.9.1) */
-export function renderConnected(a: BalloonPlan, b: BalloonPlan, style: string, widthSpec: unknown, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; contour: Vec[] } {
+export function renderConnected(a: BalloonPlan, b: BalloonPlan, style: string, widthSpec: unknown, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; contour: Vec[] } | null {
   // one speaker -> one tail: only the body nearer to the speaker keeps its tail(s)
   const speakerDist = (pl: BalloonPlan) => {
     const who = pl.props.who as string | undefined;
@@ -1389,13 +1389,6 @@ export function renderConnected(a: BalloonPlan, b: BalloonPlan, style: string, w
   const sameSpeaker = a.props.who === b.props.who;
   const da = speakerDist(a);
   const db = speakerDist(b);
-  const ba = buildBody(a, ctx, sameSpeaker && db < da);
-  const bbb = buildBody(b, ctx, sameSpeaker && da <= db);
-  const toRing = (pts: Vec[]) => {
-    const r = pts.map((q) => [q.x, q.y] as [number, number]);
-    r.push(r[0]);
-    return [r];
-  };
   if (style === "line") {
     // two separate bodies joined by one short pen line between their outlines
     const ra = renderBalloon(a, ctx);
@@ -1418,22 +1411,11 @@ export function renderConnected(a: BalloonPlan, b: BalloonPlan, style: string, w
     const bx = boundsOf([...ra.contour, ...rb.contour]);
     return { nodes, bbox: bx, contour: ra.contour };
   }
+  const ba = buildBody(a, ctx, sameSpeaker && db < da);
+  const bbb = buildBody(b, ctx, sameSpeaker && da <= db);
+  const toRing = (pts: Vec[]): polygonClipping.Polygon => [pts.map(q => [q.x, q.y])];
   const polys: [number, number][][][] = [toRing(ba.contour.pts), toRing(bbb.contour.pts)];
-  let neck = style !== "overlap";
-  if (!neck) {
-    // overlap needs the bodies to touch; otherwise fall back to a neck (spec 6.9.1)
-    let touching = false;
-    try {
-      touching = polygonClipping.intersection(polys[0], polys[1]).length > 0;
-    } catch {
-      touching = false;
-    }
-    if (!touching) {
-      ctx.bag.warn("BALLOON_CONNECT_DISJOINT", `connected balloons ${a.el.id} and ${b.el.id} do not overlap; joined with a neck`, { path: a.el.path, elementId: a.el.id });
-      neck = true;
-    }
-  }
-  if (neck) {
+  if (style === "neck") {
     const ca = a.center!;
     const cb = b.center!;
     const d = { x: cb.x - ca.x, y: cb.y - ca.y };
@@ -1446,6 +1428,7 @@ export function renderConnected(a: BalloonPlan, b: BalloonPlan, style: string, w
   let merged: Vec[] = ba.contour.pts;
   try {
     const u = polygonClipping.union(polys[0], ...polys.slice(1));
+    if (style === "overlap" && u.length !== 1) return null;
     let best: [number, number][] | null = null;
     let bestA = 0;
     for (const poly of u) {
@@ -1458,8 +1441,8 @@ export function renderConnected(a: BalloonPlan, b: BalloonPlan, style: string, w
     }
     if (best) merged = best.slice(0, -1).map(([x, y]) => ({ x, y }));
     if (u.length > 1) ctx.bag.warn("BALLOON_CONNECT_DISJOINT", `connected balloons ${a.el.id} and ${b.el.id} do not touch`, { path: a.el.path, elementId: a.el.id });
-    void neck;
   } catch (e) {
+    if (style === "overlap") return null;
     ctx.bag.warn("RENDER_FEATURE_APPROXIMATED", `connect failed: ${(e as Error).message}`, { path: a.el.path });
   }
   if (polygonArea(merged) < 0) merged = merged.slice().reverse();

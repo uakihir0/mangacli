@@ -32,7 +32,7 @@ import { defaultTextStyle, layoutText, parseLayoutText } from "../text/layout.js
 import { parseMarkup } from "../text/markup.js";
 import { type AssetRegistry, resolveAssetBlend } from "./assets.js";
 import { cleanClippedBalloonInk } from "./balloon-clip.js";
-import { autoEdgeCutFits, bodyPolygon, containBalloon, containsBalloon, cutCenter, cutDepth, cutSides, cutSize, frameClearance, polygonFits, textPolygon, warnBalloonInGutter } from "./balloon-contain.js";
+import { autoEdgeCutFits, balloonObstacleBounds, bodyPolygon, containBalloon, containsBalloon, cutCenter, cutDepth, cutSides, cutSize, frameClearance, overlapBalloonCenter, polygonFits, textPolygon, warnBalloonInGutter } from "./balloon-contain.js";
 import type { DisplayList, GroupNode, Node, PathNode } from "./ir.js";
 import { FILTER_NAMES, parseFilter } from "./filters.js";
 
@@ -294,6 +294,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     }
     // place balloons
     const sils = await silhouettes(refs, ctx);
+    const mouths = balloonMouthObstacles(ctx, processed, drawOrder);
     const replan = (pl: BalloonPlan, props: Obj): BalloonPlan | null => {
       try {
         return planBalloon({ ...pl.el, props }, { ...ctx, bag: new DiagnosticBag(), coordsBox: coordsFor(pl.el, ctx, geom) });
@@ -301,7 +302,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
         return null;
       }
     };
-    placeBalloons(plans.map((p) => p.plan), ctx, refs, processed, sils, replan);
+    placeBalloons(plans.map((p) => p.plan), ctx, refs, processed, mouths, sils, replan);
     ctx = { ...ctx, silhouettes: sils };
     // consecutive auto-placed lines of one speaker that end up side by side are joined (one tail)
     const linkedIds = new Set<string>();
@@ -319,11 +320,6 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       const gx = Math.max(0, Math.max(ra.x, rb.x) - Math.min(ra.x + ra.w, rb.x + rb.w));
       const gy = Math.max(0, Math.max(ra.y, rb.y) - Math.min(ra.y + ra.h, rb.y + rb.h));
       if (Math.hypot(gx, gy) > 4 * u.k) continue;
-      // tuck the follow-up balloon into the first one so their outlines merge (a stacked pair)
-      const d = { x: b.center.x - a.center.x, y: b.center.y - a.center.y };
-      const dl = Math.hypot(d.x, d.y) || 1;
-      const tuck = Math.hypot(gx, gy) + Math.min(ra.w, ra.h, rb.w, rb.h) * 0.12;
-      b.center = { x: b.center.x - (d.x / dl) * tuck, y: b.center.y - (d.y / dl) * tuck };
       b.props = { ...b.props, connect: { to: a.el.id, style: "overlap" } };
       linkedIds.add(a.el.id);
       linkedIds.add(b.el.id);
@@ -337,7 +333,8 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     }
     pageBalloons.push(...plans.map(({ plan, idx }) => ({ plan, idx, panel: ctx.panel?.panel.id, order: ctx.panel?.order ?? panels.length, frame: plan.edgeCut ? ctx.panelPoly : undefined })));
     const consumed = new Set<string>();
-    prepareBalloonObstacles(plans.map(p => p.plan));
+    const balloonPlans = plans.map(p => p.plan);
+    prepareBalloonObstacles(balloonPlans);
     const byId = new Map(plans.map((x) => [x.plan.el.id, x]));
     for (const { plan, idx } of plans) {
       const cn = plan.props.connect;
@@ -348,8 +345,24 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
           bag.error("REF_NOT_FOUND", `connect target "${c.to}" not found in the same panel`, { path: [...plan.el.path, "connect"] });
           continue;
         }
+        const style = (c.style as string) ?? "overlap";
+        const original = plan.center;
         try {
-          const r = renderConnected(other.plan, plan, (c.style as string) ?? "neck", c.width, { ...ctx, coordsBox: coordsFor(plan.el, ctx, geom) });
+          const c2 = { ...ctx, coordsBox: coordsFor(plan.el, ctx, geom) };
+          let position = original;
+          if (style === "overlap") {
+            const obstacles = [...mouths, ...balloonPlans.filter(p => p !== plan && p !== other.plan).flatMap(balloonObstacleBounds)];
+            position = overlapBalloonCenter(other.plan, plan, c2, obstacles, consumed.has(plan.el.id));
+            if (position && position !== original) {
+              plan.center = position;
+              prepareBalloonObstacles(balloonPlans);
+            }
+          }
+          const r = position ? renderConnected(other.plan, plan, style, c.width, c2) : null;
+          if (!r) {
+            bag.info("BALLOON_CONNECT_DISJOINT", `connected balloons ${other.plan.el.id} and ${plan.el.id} could not be merged; drawn separately`, { path: [...plan.el.path, "connect"], elementId: plan.el.id });
+            continue;
+          }
           processed.set(other.plan.el.id, mkItem(other.plan.el, r.nodes, r.bbox, panelIdx, Math.min(idx, other.idx), source, ctx, [balloonGlyphRun(other.plan), balloonGlyphRun(plan)]));
           refs.add({ id: plan.el.id, type: "balloon", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id, shape: r.contour });
           refs.add({ id: other.plan.el.id, type: "balloon", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id, shape: r.contour });
@@ -357,6 +370,11 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
           consumed.add(other.plan.el.id);
         } catch (e) {
           bag.error("RENDER_FAILED", `${plan.el.id}: ${(e as Error).message}`, { path: plan.el.path, elementId: plan.el.id });
+        } finally {
+          if (!consumed.has(plan.el.id) && plan.center !== original) {
+            plan.center = original;
+            prepareBalloonObstacles(balloonPlans);
+          }
         }
       }
     }
@@ -1508,7 +1526,41 @@ function fitFlashPlacement(box: Rect, panel: Rect, poly: Vec[], margin: number):
   return { ...box, ...lerp(at, middle, hi) };
 }
 
-function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, processed: Map<string, { bbox: Rect }>, sils: Silhouette[] = [], replan?: (pl: BalloonPlan, props: Obj) => BalloonPlan | null) {
+function balloonSpeakerImages(ctx: ElemCtx): RefTarget[] {
+  const pid = ctx.panel?.panel.id;
+  return ctx.refs.allSpeakers().filter(t => t.type === "image" && (!pid || t.panelId === undefined || t.panelId === pid));
+}
+
+function balloonMouthObstacles(ctx: ElemCtx, images: Map<string, Item>, drawOrder: PanelGeom[]): Rect[] {
+  const panelBox = ctx.panel?.box ?? ctx.geom.baseFrame;
+  const radius = 2 * ctx.u.k;
+  return balloonSpeakerImages(ctx).flatMap(t => {
+    const p = t.anchors.mouth;
+    const item = images.get(t.id);
+    const art = t.imageSilhouette;
+    const image = art?.children.find(node => node.kind === "image");
+    if (!p || !item?.nodes.length || item.el.props.opacity === 0 || !image) return [];
+    const local = image.transform ? applyMat(invertMat(image.transform), p) : p;
+    if (!pointInPolygon(local, rectPts(image.dest)) ||
+      (art?.clip && !flattenPath(art.clip, 0.05).some(c => pointInPolygon(p, c.pts)))) return [];
+    const owner = item.source === 0 ? drawOrder[item.panelIdx] : undefined;
+    if (!item.free && owner) {
+      const poly = panelShapePoly(owner, ctx.geom);
+      const contour = poly === owner.polygon ? poly : flattenPath(panelClip(owner, poly), 0.05)[0]?.pts ?? [];
+      if (owner.panel.props.visible === false || !pointInPolygon(p, contour)) return [];
+    }
+    const clip = item.el.props.clip;
+    if (isObj(clip)) {
+      const targets = Array.isArray(clip.to) ? drawOrder.filter(pg => (clip.to as string[]).includes(pg.panel.id)) : owner ? [owner] : [];
+      if ((targets.length || Array.isArray(clip.to)) && !targets.some(pg =>
+        flattenPath(openClipPath(pg, clip, ctx.geom, ctx.u), 0.05).some(c => pointInPolygon(p, c.pts)))) return [];
+    }
+    const box = { x: p.x - radius, y: p.y - radius, w: 2 * radius, h: 2 * radius };
+    return rectIntersect(box, panelBox) ? [box] : [];
+  });
+}
+
+function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, processed: Map<string, Item>, hard: Rect[], sils: Silhouette[] = [], replan?: (pl: BalloonPlan, props: Obj) => BalloonPlan | null) {
   plans = [...plans].sort((a, b) => Number(a.props.as === "aside") - Number(b.props.as === "aside"));
   const u = ctx.u;
   const geom = ctx.geom;
@@ -1557,21 +1609,16 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   }
   const obstacles: { r: Rect; w: number; ellipse?: boolean }[] = [];
   for (const it of processed.values()) {
-    const el = (it as { el?: RElement }).el;
+    const el = it.el;
     if (el && (el.type === "text" || el.type === "sfx") && rectIntersect(it.bbox, panelBox)) obstacles.push({ r: it.bbox, w: 50 });
     // marks the author placed (sparkles, sweat, ...) should stay visible
     else if (el && el.type === "mark" && rectIntersect(it.bbox, panelBox)) obstacles.push({ r: it.bbox, w: 30 });
   }
   const pid = ctx.panel?.panel.id;
-  const hard: Rect[] = [];
-  for (const t of refs.allSpeakers()) {
-    if (t.type !== "image" || (pid && t.panelId !== undefined && t.panelId !== pid)) continue;
+  const speakers = balloonSpeakerImages(ctx);
+  for (const t of speakers) {
     // faces are roughly elliptical: the corners of the face box are free space
     for (const [k, rg] of Object.entries(t.regions)) if ((k === "face" || k === "avoid") && rectIntersect(rg.bbox, panelBox)) obstacles.push({ r: rg.bbox, w: 60, ellipse: k === "face" });
-    if (t.anchors.mouth) {
-      const mouth = { x: t.anchors.mouth.x - 2 * u.k, y: t.anchors.mouth.y - 2 * u.k, w: 4 * u.k, h: 4 * u.k };
-      if (rectIntersect(mouth, panelBox)) hard.push(mouth);
-    }
   }
   const placedRects: Rect[] = [];
   const attachedRects: Rect[] = [];

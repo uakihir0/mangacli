@@ -197,11 +197,8 @@ describe("sfx text safety", () => {
       .replace("panels: []", "panels: [{}]");
     const measured = await renderer.render(doc, { format: "svg" });
     const b = measured.layout[0].elements.find((e) => e.id === "sfx")!.bbox;
-    const height = 12;
-    const y = 11 * 25.4 - 12.7 + 0.5 - height / 2;
-    doc.yaml = doc.yaml.replace("60mm, 70mm", `60mm, ${y}mm`)
-      .replace("fontSize: 12mm", `fontSize: ${12 * height / b.h}mm`);
-    expect(y + height / 2 - 12.7 - (11 * 25.4 - 2 * 12.7)).toBeGreaterThan(0.5);
+    const y = 11 * 25.4 - 12.7 + 0.5 - (b.y + b.h - 70);
+    doc.yaml = doc.yaml.replace("60mm, 70mm", `60mm, ${y}mm`);
     const result = await renderer.render(doc, { format: "svg", strict: true });
     expect(result.diagnostics.filter((d) => safetyCodes.includes(d.code))).toEqual([]);
   });
