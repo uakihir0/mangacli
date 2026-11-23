@@ -1815,7 +1815,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         let prev: Vec | undefined;
         let fromStart = false;
         // a balloon cut at the top or bottom keeps its height whatever row it is in
-        const pinned = cutSides(pl.props).some(sd => sd === "top" || sd === "bottom");
+        const pinned = cut && cutSides(pl.props).some(sd => sd === "top" || sd === "bottom");
         for (let attempt = 0; ; attempt++) {
           if ((rtl ? st.flowX - w < area.x : st.flowX + w > area.x + area.w) && st.rowH > 0) {
             st.flowX = rtl ? area.x + area.w : area.x;
