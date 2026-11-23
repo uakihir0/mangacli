@@ -66,6 +66,22 @@ describe("manga finish filter", () => {
     }
   });
 
+  it("keeps the dark-grey part of a beta mass solid without inking the rest of the keep rectangle", async () => {
+    const px = sourcePixels();
+    for (let y = 10; y < 70; y++) for (let x = 25; x < 50; x++) {
+      const i = (y * px.width + x) * 4;
+      px.data[i] = px.data[i + 1] = px.data[i + 2] = 60;
+    }
+    const opts = { betaMinSize: 1, lpi: 30 };
+    const filter: ImageFilter = { name: "manga", args: [], opts };
+    const screened = await applyFilters(px, [filter], 0.05);
+    const kept = await applyFilters(px, [{ ...filter, opts: { ...opts, keepBeta: [[10, 15, 55, 50]] } }], 0.05);
+    const strip = (out: typeof kept, x: number) => new Set(Array.from({ length: 40 }, (_, y) => out.data[((y + 20) * px.width + x) * 4]));
+    expect(strip(screened, 35)).toEqual(new Set([0, 255]));
+    expect(strip(kept, 35)).toEqual(new Set([0]));
+    expect(strip(kept, 58)).toEqual(new Set([0, 255]));
+  });
+
   it("lowers the effective lpi instead of producing unresolvable dots at low output resolution", () => {
     const filter: ImageFilter = { name: "manga", args: [], opts: { lpi: 60 } };
     const adapted = mangaOutputFilters([filter], 25.4 / 96);

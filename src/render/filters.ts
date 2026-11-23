@@ -675,9 +675,11 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
     const i = y * w + x;
     const alpha = data[i * 4 + 3];
     if (!alpha) continue;
-    const yv = lum01[i];
-    const inTone = large[i] && rimDistance[i] > rimSq && !strokes[i];
-    if (inTone && !inKeep(x, y)) {
+    if (large[i] && inKeep(x, y)) {
+      density[i] = 1;
+      continue;
+    }
+    if (large[i] && rimDistance[i] > rimSq && !strokes[i]) {
       density[i] = grad ? grad[i] : (betaTone as number);
       continue;
     }
@@ -716,6 +718,7 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
     const threshold = 1 - grain * 0.7;
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const i = y * w + x;
+      if (large[i] && inKeep(x, y)) continue;
       const v0 = before[i];
       let edge = false;
       for (let dy = -1; dy <= 1 && !edge; dy++) for (let dx = -1; dx <= 1; dx++) {
