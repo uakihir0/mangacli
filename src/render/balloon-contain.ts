@@ -3,7 +3,7 @@ import { parseAngle, toMm } from "../core/units.js";
 import { balloonTailRegions, hasOffscreenTail, type BalloonPlan } from "../elements/balloon.js";
 import type { ElemCtx } from "../elements/context.js";
 import { distToPolyline, pointInPolygon, polygonArea } from "../geom/path.js";
-import { boundsOf, type Rect, type Vec } from "../geom/vec.js";
+import { boundsOf, lerp, rectInset, rectOverlapArea, type Rect, type Vec } from "../geom/vec.js";
 import type { RElement } from "../model/resolve.js";
 import { breakFaults } from "../text/layout.js";
 
@@ -25,6 +25,60 @@ const convexity = new WeakMap<Vec[], boolean>();
 export function bodyPolygon(plan: BalloonPlan, center = plan.center!): Vec[] {
   const a = plan.props.rotate === undefined ? 0 : parseAngle(plan.props.rotate as string);
   return plan.body.contour.pts.map(q => ({ x: center.x + q.x * Math.cos(a) - q.y * Math.sin(a), y: center.y + q.x * Math.sin(a) + q.y * Math.cos(a) }));
+}
+
+export function overlapBalloonCenter(a: BalloonPlan, b: BalloonPlan, ctx: ElemCtx, occupied: Rect[], settled: boolean): Vec | undefined {
+  if (!a.center || !b.center || a.params.kind === "none" || b.params.kind === "none") return;
+  const from = b.center;
+  const target = a.center;
+  const first = bodyPolygon(a);
+  const second = bodyPolygon(b);
+  const smaller = Math.min(Math.abs(polygonArea(first)), Math.abs(polygonArea(second)));
+  if (smaller <= 1e-8) return;
+  const ring = (pts: Vec[]): polygonClipping.Ring => pts.map(p => [p.x, p.y]);
+  const fixed = [ring(first)];
+  const overlap = (pts: Vec[]) => polygonClipping.intersection(fixed, [ring(pts)])
+    .reduce((area, poly) => area + poly.reduce((sum, r, i) => sum + (i === 0 ? 1 : -1) * Math.abs(polygonArea(r.map(([x, y]) => ({ x, y })))), 0), 0) / smaller;
+  const start = overlap(second);
+  if (start >= 0.15) return from;
+  if (settled || b.edgeCut || (ctx.panel && b.props.attach !== "none" && (b.props.attach || b.props.as === "narration"))) return;
+  const distance = Math.hypot(target.x - from.x, target.y - from.y);
+  if (!distance) return;
+  const radius = (p: Vec[], c: Vec) => Math.max(...p.map(q => Math.hypot(q.x - c.x, q.y - c.y)));
+  const reach = Math.min(distance, radius(first, target) + radius(second, from));
+  const original = boundsOf(second);
+  const limits = rectInset(ctx.geom.trim, ctx.u.k);
+  const panel = containsBalloon(b.el, ctx) ? ctx.panelPoly : undefined;
+  const clearance = panel ? frameClearance(ctx) : 0;
+  const candidate = (d: number) => {
+    const center = lerp(target, from, d / distance);
+    const points = bodyPolygon(b, center);
+    return { center, points, ratio: overlap(points) };
+  };
+  const fits = ({ points }: ReturnType<typeof candidate>) => {
+    const box = boundsOf(points);
+    return (hasOffscreenTail(b.props) || (box.x >= limits.x - 0.01 && box.y >= limits.y - 0.01 &&
+      box.x + box.w <= limits.x + limits.w + 0.01 && box.y + box.h <= limits.y + limits.h + 0.01)) &&
+      (!panel || polygonFits(points, panel, clearance)) &&
+      occupied.every(r => rectOverlapArea(r, box) <= rectOverlapArea(r, original) + 1e-8);
+  };
+  let prev = { d: reach, ratio: start };
+  for (let i = 0; i <= 48; i++) {
+    const d = reach * (1 - i / 48);
+    const trial = candidate(d);
+    if (trial.ratio >= 0.15 && trial.ratio <= 0.25 && fits(trial)) return trial.center;
+    if (trial.ratio > 0.25 && prev.ratio < 0.15) {
+      let lo = d, hi = prev.d;
+      for (let j = 0; j < 18; j++) {
+        const mid = (lo + hi) / 2;
+        const refined = candidate(mid);
+        if (refined.ratio >= 0.15 && refined.ratio <= 0.25 && fits(refined)) return refined.center;
+        if (refined.ratio > 0.2) lo = mid;
+        else hi = mid;
+      }
+    }
+    prev = { d, ratio: trial.ratio };
+  }
 }
 
 export function polygonFits(points: Vec[], panel: Vec[], clearance = 0): boolean {

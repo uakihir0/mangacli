@@ -32,7 +32,7 @@ import { defaultTextStyle, layoutText, parseLayoutText } from "../text/layout.js
 import { parseMarkup } from "../text/markup.js";
 import { type AssetRegistry, resolveAssetBlend } from "./assets.js";
 import { cleanClippedBalloonInk } from "./balloon-clip.js";
-import { autoEdgeCutFits, bodyPolygon, containBalloon, containsBalloon, frameClearance, polygonFits, warnBalloonInGutter } from "./balloon-contain.js";
+import { autoEdgeCutFits, bodyPolygon, containBalloon, containsBalloon, frameClearance, overlapBalloonCenter, polygonFits, warnBalloonInGutter } from "./balloon-contain.js";
 import type { DisplayList, GroupNode, Node, PathNode } from "./ir.js";
 import { FILTER_NAMES, parseFilter } from "./filters.js";
 
@@ -317,11 +317,6 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       const gx = Math.max(0, Math.max(ra.x, rb.x) - Math.min(ra.x + ra.w, rb.x + rb.w));
       const gy = Math.max(0, Math.max(ra.y, rb.y) - Math.min(ra.y + ra.h, rb.y + rb.h));
       if (Math.hypot(gx, gy) > 4 * u.k) continue;
-      // tuck the follow-up balloon into the first one so their outlines merge (a stacked pair)
-      const d = { x: b.center.x - a.center.x, y: b.center.y - a.center.y };
-      const dl = Math.hypot(d.x, d.y) || 1;
-      const tuck = Math.hypot(gx, gy) + Math.min(ra.w, ra.h, rb.w, rb.h) * 0.12;
-      b.center = { x: b.center.x - (d.x / dl) * tuck, y: b.center.y - (d.y / dl) * tuck };
       b.props = { ...b.props, connect: { to: a.el.id, style: "overlap" } };
       linkedIds.add(a.el.id);
       linkedIds.add(b.el.id);
@@ -335,7 +330,8 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     }
     pageBalloons.push(...plans.map(({ plan, idx }) => ({ plan, idx, panel: ctx.panel?.panel.id, order: ctx.panel?.order ?? panels.length })));
     const consumed = new Set<string>();
-    prepareBalloonObstacles(plans.map(p => p.plan));
+    const balloonPlans = plans.map(p => p.plan);
+    prepareBalloonObstacles(balloonPlans);
     const byId = new Map(plans.map((x) => [x.plan.el.id, x]));
     for (const { plan, idx } of plans) {
       const cn = plan.props.connect;
@@ -346,8 +342,24 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
           bag.error("REF_NOT_FOUND", `connect target "${c.to}" not found in the same panel`, { path: [...plan.el.path, "connect"] });
           continue;
         }
+        const style = (c.style as string) ?? "overlap";
+        const original = plan.center;
         try {
-          const r = renderConnected(other.plan, plan, (c.style as string) ?? "neck", c.width, { ...ctx, coordsBox: coordsFor(plan.el, ctx, geom) });
+          const c2 = { ...ctx, coordsBox: coordsFor(plan.el, ctx, geom) };
+          let position = original;
+          if (style === "overlap") {
+            const obstacles = balloonPlans.filter(p => p !== plan && p !== other.plan && p.center && p.params.kind !== "none").map(p => boundsOf(bodyPolygon(p)));
+            position = overlapBalloonCenter(other.plan, plan, c2, obstacles, consumed.has(plan.el.id));
+            if (position && position !== original) {
+              plan.center = position;
+              prepareBalloonObstacles(balloonPlans);
+            }
+          }
+          const r = position ? renderConnected(other.plan, plan, style, c.width, c2) : null;
+          if (!r) {
+            bag.info("BALLOON_CONNECT_DISJOINT", `connected balloons ${other.plan.el.id} and ${plan.el.id} could not be merged; drawn separately`, { path: [...plan.el.path, "connect"], elementId: plan.el.id });
+            continue;
+          }
           processed.set(other.plan.el.id, mkItem(other.plan.el, r.nodes, r.bbox, panelIdx, Math.min(idx, other.idx), source, ctx, [balloonGlyphRun(other.plan), balloonGlyphRun(plan)]));
           refs.add({ id: plan.el.id, type: "balloon", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id, shape: r.contour });
           refs.add({ id: other.plan.el.id, type: "balloon", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id, shape: r.contour });
@@ -355,6 +367,11 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
           consumed.add(other.plan.el.id);
         } catch (e) {
           bag.error("RENDER_FAILED", `${plan.el.id}: ${(e as Error).message}`, { path: plan.el.path, elementId: plan.el.id });
+        } finally {
+          if (!consumed.has(plan.el.id) && plan.center !== original) {
+            plan.center = original;
+            prepareBalloonObstacles(balloonPlans);
+          }
         }
       }
     }
