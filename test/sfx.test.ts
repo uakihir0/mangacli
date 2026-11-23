@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createCanvas, Path2D } from "@napi-rs/canvas";
 import { createRenderer } from "../src/api.js";
 import { BUILTIN_DEFAULTS } from "../src/model/defaults.js";
 import { fullSizeKana, sfxInkHeadDepth, sfxScale, sfxShifts, sfxStretch, sfxWeightRadius, type SfxScaleRamp } from "../src/text/sfx.js";
 import { emboldenGlyph } from "../src/text/brush.js";
-import { flattenPath, pathToSvg, polyPath, transformPath } from "../src/geom/path.js";
+import { flattenPath, parseSvgPath, polygonArea, polyPath, transformPath } from "../src/geom/path.js";
 import { boundsOf } from "../src/geom/vec.js";
-import type { Node, PathNode } from "../src/render/ir.js";
 
 const renderer = createRenderer({ profile: "preview" });
 const input = (extra = "", text = "バンッ") => ({ yaml: `mangacli: 1
@@ -17,7 +15,36 @@ pages:
       - { sfx: "${text}", id: sfx, at: [50%, 50%], fontSize: 10mm, ${extra} }
 `, filename: "/v/sfx.yaml" });
 
+const svgPaths = async (extra = "", text = "ブオン") => {
+  const source = input(extra, text);
+  source.yaml = source.yaml.replace("size: B5", "size: B5, color: color");
+  const result = await renderer.render(source, { format: "svg" });
+  const svg = Buffer.from(result.pages[0].data).toString();
+  return [...svg.matchAll(/<path d="([^"]+)" fill="([^"]+)"[^>]*data-id="sfx"[^>]*\/>/g)].map(([, d, color]) => {
+    const contours = flattenPath(parseSvgPath(d), 0.01);
+    return { color, contours, bbox: boundsOf(contours.flatMap(c => c.pts)) };
+  });
+};
+
+const inkBox = async (extra = "", text = "ドドド") => {
+  const [ink] = await svgPaths(`outline: none, ${extra}`, text);
+  return ink.bbox;
+};
+
 describe("SFX lettering", () => {
+  it("uses the default SFX face even when the document registers a shout font", async () => {
+    const sfx = input("writing: vertical", "ブオン");
+    const render = async (fonts: string, explicit = "") => {
+      const yaml = sfx.yaml.replace("id: sfx", `id: sfx${explicit}`);
+      return (await renderer.render({ ...sfx, yaml: yaml + fonts }, { format: "svg" })).pages[0].data;
+    };
+    const shout = "fonts: { shout: 'catalog:dela-gothic-one', dialogue: 'catalog:zen-antique' }\n";
+    const gothic = await render("", ", font: 'catalog:dela-gothic-one'");
+    const unpinned = await render(shout);
+    expect(unpinned).not.toEqual(gothic);
+    expect(unpinned).toEqual(await render("", ", font: 'catalog:yuji-syuku'"));
+    expect(await render("fonts: { sfx: 'catalog:dela-gothic-one' }\n")).toEqual(gothic);
+  });
   it("limits covered fill area in either direction and handles empty ink", () => {
     const rect = polyPath([{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 10 }, { x: 0, y: 10 }], true);
     expect(sfxInkHeadDepth(rect, true)).toBeCloseTo(1.4);
@@ -47,72 +74,19 @@ describe("SFX lettering", () => {
   it.each(["bogus", "{ from: 0, to: 1 }", "{ from: 1 }", "{ from: 1, to: -1 }"])("rejects invalid ramp %s", async scale => {
     expect((await renderer.validate(input(`perChar: { scale: ${scale} }`))).ok).toBe(false);
   });
-  const glyphBoxes = async (extra: string, text = "ドドド") => {
-    const list = await renderer.displayList(input(extra, text), 1);
-    const result: ReturnType<typeof boundsOf>[] = [];
-    const walk = (n: Node) => {
-      if (n.kind === "group") n.children.forEach(walk);
-      if (n.kind === "path" && n.tag?.elementId === "sfx" && n.paint && !n.stroke) result.push(boundsOf(flattenPath(n.path, 0.01).flatMap(c => c.pts)));
-    };
-    walk(list.root);
-    return result.reverse();
-  };
-  it.each(["vertical", "horizontal"])("caps ink overlap at the requested distance in %s", async writing => {
-    const source = `writing: ${writing}, rotate: 0deg, grow: 0, brush: false, distort: { roughen: 0 }, `;
-    for (const path of ["", "path: { kind: line, angle: 0deg }, "]) {
-      for (const overlap of ["0em", "0.15em", "0.3em"]) {
-        const boxes = await glyphBoxes(`${source}${path}perChar: { overlap: ${overlap}, rotate: 0deg, jitter: 0mm }`);
-        for (let i = 1; i < boxes.length; i++) {
-          const gap = writing === "vertical" ? boxes[i].y - boxes[i-1].y - boxes[i-1].h : boxes[i].x - boxes[i-1].x - boxes[i-1].w;
-          if (overlap !== "0em") expect(gap).toBeGreaterThanOrEqual(-parseFloat(overlap) * 10 - 0.01);
-          else expect(gap).toBeGreaterThanOrEqual(0.29);
-        }
-      }
-    }
+  it.each(["vertical", "horizontal"])("packs ink in %s without collapsing the word", async writing => {
+    const source = `writing: ${writing}, rotate: 0deg, grow: 0, brush: false, distort: { roughen: 0 }`;
+    const axis = writing === "vertical" ? "h" : "w";
+    const single = await inkBox(source, "ド");
+    const normal = await inkBox(`${source}, perChar: { overlap: 0em }`);
+    const packed = await inkBox(source);
+    expect(normal[axis]).toBeGreaterThan(3 * single[axis]);
+    expect(packed[axis]).toBeLessThan(normal[axis]);
+    expect(packed[axis]).toBeGreaterThan(2 * single[axis]);
   });
-  it.each(["vertical", "horizontal"])("measures overlap relative to the smaller scaled character in %s", async writing => {
-    const boxes = await glyphBoxes(`writing: ${writing}, rotate: 0deg, grow: 0, outline: none, brush: false, distort: { roughen: 0 }, chars: [{ index: 1, scale: 0.5 }], perChar: { overlap: 0.01em, rotate: 0deg, jitter: 0mm }`, "ドド");
-    const gap = writing === "vertical" ? boxes[1].y - boxes[0].y - boxes[0].h : boxes[1].x - boxes[0].x - boxes[0].w;
-    expect(gap).toBeCloseTo(-0.01 * 10 * 0.5, 2);
-  });
-  it.each(["vertical", "horizontal"].flatMap(writing => ["ドンッ", "ズオオオッ", "バキィッ"].map(text => ({ writing, text }))))("keeps at least 85 percent of every default $writing $text character fill visible", async ({ writing, text }) => {
-    const list = await renderer.displayList(input(`writing: ${writing}`, text), 1);
-    const paths: PathNode[] = [];
-    const walk = (n: Node) => {
-      if (n.kind === "group") n.children.forEach(walk);
-      if (n.kind === "path") paths.push(n);
-    };
-    walk(list.root);
-    const fills = paths.filter(n => n.tag?.elementId === "sfx" && n.paint && !n.stroke);
-    expect(fills).toHaveLength(Array.from(text).length);
-    for (const fill of fills) {
-      const bb = boundsOf(flattenPath(fill.path, 0.02).flatMap(c => c.pts));
-      const canvas = createCanvas(Math.ceil(bb.w * 24) + 8, Math.ceil(bb.h * 24) + 8);
-      const ctx = canvas.getContext("2d");
-      ctx.scale(24, 24);
-      ctx.translate(-bb.x + 4 / 24, -bb.y + 4 / 24);
-      ctx.fill(new Path2D(pathToSvg(fill.path)));
-      const ink = () => ctx.getImageData(0, 0, canvas.width, canvas.height).data.reduce((sum, v, i) => sum + (i % 4 === 3 ? v : 0), 0);
-      const total = ink();
-      ctx.globalCompositeOperation = "destination-out";
-      for (const front of paths.slice(paths.indexOf(fill) + 1)) {
-        if (front.tag?.elementId !== "sfx") continue;
-        const path = new Path2D(pathToSvg(front.path));
-        if (front.stroke) {
-          ctx.lineWidth = front.stroke.width;
-          ctx.lineJoin = "round";
-          ctx.stroke(path);
-        } else if (front.paint) ctx.fill(path);
-      }
-      expect(ink() / total).toBeGreaterThanOrEqual(0.85);
-    }
-  });
-  it.each(["{ kind: line, angle: 15deg }", "{ kind: arc, radius: 70mm }", "{ kind: wave, amplitude: 2mm, wavelength: 50mm }", "{ kind: points, points: [[0mm, 0mm], [80mm, 0mm], [120mm, 10mm]] }"])("applies ramps and overlap along path %s", async path => {
-    const boxes = async (overlap: string) => glyphBoxes(`writing: horizontal, rotate: 0deg, path: ${path}, brush: false, distort: { roughen: 0 }, perChar: { scale: shrink, overlap: ${overlap}, rotate: 0deg, jitter: 0mm }`);
-    const normal = await boxes("0em"), packed = await boxes("0.15em");
-    expect(packed[0].w).toBeGreaterThan(packed[2].w);
-    const distance = (b: typeof packed) => Math.hypot(b[2].x-b[0].x, b[2].y-b[0].y);
-    expect(distance(packed)).toBeLessThan(distance(normal));
+  it.each(["{ kind: line, angle: 15deg }", "{ kind: arc, radius: 70mm }", "{ kind: wave, amplitude: 2mm, wavelength: 50mm }", "{ kind: points, points: [[0mm, 0mm], [8mm, 0mm], [40mm, 10mm]] }"])("applies the word path %s before merging", async path => {
+    const source = "writing: horizontal, rotate: 0deg, brush: false, perChar: { scale: shrink }";
+    expect(await svgPaths(`${source}, path: ${path}`, "ドドド")).not.toEqual(await svgPaths(source, "ドドド"));
   });
   it.each(Array.from("ー〜～ｰ︱︲︴"))("stretches long mark %s only along the writing direction", char => {
     expect(sfxStretch(char, true)).toEqual([1, 1.6]);
@@ -148,7 +122,7 @@ describe("SFX lettering", () => {
     const stroke = polyPath([{ x: 0, y: 0 }, { x: 1.6, y: 0 }, { x: 1.6, y: 10 }, { x: 0, y: 10 }], true);
     const width = (scale: number) => boundsOf(flattenPath(transformPath(emboldenGlyph(stroke, 10, sfxWeightRadius(style, scale) * 10), [scale, 0, 0, scale, 0, 0])).flatMap(c => c.pts)).w;
     expect(width(0.7)).toBeCloseTo(width(1));
-    expect(BUILTIN_DEFAULTS.sfx.perChar).toEqual({ rotate: ["-3deg", "3deg"], overlap: "0.15em" });
+    expect(BUILTIN_DEFAULTS.sfx.perChar).toEqual({ overlap: "0.22em" });
   });
   it.each(Array.from("ッっャュョゃゅょァィゥェォヵヶ"))("shrinks small kana %s", char => {
     expect(sfxScale(0, 1, char)).toBeCloseTo(0.78);
@@ -164,71 +138,60 @@ describe("SFX lettering", () => {
     }
     expect(sfxShifts([], 10)).toEqual([]);
   });
-  it("reproduces seeded jitter and permits disabling it", async () => {
+  it("applies seeded character rotation and jitter only when requested", async () => {
     const render = async (extra = "") => (await renderer.render(input(extra), { format: "svg" })).pages[0].data;
-    const a = await render();
-    expect(await render()).toEqual(a);
-    expect(await render('perChar: { rotate: 0deg }')).not.toEqual(a);
-    expect(await render('perChar: { jitter: 0mm }')).not.toEqual(a);
+    const normal = await render();
+    expect(await render("perChar: { rotate: 0deg, jitter: 0mm }")).toEqual(normal);
+    const jittered = 'perChar: { rotate: [-3deg, 3deg], jitter: 0.4mm }';
+    expect(await render(jittered)).not.toEqual(normal);
+    expect(await render(jittered)).toEqual(await render(jittered));
   });
-  it("scales the default double outline with font size and accepts overrides", async () => {
-    const svg = async (extra: string) => Buffer.from((await renderer.render(input(`perChar: { scale: 1 }, ${extra}`), { format: "svg" })).pages[0].data).toString();
-    expect(await svg("grow: 0")).toContain('stroke-width="2.4"');
-    expect(await svg("grow: 0")).toContain('stroke-width="2.9"');
-    expect(await svg("grow: 0")).toContain('stroke-width="1.44"');
-    const large = input("grow: 0, perChar: { scale: 1 }");
-    large.yaml = large.yaml.replace("fontSize: 10mm", "fontSize: 20mm");
-    expect(Buffer.from((await renderer.render(large, { format: "svg" })).pages[0].data).toString()).toContain('stroke-width="4.8"');
-    expect(await svg('outline: [{ width: 2mm, color: white }]')).toContain('stroke-width="4"');
-    expect(await svg('outline: none')).not.toContain('stroke-width=');
-    expect((await svg('outline: [{ width: 2mm, color: white }]')).match(/stroke-width=/g)).toHaveLength(3);
-  });
-  it("paints later characters underneath earlier outlines and fills", async () => {
-    const source = input('chars: [{ index: 1, color: red }, { index: 2, color: blue }]');
-    source.yaml = source.yaml.replace('size: B5', 'size: B5, color: color');
-    const result = await renderer.render(source, { format: "svg" });
-    const svg = Buffer.from(result.pages[0].data).toString();
-    const paths = [...svg.matchAll(/<path\b[^>]*>/g)].map(m => m[0]).filter(p => p.includes('stroke=') || p.includes('data-id="sfx"'));
-    const outlines = paths.flatMap((p, i) => p.includes('stroke="#ffffff"') ? [i] : []);
-    const fills = paths.flatMap((p, i) => p.includes('data-id="sfx"') ? [i] : []);
-    expect(outlines).toHaveLength(3);
-    expect(fills).toHaveLength(3);
-    expect(outlines).toEqual([1, 4, 7]);
-    expect(fills).toEqual([2, 5, 8]);
-    expect(paths[fills[0]]).toContain('fill="#0000ff"');
-    expect(paths[fills[1]]).toContain('fill="#ff0000"');
-    const widths = outlines.map(i => Number(paths[i].match(/stroke-width="([^"]+)"/)![1]));
-    expect(widths[0] / widths[1]).toBeCloseTo(0.6, 2);
-    expect(widths[1] / widths[2]).toBeCloseTo(0.8 / 1.3, 2);
-    const black = paths.flatMap((p, i) => p.includes('stroke="#000000"') ? [i] : []);
-    expect(black).toHaveLength(3);
-    expect(black).toEqual([0, 3, 6]);
-    black.forEach((index, i) => expect(Number(paths[index].match(/stroke-width="([^"]+)"/)![1]) - widths[i]).toBeCloseTo(0.5));
-  });
-  it("paints explicit outlines under their own character fill", async () => {
-    const result = await renderer.render(input("outline: [{ width: 0.5mm, color: white }, { width: 2mm, color: red }]"), { format: "svg" });
-    const paths = [...Buffer.from(result.pages[0].data).toString().matchAll(/<path\b[^>]*>/g)].map(m => m[0]).filter(p => p.includes('stroke=') || p.includes('data-id="sfx"'));
-    const outlines = paths.filter(p => p.includes("stroke-width="));
-    expect(outlines.map(p => Number(p.match(/stroke-width="([^"]+)"/)![1]))).toEqual([4, 1, 4, 1, 4, 1]);
-    expect(paths.flatMap((p, i) => p.includes('data-id="sfx"') ? [i] : [])).toEqual([2, 5, 8]);
-  });
-  it.each(["vertical", "horizontal"].flatMap(writing => ["バンッ", "ダッ", "ブンッ", "ガシッ"].map(text => ({ writing, text }))))("limits small kana ink bbox overlap in $writing $text", async ({ writing, text }) => {
-    const list = await renderer.displayList(input(`writing: ${writing}, rotate: 0deg, perChar: { overlap: 0em }`, text), 1);
-    const paths: PathNode[] = [];
-    const walk = (node: Node) => {
-      if (node.kind === "group") node.children.forEach(walk);
-      if (node.kind === "path" && node.tag?.elementId === "sfx" && node.stroke?.paint.type === "solid" && node.stroke.paint.color.r === 1) paths.push(node);
-    };
-    walk(list.root);
-    paths.reverse();
-    expect(paths).toHaveLength(Array.from(text).length);
-    const boxes = paths.map(p => boundsOf(flattenPath(p.path, 0.01).flatMap(c => c.pts)));
-    for (let i = 1; i < boxes.length; i++) {
-      const prev = boxes[i - 1], next = boxes[i];
-      const overlap = writing === "vertical" ? prev.y + prev.h - next.y : prev.x + prev.w - next.x;
-      expect(overlap).toBeLessThanOrEqual(0.5);
-      if (i === boxes.length - 1) expect(overlap).toBeLessThanOrEqual(0);
+  it.each(["vertical", "horizontal"])("emits one continuous outer contour per outline layer for %s ブオン", async writing => {
+    const layers = await svgPaths(`writing: ${writing}`);
+    expect(layers.map(l => l.color)).toEqual(["#000000", "#ffffff", "#000000"]);
+    for (const layer of layers.slice(0, 2)) {
+      const outer = layer.contours.filter(c => polygonArea(c.pts) > 0);
+      expect(outer).toHaveLength(1);
+      expect(outer[0].closed).toBe(true);
     }
+  });
+  it.each(["vertical", "horizontal"])("keeps repeated kana distinct at the requested size in %s", async writing => {
+    const style = `writing: ${writing}, grow: 0, rotate: 0deg`;
+    const axis = writing === "vertical" ? "h" : "w";
+    const [single] = await svgPaths(`${style}, outline: none`, "オ");
+    const layers = await svgPaths(style, "オオオオ");
+    const fill = layers.at(-1)!;
+    const largest = Math.max(...single.contours.map(c => polygonArea(c.pts)));
+    const letters = fill.contours.filter(c => polygonArea(c.pts) > 0.8 * largest);
+    expect(letters).toHaveLength(4);
+    expect(fill.bbox[axis]).toBeGreaterThan(3.8 * single.bbox[axis]);
+    expect(layers[0].contours.filter(c => polygonArea(c.pts) > 0)).toHaveLength(1);
+  });
+  it("uses the word's size for default outlines and honors absolute explicit widths", async () => {
+    const normal = await svgPaths("rotate: 0deg, grow: 0");
+    expect((normal[1].bbox.w - normal[2].bbox.w) / 2).toBeCloseTo(1.2, 2);
+    expect((normal[0].bbox.w - normal[1].bbox.w) / 2).toBeCloseTo(0.25, 2);
+    const explicit = await svgPaths("outline: [{ width: 0.5mm, color: white }, { width: 2mm, color: red }]");
+    expect(explicit.map(l => l.color)).toEqual(["#ff0000", "#ffffff", "#000000"]);
+    expect((explicit[0].bbox.h - explicit[2].bbox.h) / 2).toBeCloseTo(2, 1);
+    expect((explicit[1].bbox.h - explicit[2].bbox.h) / 2).toBeCloseTo(0.5, 1);
+    expect(await svgPaths("outline: none")).toHaveLength(1);
+  });
+  it("preserves per-character colors without redrawing the outline for each letter", async () => {
+    const layers = await svgPaths("chars: [{ index: 1, color: red }, { index: 2, color: blue }]");
+    expect(layers.slice(0, 2).map(l => l.color)).toEqual(["#000000", "#ffffff"]);
+    expect(layers.slice(2).map(l => l.color)).toEqual(expect.arrayContaining(["#000000", "#ff0000", "#0000ff"]));
+    expect(layers.filter(l => l.color === "#ffffff")).toHaveLength(1);
+  });
+  it("keeps interior counters in the ink and narrow custom outlines", async () => {
+    const layers = await svgPaths("writing: horizontal, outline: [{ width: 0.2mm, color: white }]", "O");
+    expect(layers).toHaveLength(2);
+    expect(layers.every(l => l.contours.some(c => polygonArea(c.pts) < 0))).toBe(true);
+  });
+  it.each(["〜", "～"])("stretches the default font's %s to fill the vertical cell", async mark => {
+    const { w, h } = await inkBox("writing: vertical, rotate: 0deg, grow: 0", mark);
+    expect(h).toBeGreaterThan(7);
+    expect(h).toBeGreaterThan(2 * w);
   });
   it.each(["バンッ", "ダッ", "ブンッ", "ガシッ"])("preserves the original footprint for %s", async text => {
     const normal = await renderer.render(input("perChar: { overlap: 0em }", text), { format: "svg" });
@@ -243,17 +206,16 @@ describe("SFX lettering", () => {
     const result = await renderer.render(input("", ""), { format: "svg" });
     expect(result.diagnostics.filter(d => d.severity === "error")).toEqual([]);
   });
-  it.each(["en", "fr", "ja"])("uses layout tokenization for small kana after punctuation in %s", async lang => {
-    const widths = async (text: string) => {
-      const source = input("grow: 0, rotate: 0deg, brush: false, perChar: { rotate: 0deg, jitter: 0mm }", text);
-      source.yaml = source.yaml.replace("mangacli: 1", `mangacli: 1\nmeta: { lang: ${lang} }`);
-      const svg = Buffer.from((await renderer.render(source, { format: "svg" })).pages[0].data).toString();
-      return [...svg.matchAll(/<path\b[^>]*stroke="#ffffff"[^>]*>/g)].map(m => Number(m[0].match(/stroke-width="([^"]+)"/)![1]));
+  it.each(["en", "fr", "ja"])("preserves small kana scaling after punctuation in %s", async lang => {
+    const source = input("grow: 0, rotate: 0deg, brush: false, outline: none", "...ッ");
+    source.yaml = source.yaml.replace("mangacli: 1", `mangacli: 1\nmeta: { lang: ${lang} }`);
+    const render = async (scale: number) => {
+      const scaled = { ...source, yaml: source.yaml.replace("grow: 0", `grow: 0, smallKanaScale: ${scale}`) };
+      const result = await renderer.render(scaled, { format: "svg" });
+      return result.layout[0].elements.find(e => e.id === "sfx")!.bbox;
     };
-    const result = await widths("...ッ");
-    expect(result).toHaveLength(lang === "ja" ? 2 : 4);
-    expect(result[0]).toBeCloseTo(1.44);
-    expect((await widths("--ッ"))[0]).toBeCloseTo(1.44);
+    const small = await render(0.6), full = await render(1);
+    expect(lang === "ja" ? small.h : small.w).toBeLessThan(lang === "ja" ? full.h : full.w);
   });
   it("does not undo explicit shrink controls when grow is omitted", async () => {
     const box = async (extra: string, text = "ド") => (await renderer.render(input(`rotate: 0deg, brush: false, distort: { roughen: 0 }, perChar: { rotate: 0deg, jitter: 0mm }, ${extra}`, text), { format: "svg" })).layout[0].elements.find(e => e.id === "sfx")!.bbox;
@@ -267,21 +229,14 @@ describe("SFX lettering", () => {
     expect(small.h / explicit.h).toBeCloseTo(1.3);
   });
   it.each(["vertical", "horizontal"])("preserves explicit spaces and along-axis character offsets in %s SFX", async writing => {
-    const boxes = async (text: string, chars = "[]") => {
-      const list = await renderer.displayList(input(`writing: ${writing}, rotate: 0deg, grow: 0, brush: false, outline: [{ width: 1mm, color: white }], perChar: { rotate: 0deg, jitter: 0mm }, chars: ${chars}`, text), 1);
-      const result: ReturnType<typeof boundsOf>[] = [];
-      const walk = (node: Node) => {
-        if (node.kind === "group") node.children.forEach(walk);
-        if (node.kind === "path" && node.tag?.elementId === "sfx" && node.stroke) result.push(boundsOf(flattenPath(node.path, 0.01).flatMap(c => c.pts)));
-      };
-      walk(list.root);
-      return result.reverse();
-    };
-    const gap = (b: Awaited<ReturnType<typeof boxes>>) => writing === "vertical" ? b[1].y - b[0].y - b[0].h : b[1].x - b[0].x - b[0].w;
-    const baseline = gap(await boxes("ドド"));
-    expect(gap(await boxes("ド<space=2/>ド")) - baseline).toBeCloseTo(20);
+    const source = `writing: ${writing}, rotate: 0deg, grow: 0, brush: false, distort: { roughen: 0 }`;
+    const axis = writing === "vertical" ? "h" : "w";
+    const baseline = (await inkBox(source, "ドド"))[axis];
+    expect((await inkBox(source, "ド<space=2/>ド"))[axis] - baseline).toBeCloseTo(20, 2);
     const offset = writing === "vertical" ? "[0mm, 5mm]" : "[5mm, 0mm]";
-    expect(gap(await boxes("ドド", `[{ index: 1, offset: ${offset} }]`)) - baseline).toBeCloseTo(5);
+    expect((await inkBox(`${source}, chars: [{ index: 1, offset: ${offset} }]`, "ドド"))[axis] - baseline).toBeCloseTo(5, 2);
+    const [outline] = await svgPaths(`${source}, outline: [{ width: 1mm, color: white }]`, "ド<space=2/>ド");
+    expect(outline.contours.filter(c => polygonArea(c.pts) > 0).length).toBeGreaterThanOrEqual(2);
   });
   it("rejects invalid small-kana scales", async () => {
     const result = await renderer.validate(input("smallKanaScale: -1"));

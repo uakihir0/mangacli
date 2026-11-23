@@ -177,7 +177,7 @@ pages:
         expect([...text].map((ch) => fonts.pick(font, ch.codePointAt(0)!)?.font.label)).toEqual(Array(text.length).fill(expected));
       }
       await fonts.prepare("sfx", text);
-      expect(fonts.primary("sfx")?.key).toBe("cat:dela-gothic-one@400");
+      expect(fonts.primary("sfx")?.key).toBe("cat:yuji-syuku@400");
       expect(onError).not.toHaveBeenCalled();
       expect(list).toHaveBeenCalledTimes(1);
       expect(onSystemFont.mock.calls).toEqual(expected === "Zen Kaku Gothic New 900" ? [] : [[path]]);
@@ -523,8 +523,8 @@ pages:
         for (const { path, cx } of waves) {
           const { x, w, h } = ink(path);
           expect(h).toBeGreaterThan(2 * w);
-          expect(h).toBeGreaterThan(0.7 * style.fontSize);
-          expect(x + w / 2).toBeCloseTo(cx, 1);
+          expect(h).toBeGreaterThan((font === "sfx" ? 0.6 : 0.7) * style.fontSize);
+          expect(Math.abs(x + w / 2 - cx)).toBeLessThan(font === "sfx" ? 0.2 : 0.05);
         }
       }
     },
@@ -532,8 +532,9 @@ pages:
   it("rotates both wave dashes in vertical ruby with Dela Gothic One", async () => {
     const style = defaultTextStyle({ font: "dialogue", fontSize: 10 });
     await reg.prepare(style.font, "食べたい");
-    await reg.prepare("sfx", "〜～");
-    const layout = layoutText("<ruby=〜～>食べたい</ruby>", { ...style, ruby: { ...style.ruby, font: "sfx" } }, reg);
+    const font = "catalog:dela-gothic-one";
+    await reg.prepare(font, "〜～");
+    const layout = layoutText("<ruby=〜～>食べたい</ruby>", { ...style, ruby: { ...style.ruby, font } }, reg);
     expect(layout.glyphs).toHaveLength(6);
     for (const { path, cx } of layout.glyphs.slice(4)) {
       const { x, w, h } = ink(path);

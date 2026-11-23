@@ -230,6 +230,7 @@ export class FontRegistry {
     } else if (name === "ui") {
       items.push({ phys: { key: `file:${UI_FONT}`, label: "Lato", index: 0, load: async () => readFileSync(UI_FONT) }, scale: 1, baselineShift: 0 });
     } else {
+      if (name === "sfx") this.pushSetRole(name, items, false);
       // role chain through registered defs
       let found = false;
       for (const r of ROLE_CHAINS[name] ?? []) {
@@ -239,7 +240,7 @@ export class FontRegistry {
           break;
         }
       }
-      if (!found && (ROLE_CHAINS[name] || name === "default")) this.pushSetRole(name, items, false);
+      if (!found && name !== "sfx" && (ROLE_CHAINS[name] || name === "default")) this.pushSetRole(name, items, false);
     }
     if (top) {
       for (const g of this.globalFallback) if (g !== name) pushName(g);
