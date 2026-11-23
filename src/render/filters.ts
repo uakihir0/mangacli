@@ -592,7 +592,24 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
   const strokeRadius = Math.max(1.5, betaSize * 0.08);
   const strokeSq = strokeRadius * strokeRadius;
   const probe = Math.min(12, Math.max(2, Math.ceil(0.22 / mmPerPx)));
-  const axes = [[probe, 0], [0, probe], [probe, probe], [probe, -probe]];
+  const axes = [[1, 0], [0, 1], [1, 1], [1, -1]];
+  const sharpFlank = (x: number, y: number, dx: number, dy: number, threshold: number, steps: number) => {
+    let previous = lum01[y * w + x];
+    let approach = 0;
+    for (let step = 1; step <= steps; step++) {
+      const xx = x + dx * step;
+      const yy = y + dy * step;
+      if (xx < 0 || xx >= w || yy < 0 || yy >= h) return false;
+      const j = yy * w + xx;
+      if (!data[j * 4 + 3]) return false;
+      const next = lum01[j];
+      const rise = next - previous;
+      if (next >= threshold) return rise >= Math.max(0.045, 1.6 * approach);
+      approach = Math.max(approach, rise);
+      previous = next;
+    }
+    return false;
+  };
   const strokeCore = new Uint8Array(n);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = y * w + x;
@@ -603,9 +620,8 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
     }
     const flank = lum01[i] + 0.07;
     for (const [dx, dy] of axes) {
-      if (x - dx < 0 || x + dx >= w || y - Math.abs(dy) < 0 || y + Math.abs(dy) >= h) continue;
-      const offset = dy * w + dx;
-      if (data[(i - offset) * 4 + 3] && data[(i + offset) * 4 + 3] && lum01[i - offset] >= flank && lum01[i + offset] >= flank) {
+      const steps = dx && dy ? Math.floor(probe / Math.SQRT2) : probe;
+      if (sharpFlank(x, y, dx, dy, flank, steps) && sharpFlank(x, y, -dx, -dy, flank, steps)) {
         strokeCore[i] = 1;
         break;
       }
