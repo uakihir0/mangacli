@@ -129,6 +129,56 @@ describe("manga finish filter", () => {
     for (let i = 0; i < out.data.length; i += 4) expect(out.data[i]).toBe(255);
   });
 
+  it.each([225, 252])("clears light-grey highlights against a bright field of %i without lifting midtones", async (field) => {
+    const px = sourcePixels();
+    const shades = [field, 208, 128, 0];
+    for (let i = 0; i < px.data.length; i += 4) {
+      const x = (i / 4) % px.width;
+      const shade = shades[x < 60 ? 0 : x < 85 ? 1 : x < 110 ? 2 : 3];
+      px.data[i] = px.data[i + 1] = px.data[i + 2] = shade;
+    }
+    const filter: ImageFilter = { name: "manga", args: [], opts: { betaReplace: "none", lpi: 60 } };
+    const auto = await applyFilters(px, [filter], 0.08);
+    const fixed = await applyFilters(px, [{ ...filter, opts: { ...filter.opts, paper: 0.15 } }], 0.08);
+    const shadesAt = (out: typeof auto, start: number, end: number) => new Set(Array.from({ length: (end - start) * 60 }, (_, i) => {
+      const x = start + i % (end - start);
+      const y = 10 + Math.floor(i / (end - start));
+      return out.data[(y * out.width + x) * 4];
+    }));
+    expect(shadesAt(auto, 64, 81)).toEqual(new Set([255]));
+    expect(shadesAt(fixed, 64, 81)).toEqual(new Set([0, 255]));
+    expect(shadesAt(auto, 90, 105)).toEqual(new Set([0, 255]));
+    expect(shadesAt(auto, 114, 118)).toEqual(new Set([0]));
+  });
+
+  it("keeps a dark image's white cutoff when it only has a small highlight", async () => {
+    const px = sourcePixels();
+    for (let i = 0; i < px.data.length; i += 4) {
+      const x = (i / 4) % px.width;
+      const shade = x < 90 ? 100 : x < 110 ? 208 : 255;
+      px.data[i] = px.data[i + 1] = px.data[i + 2] = shade;
+    }
+    const f: ImageFilter = { name: "manga", args: [], opts: { lpi: 60 } };
+    const auto = await applyFilters(px, [f], 0.08);
+    const fixed = await applyFilters(px, [{ ...f, opts: { ...f.opts, paper: 0.15 } }], 0.08);
+    expect(auto.data).toEqual(fixed.data);
+  });
+
+  it("screens a soft background edge without an ink rim but keeps a hard edge inked", async () => {
+    const px = sourcePixels();
+    for (let i = 0; i < px.data.length; i += 4) {
+      const x = (i / 4) % px.width;
+      const y = Math.floor(i / 4 / px.width);
+      const shade = x < 65 ? Math.min(255, Math.max(0, (y - 20) * 12)) : y < 27 ? 0 : 255;
+      px.data[i] = px.data[i + 1] = px.data[i + 2] = shade;
+    }
+    const out = await applyFilters(px, [{ name: "manga", args: [], opts: { lpi: 60 } }], 0.08);
+    const row = (y: number, start: number, end: number) => [...out.data.slice((y * out.width + start) * 4, (y * out.width + end) * 4)].filter((_, i) => i % 4 === 0);
+    expect(new Set(row(26, 5, 55))).toEqual(new Set([0, 255]));
+    expect(new Set(row(26, 75, 115))).toEqual(new Set([0]));
+    expect(new Set(row(65, 5, 115))).toEqual(new Set([255]));
+  });
+
   it("makes non-zero grain visibly roughen existing ink edges", async () => {
     const base = { ...mangaOpts, cut: 0, grain: 0 };
     const zero = await applyFilters(sourcePixels(), [{ ...mangaFilter, opts: base }], 0.05);

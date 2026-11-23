@@ -477,6 +477,23 @@ function betaGradient(mask: Uint8Array, w: number, h: number): Float32Array {
   return out;
 }
 
+function mangaPaperCutoff(histogram: Uint32Array, visible: number): number {
+  const baseline = 0.15;
+  if (!visible) return baseline;
+  let highlights = 0;
+  let white = 0;
+  let whitePoint = 255;
+  for (let i = 255; i >= 192; i--) {
+    if (highlights < visible * 0.1) whitePoint = i;
+    highlights += histogram[i];
+    if (i >= 243) white += histogram[i];
+  }
+  if (highlights < visible * 0.45) return baseline;
+  const highKey = clamp01((white / visible - 0.4) / 0.08);
+  const cast = clamp01((250 - whitePoint) / 30);
+  return baseline + 0.1 * Math.max(highKey, cast);
+}
+
 function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f: ImageFilter, len: LenFn, image?: MangaFilterContext) {
   const o = (f.opts ?? {}) as Obj;
   const numberOpt = (key: string, index: number, fallback: number) => {
@@ -496,7 +513,7 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
   const betaSize = Math.max(1, Math.round(len(o.betaMinSize ?? f.args[4], 3)));
   const rawBetaTone = o.betaTone ?? f.args[5] ?? 0.7;
   const betaTone = rawBetaTone === "gradient" ? "gradient" : Math.max(0.6, Math.min(0.8, numberOpt("betaTone", 5, 0.7)));
-  const paper = clamp01(numberOpt("paper", 9, 0.15));
+  const autoPaper = o.paper == null && f.args[9] == null;
   const rawBetaReplace = String(o.betaReplace ?? f.args[10] ?? "background");
   const betaReplace = rawBetaReplace === "all" || rawBetaReplace === "none" ? rawBetaReplace : "background";
   const cut = clamp01(numberOpt("cut", 6, 0));
@@ -506,12 +523,20 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
   const n = w * h;
   const lum01 = new Float32Array(n);
   const dark = new Uint8Array(n);
+  const histogram = autoPaper ? new Uint32Array(256) : undefined;
+  let visible = 0;
   for (let i = 0; i < n; i++) {
     const j = i * 4;
-    const y = lum(data[j], data[j + 1], data[j + 2]) / 255;
+    const brightness = lum(data[j], data[j + 1], data[j + 2]);
+    const y = brightness / 255;
     lum01[i] = y;
     dark[i] = data[j + 3] && y < beta ? 1 : 0;
+    if (histogram && data[j + 3]) {
+      histogram[Math.round(brightness)]++;
+      visible++;
+    }
   }
+  const paper = histogram ? mangaPaperCutoff(histogram, visible) : clamp01(numberOpt("paper", 9, 0.15));
   const lines = new Uint8Array(n);
   for (let i = 0; i < n; i++) lines[i] = data[i * 4 + 3] && lum01[i] < line ? 1 : 0;
   const large = largeBetaMask(dark, lines, w, h, betaSize, betaReplace);
@@ -521,6 +546,13 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
   const toneEdge = distanceSquared(toneOutside, w, h);
   const rimPx = Math.max(1, Math.round(0.25 / mmPerPx));
   const rimSq = rimPx * rimPx;
+  const softBackgroundEdge = (x: number, y: number, brightness: number) => {
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx >= 0 && xx < w && yy >= 0 && yy < h && Math.abs(lum01[yy * w + xx] - brightness) > 0.12) return false;
+    }
+    return true;
+  };
 
   const sr = image?.sourceRect;
   const sx = sr ? w / Math.max(1e-9, sr.w) : 1;
@@ -574,13 +606,10 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
     const alpha = data[i * 4 + 3];
     if (!alpha) continue;
     const yv = lum01[i];
-    if (dark[i]) {
-      if (large[i] && !inKeep(x, y)) density[i] = toneEdge[i] <= rimSq ? 1 : grad ? grad[i] : (betaTone as number);
-      else density[i] = 1;
-      continue;
-    }
-    if (yv < line) {
-      density[i] = 1;
+    if (dark[i] || yv < line) {
+      const inTone = dark[i] && toneEdge[i] > rimSq;
+      const softEdge = !inTone && betaReplace === "background" && large[i] && softBackgroundEdge(x, y, yv);
+      density[i] = large[i] && (inTone || softEdge) && !inKeep(x, y) ? grad ? grad[i] : (betaTone as number) : 1;
       continue;
     }
     let d = smooth[i];
