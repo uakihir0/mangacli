@@ -111,6 +111,8 @@ export function applyOp(state: EditState, op: Op): string {
     const x = at.x - g.offset.x - g.frame.x;
     const yy = at.y - g.offset.y - g.frame.y;
     y.set(e.src, ["at"], [coordLike(old?.[0], x, g.frame.w), coordLike(old?.[1], yy, g.frame.h)], { rootWrap: "text" });
+    // a box held to the frame would snap back to its corner
+    if (g.attached) y.set(e.src, ["attach"], "none", { rootWrap: "text" });
     if (props.place !== undefined) {
       // `at` replaces `place`; keep the anchor the place keyword gave
       if (props.anchor === undefined && typeof props.place === "string") y.set(e.src, ["anchor"], props.place);

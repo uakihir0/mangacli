@@ -37,6 +37,8 @@ export interface ElementEdit {
   body?: Vec[];
   center?: Vec;
   tails?: { tip: Vec; root: Vec }[];
+  /** a balloon held to its panel's frame (`attach`, narration boxes): a move lets go of it */
+  attached?: boolean;
 }
 
 /** a boundary between two layout slots that can be dragged */

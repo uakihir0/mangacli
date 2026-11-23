@@ -515,6 +515,7 @@ async function composePageInner(doc: ResolvedDoc, page: RPage, physicalIndex: nu
         body,
         center: plan.center,
         tails: balloonTips.get(el.id),
+        attached: p.attach !== undefined ? p.attach !== "none" : p.as === "narration",
       };
     }
     const rec = store!.placements.get(pathKey(el.path));
