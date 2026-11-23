@@ -1,7 +1,9 @@
+import polygonClipping from "polygon-clipping";
 import sharp from "sharp";
 import { describe, expect, it, vi } from "vitest";
-import { createRenderer } from "../src/api.js";
+import { createRenderer, validate } from "../src/api.js";
 import { Rng } from "../src/core/random.js";
+import { polygonArea } from "../src/geom/path.js";
 import { type Vec, cross, len, sub } from "../src/geom/vec.js";
 import { HAND_PRESETS, PEN_PRESETS } from "../src/ink/presets.js";
 import { inkShape } from "../src/ink/shape.js";
@@ -140,23 +142,31 @@ describe("balloon tails", () => {
     const shortSide = Math.min(Math.max(...body.map((p) => p.x)) - Math.min(...body.map((p) => p.x)), Math.max(...body.map((p) => p.y)) - Math.min(...body.map((p) => p.y)));
     expect(Math.hypot(pts[a].x - pts[0].x, pts[a].y - pts[0].y)).toBeGreaterThan(shortSide / 6);
   });
-  it("uses a ninth of the short side for an ordinary automatic wedge", async () => {
+  it("clamps an ordinary automatic wedge to the thin default width", async () => {
     const { pts } = await outline(`{ balloon: "おはよう", id: b, hand: clean, size: [30mm, 24mm], at: [40mm, 35mm], tail: { direction: 0deg, length: 10mm, curl: false, bend: 0, sideCurve: 0 } }`);
     const { a } = tailEdges(pts);
     const width = Math.hypot(pts[a].x - pts[0].x, pts[a].y - pts[0].y);
-    expect(width).toBeGreaterThan(2.47);
-    expect(width).toBeLessThan(2.8);
+    expect(width).toBeCloseTo((1.3 * 80) / 182, 5);
+  });
+  it.each(["say", "whisper"])("clamps a direction-only automatic %s wedge by maxLength", async as => {
+    const balloon = `balloon: "おはよう", id: b, as: ${as}, hand: clean, size: [24mm, 24mm], at: [40mm, 35mm], shape: { kind: ellipse, irregularity: 0, tilt: 0deg }`;
+    const tail = "direction: 0deg, bend: 0";
+    const uncapped = await outline(`{ ${balloon}, tail: { ${tail} } }`);
+    const capped = await outline(`{ ${balloon}, tail: { ${tail}, maxLength: 1mm } }`);
+    const reach = (out: { pts: Vec[]; origin: Vec }) => tip(out.pts).x - rightOf(out.pts, out.origin.x + 40);
+    expect(reach(uncapped)).toBeGreaterThan(1.4);
+    expect(reach(uncapped) - reach(capped)).toBeGreaterThan(0.45);
+    expect(reach(uncapped) - reach(capped)).toBeLessThan(0.65);
   });
   it.each(["say", "whisper"])("applies widthScale to the thinner automatic %s width", async as => {
-    const balloon = `balloon: "おはよう", id: b, as: ${as}, hand: clean, size: [30mm, 24mm], at: [40mm, 35mm]`;
+    const balloon = `balloon: "おはよう", id: b, as: ${as}, hand: clean, size: [30mm, 24mm], at: [40mm, 35mm], shape: { kind: ellipse, irregularity: 0, tilt: 0deg }`;
     const tail = "direction: 0deg, length: 10mm, curl: false, bend: 0, sideCurve: 0, widthScale: 1.5";
     const automatic = await outline(`{ ${balloon}, tail: { ${tail} } }`);
-    const explicit = await outline(`{ ${balloon}, tail: { ${tail}, width: ${24 / 9}mm } }`);
-    expect(automatic.pts).toHaveLength(explicit.pts.length);
-    automatic.pts.forEach((p, i) => {
-      expect(p.x).toBeCloseTo(explicit.pts[i].x, 5);
-      expect(p.y).toBeCloseTo(explicit.pts[i].y, 5);
-    });
+    const explicit = await outline(`{ ${balloon}, tail: { ${tail}, width: ${(1.3 * 80) / 182}mm } }`);
+    const ring = (pts: Vec[]) => [[pts.map((p) => [p.x, p.y] as [number, number])]];
+    let difference = 0;
+    for (const polygon of polygonClipping.xor(ring(automatic.pts), ring(explicit.pts))) for (const [i, points] of polygon.entries()) difference += (i ? -1 : 1) * Math.abs(polygonArea(points.map(([x, y]) => ({ x, y }))));
+    expect(Math.abs(difference)).toBeLessThan(1e-6);
   });
   it.each(["say", "whisper", "electronic", "shout", "scream"])("preserves explicit %s widths and their scaling", async as => {
     const balloon = `balloon: "おはよう", id: b, as: ${as}, hand: clean, size: [30mm, 24mm], at: [40mm, 35mm]`;
@@ -183,6 +193,17 @@ describe("balloon tails", () => {
     const nearTip = ink.inks.flatMap(p => p.pts).filter(p => p.x >= 9.99);
     expect(nearTip.length).toBeGreaterThan(0);
     expect(Math.max(...nearTip.map(p => p.y)) - Math.min(...nearTip.map(p => p.y))).toBeLessThanOrEqual(0.1);
+  });
+  it("keeps a direction-only zigzag at 11 bmm unless maxLength is explicit", async () => {
+    const balloon = 'balloon: "", id: b, hand: clean, at: [40mm, 35mm], size: [24mm, 24mm], shape: { kind: ellipse, irregularity: 0 }';
+    const tail = "kind: zigzag, direction: 0deg, bend: 0";
+    const automatic = await outline(`{ ${balloon}, tail: { ${tail} } }`);
+    const explicit = await outline(`{ ${balloon}, tail: { ${tail}, length: ${(11 * 80) / 182}mm } }`);
+    const reach = (out: { pts: Vec[]; origin: Vec }) => tip(out.pts).x - rightOf(out.pts, out.origin.x + 40);
+    expect(reach(automatic)).toBeCloseTo(reach(explicit), 5);
+    const capped = await outline(`{ ${balloon}, tail: { ${tail}, maxLength: 1mm } }`);
+    const short = await outline(`{ ${balloon}, tail: { ${tail}, length: 1mm } }`);
+    expect(capped.pts).toEqual(short.pts);
   });
   it("preserves the default zigzag length on whisper balloons", async () => {
     const balloon = 'balloon: "", id: b, as: whisper, at: [40mm, 35mm], size: [24mm, 24mm], shape: { kind: ellipse, irregularity: 0 }';
@@ -230,32 +251,53 @@ describe("balloon tails", () => {
     const capped = await outline(`{ ${balloon}, tail: { direction: 0deg, maxLength: 0.1mm } }`);
     expect(tip(capped.pts).x).toBeLessThan(tip(long.pts).x);
   });
-  it("stops a tail aimed at a close bare point a face's half-width short, out of the speaker's face", async () => {
-    const { pts, origin } = await outline(`{ balloon: "おはよう", id: b, size: [24mm, 24mm], at: [40mm, 35mm], tail: { to: [59mm, 35mm] } }`);
-    const target = origin.x + 59;
-    expect(target - tip(pts).x).toBeGreaterThan(2.5);
-    expect(tip(pts).x - rightOf(pts, origin.x + 40)).toBeGreaterThan(3.5);
+  it("keeps a speaker tail within the automatic bounds regardless of target distance", async () => {
+    const close = await outline(`{ balloon: "おはよう", id: b, size: [24mm, 24mm], at: [40mm, 35mm], tail: { to: [59mm, 35mm], bend: 0 } }`);
+    const far = await outline(`{ balloon: "おはよう", id: b, size: [24mm, 24mm], at: [30mm, 35mm], tail: { to: [70mm, 35mm], bend: 0 } }`);
+    const reachOf = (out: { pts: Vec[]; origin: Vec }, cx: number) => tip(out.pts).x - rightOf(out.pts, out.origin.x + cx);
+    const closeReach = reachOf(close, 40);
+    const farReach = reachOf(far, 30);
+    expect(Math.abs(closeReach - farReach)).toBeLessThan(0.05);
+    for (const reach of [closeReach, farReach]) {
+      expect(reach).toBeGreaterThan((2.5 * 80) / 182 - 0.05);
+      expect(reach).toBeLessThan((5 * 80) / 182 + 0.05);
+    }
+    expect(Math.abs(tip(close.pts).y - (close.origin.y + 35))).toBeLessThan(0.3);
+    expect(Math.abs(tip(far.pts).y - (far.origin.y + 35))).toBeLessThan(0.3);
   });
-  it("aims a tail at a distant speaker with a modest reach, not a needle", async () => {
-    const { pts, origin } = await outline(`{ balloon: "おはよう", id: b, size: [24mm, 24mm], at: [30mm, 35mm], tail: { to: [70mm, 35mm], bend: 0 } }`);
-    const t = tip(pts);
-    const reach = t.x - rightOf(pts, origin.x + 30);
-    expect(Math.abs(t.y - (origin.y + 35))).toBeLessThan(0.3);
-    expect(reach).toBeGreaterThan(4.5);
-    expect(reach).toBeLessThan(5.6);
+  it("defaults curl off while preserving an explicit curl", async () => {
+    const data = await sharp({ create: { width: 1000, height: 800, channels: 3, background: "white" } }).png().toBuffer();
+    const renderer = createRenderer({ profile: "preview", assets: { art: data } });
+    const geometry = async (curl?: boolean) => {
+      const doc = {
+        mangacli: 1,
+        page: { size: ["100mm", "80mm"], bleed: "0mm", baseFrame: "trim" },
+        assets: { art: { src: "art.png", character: "taro", anchors: { mouth: [550, 550] }, regions: { face: [200, 400, 300, 200] } } },
+        pages: [{ layers: [
+          { image: "art", id: "img", at: ["0mm", "0mm"], anchor: "top-left", size: ["100mm", "80mm"], fit: "fill" },
+          { balloon: "Hi", id: "b", who: "taro", tail: { bend: 0, ...(curl === undefined ? {} : { curl }) }, at: ["10mm", "20mm"], size: ["24mm", "18mm"], hand: "ruler" },
+        ] }],
+      };
+      const root = (await renderer.displayList(doc, 1)).root;
+      const [fill] = paths(root, (n) => n.tag?.elementId === "b" && n.tag.role === "fill");
+      return vertices(fill);
+    };
+    const automatic = await geometry();
+    expect(automatic).toEqual(await geometry(false));
+    expect(automatic).not.toEqual(await geometry(true));
   });
   it("aims a tail at a speaker below even when its root moves to the side", async () => {
-    const { pts, origin } = await outline(`{ balloon: "おはよう", id: b, size: [24mm, 24mm], at: [40mm, 25mm], tail: { to: [46mm, 55mm], bend: 0 } }`);
+    const { pts, origin } = await outline(`{ balloon: "おはよう", id: b, size: [24mm, 24mm], at: [40mm, 25mm], tail: { to: [46mm, 55mm], length: 8mm, bend: 0 } }`);
     const t = pts.reduce((p, q) => (q.y > p.y ? q : p));
     expect(Math.abs(t.x - (origin.x + 46))).toBeLessThan(2.5);
     expect(t.y - (origin.y + 37)).toBeGreaterThan(2.5);
   });
   it("keeps a tail outside the body when its speaker is right under it", async () => {
-    const { pts, origin } = await outline(`{ balloon: "おはよう", id: b, size: [24mm, 24mm], at: [40mm, 25mm], tail: { to: [42mm, 40mm], bend: 0 } }`);
+    const { pts, origin } = await outline(`{ balloon: "おはよう", id: b, size: [24mm, 24mm], at: [40mm, 25mm], tail: { to: [42mm, 40mm], length: 8mm, bend: 0 } }`);
     const t = pts.reduce((p, q) => (q.y > p.y ? q : p));
     expect(t.y - (origin.y + 37)).toBeGreaterThan(1.5);
   });
-  it("stops a speaker's tail with a clear gap before the whole face box", async () => {
+  it("honors an explicit length even when it crosses the speaker's face box", async () => {
     const data = await sharp({ create: { width: 1000, height: 800, channels: 3, background: "white" } }).png().toBuffer();
     const renderer = createRenderer({ profile: "preview", assets: { art: data } });
     const doc = {
@@ -264,35 +306,16 @@ describe("balloon tails", () => {
       assets: { art: { src: "art.png", character: "taro", anchors: { mouth: [700, 450] }, regions: { face: [520, 300, 300, 200] } } },
       pages: [{ layers: [
         { image: "art", id: "img", at: ["0mm", "0mm"], anchor: "top-left", size: ["100mm", "80mm"], fit: "fill" },
-        { balloon: "Hi", id: "b", who: "taro", tail: { maxLength: "60mm", gap: "2mm", allowVertical: true }, at: ["24mm", "56mm"], size: ["14mm", "12mm"], hand: "ruler" },
+        { balloon: "Hi", id: "b", who: "taro", tail: { length: "30mm", gap: "2mm", allowVertical: true, bend: 0 }, at: ["24mm", "56mm"], size: ["14mm", "12mm"], hand: "ruler" },
       ] }],
     };
     const root = (await renderer.displayList(doc, 1)).root;
     const [fill] = paths(root, (n) => n.tag?.elementId === "b" && n.tag.role === "fill");
     const pts = vertices(fill);
     const t = pts.reduce((p, q) => (q.x - q.y > p.x - p.y ? q : p));
-    expect(t.x).toBeLessThan(52 - 1.5);
+    expect(t.x).toBeGreaterThan(52);
   });
-  it.each([[60, 30], [60, 28], [26, 30]])("keeps a curled side tail out of the face box under the balloon at [%imm, %imm]", async (x, y) => {
-    const data = await sharp({ create: { width: 1000, height: 800, channels: 3, background: "white" } }).png().toBuffer();
-    const renderer = createRenderer({ profile: "preview", assets: { art: data } });
-    const doc = {
-      mangacli: 1,
-      page: { size: ["100mm", "80mm"], bleed: "0mm", baseFrame: "trim" },
-      assets: { art: { src: "art.png", character: "taro", anchors: { mouth: [450, 500] }, regions: { face: [200, 400, 300, 200] } } },
-      pages: [{ layers: [
-        { image: "art", id: "img", at: ["0mm", "0mm"], anchor: "top-left", size: ["100mm", "80mm"], fit: "fill" },
-        { balloon: "Hi", id: "b", who: "taro", at: [`${x}mm`, `${y}mm`], size: ["24mm", "18mm"], hand: "ruler" },
-      ] }],
-    };
-    const root = (await renderer.displayList(doc, 1)).root;
-    const [fill] = paths(root, (n) => n.tag?.elementId === "b" && n.tag.role === "fill");
-    const pts = vertices(fill);
-    const far = pts.reduce((p, q) => (len(sub(q, { x, y })) > len(sub(p, { x, y })) ? q : p));
-    const outside = Math.max(20 - far.x, far.x - 50, 40 - far.y, far.y - 60);
-    expect(outside).toBeGreaterThan(0.25);
-  });
-  it("warns when a balloon sits too far from its speaker for its tail to reach", async () => {
+  it("never fails validation on BALLOON_TAIL_SHORT for a distant speaker", async () => {
     const yaml = (to: string) => `mangacli: 1
 page: { size: [160mm, 80mm], bleed: 3mm }
 pages:
@@ -300,9 +323,11 @@ pages:
       - layers:
           - { balloon: "おはよう", id: b, size: [24mm, 24mm], at: [30mm, 35mm], tail: { to: [${to}, 35mm] } }
 `;
-    const codes = async (to: string) => (await r.render({ yaml: yaml(to), filename: "/v/tail.yaml" }, { layoutOnly: true })).diagnostics.map((d) => d.code);
-    expect(await codes("150mm")).toContain("BALLOON_TAIL_SHORT");
-    expect(await codes("55mm")).not.toContain("BALLOON_TAIL_SHORT");
+    for (const to of ["150mm", "55mm"]) {
+      const result = await validate({ yaml: yaml(to), filename: "/v/tail.yaml" }, { strict: true, diagnostics: { BALLOON_TAIL_SHORT: "error" } });
+      expect(result.ok).toBe(true);
+      expect(result.diagnostics.map((d) => d.code)).not.toContain("BALLOON_TAIL_SHORT");
+    }
   });
   it("extends automatic, capped and explicitly short off-screen tails beyond the frame with an open width", async () => {
     const balloon = 'balloon: "", id: b, as: offscreen, at: [26mm, 24mm], size: [18mm, 14mm], shape: { kind: ellipse, irregularity: 0 }';
@@ -314,7 +339,7 @@ pages:
     expect(left(none.pts)).toBeGreaterThan(none.origin.x);
     for (const result of [short, auto, capped]) {
       expect(left(result.pts)).toBeLessThan(result.origin.x);
-      expect(widthAt(result.pts, result.origin.x, 24 + result.origin.y)).toBeGreaterThan(0.3);
+      expect(widthAt(result.pts, result.origin.x, 24 + result.origin.y)).toBeGreaterThan(0.15);
     }
     const near = await outline(`{${balloon.replace("26mm", "12mm")}, tail: { offscreen: left, bend: 0 }}`);
     expect(left(near.pts)).toBeLessThan(near.origin.x);
