@@ -44,6 +44,35 @@ function expectOutwardTail(outline: shape.ShapeContour, body: Vec[]) {
 }
 
 describe("physical spike tail fitting", () => {
+  it("shortens a burst tail when its outside tip is blocked by another spike", async () => {
+    const { plan, ctx } = await setup();
+    plan.body = BODY_GENERATORS.burst(120, 24, { kind: "burst", irregularity: 0, egg: 0, tilt: 0 }, 42);
+    const body = plan.body.contour.pts;
+    plan.outer = boundsOf(body);
+    const dir = rot({ x: 1, y: 0 }, -15 * Math.PI / 180);
+    const rootDir = rot({ x: 1, y: 0 }, 5 * Math.PI / 180);
+    const hit = rayPolygon({ x: 0, y: 0 }, rootDir, body)!;
+    const root = { x: hit.t * rootDir.x, y: hit.t * rootDir.y };
+    const along = (d: number) => ({ x: root.x + d * dir.x, y: root.y + d * dir.y });
+    const length = 3.660575989443554;
+    const entry = rayPolygon(along(1e-7), dir, body)!;
+    expect(pointInPolygon(along(entry.t + 1e-5), body)).toBe(true);
+    expect(pointInPolygon(along(length), body)).toBe(false);
+    plan.props.tail = { kind: "wedge", root: "5deg", direction: "-15deg", allowVertical: true, length: `${length}mm` };
+    const ink = vi.spyOn(shape, "inkShape");
+    try {
+      renderBalloon(plan, ctx);
+      const outline = ink.mock.calls[0][0];
+      expectOutwardTail(outline, body);
+      const tip = outline.pts[outline.corners!.find(c => c.kind === "point")!.index];
+      const displacement = sub(tip, root);
+      expect(cross(dir, displacement)).toBeCloseTo(0, 7);
+      expect(dist(tip, root)).toBeLessThan(length);
+      expect(ctx.bag.items.some(d => d.code === "BALLOON_TAIL_NO_CLEAR_BASE")).toBe(true);
+    } finally {
+      ink.mockRestore();
+    }
+  });
   it("falls back to an outward tail instead of a notch for a short bent burst tail", async () => {
     const { plan, ctx } = await setup();
     plan.body = BODY_GENERATORS.burst(120, 24, { kind: "burst", irregularity: 0, egg: 0, tilt: 0 }, 42);

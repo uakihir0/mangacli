@@ -1256,19 +1256,23 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
           }
         }
       }
-      const end = along(run);
-      if (!straight || run < length) fitted = tryBases(sR, drawStraight(end));
-      if (!fitted && !pointInPolygon(end, contour.pts)) {
+      for (const fraction of [1, 0.75, 0.5, 0.25, 0.125]) {
+        const distance = run * fraction;
+        const end = along(distance);
+        if (pointInPolygon(end, contour.pts)) continue;
+        const draw = drawStraight(end);
+        if (!straight || distance < length) fitted = tryBases(sR, draw);
+        if (fitted) break;
         const visible = rayPolygon(end, back, cur.pts);
-        if (visible && visible.t <= run + 1e-7 * u.k) {
+        if (visible && visible.t <= distance + 1e-7 * u.k) {
           const at = s[visible.index] + visible.u * (s[visible.index + 1] - s[visible.index]);
-          const draw = drawStraight(end);
           for (const half of [bw / 2, bw / 4, bw / 8, bw / 16, bw / 32, bw / 64]) {
             const base = { A: pointAtArc(cur.pts, s, at - half), B: pointAtArc(cur.pts, s, at + half) };
             fitted = fit(base, draw(base));
             if (fitted) break;
           }
         }
+        if (fitted) break;
       }
       ctx.bag.warn("BALLOON_TAIL_NO_CLEAR_BASE", fitted
         ? `the requested tail of ${plan.el.id} crosses its balloon outline; drew a straight tail instead`
