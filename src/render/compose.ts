@@ -1601,20 +1601,20 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         if (side === "bottom") frame.h -= width;
       }
       const stroke = resolveStroke(pl.props.stroke, pl.hand, u).width;
-      let c = attachedBalloonCenter(attach, pl.props.as === "narration", frame, pl.outer, stroke, at);
+      const cutBy = cutSides(pl.props).length > 0;
+      // a cut narration is checked for room where the cut leaves it, not at its corner
+      const snap = (p: Vec | undefined) => (p && cutBy ? cutAt(pl, p) : p);
+      let c = snap(attachedBalloonCenter(attach, pl.props.as === "narration", frame, pl.outer, stroke, at));
       if (!attach) {
         const free = (p: Vec) => !attachedRects.some(r => rectOverlapArea({ x: p.x + pl.outer.x, y: p.y + pl.outer.y, w: pl.outer.w, h: pl.outer.h }, r) > 0);
         if (c && !free(c)) {
           const corners = rtl ? ["top-right", "top-left", "bottom-right", "bottom-left"] : ["top-left", "top-right", "bottom-left", "bottom-right"];
-          c = corners.map(side => attachedBalloonCenter(side, true, frame, pl.outer, stroke)!).find(free);
+          c = corners.map(side => snap(attachedBalloonCenter(side, true, frame, pl.outer, stroke))!).find(free);
         }
       }
       if (c) {
         pl.explicit = true;
-        if (cutSides(pl.props).length) {
-          pl.edgeCut = true;
-          c = cutAt(pl, c);
-        }
+        if (cutBy) pl.edgeCut = true;
         setCenter(pl, c);
         attachedRects.push(placedRects[placedRects.length - 1]);
         continue;
@@ -1730,37 +1730,63 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     if (isFlow(pl)) {
       for (const st0 of beam) {
         const st = { ...st0, rects: st0.rects.slice(), centers: new Map(st0.centers), costs: new Map(st0.costs) };
-        if ((rtl ? st.flowX - w < area.x : st.flowX + w > area.x + area.w) && st.rowH > 0) {
-          st.flowX = rtl ? area.x + area.w : area.x;
-          st.flowY += st.rowH + 1 * u.k;
-          st.rowH = 0;
-        }
-        const x = rtl ? st.flowX - w / 2 : st.flowX + w / 2;
-        for (const r of attachedRects.slice().sort((a, b) => a.y - b.y)) {
-          if (rectOverlapArea({ x: x - w / 2, y: st.flowY, w, h }, r) > 0) {
-            const rowBottom = st.flowY + st.rowH;
-            st.flowY = r.y + r.h + 1 * u.k;
-            st.rowH = Math.max(0, rowBottom - st.flowY);
-          }
-        }
-        const y = st.flowY + h / 2;
         let dx = 0;
         let dy = 0;
-        if (pl.fitDialogueInPanel) {
-          const b = dialogueBounds(pl);
-          const origin = { x: x - w / 2 - pl.outer.x, y: y - h / 2 - pl.outer.y };
-          const fit = panelDialogueCenter(b, origin);
-          const proposed = fit && { ...b, x: b.x + fit.x, y: b.y + fit.y };
-          if (!fit || (proposed && (fit.x !== origin.x || fit.y !== origin.y) && [...st.rects, ...attachedRects].some(r => rectOverlapArea(proposed, rectInset(r, -0.99 * u.k)) > 0))) {
+        let cx = 0;
+        let cy = 0;
+        const cut = ctx.panel && cutSides(pl.props).length > 0;
+        for (let attempt = 0; ; attempt++) {
+          if ((rtl ? st.flowX - w < area.x : st.flowX + w > area.x + area.w) && st.rowH > 0) {
+            st.flowX = rtl ? area.x + area.w : area.x;
+            st.flowY += st.rowH + 1 * u.k;
+            st.rowH = 0;
+          }
+          const x = rtl ? st.flowX - w / 2 : st.flowX + w / 2;
+          for (const r of attachedRects.slice().sort((a, b) => a.y - b.y)) {
+            if (rectOverlapArea({ x: x - w / 2, y: st.flowY, w, h }, r) > 0) {
+              const rowBottom = st.flowY + st.rowH;
+              st.flowY = r.y + r.h + 1 * u.k;
+              st.rowH = Math.max(0, rowBottom - st.flowY);
+            }
+          }
+          const y = st.flowY + h / 2;
+          dx = 0;
+          dy = 0;
+          if (pl.fitDialogueInPanel) {
+            const b = dialogueBounds(pl);
+            const origin = { x: x - w / 2 - pl.outer.x, y: y - h / 2 - pl.outer.y };
+            const fit = panelDialogueCenter(b, origin);
+            const proposed = fit && { ...b, x: b.x + fit.x, y: b.y + fit.y };
+            if (!fit || (proposed && (fit.x !== origin.x || fit.y !== origin.y) && [...st.rects, ...attachedRects].some(r => rectOverlapArea(proposed, rectInset(r, -0.99 * u.k)) > 0))) {
+              st.costs.set(pl, Infinity);
+              st.total += 1000;
+            } else {
+              dx = fit.x - origin.x;
+              dy = fit.y - origin.y;
+            }
+          }
+          cx = x + dx;
+          cy = y + dy;
+          if (cut) {
+            // a cut balloon leaves its row for its cut sides; the row goes on from where it would have stood
+            const o = cutAt(pl, { x: cx - w / 2 - pl.outer.x, y: cy - h / 2 - pl.outer.y });
+            cx = o.x + pl.outer.x + w / 2;
+            cy = o.y + pl.outer.y + h / 2;
+          }
+          // nothing may land on a cut balloon of the flow, nor a cut one on anything placed before it
+          const own = { x: cx - w / 2, y: cy - h / 2, w, h };
+          const cutRects = [...st.centers].filter(([q]) => isFlow(q) && cutSides(q.props).length).map(([q, c]) => ({ x: c.x - q.outer.w / 2, y: c.y - q.outer.h / 2, w: q.outer.w, h: q.outer.h }));
+          if (!(cut ? [...st.rects, ...attachedRects] : cutRects).some(r => rectOverlapArea(own, r) > 0)) break;
+          // taken: try the next row, while one is left in the area
+          if (st.flowY + st.rowH + 1 * u.k + h > area.y + area.h || attempt > 8) {
             st.costs.set(pl, Infinity);
             st.total += 1000;
-          } else {
-            dx = fit.x - origin.x;
-            dy = fit.y - origin.y;
+            break;
           }
+          st.flowX = rtl ? area.x + area.w : area.x;
+          st.flowY += Math.max(st.rowH, 0) + 1 * u.k;
+          st.rowH = 0;
         }
-        const cx = x + dx;
-        const cy = y + dy;
         st.centers.set(pl, { x: cx, y: cy });
         st.rects.push({ x: cx - w / 2, y: cy - h / 2, w, h });
         st.flowX += dx + (rtl ? -(w + 1 * u.k) : w + 1 * u.k);
