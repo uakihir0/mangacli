@@ -349,6 +349,17 @@ const textProps = {
   overflow: z.enum(["shrink", "clip", "error"]).optional(),
 };
 
+const BackdropLength = z.union([
+  z.number().nonnegative(),
+  z.string().regex(new RegExp(String.raw`^\+?(?:\d+(?:\.\d+)?|\.\d+)\s*(${[...LENGTH_UNITS, "bmm"].join("|")})?(@print)?$`)),
+]);
+const textBackdrop = z.object({
+  color: ColorStr.optional(),
+  feather: BackdropLength.optional(),
+  padding: BackdropLength.optional(),
+  opacity: z.number().min(0).max(1).optional(),
+}).strict();
+
 const sfxProps = {
   ...textProps,
   bleed: z.boolean().optional(),
@@ -402,7 +413,7 @@ const drawProps = {
 export const ELEMENT_KEYS: Record<string, Set<string> | null> = {
   image: new Set(["type", ...Object.keys(imageProps)]),
   balloon: new Set(["type", ...Object.keys(balloonProps)]),
-  text: new Set(["type", ...Object.keys(textProps)]),
+  text: new Set(["type", ...Object.keys(textProps), "backdrop"]),
   sfx: new Set(["type", ...Object.keys(sfxProps)]),
   fill: new Set(["type", ...Object.keys(fillProps)]),
   draw: new Set(["type", ...Object.keys(drawProps)]),
@@ -416,7 +427,7 @@ export const Element: z.ZodType = z.lazy(() =>
   z.discriminatedUnion("type", [
     z.object({ type: z.literal("image"), ...imageProps }).strict(),
     z.object({ type: z.literal("balloon"), ...balloonProps }).strict(),
-    z.object({ type: z.literal("text"), ...textProps }).strict(),
+    z.object({ type: z.literal("text"), ...textProps, backdrop: textBackdrop.optional() }).strict(),
     z.object({ type: z.literal("sfx"), ...sfxProps }).strict(),
     effectProps,
     z.object({ type: z.literal("fill"), ...fillProps }).strict(),

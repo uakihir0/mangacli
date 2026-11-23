@@ -11,8 +11,8 @@ function paths(node: Node, id: string): PathNode[] {
   if (node.kind === "group") return node.children.flatMap(n => paths(n, id));
   return node.kind === "path" && node.tag?.elementId === id ? [node] : [];
 }
-async function scene(tail = "to: [90mm, 35mm]", obstacle = "55mm, 35mm", as = "say", first = false, pageLayer = false, neighborSize = "4mm, 4mm") {
-  const source = `- { balloon: "", id: source, as: ${as}, hand: clean, size: [20mm, 20mm], at: [40mm, 35mm], tail: { ${tail} } }`;
+async function scene(tail = "to: [90mm, 35mm]", obstacle = "52.5mm, 35mm", as = "say", first = false, pageLayer = false, neighborSize = "4mm, 4mm", sourceProps = "") {
+  const source = `- { balloon: "", id: source, as: ${as}, hand: clean, ${sourceProps} size: [20mm, 20mm], at: [40mm, 35mm], tail: { ${tail} } }`;
   const neighbor = `- { balloon: "", id: neighbor, hand: clean, size: [${neighborSize}], minSize: [0mm, 0mm], padding: 0mm, at: [${obstacle}], tail: none }`;
   const layers = (first ? [neighbor, source] : [source, neighbor]).map(s => `${pageLayer ? "      " : "          "}${s}`).join("\n");
   const yaml = `mangacli: 1
@@ -38,7 +38,7 @@ function overlap(source: PathNode[], neighbor: PathNode[]): number {
 describe("tail avoidance", () => {
   it("routes a negative direction whose alternative root rounds to zero", async () => {
     const original = await scene("direction: -15deg", "100mm, 65mm");
-    const routed = await scene("direction: -15deg", "53mm, 32mm");
+    const routed = await scene("direction: -15deg", "52mm, 32mm");
     expect(overlap(original.source, routed.neighbor)).toBeGreaterThan(0.1);
     expect(routed.source.length).toBeGreaterThan(0);
     expect(overlap(routed.source, routed.neighbor)).toBeLessThan(1e-6);
@@ -102,8 +102,20 @@ describe("tail avoidance", () => {
     expect(routed.warnings).toEqual([]);
   });
 
+  it("does not curl automatic collision avoidance unless curl is explicit", async () => {
+    const tail = "to: [40mm, 65mm], bend: 0";
+    const props = "stroke: { width: 0.01mm },";
+    const automatic = await scene(tail, "31.5mm, 44.5mm", "say", false, false, "4mm, 4mm", props);
+    const straight = await scene(`${tail}, curl: false`, "31.5mm, 44.5mm", "say", false, false, "4mm, 4mm", props);
+    expect(automatic.source).toEqual(straight.source);
+    expect(overlap(automatic.source, automatic.neighbor)).toBeGreaterThan(0);
+    expect(automatic.warnings).toEqual(straight.warnings);
+  });
+
   it("shortens automatic length when the root and bend are fixed", async () => {
-    const routed = await scene("to: [90mm, 35mm], root: 0deg, bend: 0, curl: false");
+    const original = await scene("to: [90mm, 35mm], root: 0deg, bend: 0, curl: false", "100mm, 65mm");
+    const routed = await scene("to: [90mm, 35mm], root: 0deg, bend: 0, curl: false", "53.5mm, 35mm");
+    expect(routed.source).not.toEqual(original.source);
     expect(overlap(routed.source, routed.neighbor)).toBeLessThan(1e-6);
     expect(routed.warnings).toEqual([]);
   });
