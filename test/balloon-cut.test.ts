@@ -4,7 +4,7 @@ import { DiagnosticBag } from "../src/core/diagnostics.js";
 import type { BalloonPlan } from "../src/elements/balloon.js";
 import type { ElemCtx } from "../src/elements/context.js";
 import type { Vec } from "../src/geom/vec.js";
-import { containBalloon, cutCenter, cutDepth, cutSides, cutSize } from "../src/render/balloon-contain.js";
+import { containBalloon, cutCenter, cutDepth, cutSides, cutSize, polygonSpan } from "../src/render/balloon-contain.js";
 
 const rect = (x: number, y: number, w: number, h: number): Vec[] => [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
 const panel = { x: 0, y: 0, w: 60, h: 40 };
@@ -31,6 +31,21 @@ describe("balloon cut geometry", () => {
     expect(size.h).toBeCloseTo(16 / 0.7);
     const c = cutCenter({ x: -size.w / 2, y: -size.h / 2, ...size }, panel, ["left", "right", "top"], s => (s === "top" ? 0.3 : 0.1), { x: 0, y: 0 });
     expect(c.x).toBeCloseTo(30);
+  });
+  it("splits the overhang of two facing sides by their depths", () => {
+    const depth = (s: string) => (s === "left" ? 0.45 : 0.08);
+    const size = cutSize({ w: 20, h: 16 }, panel, ["left", "right"], depth);
+    const c = cutCenter({ x: -size.w / 2, y: -size.h / 2, ...size }, panel, ["left", "right"], depth, { x: 0, y: 0 });
+    expect(0 - (c.x - size.w / 2)).toBeCloseTo(0.45 * size.w);
+    expect(c.x + size.w / 2 - 60).toBeCloseTo(0.08 * size.w);
+  });
+  it("cuts a slanted side where it runs past the body", () => {
+    const poly = [{ x: 0, y: 0 }, { x: 60, y: 20 }, { x: 60, y: 60 }, { x: 0, y: 60 }];
+    expect(polygonSpan(poly, "x", 45)).toEqual([15, 60]);
+    const body = { x: -10, y: -8, w: 20, h: 16 };
+    const c = cutCenter(body, { x: 0, y: 0, w: 60, h: 60 }, ["top", "right"], () => 0.3, { x: 0, y: 0 }, poly);
+    const edge = (c.x / 60) * 20;
+    expect(c.y + body.y).toBeCloseTo(edge - 0.3 * 16);
   });
   it("keeps the text max(2.5bmm, 0.8em) inside every cut side", () => {
     const props = { contain: "panel", clip: "auto", cut: ["top", "right"] };
@@ -105,6 +120,21 @@ pages:
 `;
     const r = await validate({ yaml });
     expect(r.diagnostics.map(d => d.code)).not.toContain("BALLOON_OVERLAP");
+  });
+  it.each([
+    ["a flowing balloon", "autoPlace: flow,"],
+    ["a narration", "as: narration,"],
+  ])("cuts %s by its cut sides", async (_name, style) => {
+    const r = await validate({ yaml: page(`          - { balloon: 短い, id: b, ${style} cut: [bottom], tail: none }`) });
+    const { bbox } = r.layout[0].elements.find(e => e.id === "b")!;
+    expect(bbox.y + bbox.h - 70).toBeGreaterThan(bbox.h * 0.2);
+  });
+  it("keeps the lettering size of a short horizontal box cut left and right", async () => {
+    const box = async (cut: string) => {
+      const r = await validate({ yaml: page(`          - { balloon: はい, id: b, writing: horizontal, shape: { kind: rect }, ${cut} tail: none }`) });
+      return r.layout[0].elements.find(e => e.id === "b")!.bbox;
+    };
+    expect((await box("cut: [left, right],")).h).toBeGreaterThanOrEqual((await box("")).h - 0.01);
   });
   it("warns when the tail can only leave through a cut side", async () => {
     const inward = await validate({ yaml: page("          - { balloon: 角で, cut: [top, right], tail: { direction: 135deg } }") });

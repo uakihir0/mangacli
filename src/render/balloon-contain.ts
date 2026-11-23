@@ -278,18 +278,47 @@ export function cutDepth(props: Record<string, unknown>, side: CutSide): number 
  * The body centre that slices `body` (its bounds around the centre) by each cut side of `panel`.
  * An axis with no cut side keeps `free`; one cut on both sides centres the body on the panel.
  */
-export function cutCenter(body: Rect, panel: Rect, sides: CutSide[], depth: (side: CutSide) => number, free: Vec): Vec {
+export function cutCenter(body: Rect, panel: Rect, sides: CutSide[], depth: (side: CutSide) => number, free: Vec, poly?: Vec[]): Vec {
   const s = new Set(sides);
   const axis = (lo: CutSide, hi: CutSide, p0: number, size: number, b0: number, bs: number, fallback: number) => {
-    if (s.has(lo) && s.has(hi)) return p0 + size / 2 - (b0 + bs / 2);
+    if (s.has(lo) && s.has(hi)) {
+      // the part past the panel splits between the two sides by their depths
+      const dl = depth(lo);
+      const dh = depth(hi);
+      return p0 - (dl + dh > 0 ? dl / (dl + dh) : 0.5) * (bs - size) - b0;
+    }
     if (s.has(lo)) return p0 - b0 - depth(lo) * bs;
     if (s.has(hi)) return p0 + size - (b0 + bs) + depth(hi) * bs;
     return fallback;
   };
-  return {
+  const c = {
     x: axis("left", "right", panel.x, panel.w, body.x, body.w, free.x),
     y: axis("top", "bottom", panel.y, panel.h, body.y, body.h, free.y),
   };
+  if (!poly) return c;
+  // a slanted side is cut where it runs past the body, not at the panel's bounding box
+  const mid = (v: number, b0: number, bs: number, p0: number, size: number) => (isNaN(v) ? p0 + size / 2 : v + b0 + bs / 2);
+  const row = polygonSpan(poly, "y", mid(c.y, body.y, body.h, panel.y, panel.h));
+  const x = row && (s.has("left") || s.has("right")) ? axis("left", "right", row[0], row[1] - row[0], body.x, body.w, free.x) : c.x;
+  const col = polygonSpan(poly, "x", mid(x, body.x, body.w, panel.x, panel.w));
+  const y = col && (s.has("top") || s.has("bottom")) ? axis("top", "bottom", col[0], col[1] - col[0], body.y, body.h, free.y) : c.y;
+  return { x, y };
+}
+
+/** Where the line `axis = at` enters and leaves `poly` (the other coordinate), if it crosses it. */
+export function polygonSpan(poly: Vec[], axis: "x" | "y", at: number): [number, number] | undefined {
+  const other = axis === "x" ? "y" : "x";
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i];
+    const q = poly[(i + 1) % poly.length];
+    if ((p[axis] <= at) === (q[axis] <= at)) continue;
+    const v = p[other] + ((at - p[axis]) / (q[axis] - p[axis])) * (q[other] - p[other]);
+    lo = Math.min(lo, v);
+    hi = Math.max(hi, v);
+  }
+  return hi > lo ? [lo, hi] : undefined;
 }
 
 /**

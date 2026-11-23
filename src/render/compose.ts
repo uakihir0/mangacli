@@ -1579,6 +1579,8 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     pl.center = c;
     placedRects.push({ x: c.x + pl.outer.x, y: c.y + pl.outer.y, w: pl.outer.w, h: pl.outer.h });
   };
+  /** the centre that cuts `pl` by its `cut` sides, keeping `free` on an uncut axis */
+  const cutAt = (pl: BalloonPlan, free: Vec): Vec => cutCenter(dialogueBounds(pl), panelBox, cutSides(pl.props), side => cutDepth(pl.props, side), free, ctx.panelPoly);
   // explicit first
   for (const pl of plans) {
     const attach = pl.props.attach as string | undefined;
@@ -1609,6 +1611,10 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
       }
       if (c) {
         pl.explicit = true;
+        if (cutSides(pl.props).length) {
+          pl.edgeCut = true;
+          c = cutAt(pl, c);
+        }
         setCenter(pl, c);
         attachedRects.push(placedRects[placedRects.length - 1]);
         continue;
@@ -1625,7 +1631,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const cut = ctx.panel ? cutSides(pl.props) : [];
     if (cut.length) {
       pl.edgeCut = true;
-      setCenter(pl, cutCenter(dialogueBounds(pl), panelBox, cut, side => cutDepth(pl.props, side), { x: tl.x - pl.outer.x, y: tl.y - pl.outer.y }));
+      setCenter(pl, cutAt(pl, { x: tl.x - pl.outer.x, y: tl.y - pl.outer.y }));
       continue;
     }
     if (ctx.panelPoly && keepFlashInsidePanel(pl)) {
@@ -1937,7 +1943,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     if (vp && vp !== pl) Object.assign(pl, { ...vp, el: pl.el, props: pl.props });
     if ((ctx.panel && cutSides(pl.props).length) || edgeCandidates.get(pl)?.some(p => Math.hypot(p.x - c.x, p.y - c.y) < 1e-6)) pl.edgeCut = true;
     const origin = { x: c.x - (pl.outer.x + pl.outer.w / 2), y: c.y - (pl.outer.y + pl.outer.h / 2) };
-    pl.center = pl.edgeCut || isFlow(pl) ? origin : fitDialogue(pl, origin);
+    pl.center = ctx.panel && cutSides(pl.props).length ? cutAt(pl, origin) : pl.edgeCut || isFlow(pl) ? origin : fitDialogue(pl, origin);
   }
   // reading-order and overlap checks over the final positions
   const rects = plans.filter((pl) => pl.center).map((pl) => ({ pl, r: { x: pl.center!.x + pl.outer.x, y: pl.center!.y + pl.outer.y, w: pl.outer.w, h: pl.outer.h } }));
