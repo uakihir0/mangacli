@@ -869,8 +869,21 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     const maxLen = t.maxLength !== undefined ? toMm(t.maxLength as string, u) : target && !offSide && !spiky ? Math.min(12 * u.k, Math.max(6 * u.k, minSide * 0.5)) : pointerMax;
     let length: number;
     let reach = 0;
-    if (t.length !== undefined) length = toMm(t.length as string, u);
-    else if (offSide && target) length = Math.min(maxLen, Math.hypot(target.x - R.x, target.y - R.y));
+    if (offSide && target) {
+      const axis = offSide === "left" || offSide === "right" ? "x" : "y";
+      const sign = offSide === "left" || offSide === "top" ? -1 : 1;
+      const bend = typeof t.bend === "number" ? t.bend : 0.1;
+      const perp = { x: -dir.y, y: dir.x };
+      const advance = (dir[axis] + perp[axis] * bend * 0.25) * sign;
+      const distance = (target[axis] - R[axis]) * sign;
+      const requested = t.length !== undefined ? toMm(t.length as string, u) : 0;
+      if (advance > 1e-9) {
+        const frameLength = Math.max(0, distance - offscreenOvershoot) / advance;
+        if (t.length !== undefined && requested < frameLength)
+          ctx.bag.warn("BALLOON_OFFSCREEN_LENGTH_IGNORED", `length of ${plan.el.id} was ignored because off-panel tails run to the frame`, { path: plan.el.path, elementId: plan.el.id });
+        length = Math.max(requested, distance / advance);
+      } else length = t.length !== undefined ? requested : Math.min(maxLen, Math.hypot(target.x - R.x, target.y - R.y));
+    } else if (t.length !== undefined) length = toMm(t.length as string, u);
     else if (target) {
       const dist = Math.hypot(target.x - R.x, target.y - R.y);
       let avail = dist - gap;
@@ -973,7 +986,7 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     const tipBent = { x: tip.x + perp.x * bend * length * 0.25, y: tip.y + perp.y * bend * length * 0.25 };
     const frameAxis = offSide === "left" || offSide === "right" ? "x" : "y";
     const frameSign = offSide === "left" || offSide === "top" ? -1 : 1;
-    const frameCut = offSide && target && t.length === undefined && (tipBent[frameAxis] - target[frameAxis]) * frameSign > -offscreenOvershoot;
+    const frameCut = offSide && target && (tipBent[frameAxis] - target[frameAxis]) * frameSign > -offscreenOvershoot;
 
     if (kind === "bubbles") {
       const count = typeof t.count === "number" ? t.count : 3;
@@ -1091,7 +1104,7 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
         cl = lerp(zigV[k], zigV[k + 1], u);
         if (i > 0 && i < steps && Math.abs(u) < 1e-9) zigCorners.push(i);
       }
-      // automatic off-panel tails stay open where the frame cuts them
+      // off-panel tails stay open where the frame cuts them
       const f = zig ? Math.max(0, 1 - tt) ** 1.15 : frameCut ? 1 - 0.65 * Math.pow(tt, 0.8) : Math.pow(1 - tt, 1 + sideCurve * 1.6);
       if (slanted) {
         // the tail leaves the outline at a slant: bow the centre line outward first, and keep
