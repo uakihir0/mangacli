@@ -305,7 +305,7 @@ function validateSchema(doc: Obj, bag: DiagnosticBag) {
   }
 }
 
-const COMMON_KEYS = ["text", "tail", "shape", "stroke", "fill", "font", "fontSize", "at", "place", "anchor", "size", "who", "as", "layers", "dialogue", "panels", "layout", "border", "bleed", "image", "src", "kind", "region", "paint", "color", "outline", "writing", "rotate", "offset", "id", "style", "hand", "pages", "assets", "fonts", "characters", "styles", "defaults", "meta", "book", "page"];
+const COMMON_KEYS = ["text", "tail", "shape", "stroke", "fill", "font", "fontSize", "at", "place", "anchor", "size", "who", "as", "layers", "dialogue", "panels", "layout", "border", "bleed", "image", "src", "kind", "region", "paint", "color", "outline", "writing", "rotate", "offset", "id", "style", "hand", "pages", "assets", "fonts", "characters", "styles", "defaults", "meta", "book", "page", "finish"];
 
 function hintFor(k: string, _doc: Obj, _path: (string | number)[]): string | undefined {
   const s = suggest(k, COMMON_KEYS);

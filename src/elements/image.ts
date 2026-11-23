@@ -1,5 +1,6 @@
 // Image elements (spec 5.5).
 import { FILTER_NAMES, parseFilter } from "../render/filters.js";
+import type { ImageFilter } from "../render/ir.js";
 import { type AssetInfo, resolveAssetBlend } from "../render/assets.js";
 import { isObj } from "../load/normalize.js";
 import { parseColor } from "../core/color.js";
@@ -166,6 +167,25 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect, 
     ctx.bag.warn("ASSET_LOW_RESOLUTION", `${src}: effective ${Math.round(effPpi)} ppi < required ${Math.round(need)} ppi (${info!.kind === "lineart" ? "line art" : "general"} threshold); asset ${iw}×${ih} px; use at least ${Math.ceil(iw * scale)}×${Math.ceil(ih * scale)} px at this display size (same framing/aspect ratio)`, { path: el.path, elementId: el.id });
   }
   const blend = resolveAssetBlend(info!, p.blend);
+  const parsedFilters = [...(info?.filters ?? []), ...(Array.isArray(p.filters) ? (p.filters as unknown[]) : [])].flatMap((f, i) => {
+    const pf = parseFilter(f);
+    if (!pf || !FILTER_NAMES.has(pf.name)) {
+      ctx.bag.error("SCHEMA_ENUM", `unknown image filter ${JSON.stringify(f)}`, { path: [...el.path, "filters", i] });
+      return [];
+    }
+    return [pf];
+  });
+  const finishValue = p.finish !== undefined ? p.finish : info!.finish !== undefined ? info!.finish : ctx.finish;
+  if (finishValue !== undefined && finishValue !== "none") {
+    let ff: ImageFilter | null = finishValue === "manga" ? { name: "manga", args: [] } : null;
+    if (!ff && isObj(finishValue) && finishValue.style === "manga") {
+      const opts = { ...finishValue };
+      delete opts.style;
+      ff = { name: "manga", args: [], opts };
+    }
+    if (ff) parsedFilters.push(ff);
+    else ctx.bag.error("SCHEMA_ENUM", `unknown image finish ${JSON.stringify(finishValue)}`, { path: [...el.path, "finish"] });
+  }
   const img: Node = {
     kind: "image",
     assetKey: info!.key,
@@ -175,14 +195,7 @@ export async function layoutImage(el: RElement, ctx: ElemCtx, defaultBox: Rect, 
     smoothing: (p.smoothing as "high") ?? "high",
     lineart: info!.kind === "lineart",
     monoLpi: info!.kind === "photo" ? 65 : 60,
-    filters: [...(info?.filters ?? []), ...(Array.isArray(p.filters) ? (p.filters as unknown[]) : [])].flatMap((f, i) => {
-      const pf = parseFilter(f);
-      if (!pf || !FILTER_NAMES.has(pf.name)) {
-        ctx.bag.error("SCHEMA_ENUM", `unknown image filter ${JSON.stringify(f)}`, { path: [...el.path, "filters", i] });
-        return [];
-      }
-      return [pf];
-    }),
+    filters: parsedFilters,
     tag: tag(el, role),
   };
   const outline = Array.isArray(p.outline) ? (p.outline as Obj[]) : [];

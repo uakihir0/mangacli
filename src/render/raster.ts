@@ -7,7 +7,7 @@ import type { AssetRegistry } from "./assets.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
 import { makeBinaryRoundToneSampler, makeToneSampler } from "./screen.js";
 import { distanceSquared } from "./edt.js";
-import { applyFilters } from "./filters.js";
+import { applyFilters, mangaResolutionBoost } from "./filters.js";
 import { MONO_BAND_PIXELS, packBand, type MonoRaster } from "./mono.js";
 import { setImmediate } from "node:timers/promises";
 import { imageInkMask } from "./image-ink.js";
@@ -801,9 +801,17 @@ export class RasterBackend {
     const outW = n.dest.w * scX;
     const outH = n.dest.h * scY;
     if (outW < 1 || outH < 1) return;
-    const pix0 = await dev.opts.assets.pixels(n.assetKey, Math.min(outW, n.sourceRect.w * 4), Math.min(outH, n.sourceRect.h * 4), n.sourceRect);
+    const manga = n.filters.some((f) => f.name === "manga");
+    const boost = manga ? mangaResolutionBoost(n.filters, 1 / Math.max(1e-9, Math.min(scX, scY))) : 1;
+    const pix0 = await dev.opts.assets.pixels(
+      n.assetKey,
+      manga ? outW * boost : Math.min(outW, n.sourceRect.w * 4),
+      manga ? outH * boost : Math.min(outH, n.sourceRect.h * 4),
+      n.sourceRect,
+    );
     if (!pix0) return;
-    const pix = n.filters.length ? await applyFilters(pix0, n.filters, n.dest.w / pix0.width) : pix0;
+    const filterImage = { sourceRect: n.sourceRect, regions: dev.opts.assets.get(n.assetKey)?.regions };
+    const pix = n.filters.length ? await applyFilters(pix0, n.filters, n.dest.w / pix0.width, filterImage) : pix0;
     const tmp = createCanvas(pix.width, pix.height);
     const tctx = tmp.getContext("2d");
     const id = tctx.createImageData(pix.width, pix.height);
@@ -811,6 +819,7 @@ export class RasterBackend {
     tctx.putImageData(id, 0, 0);
     const k: Matrix = matMul(mm, [n.dest.w / pix.width, 0, 0, n.dest.h / pix.height, n.dest.x, n.dest.y]);
     const mono = dev.opts.colorMode === "mono";
+    const lineartLike = n.lineart || manga;
     const b = nodeBounds({ ...n, outline: undefined }, m);
     const r = b ? clampRect(b, dev.W, dev.H) : null;
     if (!r) return;
@@ -915,7 +924,7 @@ export class RasterBackend {
     octx.drawImage(tmp, 0, 0);
     const od = octx.getImageData(0, 0, r.w, r.h);
     const dd = od.data;
-    const inkMask = mono && !n.lineart && dev.opts.monoImages !== "dither" ? imageInkMask(dd, r.w, r.h, dev.opts.dpi, dev.opts.toneCurve) : null;
+    const inkMask = mono && !lineartLike && dev.opts.monoImages !== "dither" ? imageInkMask(dd, r.w, r.h, dev.opts.dpi, dev.opts.toneCurve) : null;
     let curDensity = 0;
     // density map for edge-aware screening
     const dens = new Float32Array(r.w * r.h);
@@ -924,7 +933,7 @@ export class RasterBackend {
       dens[i] = 1 - (dev.opts.toneCurve === "perceptual" ? linearToSrgb(lin0) : lin0);
     }
     // error diffusion instead of a dot screen (output.mono.images: dither)
-    const dither = mono && dev.opts.monoImages === "dither" && !n.lineart ? new Float32Array(r.w * r.h) : null;
+    const dither = mono && dev.opts.monoImages === "dither" && !lineartLike ? new Float32Array(r.w * r.h) : null;
     if (dither) for (let i = 0; i < r.w * r.h; i++) dither[i] = dens[i];
     const sampler = mono ? makeToneSampler({ density: 0, lpi: dev.opts.imageLpi ?? (n.monoLpi || dev.opts.monoLpi), angle: Math.PI / 4, dot: "round", grain: 0.08, invert: false, offset: [0, 0], seed: 11 }, this.target(dev, r), () => curDensity) : null;
     for (let y = 0; y < r.h; y++) {
@@ -950,7 +959,7 @@ export class RasterBackend {
             dither[i0 + r.w] += (e * 5) / 16;
             if (x + 1 < r.w) dither[i0 + r.w + 1] += e / 16;
           }
-        } else if (n.lineart) ink = linearToSrgb(lin) < 0.5;
+        } else if (lineartLike) ink = linearToSrgb(lin) < 0.5;
         else {
           const de = dens[y * r.w + x];
           let lo = de;

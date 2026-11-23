@@ -2,6 +2,7 @@
 import sharp from "sharp";
 import { parseColor } from "../core/color.js";
 import { parseAngle, toMm } from "../core/units.js";
+import { hash2, noise2 } from "../core/random.js";
 import type { ImageFilter } from "./ir.js";
 import { makeToneSampler } from "./screen.js";
 
@@ -24,12 +25,33 @@ export function parseFilter(f: unknown): ImageFilter | null {
   return null;
 }
 
-export const FILTER_NAMES = new Set(["grayscale", "threshold", "levels", "brightness", "contrast", "saturate", "hue", "tint", "sepia", "invert", "blur", "motion-blur", "sharpen", "posterize", "halftone", "dither", "white-to-alpha"]);
+export const FILTER_NAMES = new Set(["grayscale", "threshold", "levels", "brightness", "contrast", "saturate", "hue", "tint", "sepia", "invert", "blur", "motion-blur", "sharpen", "posterize", "halftone", "manga", "dither", "white-to-alpha"]);
 
 const lum = (r: number, g: number, b: number) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 const clamp = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : v);
 
-export async function applyFilters(px: { data: Uint8Array | Uint8ClampedArray; width: number; height: number }, filters: ImageFilter[], mmPerPx: number): Promise<{ data: Uint8Array; width: number; height: number }> {
+export interface MangaFilterContext {
+  /** crop in source-asset pixels corresponding to the buffer passed to the filter */
+  sourceRect?: { x: number; y: number; w: number; h: number };
+  /** named regions in source-asset pixels */
+  regions?: Record<string, [number, number, number, number]>;
+}
+
+/** resolution multiplier needed for a clean 60-ish lpi AM screen (six device px per cell) */
+export function mangaResolutionBoost(filters: ImageFilter[], mmPerPx: number): number {
+  let boost = 1;
+  for (const f of filters) {
+    if (f.name !== "manga") continue;
+    const raw = f.opts?.lpi ?? f.args[0];
+    const n = typeof raw === "string" ? parseFloat(raw) : Number(raw);
+    const lpi = Number.isFinite(n) && n > 0 ? n : 60;
+    const clean = (25.4 / Math.max(1, lpi)) / 6;
+    boost = Math.max(boost, mmPerPx / clean);
+  }
+  return boost;
+}
+
+export async function applyFilters(px: { data: Uint8Array | Uint8ClampedArray; width: number; height: number }, filters: ImageFilter[], mmPerPx: number, image?: MangaFilterContext): Promise<{ data: Uint8Array; width: number; height: number }> {
   let data = new Uint8Array(px.data);
   const { width: w, height: h } = px;
   const len = (v: unknown, fb: number) => (v === undefined ? fb : typeof v === "number" ? v : toMm(String(v), { units: "mm", dpi: 96, k: 1 })) / mmPerPx;
@@ -152,6 +174,9 @@ export async function applyFilters(px: { data: Uint8Array | Uint8ClampedArray; w
           }
         break;
       }
+      case "manga":
+        mangaFilter(data, w, h, mmPerPx, f, len, image);
+        break;
       case "dither": {
         const method = String(o.method ?? f.args[0] ?? "floyd-steinberg");
         const g = new Float32Array(w * h);
@@ -193,4 +218,235 @@ export async function applyFilters(px: { data: Uint8Array | Uint8ClampedArray; w
 function cc(c: number, y: number): number {
   // black -> tint colour (mid grey) -> paper
   return y < 0.5 ? c * (y / 0.5) : c + (1 - c) * ((y - 0.5) / 0.5);
+}
+
+type LenFn = (v: unknown, fallback: number) => number;
+
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+function axisMorph(src: Uint8Array, dst: Uint8Array, w: number, h: number, horizontal: boolean, before: number, after: number, dilate: boolean) {
+  const len = horizontal ? w : h;
+  const pref = new Int32Array(len + 1);
+  const outerLen = horizontal ? h : w;
+  for (let outer = 0; outer < outerLen; outer++) {
+    for (let pos = 0; pos < len; pos++) pref[pos + 1] = pref[pos] + src[horizontal ? outer * w + pos : pos * w + outer];
+    for (let pos = 0; pos < len; pos++) {
+      const left = Math.max(0, pos - before);
+      const right = Math.min(len - 1, pos + after);
+      const count = pref[right + 1] - pref[left];
+      const on = dilate ? count > 0 : count === right - left + 1;
+      dst[horizontal ? outer * w + pos : pos * w + outer] = on ? 1 : 0;
+    }
+  }
+}
+
+/** rectangular morphological opening (erosion, then dilation) of a binary mask */
+function openMask(src: Uint8Array, w: number, h: number, size: number): Uint8Array {
+  if (size <= 1) return Uint8Array.from(src);
+  const before = Math.floor((size - 1) / 2);
+  const after = size - 1 - before;
+  const a = new Uint8Array(src.length);
+  const b = new Uint8Array(src.length);
+  axisMorph(src, a, w, h, true, before, after, false);
+  axisMorph(a, b, w, h, false, before, after, false);
+  axisMorph(b, a, w, h, true, before, after, true);
+  axisMorph(a, b, w, h, false, before, after, true);
+  return b;
+}
+
+/** per-component vertical gradient density (0.8 at the top to 0.4 at the bottom) */
+function betaGradient(mask: Uint8Array, w: number, h: number): Float32Array {
+  const n = w * h;
+  const comp = new Int32Array(n).fill(-1);
+  const out = new Float32Array(n);
+  const stack = new Int32Array(n);
+  const boxes: { minY: number; maxY: number }[] = [];
+  for (let start = 0; start < n; start++) {
+    if (!mask[start] || comp[start] >= 0) continue;
+    const label = boxes.length;
+    let top = 0;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    comp[start] = label;
+    stack[top++] = start;
+    while (top) {
+      const cur = stack[--top];
+      const cx = cur % w;
+      const cy = Math.floor(cur / w);
+      if (cy < minY) minY = cy;
+      if (cy > maxY) maxY = cy;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const x = cx + dx;
+        const y = cy + dy;
+        if (x < 0 || y < 0 || x >= w || y >= h) continue;
+        const ni = y * w + x;
+        if (!mask[ni] || comp[ni] >= 0) continue;
+        comp[ni] = label;
+        stack[top++] = ni;
+      }
+    }
+    boxes.push({ minY, maxY });
+  }
+  for (let i = 0; i < n; i++) {
+    if (!mask[i]) continue;
+    const b = boxes[comp[i]];
+    const y = Math.floor(i / w);
+    const t = b.maxY <= b.minY ? 0.5 : (y - b.minY) / (b.maxY - b.minY);
+    out[i] = 0.8 + (0.4 - 0.8) * t;
+  }
+  return out;
+}
+
+function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f: ImageFilter, len: LenFn, image?: MangaFilterContext) {
+  const o = (f.opts ?? {}) as Obj;
+  const numberOpt = (key: string, index: number, fallback: number) => {
+    const v = o[key] ?? f.args[index];
+    if (v === undefined) return fallback;
+    const n = typeof v === "string" ? parseFloat(v) : Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const defaults = [0.1, 0.2, 0.3, 0.5];
+  const rawTones = Array.isArray(o.tones) ? o.tones : defaults;
+  const tones = [...new Set(rawTones.map((v) => clamp01(Number(v))).filter((v) => Number.isFinite(v)).sort((a, b) => a - b))];
+  if (!tones.length) tones.push(...defaults);
+  const lpi = Math.max(0.1, numberOpt("lpi", 0, 60));
+  const angle = parseAngle((o.angle ?? f.args[1] ?? "45deg") as string | number);
+  const line = clamp01(numberOpt("line", 2, 0.3));
+  const beta = clamp01(numberOpt("beta", 3, 0.15));
+  const betaSize = Math.max(1, Math.round(len(o.betaMinSize ?? f.args[4], 3)));
+  const rawBetaTone = o.betaTone ?? f.args[5] ?? 0.7;
+  const betaTone = rawBetaTone === "gradient" ? "gradient" : Math.max(0.6, Math.min(0.8, numberOpt("betaTone", 5, 0.7)));
+  const cut = clamp01(numberOpt("cut", 6, 0.3));
+  const grain = clamp01(numberOpt("grain", 7, 0.2));
+  const seed = Math.floor(numberOpt("seed", 8, 1)) >>> 0;
+
+  const n = w * h;
+  const lum01 = new Float32Array(n);
+  const dark = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const j = i * 4;
+    const y = lum(data[j], data[j + 1], data[j + 2]) / 255;
+    lum01[i] = y;
+    dark[i] = data[j + 3] && y < beta ? 1 : 0;
+  }
+  const large = openMask(dark, w, h, betaSize);
+  const grad = betaTone === "gradient" ? betaGradient(large, w, h) : null;
+
+  const sr = image?.sourceRect;
+  const sx = sr ? w / Math.max(1e-9, sr.w) : 1;
+  const sy = sr ? h / Math.max(1e-9, sr.h) : 1;
+  const ox = sr?.x ?? 0;
+  const oy = sr?.y ?? 0;
+  const rawKeep = o.keepBeta;
+  const keepInput = rawKeep === undefined ? [] : Array.isArray(rawKeep) ? rawKeep : [rawKeep];
+  const keepRects: [number, number, number, number][] = [];
+  for (const entry of keepInput) {
+    const rr = typeof entry === "string" ? image?.regions?.[entry] : entry;
+    if (!Array.isArray(rr) || rr.length < 4) continue;
+    const [rx, ry, rw, rh] = rr.slice(0, 4).map(Number);
+    if (![rx, ry, rw, rh].every(Number.isFinite) || rw <= 0 || rh <= 0) continue;
+    const x0 = (rx - ox) * sx;
+    const y0 = (ry - oy) * sy;
+    const x1 = x0 + rw * sx;
+    const y1 = y0 + rh * sy;
+    const xa = Math.max(0, Math.ceil(x0 - 0.5));
+    const ya = Math.max(0, Math.ceil(y0 - 0.5));
+    const xb = Math.min(w, Math.ceil(x1 - 0.5));
+    const yb = Math.min(h, Math.ceil(y1 - 0.5));
+    if (xa < xb && ya < yb) keepRects.push([xa, ya, xb, yb]);
+  }
+  const inKeep = (x: number, y: number) => {
+    for (const [xa, ya, xb, yb] of keepRects) if (x >= xa && x < xb && y >= ya && y < yb) return true;
+    return false;
+  };
+
+  const toneSteps = [...new Set([0, ...tones])].sort((a, b) => a - b);
+  const boundaries: number[] = [];
+  for (let i = 0; i + 1 < toneSteps.length; i++) boundaries.push((toneSteps[i] + toneSteps[i + 1]) / 2);
+  const quantize = (d: number) => {
+    let best = 0;
+    let bd = Math.abs(d);
+    for (const t of tones) {
+      const dd = Math.abs(d - t);
+      if (dd < bd) {
+        best = t;
+        bd = dd;
+      }
+    }
+    return best;
+  };
+
+  const density = new Float32Array(n);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    const alpha = data[i * 4 + 3];
+    if (!alpha) continue;
+    const yv = lum01[i];
+    if (dark[i]) {
+      if (large[i] && !inKeep(x, y)) density[i] = grad ? grad[i] : (betaTone as number);
+      else density[i] = 1;
+      continue;
+    }
+    if (yv < line) {
+      density[i] = 1;
+      continue;
+    }
+    let d = 1 - yv;
+    if (cut > 0 && boundaries.length) {
+      let nearest = Infinity;
+      for (const b of boundaries) nearest = Math.min(nearest, Math.abs(d - b));
+      const width = 0.06;
+      if (nearest < width) {
+        const xmm = (x + 0.5) * mmPerPx;
+        const ymm = (y + 0.5) * mmPerPx;
+        const rough = noise2((seed + 17) >>> 0, xmm / 2.8, ymm / 2.8) / 1.414;
+        d += rough * cut * 0.05 * (1 - nearest / width);
+      }
+    }
+    density[i] = quantize(d);
+  }
+
+  const target = { mmPerPx, toMm: (x: number, y: number): [number, number] => [(x + 0.5) * mmPerPx, (y + 0.5) * mmPerPx] };
+  const sampler = makeToneSampler({ density: 0, lpi, angle, dot: "round", grain: 0.08, invert: false, offset: [0, 0], seed }, target, (xm, ym) => {
+    const x = Math.min(w - 1, Math.max(0, Math.floor(xm / mmPerPx)));
+    const y = Math.min(h - 1, Math.max(0, Math.floor(ym / mmPerPx)));
+    return density[y * w + x];
+  });
+  const ink = new Uint8Array(n);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) ink[y * w + x] = sampler(x, y) > 0.5 ? 1 : 0;
+
+  if (grain > 0) {
+    const before = Uint8Array.from(ink);
+    const threshold = 1.1 - grain * 0.8;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const v0 = before[i];
+      let edge = false;
+      for (let dy = -1; dy <= 1 && !edge; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const xx = x + dx;
+        const yy = y + dy;
+        if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+        if (before[yy * w + xx] !== v0) {
+          edge = true;
+          break;
+        }
+      }
+      if (!edge) continue;
+      const xmm = (x + 0.5) * mmPerPx;
+      const ymm = (y + 0.5) * mmPerPx;
+      const smooth = noise2((seed + 101) >>> 0, xmm / 0.16, ymm / 0.16) / 1.414;
+      const speck = (hash2((seed + 211) >>> 0, x, y) / 4294967296) * 2 - 1;
+      const v = smooth * 0.75 + speck * 0.25;
+      if (v0 && v > threshold) ink[i] = 0;
+      else if (!v0 && v < -threshold) ink[i] = 1;
+    }
+  }
+
+  for (let i = 0; i < n; i++) {
+    const v = ink[i] ? 0 : 255;
+    const j = i * 4;
+    data[j] = data[j + 1] = data[j + 2] = v;
+  }
 }

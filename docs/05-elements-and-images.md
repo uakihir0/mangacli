@@ -222,6 +222,30 @@ M = translate(at + offset) · rotate(rotate) · scale(scale) · translate(−anc
 
 フィルタは、文字列（関数形式）またはオブジェクトで書き、リストの順に適用する。
 
+### finish
+
+`finish` は画像要素・アセット・ページ設定（`page:` の既定値を含む）に書ける仕上げの糖衣構文である。値は `manga`、`none`、または `{ style: manga, ... }` 形式のオブジェクトで、優先順位は要素 > アセット > ページとする。`none` は上位で指定された仕上げをその画像では無効にする。有効な場合、画像の `filters` の末尾に対応するフィルタが追加される。
+
+```yaml
+page:
+  finish: manga
+
+assets:
+  hero:
+    src: hero.png
+    finish: none        # ページ指定をこの素材では切る
+
+pages:
+  - panels:
+      - layers:
+          - type: image
+            src: hero
+            finish:
+              style: manga
+              lpi: 60
+```
+
+
 ```yaml
 filters:
   - grayscale
@@ -246,8 +270,11 @@ filters:
 | `sharpen` | `amount` | 鮮鋭化 |
 | `posterize` | `levels` | 階調数の削減 |
 | `halftone` | `lpi`、`angle`、`dot` | 網点化（[8.13](08-effects.md#813-トーン) と同じ網点） |
+| `manga` | `tones`、`lpi`、`angle`、`line`、`beta`、`betaMinSize`、`betaTone`、`keepBeta`、`cut`、`grain`、`seed` | デジタル彩色の絵を墨線と AM 網点の漫画仕上げにする。大きいベタは既定で 70 % 前後の網点になり、細い黒い線は黒のまま残る。中間調は `tones` の階調に量子化し、出力は白黒 2 値になる。`keepBeta` にはアセットの領域名または素材画素の `[x,y,w,h]` を指定できる |
 | `dither` | `method`（`floyd-steinberg` \| `ordered`） | 誤差拡散・組織的ディザによる 2 値化 |
 | `white-to-alpha` | `threshold` | 白を透明にする |
+
+`manga` の既定値は `tones: [0.1, 0.2, 0.3, 0.5]`、`lpi: 60`、`angle: 45deg`、`line: 0.3`、`beta: 0.15`、`betaMinSize: 3mm`、`betaTone: 0.7` である。`betaTone: gradient` を指定すると大きいベタの領域ごとに上から下へ約 80 % から 40 % の網点にする。`cut` は階調境界の削れ（既定 0.3）、`grain` は紙・印刷の微細な荒れ（既定 0.2）で、ともに `0` で無効になる。`seed` の既定値は 1 である。結果は乱数ではなく `seed` と画素位置に基づく決定的なものである。
 
 - 長さのパラメータ（`radius` など）は mm で解釈し、出力解像度の画素に換算する。解像度を変えても見た目が一致する。
 - フィルタは出力解像度に縮小した後の画素に適用する（[2.8](02-architecture.md#28-画像処理)）。

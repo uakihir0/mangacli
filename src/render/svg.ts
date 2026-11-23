@@ -5,7 +5,7 @@ import { type RGBA, linearToSrgb, srgbToLinear } from "../core/color.js";
 import type { PathData } from "../geom/path.js";
 import type { Matrix } from "../geom/vec.js";
 import type { AssetRegistry } from "./assets.js";
-import { applyFilters } from "./filters.js";
+import { applyFilters, mangaResolutionBoost } from "./filters.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
 import { cropMarkLines } from "./marks.js";
 
@@ -146,13 +146,19 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
   };
 
   const image = async (im: ImageNode): Promise<string> => {
-    const dpi = im.lineart ? o.imageDpi ?? 200 : Math.min(o.imageDpi ?? 200, o.maxImageDpi ?? Infinity);
-    const w = Math.max(1, Math.min(im.sourceRect.w, Math.round((im.dest.w / 25.4) * dpi)));
-    const h = Math.max(1, Math.min(im.sourceRect.h, Math.round((im.dest.h / 25.4) * dpi)));
+    const manga = im.filters.some((f) => f.name === "manga");
+    const binary = im.lineart || manga;
+    const dpi = binary ? o.imageDpi ?? 200 : Math.min(o.imageDpi ?? 200, o.maxImageDpi ?? Infinity);
+    const boost = manga ? mangaResolutionBoost(im.filters, 25.4 / dpi) : 1;
+    const baseW = (im.dest.w / 25.4) * dpi;
+    const baseH = (im.dest.h / 25.4) * dpi;
+    const w = Math.max(1, manga ? Math.round(baseW * boost) : Math.min(im.sourceRect.w, Math.round(baseW)));
+    const h = Math.max(1, manga ? Math.round(baseH * boost) : Math.min(im.sourceRect.h, Math.round(baseH)));
     const px0 = await o.assets.pixels(im.assetKey, w, h, im.sourceRect);
     if (!px0) return "";
-    const px1 = im.filters.length ? await applyFilters(px0, im.filters, im.dest.w / px0.width) : px0;
-    const px = im.lineart && o.colorMode === "mono" ? { ...px1, data: binarize(px1.data) } : px1;
+    const filterImage = { sourceRect: im.sourceRect, regions: o.assets.get(im.assetKey)?.regions };
+    const px1 = im.filters.length ? await applyFilters(px0, im.filters, im.dest.w / px0.width, filterImage) : px0;
+    const px = binary && o.colorMode === "mono" ? { ...px1, data: binarize(px1.data) } : px1;
     let img = sharp(px.data, { raw: { width: px.width, height: px.height, channels: 4 } });
     if (o.colorMode !== "color") img = img.grayscale();
     const png = await img.png().toBuffer();
