@@ -630,6 +630,10 @@ function rayEllipseEntry(o: Vec, d: Vec, r: Rect): number | null {
   return t > 0 ? t : null;
 }
 
+function inRect(p: Vec, r: Rect, margin: number): boolean {
+  return p.x > r.x - margin && p.x < r.x + r.w + margin && p.y > r.y - margin && p.y < r.y + r.h + margin;
+}
+
 /** distance along `d` from `o` to where the ray enters `r`; 0 when `o` lies inside, null when it misses */
 function rayRectEntry(o: Vec, d: Vec, r: Rect): number | null {
   let lo = 0;
@@ -897,7 +901,7 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     // on a spiky body the tail is one more, larger spike of the outline (the shout/scream presets
     // also set bend/sideCurve 0 for straight sides)
     const spiky = plan.params.kind === "spike" || plan.params.kind === "burst";
-    const bend = typeof t.bend === "number" ? t.bend : 0.1;
+    let bend = typeof t.bend === "number" ? t.bend : 0.1;
     const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : 0.12;
     const perp = { x: -dir.y, y: dir.x };
     let tip = { x: R.x + dir.x * length, y: R.y + dir.y * length };
@@ -910,20 +914,34 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
       const F = fb ? { x: fb.x + fb.w / 2, y: fb.y + fb.h / 2 } : target;
       const toF = { x: F.x - R.x, y: F.y - R.y };
       const ang = Math.atan2(dir.x * toF.y - dir.y * toF.x, dir.x * toF.x + dir.y * toF.y);
-      const turn = Math.max(-1.0, Math.min(1.0, ang * 0.85));
-      if (Math.abs(turn) > 0.03) {
+      const arcOf = (turn: number) => {
         const sgn = Math.sign(turn);
         const r = length / Math.abs(turn);
         const C = { x: R.x - dir.y * sgn * r, y: R.y + dir.x * sgn * r };
         const v0 = { x: R.x - C.x, y: R.y - C.y };
-        arcFn = (tt: number) => {
+        return (tt: number) => {
           const a = sgn * Math.abs(turn) * tt;
           const ca = Math.cos(a);
           const sa = Math.sin(a);
           return { x: C.x + v0.x * ca - v0.y * sa, y: C.y + v0.x * sa + v0.y * ca };
         };
-        tip = arcFn(1);
+      };
+      // the curl must not carry the tail into the face: a body clear of the face box keeps a gap
+      // before it, turning less (or not at all) when the full turn would cross it
+      const guard = fb && !inRect(R, fb, 0) ? fb : undefined;
+      const intoFace = (f: (tt: number) => Vec) => !!guard && [0.25, 0.5, 0.75, 1].some((tt) => inRect(f(tt), guard, gap));
+      const full = Math.max(-1.0, Math.min(1.0, ang * 0.85));
+      for (const k of [1, 0.75, 0.5, 0.25]) {
+        const turn = full * k;
+        if (Math.abs(turn) <= 0.03) break;
+        const f = arcOf(turn);
+        if (intoFace(f)) continue;
+        arcFn = f;
+        tip = f(1);
+        break;
       }
+      // a curl given up for the face falls back to the straight line the face stop was measured on
+      if (!arcFn && Math.abs(full) > 0.03 && intoFace(arcOf(full)) && typeof t.bend !== "number") bend = 0;
     }
     const ctrl = { x: (R.x + tip.x) / 2 + perp.x * bend * length * 0.5, y: (R.y + tip.y) / 2 + perp.y * bend * length * 0.5 };
     const tipBent = { x: tip.x + perp.x * bend * length * 0.25, y: tip.y + perp.y * bend * length * 0.25 };
