@@ -140,6 +140,15 @@ pages:
     expect(Math.max(gx, gy)).toBeGreaterThanOrEqual(-0.01);
     expect(r.diagnostics.map(d => d.code)).not.toContain("BALLOON_TEXT_HIDDEN");
   });
+  it("leaves the flow rows alone when a cut balloon has nowhere else to go", async () => {
+    const r = await validate({ yaml: page(`          - { balloon: いち, id: a, autoPlace: flow, cut: [top, left], tail: none }\n          - { balloon: にい, id: b, autoPlace: flow, cut: [top, left], tail: none }\n          - { balloon: さん, id: c, autoPlace: flow, tail: none }`) });
+    const c = r.layout[0].elements.find(e => e.id === "c")!.bbox;
+    expect(c.y).toBeLessThan(25);
+  });
+  it("lets a cut flowing balloon overlap the balloon it connects to", async () => {
+    const r = await validate({ yaml: page(`          - { balloon: いちいち, id: a, autoPlace: flow, tail: none }\n          - { balloon: にいにい, id: b, autoPlace: flow, cut: [right], connect: { to: a, style: overlap }, tail: none }`) });
+    expect(r.diagnostics.map(d => d.code)).not.toContain("BALLOON_CONNECT_DISJOINT");
+  });
   it("keeps the lettering size of a short horizontal box cut left and right", async () => {
     const box = async (cut: string) => {
       const r = await validate({ yaml: page(`          - { balloon: はい, id: b, writing: horizontal, shape: { kind: rect }, ${cut} tail: none }`) });

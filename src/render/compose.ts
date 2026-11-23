@@ -1570,6 +1570,13 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const a = pl.props.rotate === undefined ? 0 : parseAngle(pl.props.rotate as string);
     return a ? boundsOf(pl.body.contour.pts.map(q => rot(q, a))) : pl.outer;
   };
+  // the box a balloon drawn at outer-box centre c covers, rotation included
+  const drawnRect = (q: BalloonPlan, c: Vec): Rect => {
+    const b = dialogueBounds(q);
+    return { x: b.x + c.x - q.outer.w / 2 - q.outer.x, y: b.y + c.y - q.outer.h / 2 - q.outer.y, w: b.w, h: b.h };
+  };
+  const connectIds = (q: BalloonPlan) => (q.props.connect === undefined ? [] : (Array.isArray(q.props.connect) ? q.props.connect : [q.props.connect]).map(c => String((c as Obj).to)));
+  const linked = (a: BalloonPlan, b: BalloonPlan) => connectIds(a).includes(b.el.id) || connectIds(b).includes(a.el.id);
   const panelDialogueCenter = (b: Rect, c: Vec): Vec | undefined => {
     const box = rectInset(panelBox, 0.25 * u.k);
     if (b.w > box.w || b.h > box.h) return;
@@ -1782,6 +1789,9 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         let cx = 0;
         let cy = 0;
         const cut = ctx.panel && cutSides(pl.props).length > 0;
+        const cursor = { flowX: st.flowX, flowY: st.flowY, rowH: st.rowH };
+        let first: { cx: number; cy: number; dx: number; dy: number } | undefined;
+        let prev: Vec | undefined;
         for (let attempt = 0; ; attempt++) {
           if ((rtl ? st.flowX - w < area.x : st.flowX + w > area.x + area.w) && st.rowH > 0) {
             st.flowX = rtl ? area.x + area.w : area.x;
@@ -1821,11 +1831,16 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
             cy = o.y + pl.outer.y + h / 2;
           }
           // nothing may land on a cut balloon of the flow, nor a cut one on anything placed before it
-          const own = { x: cx - w / 2, y: cy - h / 2, w, h };
-          const cutRects = [...st.centers].filter(([q]) => isFlow(q) && cutSides(q.props).length).map(([q, c]) => ({ x: c.x - q.outer.w / 2, y: c.y - q.outer.h / 2, w: q.outer.w, h: q.outer.h }));
-          if (!(cut ? [...st.rects, ...attachedRects] : cutRects).some(r => rectOverlapArea(own, r) > 0)) break;
-          // taken: try the next row, while one is left in the area
-          if (st.flowY + st.rowH + 1 * u.k + h > area.y + area.h || attempt > 8) {
+          const own = drawnRect(pl, { x: cx, y: cy });
+          const others = [...st.centers].filter(([q]) => !linked(pl, q) && (cut || (isFlow(q) && cutSides(q.props).length))).map(([q, c]) => drawnRect(q, c));
+          if (!(cut ? [...others, ...attachedRects] : others).some(r => rectOverlapArea(own, r) > 0)) break;
+          const moved = !prev || Math.abs(cx - prev.x) > 1e-6 || Math.abs(cy - prev.y) > 1e-6;
+          prev = { x: cx, y: cy };
+          first ??= { cx, cy, dx, dy };
+          // taken: try the next row, while one is left in the area and a new row moves the balloon
+          if (!moved || st.flowY + st.rowH + 1 * u.k + h > area.y + area.h || attempt > 8) {
+            ({ cx, cy, dx, dy } = first);
+            Object.assign(st, cursor);
             st.costs.set(pl, Infinity);
             st.total += 1000;
             break;
