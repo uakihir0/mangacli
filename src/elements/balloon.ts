@@ -901,7 +901,7 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     // on a spiky body the tail is one more, larger spike of the outline (the shout/scream presets
     // also set bend/sideCurve 0 for straight sides)
     const spiky = plan.params.kind === "spike" || plan.params.kind === "burst";
-    const bend = typeof t.bend === "number" ? t.bend : 0.1;
+    let bend = typeof t.bend === "number" ? t.bend : 0.1;
     const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : 0.12;
     const perp = { x: -dir.y, y: dir.x };
     let tip = { x: R.x + dir.x * length, y: R.y + dir.y * length };
@@ -940,6 +940,8 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
         tip = f(1);
         break;
       }
+      // a curl given up for the face falls back to the straight line the face stop was measured on
+      if (!arcFn && Math.abs(full) > 0.03 && intoFace(arcOf(full)) && typeof t.bend !== "number") bend = 0;
     }
     const ctrl = { x: (R.x + tip.x) / 2 + perp.x * bend * length * 0.5, y: (R.y + tip.y) / 2 + perp.y * bend * length * 0.5 };
     const tipBent = { x: tip.x + perp.x * bend * length * 0.25, y: tip.y + perp.y * bend * length * 0.25 };
