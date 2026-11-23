@@ -1,7 +1,7 @@
 import clipper, { type Paths } from "clipper-lib";
 import { flattenPath, polyPath, type PathData } from "../geom/path.js";
 
-const { Clipper, ClipperOffset, ClipType, PolyType, PolyFillType, JoinType, EndType } = clipper;
+const { Clipper, ClipperOffset, ClipType, PolyType, PolyFillType, JoinType, EndType, PolyTree, JS } = clipper;
 const SCALE = 10_000;
 const NONZERO = PolyFillType.pftNonZero;
 
@@ -31,19 +31,41 @@ export function offsetInk(paths: Paths, radius: number, tolerance: number, miter
   return result;
 }
 
-export function weightInk(paths: Paths, radius: number, tolerance: number): Paths {
-  const components = (ink: Paths) => ink.filter(Clipper.Orientation).length;
-  const count = components(paths);
-  const expanded = offsetInk(paths, radius, tolerance);
-  if (count < 2 || components(expanded) === count) return expanded;
-  // Leave clearance when the requested weight would join separate strokes.
-  let lo = 0, hi = radius;
-  for (let i = 0; i < 8; i++) {
-    const mid = (lo + hi) / 2;
-    if (components(offsetInk(paths, mid, tolerance)) === count) lo = mid;
-    else hi = mid;
+function separateStrokes(paths: Paths): Paths[] {
+  const op = new Clipper();
+  const tree = new PolyTree();
+  op.AddPaths(paths, PolyType.ptSubject, true);
+  op.Execute(ClipType.ctUnion, tree, NONZERO, NONZERO);
+  return JS.PolyTreeToExPolygons(tree).map(({ outer, holes }) => [outer, ...holes]);
+}
+
+export function weightInk(paths: Paths, radius: number, tolerance: number, compactSpan = 0): Paths {
+  const count = (ink: Paths) => ink.filter(Clipper.Orientation).length;
+  if (!compactSpan) {
+    const expanded = offsetInk(paths, radius, tolerance);
+    if (count(expanded) === count(paths)) return expanded;
   }
-  return offsetInk(paths, lo * 0.75, tolerance);
+
+  const strokes = separateStrokes(paths);
+  const radii = strokes.map(([outer]) => {
+    if (!compactSpan) return radius;
+    let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
+    for (const { X, Y } of outer) {
+      left = Math.min(left, X); right = Math.max(right, X);
+      top = Math.min(top, Y); bottom = Math.max(bottom, Y);
+    }
+    const span = Math.max(right - left, bottom - top) / SCALE;
+    return radius * Math.min(1, (span / compactSpan) ** 2.4);
+  });
+  const rims = strokes.map((stroke, i) => offsetInk(stroke, radii[i], tolerance));
+  const clearance = Math.max(tolerance * 10, compactSpan * 0.055);
+  const guards = strokes.map((stroke, i) => offsetInk(stroke, radii[i] + clearance, tolerance));
+  // Keep the original strokes and remove only the added weight that would bridge them.
+  return strokes.flatMap((stroke, i) => {
+    const rim = partitionInk(rims[i], guards.flatMap((guard, j) => j === i ? [] : guard), false);
+    return separateStrokes(unionInk([...stroke, ...rim]))
+      .filter(component => partitionInk(component, stroke, true).length).flat();
+  });
 }
 
 export function partitionInk(ink: Paths, region: Paths, inside: boolean): Paths {

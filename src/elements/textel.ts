@@ -244,12 +244,14 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     paths.push(transformPath(source, m));
     colorsPer.push(t.color ?? g.color);
   }
+  const roughness = roughen * em * (pressureStyle === "speed" ? 0.045 : 0.065);
   const deform = (x0: number, y0: number) => {
     const wx = warp * em * 0.12 * noise2(seedW, x0 / (em * 1.6), y0 / (em * 1.6));
     const wy = warp * em * 0.12 * noise2(seedW + 7, x0 / (em * 1.6), y0 / (em * 1.6));
-    const rr = roughen * em * 0.02 * noise2(seedR, x0 / (em * 0.25), y0 / (em * 0.25));
-    let x = x0 + rr + (skew ? Math.tan(skew) * (y0 - totalH / 2) : 0);
-    let y = y0 + rr;
+    const rx = roughness * noise2(seedR, x0 / (em * 0.13), y0 / (em * 0.13));
+    const ry = roughness * noise2(seedR + 7, x0 / (em * 0.13), y0 / (em * 0.13));
+    let x = x0 + rx + (skew ? Math.tan(skew) * (y0 - totalH / 2) : 0);
+    let y = y0 + ry;
     if (persp) {
       const ty = Math.max(0, Math.min(1, y / Math.max(1e-6, totalH)));
       const k = persp[0] + (persp[1] - persp[0]) * ty;
@@ -268,7 +270,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     if (!(warp || roughen || persp || bulge)) return skew ? transformPath(path, [1, 0, Math.tan(skew), 1, -Math.tan(skew) * totalH / 2, 0]) : path;
     return flattenPath(path, em * 0.002).flatMap(({ pts, closed }) => polyPath(pts.flatMap((a, i) => {
       const b = pts[i + 1] ?? (closed ? pts[0] : a);
-      const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / (em * 0.05)));
+      const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / (em * 0.025)));
       return Array.from({ length: steps }, (_, k) => deform(a.x + (b.x - a.x) * k / steps, a.y + (b.y - a.y) * k / steps));
     }), closed));
   };
@@ -300,7 +302,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
         delta = Math.max(delta, end - start - depth);
         const gap = sfxInkGap(previousInk, currentInk, vertical, em);
         // Let the outline join without letting the weighted letter fills touch.
-        if (gap !== undefined) delta = Math.max(delta, 0.12 * em + weightClearance - gap);
+        if (gap !== undefined) delta = Math.max(delta, (pressureStyle === "speed" ? 0.09 : 0.065) * em + weightClearance - gap);
       }
       if (end !== undefined) delta += space + offset - previousOffset;
       packedOffsets.set(unit, delta);
@@ -337,8 +339,9 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
   const union = unionInk(glyphs.flat());
   const brushInk = (raw: typeof union) => glyphInk(brushGlyph(inkPath(raw), inkEm, el.seed, brush), tolerance);
   const glyphRadius = (i: number) => Math.max(radius, kanaRadius(idxOf.get(tl.glyphs[i].unit)!));
-  const extraKana = glyphs.flatMap((glyph, i) => glyphRadius(i) > radius ? weightInk(brushInk(glyph), glyphRadius(i), tolerance) : []);
-  const weight = unionInk([...weightInk(brushInk(union), radius, tolerance), ...extraKana]);
+  const compactSpan = pressureStyle === "speed" ? em * 0.62 : 0;
+  const extraKana = glyphs.flatMap((glyph, i) => glyphRadius(i) > radius ? weightInk(brushInk(glyph), glyphRadius(i), tolerance, compactSpan) : []);
+  const weight = unionInk([...weightInk(brushInk(union), radius, tolerance, compactSpan), ...extraKana]);
   const ink = distortInk(inkPath(weight));
   let footprintScale = 1;
   let normalize = matTranslate(0, 0);
@@ -385,7 +388,7 @@ export function renderSfx(el: RElement, ctx: ElemCtx): { nodes: Node[]; bbox: Re
     // Partition the word's ink into color regions; the first character wins at overlaps.
     let remaining = placed;
     for (const [i, glyph] of glyphs.entries()) {
-      const path = inkPath(weightInk(brushInk(glyph), glyphRadius(i), tolerance));
+      const path = inkPath(offsetInk(brushInk(glyph), glyphRadius(i), tolerance));
       const region = glyphInk(transformPath(distortInk(path), matrix), tolerance);
       const visible = inkPath(partitionInk(remaining, region, true));
       if (visible.length) nodes.push(fill(visible, inkColor(colorsPer[i])));

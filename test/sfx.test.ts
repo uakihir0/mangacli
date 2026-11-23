@@ -127,8 +127,9 @@ describe("SFX lettering", () => {
     expect(fullSizeKana("ゃ")).toBe("や");
     expect(fullSizeKana("ン")).toBe("ン");
     const stroke = polyPath([{ x: 0, y: 0 }, { x: 1.6, y: 0 }, { x: 1.6, y: 10 }, { x: 0, y: 10 }], true);
-    const width = (scale: number) => boundsOf(flattenPath(transformPath(emboldenGlyph(stroke, 10, sfxWeightRadius(style, scale) * 10), [scale, 0, 0, scale, 0, 0])).flatMap(c => c.pts)).w;
-    expect(width(0.7)).toBeCloseTo(width(1));
+    const width = (scale: number, compensate = true) => boundsOf(flattenPath(transformPath(emboldenGlyph(stroke, 10, sfxWeightRadius(style, compensate ? scale : 1) * 10), [scale, 0, 0, scale, 0, 0])).flatMap(c => c.pts)).w;
+    expect(width(0.7)).toBeGreaterThan(width(0.7, false));
+    expect(width(0.7)).toBeLessThan(width(1));
     expect(BUILTIN_DEFAULTS.sfx.perChar).toEqual({ overlap: "0.22em" });
   });
   it.each(Array.from("ッっャュョゃゅょァィゥェォヵヶ"))("shrinks small kana %s", char => {
@@ -194,13 +195,34 @@ describe("SFX lettering", () => {
     const [fill] = await svgPaths("outline: none", "ゴ");
     expect(fill.contours.filter(c => polygonArea(c.pts) > 0)).toHaveLength(3);
   });
+  it("keeps speed-style dakuten thin and the small kana distinct", async () => {
+    const style = "writing: vertical, grow: 0, outline: none, chars: [{ index: 0, color: red }, { index: 1, color: blue }]";
+    const [voiced, small] = await svgPaths(`${style}, brush: { style: speed }`, "ブォン");
+    const [impact] = await svgPaths(style, "ブォン");
+    const strokes = (layer: typeof voiced) => layer.contours.map(c => polygonArea(c.pts)).filter(a => a > 0.1).sort((a, b) => b - a);
+    const [body, ...marks] = strokes(voiced);
+    expect(voiced.color).toBe("#ff0000");
+    expect(small.color).toBe("#0000ff");
+    expect(marks).toHaveLength(2);
+    expect(marks[0]).toBeLessThan(strokes(impact)[1]);
+    expect(body).toBeGreaterThan(5 * marks[0]);
+    expect(strokes(small)).toHaveLength(1);
+    expect(small.bbox.h).toBeLessThan(voiced.bbox.h);
+  });
   it("shapes square brush terminals before rounding the weighted ink", async () => {
-    const style = "font: 'catalog:rocknroll-one', grow: 0, outline: none, distort: { roughen: 0, warp: 0 }";
-    const plain = await svgPaths(`${style}, brush: false`, "I");
-    const tapered = await svgPaths(`${style}, brush: { taper: 1, entry: 1, wobble: 0 }`, "I");
-    expect(tapered).not.toEqual(plain);
-    const custom = await svgPaths(`${style}, brush: { taper: 1, entry: 1, wobble: 0 }, chars: [{ index: 0, color: red }, { index: 1, color: blue }]`, "II");
+    const style = "font: 'catalog:rocknroll-one', writing: horizontal, grow: 0, outline: none, distort: { roughen: 0, warp: 0 }";
+    const [plain] = await svgPaths(`${style}, brush: false`, "I");
+    const [entry] = await svgPaths(`${style}, brush: { taper: 0, entry: 1, wobble: 0 }`, "I");
+    const [taper] = await svgPaths(`${style}, brush: { taper: 1, entry: 0, wobble: 0 }`, "I");
+    expect(entry.bbox.h).toBeGreaterThan(plain.bbox.h);
+    expect(taper.bbox.h).toBeGreaterThan(plain.bbox.h);
+  });
+  it("assigns brush extensions to the character that owns them", async () => {
+    const style = "font: 'catalog:rocknroll-one', writing: horizontal, grow: 0, outline: none, distort: { roughen: 0, warp: 0 }, chars: [{ index: 0, color: red }, { index: 1, color: blue }]";
+    const plain = await svgPaths(`${style}, brush: false`, "II");
+    const custom = await svgPaths(`${style}, brush: { taper: 1, entry: 1, wobble: 0 }`, "II");
     expect(custom.map(layer => layer.color)).toEqual(["#ff0000", "#0000ff"]);
+    custom.forEach((layer, i) => expect(layer.bbox.h).toBeGreaterThan(plain[i].bbox.h));
   });
   it("keeps interior counters in the ink and narrow custom outlines", async () => {
     const layers = await svgPaths("writing: horizontal, outline: [{ width: 0.2mm, color: white }]", "O");
