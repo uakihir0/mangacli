@@ -773,15 +773,20 @@ function lineFootprint(pts: Vec[], radius: number): Vec[][] {
   return out;
 }
 
-function bubbleContours(t: Obj, plan: BalloonPlan, u: UnitContext, body: Vec[], at: (d: number) => Vec, length: number, gap: number, strokeWidth: number): Vec[][] {
+function bubbleSpacing(t: Obj, plan: BalloonPlan, u: UnitContext, gap: number, strokeWidth: number) {
   const count = typeof t.count === "number" ? Math.min(t.count, 10) : 3;
+  const separation = Math.max(0.35 * u.k, 1.5 * strokeWidth);
+  const bodyGap = Math.max(gap * 0.4, balloonHalo(plan, u) + separation + plan.hand.wobbleAmp);
+  return { count, separation, bodyGap };
+}
+
+function bubbleContours(t: Obj, plan: BalloonPlan, u: UnitContext, body: Vec[], at: (d: number) => Vec, length: number, gap: number, strokeWidth: number): Vec[][] {
+  const { count, separation, bodyGap } = bubbleSpacing(t, plan, u, gap, strokeWidth);
   if (count <= 0 || length <= 0) return [];
   const minSide = Math.min(plan.outer.w, plan.outer.h);
   const diameter = t.bubbleSize !== undefined ? toMm(t.bubbleSize as string, u) : Math.min(5 * u.k, Math.max(1.5 * u.k, minSide * 0.2));
   const radii = Array.from({ length: count }, (_, i) => diameter / 2 * (typeof t.shrink === "number"
     ? t.shrink ** i : i === 0 ? 1 : i === 1 ? 0.6 : 0.35 * (0.22 / 0.35) ** (i - 2)));
-  const separation = Math.max(0.35 * u.k, 1.5 * strokeWidth);
-  const bodyGap = Math.max(gap * 0.4, balloonHalo(plan, u) + separation + plan.hand.wobbleAmp);
   const layout = (scale: number, extraGap = 0) => {
     let edge = bodyGap;
     let end = 0;
@@ -962,7 +967,13 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx, strokeWidth
       // a tail always reads as a pointer, even when the speaker's face is right beside the body
       length = Math.min(maxLen, Math.max(4.5 * u.k, avail));
       reach = avail;
-    } else length = (kind === "zigzag" ? 11 : 4.5) * u.k;
+    } else {
+      length = (kind === "zigzag" ? 11 : 4.5) * u.k;
+      if (kind === "bubbles" && t.maxLength === undefined) {
+        const { count, separation, bodyGap } = bubbleSpacing(t, plan, u, gap, strokeWidth);
+        length = Math.max(length, bodyGap + (count - 1) * separation + count * strokeWidth);
+      }
+    }
     if (whisperWedge && !target && !offSide && t.length === undefined) length = Math.min(maxLen, Math.max(length, 6 * u.k));
     if (spiky && !offSide && kind === "wedge" && t.length === undefined && plan.body.spikeLength !== undefined) {
       const rotation = plan.props.rotate === undefined ? 0 : parseAngle(plan.props.rotate as string);

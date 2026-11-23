@@ -123,4 +123,22 @@ pages:
 `, filename: "/v/cloud.yaml" }, 1);
     expect(fills(result.root).slice(1)).toHaveLength(10);
   });
+
+  it("fits three detached bubbles with a wide stroke and no target or length", async () => {
+    const r = createRenderer({ profile: "preview" });
+    const result = await r.displayList({ yaml: `mangacli: 1
+page: { size: [160mm, 100mm] }
+pages:
+  - layers:
+      - { id: thought, balloon: 考えごと, as: think, at: [50%, 30%], stroke: { width: 1mm } }
+`, filename: "/v/cloud.yaml" }, 1);
+    const [body, ...bubbles] = fills(result.root);
+    expect(bubbles).toHaveLength(3);
+    let previous = flattenPath(body.path, 0.01)[0].pts;
+    for (const bubble of bubbles) {
+      const points = flattenPath(bubble.path, 0.01)[0].pts;
+      expect(points.every(p => !pointInPolygon(p, previous) && distToPolyline(p, previous, true) > 1)).toBe(true);
+      previous = points;
+    }
+  });
 });
