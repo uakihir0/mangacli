@@ -1,4 +1,4 @@
-import { type Matrix, type Vec, applyMat, dist } from "./vec.js";
+import { type Matrix, type Rect, type Vec, applyMat, dist } from "./vec.js";
 
 export type PathCmd =
   | ["M", number, number]
@@ -8,6 +8,25 @@ export type PathCmd =
   | ["Z"];
 
 export type PathData = PathCmd[];
+
+export function pathBounds(pd: PathData, m?: Matrix): Rect | null {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const c of pd) {
+    for (let i = 1; i + 1 < c.length; i += 2) {
+      const p = { x: c[i] as number, y: c[i + 1] as number };
+      const q = m ? applyMat(m, p) : p;
+      if (q.x < x0) x0 = q.x;
+      if (q.y < y0) y0 = q.y;
+      if (q.x > x1) x1 = q.x;
+      if (q.y > y1) y1 = q.y;
+    }
+  }
+  if (!isFinite(x0)) return null;
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
 
 export function polyPath(pts: readonly Vec[], closed: boolean): PathData {
   const out: PathData = [];
