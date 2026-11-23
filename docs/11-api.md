@@ -188,6 +188,7 @@ interface RenderOptions {
   // 検証と実行
   strict?: boolean;                              // 警告をエラーとして扱う
   throwOnError?: boolean;                        // 既定 true
+  editInfo?: boolean;                            // layout に要素の配置とコマ割りの境界を載せる（mangacli edit 用）
   failFast?: boolean;                            // 既定 false。true なら 1 ページの失敗で全体を止める（11.9）
   diagnostics?: Partial<Record<DiagnosticCode, "error" | "warning" | "info" | "off">>;
   concurrency?: number;
@@ -299,6 +300,8 @@ interface RenderedPage {
   height: number;                    // px
   dpi: number;
   separation?: SeparationName;
+  elements: { id: string; x: number; y: number; width: number; height: number }[]; // 要素の外接矩形（px）
+  transform: { scale: number; x: number; y: number }; // ページ座標（mm、仕上がりの左上が 0）から画素へ: px = mm × scale + x（y も同様）
   data: Uint8Array;
   diagnostics: Diagnostic[];
 }

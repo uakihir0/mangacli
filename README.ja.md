@@ -77,6 +77,7 @@ mangacli render <file> [-p print-mono|print-gray|print-color|web|sns|preview|dra
 mangacli validate <file> [--strict] [--reporter text|json|github]
 mangacli watch <file>                  # 保存のたびに描き直す
 mangacli preview <file> [--open] [--guides] # ブラウザでライブプレビュー（127.0.0.1:4173）
+mangacli edit <file> [--open]          # ブラウザで YAML を直しながらプレビューし、保存する（127.0.0.1:4174）
 mangacli init [dir] [--template basic|b5-mono|sns-color|yonkoma]
 mangacli fonts install [--set manga-basic] [--for manga.yaml] [--dir ./fonts]
 mangacli fonts list [--catalog]
@@ -86,6 +87,8 @@ mangacli inspect <file> [--layout] [--resolved] [--page p1]
 mangacli fonts verify | fonts licenses [file]
 mangacli cache info | cache clean
 ```
+
+`edit` では、入力のたびに（保存しなくても）描き直します。ページの上でも直接直せます。吹き出し・文字・絵をドラッグで移動し、枠の四角で大きさ、上の丸で回転、しっぽの先の丸で向きを変えます。「コマ」に切り替えると、間白の線のドラッグでコマの大きさと傾きを変え、コマの分割・削除や自由配置での変形ができます。操作は YAML の該当する値だけを書き換え、⌘/Ctrl+Z で戻せます。右の欄で選んだものの値を直接直せます。⌘/Ctrl+S で保存します。ファイルがエディターの外で変わったときは読み込み直します（未保存の編集があるときは確認します）。
 
 すべてのオプションは `mangacli <command> --help` で確認できます。`--json` を付けると機械可読な NDJSON を出力します。
 

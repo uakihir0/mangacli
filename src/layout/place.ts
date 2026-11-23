@@ -3,6 +3,7 @@ import type { DiagnosticBag } from "../core/diagnostics.js";
 import { type UnitContext, parseAngle, parseLength, quantityToMm, toMm } from "../core/units.js";
 import { type Matrix, type Rect, type Vec, applyMat, matMul, matRotate, matScale, matTranslate } from "../geom/vec.js";
 import type { GroupNode } from "../render/ir.js";
+import { recordPlacement } from "./edit-info.js";
 
 type Obj = Record<string, unknown>;
 
@@ -184,7 +185,8 @@ export function place(props: Obj, w: number, h: number, ctx: PlaceCtx, defaultAt
   if (typeof props.anchor === "string" && KEYWORDS[props.anchor]) anchorUV = KEYWORDS[props.anchor];
   else if (Array.isArray(props.anchor)) anchorUV = props.anchor as [number, number];
   if (!at) at = defaultAt ?? center(ctx.coordsBox);
-  if (Array.isArray(props.offset)) at = { x: at.x + lenX(props.offset[0], ctx), y: at.y + lenY(props.offset[1], ctx) };
+  const offset = Array.isArray(props.offset) ? { x: lenX(props.offset[0], ctx), y: lenY(props.offset[1], ctx) } : { x: 0, y: 0 };
+  at = { x: at.x + offset.x, y: at.y + offset.y };
   const rot = props.rotate !== undefined ? parseAngle(props.rotate as string) : 0;
   const sc = props.scale;
   const sx = Array.isArray(sc) ? (sc[0] as number) : typeof sc === "number" ? sc : 1;
@@ -195,5 +197,14 @@ export function place(props: Obj, w: number, h: number, ctx: PlaceCtx, defaultAt
   const xs = corners.map((c) => c.x);
   const ys = corners.map((c) => c.y);
   const bbox = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+  recordPlacement(ctx.path, { frame: ctx.coordsBox, at, offset, uv: anchorUV, w, h, rotate: rot, scale: [sx, sy] });
   return { matrix: m, w, h, bbox, at };
+}
+
+/** the anchor of an element as `place()` picks it: `anchor`, else the `place` keyword, else `fallback` */
+export function anchorOf(props: Obj, fallback: [number, number] = [0.5, 0.5]): [number, number] {
+  if (typeof props.anchor === "string" && KEYWORDS[props.anchor]) return KEYWORDS[props.anchor];
+  if (Array.isArray(props.anchor)) return props.anchor as [number, number];
+  if (typeof props.place === "string" && KEYWORDS[props.place]) return KEYWORDS[props.place];
+  return fallback;
 }

@@ -9,8 +9,8 @@ const TEXT_KEYS = new Set(["text", "balloon", "sfx", "placeholder", "title", "na
 
 export interface Loaded {
   data: unknown;
-  /** path -> location, path joined by "\u0000" */
-  locate: (path: (string | number)[]) => SourceLocation | undefined;
+  /** path -> location, path joined by "\u0000"; falls back to the nearest ancestor unless `exact` */
+  locate: (path: (string | number)[], exact?: boolean) => SourceLocation | undefined;
   files: string[];
 }
 
@@ -44,24 +44,25 @@ export function parseYamlText(text: string, file: string, bag: DiagnosticBag, ma
   }
   if (doc.errors.length) return { data: null, map };
   let aliasCount = 0;
-  const walk = (node: YNode | null | undefined, path: (string | number)[], parentKey?: string): unknown => {
+  // `record` is off inside an alias or a merge: the path stays at the reference, not at the anchor's text
+  const walk = (node: YNode | null | undefined, path: (string | number)[], parentKey?: string, record = true): unknown => {
     if (!node) return null;
-    if (node.range) map.set(path.join("\u0000"), { file, lc, offset: node.range[0] });
+    if (node.range && record) map.set(path.join("\u0000"), { file, lc, offset: node.range[0] });
     if (isMap(node)) {
       const o: Record<string, unknown> = {};
       for (const pair of node.items) {
         const k = isScalar(pair.key) ? String(pair.key.value) : String(pair.key);
         if (k === "<<") {
-          const merged = walk(pair.value as YNode, path) as Record<string, unknown> | Record<string, unknown>[];
+          const merged = walk(pair.value as YNode, path, undefined, false) as Record<string, unknown> | Record<string, unknown>[];
           for (const m of Array.isArray(merged) ? merged : [merged]) if (m && typeof m === "object") for (const [mk, mv] of Object.entries(m)) if (!(mk in o)) o[mk] = mv;
           continue;
         }
-        if (pair.key && (pair.key as YNode).range) map.set([...path, k].join("\u0000") + "\u0001key", { file, lc, offset: (pair.key as YNode).range![0] });
-        o[k] = walk(pair.value as YNode, [...path, k], k);
+        if (pair.key && (pair.key as YNode).range && record) map.set([...path, k].join("\u0000") + "\u0001key", { file, lc, offset: (pair.key as YNode).range![0] });
+        o[k] = walk(pair.value as YNode, [...path, k], k, record);
       }
       return o;
     }
-    if (isSeq(node)) return node.items.map((it, i) => walk(it as YNode, [...path, i], parentKey));
+    if (isSeq(node)) return node.items.map((it, i) => walk(it as YNode, [...path, i], parentKey, record));
     if (isScalar(node)) {
       if (parentKey && TEXT_KEYS.has(parentKey) && typeof node.value !== "string" && node.value !== undefined) {
         return node.source ?? String(node.value);
@@ -79,7 +80,7 @@ export function parseYamlText(text: string, file: string, bag: DiagnosticBag, ma
       return null;
     }
     const resolved = (node as unknown as { resolve(d: unknown): YNode }).resolve(doc);
-    return walk(resolved, path, parentKey);
+    return walk(resolved, path, parentKey, false);
   };
   const loc = (off: number): SourceLocation => {
     const p = lc.linePos(off);
@@ -97,8 +98,8 @@ export function loadYamlFile(path: string, bag: DiagnosticBag): Loaded {
 
 export function loadYamlString(text: string, file: string, bag: DiagnosticBag): Loaded {
   const { data, map } = parseYamlText(text, file, bag);
-  const locate = (path: (string | number)[]): SourceLocation | undefined => {
-    for (let n = path.length; n >= 0; n--) {
+  const locate = (path: (string | number)[], exact = false): SourceLocation | undefined => {
+    for (let n = path.length; n >= (exact ? path.length : 0); n--) {
       const key = path.slice(0, n).join("\u0000");
       const e = map.get(key + (n === path.length ? "\u0001key" : "")) ?? map.get(key);
       if (e) {

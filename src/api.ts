@@ -79,6 +79,8 @@ export interface RenderOptions {
   debug?: boolean | string[];
   strict?: boolean;
   throwOnError?: boolean;
+  /** record element placement and layout dividers in `layout` (`elements[].edit`, `layoutEdit`), for the browser editor */
+  editInfo?: boolean;
   failFast?: boolean;
   diagnostics?: Record<string, "error" | "warning" | "info" | "off">;
   root?: string;
@@ -135,6 +137,8 @@ export interface RenderedPage {
   dpi: number;
   separation?: string;
   elements: { id: string; x: number; y: number; width: number; height: number }[];
+  /** maps page coordinates (mm, trim's top-left at 0) to pixels of this image: px = mm × scale + offset */
+  transform: { scale: number; x: number; y: number };
   data: Uint8Array;
   path?: string;
 }
@@ -607,7 +611,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const page = resolved.pages[pl.idx];
       let composed: Awaited<ReturnType<typeof composePage>>;
       try {
-        composed = await composePage(resolved, page, pl.physical, { bag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: (g) => resolution(page, g), characters: resolved.characters });
+        composed = await composePage(resolved, page, pl.physical, { bag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: (g) => resolution(page, g), characters: resolved.characters, editInfo: options.editInfo });
         if (plugins) composed.list = plugins.hook("beforeRender", composed.list) as DisplayList;
         composed.list = withBackground(composed.list, composed.info.geom);
       } catch (e) {
@@ -697,7 +701,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
         return resolution(page, geom);
       };
       if (!options.layoutOnly) options.onProgress?.({ phase: "layout", pageId: page.id, done, total });
-      const { list: list0, info } = prepared.get(pl.idx) ?? await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor, characters: resolved.characters });
+      const { list: list0, info } = prepared.get(pl.idx) ?? await composePage(resolved, page, pl.physical, { bag: pageBag, fonts, assets, lang, defaultLang, draft, print: prof.print, physical: pl.physical, nombre: pl.nombre, outputDpi: dpiFor, characters: resolved.characters, editInfo: options.editInfo });
       info.number = pl.nombre;
       let list = plugins && !prepared.has(pl.idx) ? (plugins.hook("beforeRender", list0) as DisplayList) : list0;
       if (!prepared.has(pl.idx)) list = withBackground(list, info.geom);
@@ -843,7 +847,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
             const trimX = fmt !== "svg" && parts.length > 1 && part.side === "right" ? Math.round(trimWidth / 2) : 0;
             const elements = info.elements.map(({ id, bbox }) => ({ id, x: bbox.x * scale + origin.x - trimX, y: bbox.y * scale + origin.y, width: bbox.w * scale, height: bbox.h * scale }))
               .filter((b) => b.x < size.w && b.y < size.h && b.x + b.width > 0 && b.y + b.height > 0);
-            const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: size.w, height: size.h, dpi, separation: run.name, elements, data };
+            const rp: RenderedPage = { id: page.id, index: pl.idx + 1, number: part.nombre, side: part.side, format: fmt, mimeType: MIME[fmt], colorMode, width: size.w, height: size.h, dpi, separation: run.name, elements, transform: { scale, x: origin.x - trimX, y: origin.y }, data };
             if (outDir) {
               const file = outName(page, pl.idx, part.side, part.nombre, geom.type === "spread" && parts.length === 1, parts.length > 1, run.name, EXT[fmt]);
               if (emitted.has(file)) {
@@ -897,7 +901,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
   for (const [sep, pw] of pdfs) {
     if (!pw.writer.pageCount) continue;
     const data = pw.writer.build();
-    const rp: RenderedPage = { id: resolved.pages[0]?.id ?? "document", index: 0, number: null, side: "document", format: "pdf", mimeType: MIME.pdf, colorMode: pw.colorMode, width: 0, height: 0, dpi: pw.dpi, separation: sep || undefined, elements: [], data };
+    const rp: RenderedPage = { id: resolved.pages[0]?.id ?? "document", index: 0, number: null, side: "document", format: "pdf", mimeType: MIME.pdf, colorMode: pw.colorMode, width: 0, height: 0, dpi: pw.dpi, separation: sep || undefined, elements: [], transform: { scale: 0, x: 0, y: 0 }, data };
     if (outDir) {
       const file = join(outDir, `${p.name}${sep ? `-${sep}` : ""}.pdf`);
       mkdirSync(dirname(file), { recursive: true });

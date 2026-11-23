@@ -9,6 +9,7 @@ import { type Rect, type Vec, boundsOf, rectIntersect } from "../geom/vec.js";
 import { isObj } from "../load/normalize.js";
 import { PAGE_PRESETS } from "../model/defaults.js";
 import type { RPage, RPanel } from "../model/resolve.js";
+import { type LayoutDivider, type LayoutEdit, type LayoutSlot, editStore } from "./edit-info.js";
 
 type Obj = Record<string, unknown>;
 
@@ -252,7 +253,11 @@ interface Leaf {
   poly: Vec[];
   bind?: string;
   overlay?: boolean;
+  slot?: LayoutSlot;
 }
+
+/** collects dividers for the browser editor, when it asked for them */
+type DividerSink = { dividers: LayoutDivider[]; lines: LayoutEdit["lines"] } | undefined;
 
 function rectPoly(r: Rect): Vec[] {
   return [
@@ -329,9 +334,12 @@ export function layoutPagePanels(page: RPage, geom: PageGeom, bag: DiagnosticBag
     bag.error("LAYOUT_FREE_MIXED", "some panels have box/polygon but layout is not free", { path: page.path, pageId: page.id });
   }
 
+  const edit = editStore();
+  const sink: DividerSink = edit && !L.template ? { dividers: [], lines: [] } : undefined;
   if (mode === "rows") {
     const rows = layoutObj.rows as Obj[];
-    const heights = distribute(area.h, rows.map((r) => (r.height as number | string) ?? 1), gRow * (rows.length - 1), u);
+    const rowSpecs = rows.map((r) => (r.height as number | string) ?? 1);
+    const heights = distribute(area.h, rowSpecs, gRow * (rows.length - 1), u);
     let remaining = rectPoly(area);
     let y = area.y;
     const W = area.w + 400;
@@ -342,6 +350,7 @@ export function layoutPagePanels(page: RPage, geom: PageGeom, bag: DiagnosticBag
         const sl = slantMm(rows[i].slant as string | undefined, area.w, u);
         const a = { x: area.x - 200, y: yb - (sl * (W / area.w)) / 2 };
         const b = { x: area.x + area.w + 200, y: yb + (sl * (W / area.w)) / 2 };
+        sink?.dividers.push({ kind: "rows", index: i, axis: "y", a: { x: area.x, y: yb - sl / 2 }, b: { x: area.x + area.w, y: yb + sl / 2 }, sizes: heights, specs: rowSpecs, total: area.h, span: area.w, slant: sl, rtl });
         // positive side of a->b (left->right line): side>0 for points below (y-down)
         const [below, above] = splitPoly(remaining, a, b, gRow);
         rowPoly = above;
@@ -350,14 +359,15 @@ export function layoutPagePanels(page: RPage, geom: PageGeom, bag: DiagnosticBag
       } else rowPoly = remaining;
       const cols = (rows[i].cols as number[]) ?? [1];
       const gc = isObj(rows[i].gutter) && (rows[i].gutter as Obj).col !== undefined ? toMm((rows[i].gutter as Obj).col as string, u) : gCol;
-      const rowLeaves = splitCols(rowPoly, cols, (rows[i].colSlant as string[]) ?? [], gc, rtl, u, area);
+      const rowLeaves = splitCols(rowPoly, cols, (rows[i].colSlant as string[]) ?? [], gc, rtl, u, area, sink && ((d) => sink.dividers.push({ ...d, kind: "cols", row: i })));
+      rowLeaves.forEach((lf, j) => (lf.slot = { kind: "rows", row: i, col: j }));
       if (rows[i].__title) for (const lf of rowLeaves) lf.bind = `${page.id}-title`;
       leaves.push(...rowLeaves);
     }
   } else if (mode === "split") {
-    leaves = splitTree(layoutObj, rectPoly(area), gCol, gRow, rtl, u);
+    leaves = splitTree(layoutObj, rectPoly(area), gCol, gRow, rtl, u, [], sink);
   } else if (mode === "free") {
-    leaves = slotPanels.map((p) => ({ poly: freePoly(p, geom, area, u) }));
+    leaves = slotPanels.map((p) => ({ poly: freePoly(p, geom, area, u), slot: { kind: "free" } as LayoutSlot }));
     // free panels that overlap (overlays are meant to)
     for (let i = 0; i < leaves.length; i++)
       for (let j = i + 1; j < leaves.length; j++) {
@@ -371,7 +381,7 @@ export function layoutPagePanels(page: RPage, geom: PageGeom, bag: DiagnosticBag
         }
       }
   } else {
-    leaves = [{ poly: rectPoly(area) }];
+    leaves = [{ poly: rectPoly(area), slot: { kind: "single" } }];
     if (slotPanels.length > 1) bag.error("LAYOUT_TOO_MANY_PANELS", `${slotPanels.length} panels but layout has 1 slot`, { path: page.path, pageId: page.id });
   }
 
@@ -445,6 +455,17 @@ export function layoutPagePanels(page: RPage, geom: PageGeom, bag: DiagnosticBag
     slots.forEach((p, i) => p && (p.order = i + 1));
   }
   applyDominant(out, geom, area, gRow, gCol, bag);
+  if (edit) {
+    const slots: Record<string, LayoutSlot> = {};
+    const polys: Record<string, Vec[]> = {};
+    leaves.forEach((lf, i) => {
+      const p = assigned[i];
+      if (!p || lf.overlay) return;
+      polys[p.id] = lf.poly;
+      if (sink && lf.slot) slots[p.id] = lf.slot;
+    });
+    edit.layout = { mode: L.template ? "template" : mode, rtl, area, dividers: sink?.dividers ?? [], lines: sink?.lines ?? [], slots, polys };
+  }
   return { area, panels: out };
 }
 
@@ -452,7 +473,7 @@ function slantMm(value: string | undefined, span: number, u: UnitContext): numbe
   return value === undefined ? 0 : typeof value === "string" && /(?:deg|rad|turn)\s*$/.test(value) ? Math.tan(parseAngle(value)) * span : toMm(value, u);
 }
 
-function splitCols(rowPoly: Vec[], cols: number[], colSlant: string[], g: number, rtl: boolean, u: UnitContext, area: Rect): Leaf[] {
+function splitCols(rowPoly: Vec[], cols: number[], colSlant: string[], g: number, rtl: boolean, u: UnitContext, area: Rect, record?: (d: Omit<LayoutDivider, "kind">) => void): Leaf[] {
   const bb = boundsOf(rowPoly);
   const x0 = area.x;
   const w = area.w;
@@ -468,6 +489,7 @@ function splitCols(rowPoly: Vec[], cols: number[], colSlant: string[], g: number
     const sl = slantMm(colSlant[i], bb.h, u);
     const top = { x: xb - sl / 2, y: bb.y };
     const bot = { x: xb + sl / 2, y: bb.y + bb.h };
+    record?.({ index: i, axis: "x", a: top, b: bot, sizes: widths, specs: cols, total: w, span: bb.h, slant: sl, rtl });
     const ext = 200;
     const dy = bot.y - top.y || 1;
     const a = { x: top.x - ((bot.x - top.x) / dy) * ext, y: top.y - ext };
@@ -487,29 +509,32 @@ function splitCols(rowPoly: Vec[], cols: number[], colSlant: string[], g: number
   return leaves;
 }
 
-function splitTree(node: Obj, poly: Vec[], gCol: number, gRow: number, rtl: boolean, u: UnitContext): Leaf[] {
-  if (poly.length < 3) return [{ poly: [] }];
-  if (node === ("panel" as unknown)) return [{ poly }];
-  if (isObj(node) && typeof node.panel === "string") return [{ poly, bind: node.panel as string }];
-  if (!isObj(node) || !node.split) return [{ poly }];
+function splitTree(node: Obj, poly: Vec[], gCol: number, gRow: number, rtl: boolean, u: UnitContext, at: number[] = [], sink?: DividerSink): Leaf[] {
+  const slot: LayoutSlot = { kind: "split", node: at };
+  if (poly.length < 3) return [{ poly: [], slot }];
+  if (node === ("panel" as unknown)) return [{ poly, slot }];
+  if (isObj(node) && typeof node.panel === "string") return [{ poly, bind: node.panel as string, slot }];
+  if (!isObj(node) || !node.split) return [{ poly, slot }];
   const children = (node.children as Obj[]) ?? [];
   const n = children.length;
   const bb = boundsOf(poly);
   if (isObj(node.split)) {
     const points = node.split.line as (string | number)[][];
     let [a, b] = points.map(([x, y]) => ({ x: bb.x + toMm(x, { ...u, base: bb.w }), y: bb.y + toMm(y, { ...u, base: bb.h }) }));
+    sink?.lines.push({ node: at, a, b, box: bb });
     const horizontal = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y);
     const g = node.gutter !== undefined ? toMm(node.gutter as string, u) : horizontal ? gRow : gCol;
     if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-9) return children.flatMap(() => [{ poly: [] }]);
     if (horizontal ? a.x > b.x : a.y > b.y) [a, b] = [b, a];
     const sides = splitPoly(poly, a, b, g);
     if (horizontal || rtl) sides.reverse();
-    return children.flatMap((child, i) => splitTree(child, sides[i] ?? [], gCol, gRow, rtl, u));
+    return children.flatMap((child, i) => splitTree(child, sides[i] ?? [], gCol, gRow, rtl, u, [...at, i], sink));
   }
   const isRows = node.split === "rows";
   const g = node.gutter !== undefined ? toMm(node.gutter as string, u) : isRows ? gRow : gCol;
   const total = isRows ? bb.h : bb.w;
-  const sizes = distribute(total, (node.sizes as (number | string)[]) ?? children.map(() => 1), g * (n - 1), u);
+  const specs = (node.sizes as (number | string)[]) ?? children.map(() => 1);
+  const sizes = distribute(total, specs, g * (n - 1), u);
   const slants = (node.slant as string[]) ?? [];
   const leaves: Leaf[] = [];
   let remaining = poly;
@@ -523,28 +548,30 @@ function splitTree(node: Obj, poly: Vec[], gCol: number, gRow: number, rtl: bool
       const W = bb.w + 400;
       const a = { x: bb.x - 200, y: yb - (sl * (W / bb.w)) / 2 };
       const b = { x: bb.x + bb.w + 200, y: yb + (sl * (W / bb.w)) / 2 };
+      sink?.dividers.push({ kind: "split", node: at, index: i, axis: "y", a: { x: bb.x, y: yb - sl / 2 }, b: { x: bb.x + bb.w, y: yb + sl / 2 }, sizes, specs, total, span: bb.w, slant: sl, rtl });
       const [below, above] = splitPoly(remaining, a, b, g);
-      leaves.push(...splitTree(children[i], above, gCol, gRow, rtl, u));
+      leaves.push(...splitTree(children[i], above, gCol, gRow, rtl, u, [...at, i], sink));
       remaining = below;
     } else {
       const xb = rtl ? bb.x + bb.w - pos : bb.x + pos;
       const top = { x: xb - sl / 2, y: bb.y };
       const bot = { x: xb + sl / 2, y: bb.y + bb.h };
+      sink?.dividers.push({ kind: "split", node: at, index: i, axis: "x", a: top, b: bot, sizes, specs, total, span: bb.h, slant: sl, rtl });
       const ext = 200;
       const dy = bot.y - top.y || 1;
       const a = { x: top.x - ((bot.x - top.x) / dy) * ext, y: top.y - ext };
       const b = { x: bot.x + ((bot.x - top.x) / dy) * ext, y: bot.y + ext };
       const [leftSide, rightSide] = splitPoly(remaining, a, b, g);
       if (rtl) {
-        leaves.push(...splitTree(children[i], rightSide, gCol, gRow, rtl, u));
+        leaves.push(...splitTree(children[i], rightSide, gCol, gRow, rtl, u, [...at, i], sink));
         remaining = leftSide;
       } else {
-        leaves.push(...splitTree(children[i], leftSide, gCol, gRow, rtl, u));
+        leaves.push(...splitTree(children[i], leftSide, gCol, gRow, rtl, u, [...at, i], sink));
         remaining = rightSide;
       }
     }
   }
-  leaves.push(...splitTree(children[n - 1], remaining, gCol, gRow, rtl, u));
+  leaves.push(...splitTree(children[n - 1], remaining, gCol, gRow, rtl, u, [...at, n - 1], sink));
   return leaves;
 }
 

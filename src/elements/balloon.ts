@@ -754,6 +754,8 @@ interface TailResult {
   footprints: { pts: Vec[]; closed: boolean }[];
   rootAngle?: number;
   length?: number;
+  /** where each tail starts on the outline and where it points (for the browser editor) */
+  tips?: { tip: Vec; root: Vec }[];
 }
 
 /** distance along ray to entering a rect (null if missed) */
@@ -831,6 +833,7 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
   let cur = contour;
   const extra: TailResult["extra"] = [];
   const footprints: TailResult["footprints"] = [];
+  const tips: NonNullable<TailResult["tips"]> = [];
   const { plan, ctx } = tc;
   const stroke = resolveStroke(plan.props.stroke, plan.hand, ctx.u);
   const clearance = 0.35 * ctx.u.k + stroke.width / 2;
@@ -897,8 +900,9 @@ function applyTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResul
     cur = best.contour ?? cur;
     extra.push(...best.extra);
     footprints.push(...best.footprints);
+    tips.push(best.tips?.[0] ?? { tip: { x: NaN, y: NaN }, root: { x: NaN, y: NaN } });
   }
-  return { contour: cur, extra, footprints };
+  return { contour: cur, extra, footprints, tips };
 }
 
 function lineFootprint(pts: Vec[], radius: number): Vec[][] {
@@ -973,6 +977,7 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx, strokeWidth
   let cur: ShapeContour = { ...contour, pts: contour.pts.slice(), corners: contour.corners?.slice() };
   const extra: TailResult["extra"] = [];
   const footprints: TailResult["footprints"] = [];
+  const tips: NonNullable<TailResult["tips"]> = [];
   let rootAngle: number | undefined;
   let tailLength: number | undefined;
   const minSide = Math.min(plan.outer.w, plan.outer.h);
@@ -1178,6 +1183,7 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx, strokeWidth
       if (!arcFn && Math.abs(full) > 0.03 && intoFace(arcOf(full)) && typeof t.bend !== "number") bend = 0;
     }
     const ctrl = { x: (R.x + tip.x) / 2 + perp.x * bend * length * 0.5, y: (R.y + tip.y) / 2 + perp.y * bend * length * 0.5 };
+    tips.push({ tip, root: R });
     const tipBent = { x: tip.x + perp.x * bend * length * 0.25, y: tip.y + perp.y * bend * length * 0.25 };
     const frameAxis = offSide === "left" || offSide === "right" ? "x" : "y";
     const frameSign = offSide === "left" || offSide === "top" ? -1 : 1;
@@ -1352,7 +1358,7 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx, strokeWidth
     footprints.push({ pts: [...sideA, ...sideB.slice().reverse()], closed: true });
     cur = fitted.outline;
   }
-  return { contour: cur, extra, footprints, rootAngle, length: tailLength };
+  return { contour: cur, extra, footprints, rootAngle, length: tailLength, tips };
 }
 
 // ---- render -------------------------------------------------------------------
@@ -1363,6 +1369,7 @@ interface BodyBuild {
   stroke: ReturnType<typeof resolveStroke>;
   ruler: boolean;
   rng: Rng;
+  tips?: TailResult["tips"];
 }
 
 function buildBody(plan: BalloonPlan, ctx: ElemCtx, skipTails = false): BodyBuild {
@@ -1397,7 +1404,7 @@ function buildBody(plan: BalloonPlan, ctx: ElemCtx, skipTails = false): BodyBuil
     stroke.dash ??= [stroke.width * 4, stroke.width * 2.5];
   }
   const ruler = !!(plan.params.ruler ?? body.ruler) && !contour.corners?.some((c) => c.kind === "tip" || c.kind === "point");
-  return { contour, extra: tr.extra, stroke, ruler, rng };
+  return { contour, extra: tr.extra, stroke, ruler, rng, tips: tr.tips };
 }
 
 export function balloonTailRegions(plan: BalloonPlan, ctx: ElemCtx): Vec[][] {
@@ -1516,7 +1523,7 @@ function textNodesFlat(plan: BalloonPlan, ctx: ElemCtx): Node[] {
   return nodes;
 }
 
-export function renderBalloon(plan: BalloonPlan, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; contour: Vec[] } {
+export function renderBalloon(plan: BalloonPlan, ctx: ElemCtx): { nodes: Node[]; bbox: Rect; contour: Vec[]; tips?: TailResult["tips"] } {
   const bb = buildBody(plan, ctx);
   const body = inkBody(plan, bb, ctx, bb.contour);
   let nodes: Node[] = [...body.nodes, ...textNodes(plan, ctx)];
@@ -1542,7 +1549,7 @@ export function renderBalloon(plan: BalloonPlan, ctx: ElemCtx): { nodes: Node[];
   }
   const bounds = boundsOf(body.fill);
   const bbox = body.flashBounds ? rectUnion(bounds, body.flashBounds) : bounds;
-  return { nodes, bbox, contour: body.fill };
+  return { nodes, bbox, contour: body.fill, tips: bb.tips };
 }
 
 /** two balloons joined by a neck or merged outline (spec 6.9.1) */
