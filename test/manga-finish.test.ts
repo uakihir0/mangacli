@@ -70,12 +70,15 @@ describe("manga finish filter", () => {
     const filter: ImageFilter = { name: "manga", args: [], opts: { lpi: 60 } };
     const adapted = mangaOutputFilters([filter], 25.4 / 96);
     expect(adapted[0]).not.toBe(filter);
-    expect(adapted[0].opts?.lpi).toBeCloseTo((25.4 / (25.4 / 96)) / 6, 6);
+    expect(adapted[0].opts?.lpi).toBeCloseTo((25.4 / (25.4 / 96)) / 4, 6);
     expect(filter.opts?.lpi).toBe(60);
     expect(mangaOutputFilters([filter], 0.01)[0]).toBe(filter);
-    const fine = mangaOutputFilters([{ ...filter, opts: { lpi: 150 } }], 25.4 / 600);
-    expect(fine[0].opts?.lpi).toBeCloseTo(100, 6);
     expect(mangaOutputFilters([filter], 25.4 / 360)[0]).toBe(filter);
+    const outputMm = 25.4 / 600;
+    const output = mangaOutputFilters([{ ...filter, opts: { lpi: 150 } }], outputMm);
+    expect(output[0].opts?.lpi).toBe(150);
+    const constrained = mangaOutputFilters(output, outputMm / 0.5);
+    expect(constrained[0].opts?.lpi).toBeCloseTo(150 / 2, 6);
   });
 
   it("keeps interior solids black by default but tones an edge-touching background solid", async () => {

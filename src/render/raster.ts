@@ -905,7 +905,9 @@ export class RasterBackend {
     );
     if (!pix0) return;
     const filterImage = { sourceRect: n.sourceRect, regions: dev.opts.assets.get(n.assetKey)?.regions };
-    const pix = outputFilters.length ? await applyFilters(pix0, outputFilters, n.dest.w / pix0.width, filterImage) : pix0;
+    const filterMmPerPx = n.dest.w / pix0.width;
+    const renderFilters = manga ? mangaOutputFilters(outputFilters, filterMmPerPx) : outputFilters;
+    const pix = renderFilters.length ? await applyFilters(pix0, renderFilters, filterMmPerPx, filterImage) : pix0;
     const tmp = createCanvas(pix.width, pix.height);
     const tctx = tmp.getContext("2d");
     const id = tctx.createImageData(pix.width, pix.height);
