@@ -7533,12 +7533,7 @@
                   "type": "string"
                 },
                 "style": {
-                  "type": "string",
-                  "enum": [
-                    "neck",
-                    "overlap",
-                    "line"
-                  ]
+                  "$ref": "#/$defs/BalloonConnectStyle"
                 },
                 "width": {
                   "$ref": "#/$defs/__schema0"
@@ -7570,12 +7565,7 @@
                     "type": "string"
                   },
                   "style": {
-                    "type": "string",
-                    "enum": [
-                      "neck",
-                      "overlap",
-                      "line"
-                    ]
+                    "$ref": "#/$defs/BalloonConnectStyle"
                   },
                   "width": {
                     "$ref": "#/$defs/__schema0"
@@ -7597,6 +7587,18 @@
             ]
           }
         }
+      ]
+    },
+    "BalloonConnectStyle": {
+      "default": "overlap",
+      "$ref": "#/$defs/BalloonConnectStyleValue"
+    },
+    "BalloonConnectStyleValue": {
+      "type": "string",
+      "enum": [
+        "neck",
+        "overlap",
+        "line"
       ]
     },
     "__schema171": {
