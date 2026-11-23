@@ -91,3 +91,15 @@ it("screens a gray print-mono backdrop using the configured tone curve", async (
   expect(whitePixels(linear)).toBeGreaterThan(100);
   expect(whitePixels(perceptual)).toBeGreaterThan(whitePixels(linear));
 });
+
+it("keeps paper pixels in a dark gray print-mono backdrop at 254 dpi", async () => {
+  const options = { profile: "print-mono", format: "png", dpi: 254, crop: "trim" } as const;
+  const [white, dark] = await Promise.all(["white", '"#505050"'].map(async color => {
+    const source = input(`{color: ${color}, padding: 12mm, feather: 0mm}`);
+    source.yaml = source.yaml.replace("outline: none", "outline: none\n        color: transparent");
+    return sharp((await render(source, options)).pages[0].data).extractChannel(0).raw().toBuffer();
+  }));
+  const paperFraction = dark.filter(v => v === 255).length / white.filter(v => v === 255).length;
+  expect(paperFraction).toBeGreaterThan(0.06);
+  expect(paperFraction).toBeLessThan(0.10);
+});

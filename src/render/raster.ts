@@ -692,11 +692,16 @@ export class RasterBackend {
       };
       // Remove the crop offset in device pixels before converting to screen coordinates.
       const [sx, shy, shx, sy, tx, ty] = dev.base;
-      const target = this.target({ ...dev, base: [sx, shy, shx, sy, 0, 0] }, { x: r.x - tx, y: r.y - ty });
+      const screenOrigin = { x: r.x - tx, y: r.y - ty };
+      const target = this.target({ ...dev, base: [sx, shy, shx, sy, 0, 0] }, screenOrigin);
       const spec = { density: 0, lpi: dev.opts.monoLpi, angle: Math.PI / 4, dot: "round" as const, grain: 0.08, invert: false, offset: [0, 0] as [number, number], seed: 7 };
       const coverage = makeToneSampler(spec, target, alphaAt);
       const luminance = dev.opts.toneCurve === "perceptual" ? color.r : luminanceLinear(b.color);
-      const ink = luminance > 0 && luminance < 1 ? makeToneSampler({ ...spec, density: 1 - luminance, angle: 0 }, target) : null;
+      const inkSpec = { ...spec, density: 1 - luminance, angle: 0 };
+      const ink = luminance > 0 && luminance < 1
+        ? makeBinaryRoundToneSampler(inkSpec, 25.4 / Math.max(1, inkSpec.lpi) * dev.scale, screenOrigin.x + 0.5, screenOrigin.y + 0.5, target.toMm)
+          ?? makeToneSampler(inkSpec, target)
+        : null;
       for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
         const i = y * r.w + x, j = 4 * i;
         const inside = core[j + 3] >= 128;
