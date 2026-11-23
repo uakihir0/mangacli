@@ -1813,7 +1813,8 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         const cursor = { flowX: st.flowX, flowY: st.flowY, rowH: st.rowH };
         let first: { cx: number; cy: number; dx: number; dy: number } | undefined;
         let prev: Vec | undefined;
-        // a balloon cut at the top or bottom keeps its height, so a new row only moves it to the row start
+        let fromStart = false;
+        // a balloon cut at the top or bottom keeps its height whatever row it is in
         const pinned = cutSides(pl.props).some(sd => sd === "top" || sd === "bottom");
         for (let attempt = 0; ; attempt++) {
           if ((rtl ? st.flowX - w < area.x : st.flowX + w > area.x + area.w) && st.rowH > 0) {
@@ -1862,21 +1863,30 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
           const moved = !prev || Math.abs(cx - prev.x) > 1e-6 || Math.abs(cy - prev.y) > 1e-6;
           prev = { x: cx, y: cy };
           first ??= { cx, cy, dx, dy };
-          // taken: try the next row, below the row and below what the balloon ran into,
-          // while one is left in the area and a new row moves the balloon
+          // taken: a balloon pinned to the top or bottom tries the row start, then slides along its side past
+          // what it runs into; any other tries the next row below the row and what it ran into
+          const rowStart = rtl ? area.x + area.w : area.x;
+          const toStart = pinned && !fromStart && Math.abs(st.flowX - rowStart) > 1e-6;
+          const slid = st.flowX + (rtl ? Math.min(...hit.map(r => r.x)) - 1 * u.k - (own.x + own.w) : Math.max(...hit.map(r => r.x + r.w)) + 1 * u.k - own.x);
+          const slides = rtl ? slid - w >= area.x : slid + w <= area.x + area.w;
           const nextY = st.flowY + Math.max(st.rowH, ...hit.map(r => r.y + r.h - own.y), 0) + 1 * u.k;
-          if (!moved || (!pinned && nextY + h > area.y + area.h) || attempt > 8) {
+          if (!moved || (pinned ? !toStart && !slides : nextY + h > area.y + area.h) || attempt > 8) {
             ({ cx, cy, dx, dy } = first);
             Object.assign(st, cursor);
             st.costs.set(pl, Infinity);
             st.total += 1000;
             break;
           }
-          st.flowX = rtl ? area.x + area.w : area.x;
-          st.flowY = pinned ? Math.max(st.flowY, Math.min(nextY, area.y + area.h - h)) : nextY;
+          if (pinned) {
+            st.flowX = toStart ? rowStart : slid;
+            fromStart = true;
+            continue;
+          }
+          st.flowX = rowStart;
+          st.flowY = nextY;
           st.rowH = 0;
         }
-        // moved to the row start at its own height, it leaves the row going on from where it first stood
+        // moved along its side, it leaves the row going on from where it first stood
         if (pinned && prev) Object.assign(st, cursor);
         st.centers.set(pl, { x: cx, y: cy });
         st.rects.push({ x: cx - w / 2, y: cy - h / 2, w, h });
