@@ -201,7 +201,7 @@ const typo = {
   lang: z.string().optional(),
 };
 
-const BUILTIN_SHAPES = new Set(["ellipse", "round-rect", "rect", "cloud", "spike", "burst", "wavy", "flash", "electronic", "hexagon", "polygon", "path", "none"]);
+const BUILTIN_SHAPES = new Set(["ellipse", "round-rect", "rect", "cloud", "spike", "spike-rect", "burst", "wavy", "flash", "electronic", "hexagon", "polygon", "path", "none"]);
 const SHAPE_KEYS = new Set(["kind", "irregularity", "tilt", "squareness", "egg", "radius", "ruler", "join", "lobes", "lobeSize", "depth", "count", "angleJitter", "curve", "inner", "waves", "amplitude", "waveform", "secondary", "corners", "jag", "points", "d", "textArea", "lineLength", "thickness", "strokes"]);
 
 const ShapeObj = z
@@ -271,6 +271,13 @@ const balloonProps = {
   ...common,
   ...typo,
   contain: z.enum(["panel", "none"]).optional(),
+  cut: z.union([
+    z.array(z.enum(["top", "right", "bottom", "left"])).min(1).max(3),
+    z.object({
+      sides: z.array(z.enum(["top", "right", "bottom", "left"])).min(1).max(3),
+      depth: z.union([z.number().min(0).max(0.45), z.object({ top: z.number().min(0).max(0.45).optional(), right: z.number().min(0).max(0.45).optional(), bottom: z.number().min(0).max(0.45).optional(), left: z.number().min(0).max(0.45).optional() }).strict()]).optional(),
+    }).strict(),
+  ]).optional(),
   bridge: z.boolean().optional(),
   text: TextValue.optional(),
   who: z.string().optional(),

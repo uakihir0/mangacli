@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=../../schema.json
+#
+# 枠に深く切られる吹き出し（`cut`）。2 辺（角）と 3 辺の例。
+#
+#   npx mangacli render docs/examples/edge-cuts.yaml
+
+mangacli: 1
+meta: { title: 枠で切る吹き出し, lang: ja }
+page: { size: [120mm, 150mm], bleed: 0, color: mono }
+defaults:
+  balloon: { fontSize: 14bQ }
+pages:
+  - layout: { template: grid, params: { cols: 2, rows: 3 } }
+    panels:
+      - layers:
+          - tone: 15%
+          - { balloon: 角で　切れる, cut: [top, right], tail: { direction: 130deg } }
+      - layers:
+          - tone: 15%
+          - { balloon: 四割まで　深く, cut: { sides: [top, left], depth: 0.45 }, tail: { direction: 50deg } }
+      - layers:
+          - tone: 15%
+          - { balloon: うおおお！, as: shout, cut: [top, right, left], tail: { to: [50%, 95%] } }
+      - layers:
+          - tone: 15%
+          - { balloon: ぎゃああ！！, as: scream, cut: { sides: [bottom, left], depth: 0.35 }, tail: { to: [80%, 10%] } }
+      - layers:
+          - tone: 15%
+          - { balloon: 三辺で　切る, as: think, cut: [top, right, bottom], tail: { direction: 170deg } }
+      - layers:
+          - tone: 15%
+          - { balloon: 四角い　声, shape: { kind: rect }, cut: [bottom, right], tail: { direction: 220deg } }

@@ -192,7 +192,7 @@ function nearestTranslation(points: Vec[], panel: Vec[], clearance: number, with
   return best;
 }
 
-function textPolygon(plan: BalloonPlan): Vec[] {
+export function textPolygon(plan: BalloonPlan): Vec[] {
   const x = plan.center!.x + plan.innerCenter.x + plan.textOffset.x - plan.text.width / 2;
   const y = plan.center!.y + plan.innerCenter.y + plan.textOffset.y - plan.text.height / 2;
   const a = plan.props.rotate === undefined ? 0 : parseAngle(plan.props.rotate as string);
@@ -237,6 +237,15 @@ export function containBalloon(plan: BalloonPlan, ctx: ElemCtx, replan: (props: 
   const cut = plan.edgeCut || edgeCut(plan, ctx);
   plan.edgeCut = cut;
   const clearance = frameClearance(ctx);
+  // lettering in a cut balloon also stays inside the safe area of a bled panel
+  let textArea = panel;
+  if (cut && ctx.u.units !== "px" && ctx.geom?.safe) {
+    const r = ctx.geom.safe;
+    const ring = (p: Vec[]): polygonClipping.Ring => p.map(q => [q.x, q.y]);
+    const [first] = polygonClipping.intersection([ring(panel)], [ring([{ x: r.x, y: r.y }, { x: r.x + r.w, y: r.y }, { x: r.x + r.w, y: r.y + r.h }, { x: r.x, y: r.y + r.h }])]);
+    if (first?.[0]) textArea = first[0].slice(0, -1).map(([x, y]) => ({ x, y }));
+  }
+  const warnShallower = (f: number) => ctx.bag.info("BALLOON_CUT_SHALLOWER", `balloon ${plan.el.id}: cut ${Math.round(f * 100)}% shallower so its text clears the frame`, { path: plan.el.path, elementId: plan.el.id });
   const fit = (p: BalloonPlan): boolean => {
     if (!cut) {
       const d = nearestTranslation(bodyPolygon(p), panel, clearance, undefined, occupied);
@@ -247,7 +256,7 @@ export function containBalloon(plan: BalloonPlan, ctx: ElemCtx, replan: (props: 
     if (!p.text.plain) return true;
     const text = textPolygon(p);
     const margin = Math.max(2.5 * ctx.u.k, p.text.fontSize * 0.8);
-    const d = nearestTranslation(text, panel, margin, bodyPolygon(p));
+    const d = nearestTranslation(text, textArea, margin, bodyPolygon(p));
     if (!d) return false;
     const moved = text.map(q => ({ x: q.x + d.x, y: q.y + d.y }));
     if (!polygonFits(moved, bodyPolygon(p), 0.1 * ctx.u.k)) return false;
@@ -256,6 +265,30 @@ export function containBalloon(plan: BalloonPlan, ctx: ElemCtx, replan: (props: 
     return true;
   };
   if (fit(plan)) return;
+  // an explicit cut keeps its depth when the lines can be rewrapped, then cuts less deep
+  const sides = cutSides(plan.props);
+  if (sides.length) {
+    const b = boundsOf(bodyPolygon(plan, { x: 0, y: 0 }));
+    const s = new Set(sides);
+    const axis = (lo: CutSide, hi: CutSide, size: number) => s.has(lo) === s.has(hi) ? 0 : s.has(lo) ? cutDepth(plan.props, lo) * size : -cutDepth(plan.props, hi) * size;
+    const inward = { x: axis("left", "right", b.w), y: axis("top", "bottom", b.h) };
+    const deepest = plan.center;
+    for (const f of [0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1]) {
+      const c = { x: deepest.x + inward.x * f, y: deepest.y + inward.y * f };
+      plan.center = { ...c };
+      if (f && fit(plan)) return warnShallower(f);
+      const chars = Math.max(2, ...plan.text.lines.map(l => Array.from(l.text ?? "").length));
+      for (const maxChars of [...new Set([Math.max(2, Math.round(chars * 0.6)), Math.round(chars * 1.5), Math.max(2, Math.round(chars * 0.4))])]) {
+        const candidate = replan({ ...plan.props, maxChars, minFontScale: 1, overflow: "grow" });
+        if (!candidate) continue;
+        candidate.center = { ...c };
+        if (!fit(candidate)) continue;
+        Object.assign(plan, candidate, { props: plan.props, edgeCut: cut, dialogueExceedsMaxSize: plan.dialogueExceedsMaxSize === undefined ? undefined : candidate.dialogueExceedsMaxSize });
+        return f ? warnShallower(f) : undefined;
+      }
+    }
+    plan.center = deepest;
+  }
   const original = plan.center;
   const chars = Math.max(2, ...plan.text.lines.map(l => Array.from(l.text ?? "").length));
   const keepDialogueSize = plan.dialogueExceedsMaxSize !== undefined;
@@ -265,7 +298,7 @@ export function containBalloon(plan: BalloonPlan, ctx: ElemCtx, replan: (props: 
   for (let s = 0.95; s > floor + 1e-6; s -= 0.05) scales.push(s);
   if (floor < 1) scales.push(floor);
   for (const scale of scales) for (const maxChars of [...new Set([chars, Math.max(2, Math.round(chars * 0.6)), Math.round(chars * 1.5), Math.max(2, Math.round(chars * 0.4))])]) {
-    const candidate = replan({ ...plan.props, size: undefined, maxChars, fontScale: ((plan.props.fontScale as number) ?? 1) * scale, minFontScale: 1, overflow: "grow" });
+    const candidate = replan({ ...plan.props, size: cutSides(plan.props).length ? plan.props.size : undefined, maxChars, fontScale: ((plan.props.fontScale as number) ?? 1) * scale, minFontScale: 1, overflow: "grow" });
     if (!candidate || (keepDialogueSize && breakFaults(candidate.text, ctx.lang) > faults)) continue;
     candidate.center = { ...original };
     if (!fit(candidate)) continue;
@@ -281,4 +314,89 @@ export function containBalloon(plan: BalloonPlan, ctx: ElemCtx, replan: (props: 
   }
   const size = keepDialogueSize ? "the dialogue font size" : "minFontScale";
   ctx.bag.warn("BALLOON_NO_SPACE", `balloon ${plan.el.id} cannot fit inside its panel at ${size}; enlarge the panel or shorten the dialogue`, { path: plan.el.path, elementId: plan.el.id });
+}
+
+export type CutSide = "top" | "right" | "bottom" | "left";
+const CUT_SIDES: CutSide[] = ["top", "right", "bottom", "left"];
+export const CUT_DEPTH_DEFAULT = 0.3;
+export const CUT_DEPTH_MAX = 0.45;
+/** each of two facing cut sides: the body spans the panel and reaches a little past both */
+export const CUT_DEPTH_FACING = 0.08;
+
+/** the panel sides an explicit `cut` slices the body along (spec 6.10.3) */
+export function cutSides(props: Record<string, unknown>): CutSide[] {
+  const cut = props.cut;
+  const sides = Array.isArray(cut) ? cut : cut && typeof cut === "object" ? (cut as Record<string, unknown>).sides : undefined;
+  return Array.isArray(sides) ? CUT_SIDES.filter(s => sides.includes(s)) : [];
+}
+
+/** how far past a cut side the body reaches, as a fraction of its size across that side */
+export function cutDepth(props: Record<string, unknown>, side: CutSide): number {
+  const cut = props.cut;
+  const depth = cut && typeof cut === "object" && !Array.isArray(cut) ? (cut as Record<string, unknown>).depth : undefined;
+  const v = typeof depth === "number" ? depth : depth && typeof depth === "object" ? (depth as Record<string, unknown>)[side] : undefined;
+  const facing = { top: "bottom", bottom: "top", left: "right", right: "left" }[side] as CutSide;
+  const fallback = cutSides(props).includes(facing) ? CUT_DEPTH_FACING : CUT_DEPTH_DEFAULT;
+  return Math.max(0, Math.min(CUT_DEPTH_MAX, typeof v === "number" ? v : fallback));
+}
+
+/**
+ * The body centre that slices `body` (its bounds around the centre) by each cut side of `panel`.
+ * An axis with no cut side keeps `free`; one cut on both sides centres the body on the panel.
+ */
+export function cutCenter(body: Rect, panel: Rect, sides: CutSide[], depth: (side: CutSide) => number, free: Vec, poly?: Vec[]): Vec {
+  const s = new Set(sides);
+  const axis = (lo: CutSide, hi: CutSide, p0: number, size: number, b0: number, bs: number, fallback: number) => {
+    if (s.has(lo) && s.has(hi)) {
+      // the part past the panel splits between the two sides by their depths
+      const dl = depth(lo);
+      const dh = depth(hi);
+      return p0 - (dl + dh > 0 ? dl / (dl + dh) : 0.5) * (bs - size) - b0;
+    }
+    if (s.has(lo)) return p0 - b0 - depth(lo) * bs;
+    if (s.has(hi)) return p0 + size - (b0 + bs) + depth(hi) * bs;
+    return fallback;
+  };
+  const c = {
+    x: axis("left", "right", panel.x, panel.w, body.x, body.w, free.x),
+    y: axis("top", "bottom", panel.y, panel.h, body.y, body.h, free.y),
+  };
+  if (!poly) return c;
+  // a slanted side is cut where it runs past the body, not at the panel's bounding box
+  const mid = (v: number, b0: number, bs: number, p0: number, size: number) => (isNaN(v) ? p0 + size / 2 : v + b0 + bs / 2);
+  const row = polygonSpan(poly, "y", mid(c.y, body.y, body.h, panel.y, panel.h));
+  const x = row && (s.has("left") || s.has("right")) ? axis("left", "right", row[0], row[1] - row[0], body.x, body.w, free.x) : c.x;
+  const col = polygonSpan(poly, "x", mid(x, body.x, body.w, panel.x, panel.w));
+  const y = col && (s.has("top") || s.has("bottom")) ? axis("top", "bottom", col[0], col[1] - col[0], body.y, body.h, free.y) : c.y;
+  return { x, y };
+}
+
+/** Where the line `axis = at` enters and leaves `poly` (the other coordinate), if it crosses it. */
+export function polygonSpan(poly: Vec[], axis: "x" | "y", at: number): [number, number] | undefined {
+  const other = axis === "x" ? "y" : "x";
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i];
+    const q = poly[(i + 1) % poly.length];
+    if ((p[axis] <= at) === (q[axis] <= at)) continue;
+    const v = p[other] + ((at - p[axis]) / (q[axis] - p[axis])) * (q[other] - p[other]);
+    lo = Math.min(lo, v);
+    hi = Math.max(hi, v);
+  }
+  return hi > lo ? [lo, hi] : undefined;
+}
+
+/**
+ * The body size for a cut: across two facing sides it spans the panel and reaches past both;
+ * across one side it grows so the part left inside the panel is about the uncut size.
+ */
+export function cutSize(body: { w: number; h: number }, panel: Rect, sides: CutSide[], depth: (side: CutSide) => number): { w: number; h: number } {
+  const s = new Set(sides);
+  const size = (lo: CutSide, hi: CutSide, own: number, room: number) => {
+    if (s.has(lo) && s.has(hi)) return room / Math.max(0.1, 1 - depth(lo) - depth(hi));
+    const d = s.has(lo) ? depth(lo) : s.has(hi) ? depth(hi) : 0;
+    return Math.min(own / (1 - d), room / Math.max(0.1, 1 - d));
+  };
+  return { w: size("left", "right", body.w, panel.w), h: size("top", "bottom", body.h, panel.h) };
 }

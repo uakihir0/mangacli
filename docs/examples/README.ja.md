@@ -15,6 +15,8 @@
 | [gallery-effects.yaml](gallery-effects.yaml) | 効果・トーン・漫符・描き文字の一覧 | P0・P1 |
 | [gallery-sfx.yaml](gallery-sfx.yaml) | 描き文字の既定・サイズ推移・重なり・経路・Mochiy Pop One | P1 |
 | [en-comic.yaml](en-comic.yaml) | 英語のページ（`lang: en`）。左から右へ読む順、`comic-basic` フォントセットの大文字の横書きの吹き出し、行の均等化 | P0・P1 |
+| [edge-cuts.yaml](edge-cuts.yaml) | 2 辺・3 辺で枠に深く切られる吹き出し（`cut`）。ellipse・spike・burst・cloud・rect（[出力画像](../images/edge-cuts.png)） | P1 |
+| [spike-rect.yaml](spike-rect.yaml) | 四角トゲの叫び吹き出し（`as: yell-box`）と 2 辺で枠に切れる例（[出力画像](../images/spike-rect.png)） | P1 |
 | [full-page-art.yaml](full-page-art.yaml) | 間白や枠なしゴマから塗り足しまでの絵が見えるぶち抜きゴマ。小ゴマに白い抜き縁を付ける（[出力画像](../images/full-page-art.png)） | P1 |
 
 - フォントはカタログのものを使うため、初回のレンダリング時に自動でダウンロードする。事前に取得する場合は `npx mangacli fonts install --for docs/examples/b5-mono.yaml` を実行する。

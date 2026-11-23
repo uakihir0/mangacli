@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=../../schema.json
+#
+#   npx mangacli render docs/examples/spike-rect.yaml
+
+mangacli: 1
+meta: { title: 四角トゲの叫び吹き出し, lang: ja }
+page:
+  size: [128mm, 62mm]
+  bleed: 0
+  color: mono
+  baseFrame: { margins: { top: 7mm, bottom: 7mm, inner: 7mm, outer: 7mm } }
+defaults:
+  balloon: { fontSize: 24bQ }
+pages:
+  - layout: { template: grid, params: { cols: 2, rows: 1 } }
+    panels:
+      - layers:
+          - tone: 15%
+          - { balloon: "おれが\n相馬だ！！", as: yell-box, at: [51%, 42%], tail: { direction: 110deg } }
+      - layers:
+          - tone: 15%
+          - { balloon: "さっさと\n離れろ！！", as: yell-box, cut: [top, right], tail: none }

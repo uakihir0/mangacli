@@ -157,15 +157,17 @@ describe("physical spike tail fitting", () => {
     const extension = Math.max(...contour.map(q => q.x)) - coreRight;
     expect(extension).toBeCloseTo(plan.body.spikeLength! * 2.25, 1);
   });
-  it.each(["spike", "burst"] as const)("aims one longer, narrow %s tail without moving the other tips", async (kind) => {
+  it.each(["spike", "burst", "spike-rect"] as const)("aims one longer, narrow %s tail without moving the other tips", async (kind) => {
     const { plan, ctx } = await setup();
     plan.params.kind = kind;
     plan.body = BODY_GENERATORS[kind](40, 40, { kind, irregularity: 0, egg: 0, tilt: 0, count: 20 }, 42);
     const original = plan.body.contour;
     const tips = original.corners!.filter(c => c.kind === "tip").map(c => original.pts[c.index]);
     const valleys = original.corners!.filter(c => c.kind === "valley").map(c => original.pts[c.index]);
-    const peak = tips[0];
-    const baseWidth = dist(valleys[0], valleys[1]);
+    const bottom = tips.filter(p => p.y > 20 && Math.abs(p.x) < 20).sort((a, b) => Math.abs(a.x) - Math.abs(b.x));
+    const peak = kind === "spike-rect" ? bottom[0] : tips[0];
+    const peakAt = original.pts.indexOf(peak);
+    const baseWidth = kind === "spike-rect" ? dist(original.pts[peakAt - 1], original.pts[peakAt + 1]) : dist(valleys[0], valleys[1]);
     const dir = { x: peak.x / Math.hypot(peak.x, peak.y), y: peak.y / Math.hypot(peak.x, peak.y) };
     const target = { x: dir.x * 60, y: dir.y * 60 };
     plan.props.tail = { kind: "wedge", to: [`${target.x}mm`, `${target.y}mm`], allowVertical: true, bend: 0, sideCurve: 0 };
@@ -177,7 +179,7 @@ describe("physical spike tail fitting", () => {
       const roots = corners!.filter(c => c.kind === "concave").map(c => pts[c.index]);
       expect(cross(dir, apex)).toBeCloseTo(0, 7);
       expect(dist(apex, plan.center!)).toBeGreaterThan(dist(peak, plan.center!) + plan.body.spikeLength! * 0.65);
-      expect(tips.slice(1).every(tip => pts.some(p => dist(p, tip) < 1e-8))).toBe(true);
+      expect(tips.filter(tip => tip !== peak).every(tip => pts.some(p => dist(p, tip) < 1e-8))).toBe(true);
       expect(pts.some(p => dist(p, peak) < 1e-8)).toBe(false);
       expect(roots).toHaveLength(2);
       expect(dist(roots[0], roots[1])).toBeLessThanOrEqual(1.3 * ctx.u.k);
