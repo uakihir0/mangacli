@@ -32,8 +32,9 @@ const widthAt = (pts: typeof rectangle, y: number) => {
 describe("brush pressure", () => {
   it.each(["ツ", "シ"])("keeps compensated Dela Gothic One %s strokes disjoint", async char => {
     const fonts = new FontRegistry(new Map(), "manga-basic", [], {});
-    await fonts.prepare("sfx", char);
-    const source = layoutText(char, defaultTextStyle({ font: "sfx", fontSize: 10 }), fonts).glyphs[0].path;
+    const font = "catalog:dela-gothic-one";
+    await fonts.prepare(font, char);
+    const source = layoutText(char, defaultTextStyle({ font, fontSize: 10 }), fonts).glyphs[0].path;
     const compensated = emboldenGlyph(source, 10, sfxWeightRadius("impact", 0.6) * 10);
     for (const path of [compensated, brushGlyph(compensated, 10, 42)]) {
       const contours = flattenPath(path, 0.01);
@@ -148,16 +149,17 @@ describe("brush pressure", () => {
     expect(brushGlyph([], 10, 42)).toEqual([]);
     expect(brushGlyph(path, 0, 42)).toBe(path);
   });
-  it("uses Dela Gothic One for manga SFX and offers Mochiy Pop One without changing comic SFX", async () => {
+  it("uses Yuji Syuku for manga SFX and offers RocknRoll One without changing comic SFX", async () => {
     const catalog = JSON.parse(readFileSync(new URL("../catalog/fonts.json", import.meta.url), "utf8"));
-    expect(catalog.sets["manga-basic"].sfx.font).toBe("dela-gothic-one@400");
+    expect(catalog.sets["manga-basic"].sfx.font).toBe("yuji-syuku@400");
+    expect(catalog.fonts.some((f: { id: string; weight: number }) => f.id === "rocknroll-one" && f.weight === 400)).toBe(true);
     expect(catalog.fonts.some((f: { id: string; weight: number }) => f.id === "dela-gothic-one" && f.weight === 400)).toBe(true);
     expect(catalog.fonts.some((f: { id: string; weight: number }) => f.id === "mochiy-pop-one" && f.weight === 400)).toBe(true);
     expect(catalog.sets["comic-basic"].sfx.font).toBe("bangers@400");
     const fonts = new FontRegistry(new Map(), "manga-basic", [], {});
     await fonts.prepare("sfx", "ン");
     const layout = layoutText("ン", defaultTextStyle({ font: "sfx", fontSize: 10 }), fonts);
-    expect(layout.fonts).toContain("Dela Gothic One 400");
+    expect(layout.fonts).toContain("Yuji Syuku 400");
   });
   it("finds real kana terminals in Zen Kaku Gothic New", async () => {
     const fonts = new FontRegistry(new Map(), "manga-basic", [], {});

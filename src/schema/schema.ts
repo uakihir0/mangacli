@@ -265,6 +265,8 @@ export const Tail = z
   })
   .strict();
 
+const BalloonConnectStyle = z.enum(["neck", "overlap", "line"]).meta({ id: "BalloonConnectStyleValue" }).optional().meta({ id: "BalloonConnectStyle", default: "overlap" });
+
 const balloonProps = {
   ...common,
   ...typo,
@@ -292,7 +294,7 @@ const balloonProps = {
   halo: z.union([Length, z.literal("none"), z.literal(false)]).optional(),
   haloColor: ColorStr.optional(),
   autoConnect: z.boolean().optional(),
-  connect: z.union([z.object({ to: z.string(), style: z.enum(["neck", "overlap", "line"]).optional(), width: Length.optional() }).strict(), z.array(z.object({ to: z.string(), style: z.enum(["neck", "overlap", "line"]).optional(), width: Length.optional() }).strict())]).optional(),
+  connect: z.union([z.object({ to: z.string(), style: BalloonConnectStyle, width: Length.optional() }).strict(), z.array(z.object({ to: z.string(), style: BalloonConnectStyle, width: Length.optional() }).strict())]).optional(),
   autoPlace: z.union([z.enum(["auto", "flow"]), z.object({ mode: z.enum(["auto", "flow"]).optional(), inset: Length.optional(), weights: z.record(z.string(), z.number()).optional(), threshold: z.number().optional(), reshape: z.boolean().optional() }).strict()]).optional(),
   from: z.enum(["top", "right", "bottom", "left"]).optional(),
 };
@@ -365,6 +367,17 @@ const textProps = {
   overflow: z.enum(["shrink", "clip", "error"]).optional(),
 };
 
+const BackdropLength = z.union([
+  z.number().nonnegative(),
+  z.string().regex(new RegExp(String.raw`^\+?(?:\d+(?:\.\d+)?|\.\d+)\s*(${[...LENGTH_UNITS, "bmm"].join("|")})?(@print)?$`)),
+]);
+const textBackdrop = z.object({
+  color: ColorStr.optional(),
+  feather: BackdropLength.optional(),
+  padding: BackdropLength.optional(),
+  opacity: z.number().min(0).max(1).optional(),
+}).strict();
+
 const sfxProps = {
   ...textProps,
   bleed: z.boolean().optional(),
@@ -418,7 +431,7 @@ const drawProps = {
 export const ELEMENT_KEYS: Record<string, Set<string> | null> = {
   image: new Set(["type", ...Object.keys(imageProps)]),
   balloon: new Set(["type", ...Object.keys(balloonProps)]),
-  text: new Set(["type", ...Object.keys(textProps)]),
+  text: new Set(["type", ...Object.keys(textProps), "backdrop"]),
   sfx: new Set(["type", ...Object.keys(sfxProps)]),
   fill: new Set(["type", ...Object.keys(fillProps)]),
   draw: new Set(["type", ...Object.keys(drawProps)]),
@@ -432,7 +445,7 @@ export const Element: z.ZodType = z.lazy(() =>
   z.discriminatedUnion("type", [
     z.object({ type: z.literal("image"), ...imageProps }).strict(),
     z.object({ type: z.literal("balloon"), ...balloonProps }).strict(),
-    z.object({ type: z.literal("text"), ...textProps }).strict(),
+    z.object({ type: z.literal("text"), ...textProps, backdrop: textBackdrop.optional() }).strict(),
     z.object({ type: z.literal("sfx"), ...sfxProps }).strict(),
     effectProps,
     z.object({ type: z.literal("fill"), ...fillProps }).strict(),
