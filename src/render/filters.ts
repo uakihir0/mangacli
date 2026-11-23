@@ -270,7 +270,6 @@ function largeBetaMask(core: Uint8Array, lines: Uint8Array, w: number, h: number
   const stack = new Int32Array(n);
   const areas: number[] = [];
   const solid: number[] = [];
-  const touchesEdge: number[] = [];
   const outsideCore = new Uint8Array(n);
   for (let i = 0; i < n; i++) outsideCore[i] = core[i] ? 0 : 1;
   const clearance = distanceSquared(outsideCore, w, h);
@@ -281,7 +280,6 @@ function largeBetaMask(core: Uint8Array, lines: Uint8Array, w: number, h: number
     const label = areas.length;
     areas.push(0);
     solid.push(0);
-    touchesEdge.push(0);
     let top = 0;
     comp[start] = label;
     stack[top++] = start;
@@ -289,10 +287,6 @@ function largeBetaMask(core: Uint8Array, lines: Uint8Array, w: number, h: number
       const cur = stack[--top];
       const cx = cur % w;
       const cy = Math.floor(cur / w);
-      if (cy === 0) touchesEdge[label] |= 1;
-      if (cx === w - 1) touchesEdge[label] |= 2;
-      if (cy === h - 1) touchesEdge[label] |= 4;
-      if (cx === 0) touchesEdge[label] |= 8;
       areas[label]++;
       if (core[cur] && clearance[cur] >= rr) solid[label]++;
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
@@ -308,9 +302,25 @@ function largeBetaMask(core: Uint8Array, lines: Uint8Array, w: number, h: number
     }
   }
   const minArea = Math.PI * rr * 0.5;
+  const topRun = areas.map(() => 0);
+  let runLabel = -1;
+  let runLength = 0;
+  const flushTopRun = () => {
+    if (runLabel >= 0) topRun[runLabel] = Math.max(topRun[runLabel], runLength);
+  };
+  for (let x = 0; x < w; x++) {
+    const label = comp[x];
+    if (label === runLabel && label >= 0) {
+      runLength++;
+    } else {
+      flushTopRun();
+      runLabel = label;
+      runLength = label >= 0 ? 1 : 0;
+    }
+  }
+  flushTopRun();
   const accepted = areas.map((area, i) => {
-    const touch = touchesEdge[i];
-    const background = (touch & 1) !== 0;
+    const background = topRun[i] >= size;
     return mode !== "none" && area >= minArea && solid[i] / area >= 0.05 && (mode === "all" || background);
   });
   const out = new Uint8Array(n);
