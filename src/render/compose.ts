@@ -32,7 +32,7 @@ import { defaultTextStyle, layoutText, parseLayoutText } from "../text/layout.js
 import { parseMarkup } from "../text/markup.js";
 import { type AssetRegistry, resolveAssetBlend } from "./assets.js";
 import { cleanClippedBalloonInk } from "./balloon-clip.js";
-import { autoEdgeCutFits, balloonObstacleBounds, bodyPolygon, containBalloon, containsBalloon, frameClearance, overlapBalloonCenter, polygonFits, warnBalloonInGutter } from "./balloon-contain.js";
+import { autoEdgeCutFits, balloonObstacleBounds, bodyPolygon, containBalloon, containsBalloon, cutCenter, cutDepth, cutSides, cutSize, frameClearance, overlapBalloonCenter, polygonFits, textPolygon, warnBalloonInGutter } from "./balloon-contain.js";
 import type { DisplayList, GroupNode, Node, PathNode } from "./ir.js";
 import { FILTER_NAMES, parseFilter } from "./filters.js";
 
@@ -80,6 +80,8 @@ interface Item {
   stackUnder?: boolean;
   lettering?: { el: RElement; bbox: Rect }[];
   glyphRuns?: GlyphRun[];
+  /** the box the safe-area check reads instead of `bbox` (the lettering of a frame-cut balloon) */
+  safetyBox?: Rect;
   mask?: { path: import("../geom/path.js").PathData; rule: "nonzero" | "evenodd" };
 }
 
@@ -246,7 +248,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
   }
 
   // phase B: balloons plans, text, sfx, effects, fills, marks, draw
-  const pageBalloons: { plan: BalloonPlan; panel?: string; order: number; idx: number }[] = [];
+  const pageBalloons: { plan: BalloonPlan; panel?: string; order: number; idx: number; frame?: Vec[] }[] = [];
   const renderOthers = async (els: RElement[], ctx: ElemCtx, panelIdx: number, source: number) => {
     const plans: { plan: BalloonPlan; idx: number; textIndex: number }[] = [];
     const balloonIds = new Set(els.filter((e) => e.type === "balloon").map((e) => e.id));
@@ -329,7 +331,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       info.text[textIndex] = textInfo(plan.el.id, plan.text);
       if (plan.dialogueExceedsMaxSize) ctx.bag.warn("BALLOON_TOO_LARGE", `balloon ${plan.el.id} exceeds maxSize at the dialogue font size`, { path: plan.el.path, elementId: plan.el.id });
     }
-    pageBalloons.push(...plans.map(({ plan, idx }) => ({ plan, idx, panel: ctx.panel?.panel.id, order: ctx.panel?.order ?? panels.length })));
+    pageBalloons.push(...plans.map(({ plan, idx }) => ({ plan, idx, panel: ctx.panel?.panel.id, order: ctx.panel?.order ?? panels.length, frame: plan.edgeCut ? ctx.panelPoly : undefined })));
     const consumed = new Set<string>();
     const balloonPlans = plans.map(p => p.plan);
     prepareBalloonObstacles(balloonPlans);
@@ -383,7 +385,9 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       try {
         const r = renderBalloon(plan, { ...ctx, coordsBox: coordsFor(plan.el, ctx, geom) });
         warnBalloonInGutter(plan.el, r.contour, ctx);
-        processed.set(plan.el.id, mkItem(plan.el, r.nodes, r.bbox, panelIdx, idx, source, ctx, [balloonGlyphRun(plan)]));
+        const item = mkItem(plan.el, r.nodes, r.bbox, panelIdx, idx, source, ctx, [balloonGlyphRun(plan)]);
+        if (plan.edgeCut && plan.text.plain) item.safetyBox = boundsOf(textPolygon(plan));
+        processed.set(plan.el.id, item);
         refs.add({ id: plan.el.id, type: "balloon", bbox: r.bbox, anchors: {}, regions: {}, panelId: ctx.panel?.panel.id, shape: r.contour });
       } catch (e) {
         bag.error("RENDER_FAILED", `${plan.el.id}: ${(e as Error).message}`, { path: plan.el.path, elementId: plan.el.id });
@@ -427,7 +431,10 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       const angle = plan.props.rotate !== undefined ? parseAngle(plan.props.rotate as string) : 0;
       const cr = Math.cos(angle);
       const sr = Math.sin(angle);
-      const bounds = boundsOf(plan.body.contour.pts.map((q) => ({ x: q.x * cr - q.y * sr + plan.center!.x, y: q.x * sr + q.y * cr + plan.center!.y })));
+      const body = plan.body.contour.pts.map((q) => ({ x: q.x * cr - q.y * sr + plan.center!.x, y: q.x * sr + q.y * cr + plan.center!.y }));
+      // a frame-cut body shows only inside its panel
+      const shown = balloon.frame ? polygonClipping.intersection([body.map((q) => [q.x, q.y] as [number, number])], [balloon.frame.map((q) => [q.x, q.y] as [number, number])]).flat(2).map(([x, y]) => ({ x, y })) : [];
+      const bounds = boundsOf(shown.length ? shown : body);
       return { ...balloon, bounds };
     });
   const tolerance = 1 * u.k;
@@ -1565,6 +1572,14 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const a = pl.props.rotate === undefined ? 0 : parseAngle(pl.props.rotate as string);
     return a ? boundsOf(pl.body.contour.pts.map(q => rot(q, a))) : pl.outer;
   };
+  // the box a balloon drawn at outer-box centre c covers, rotation included
+  const drawnRect = (q: BalloonPlan, c: Vec): Rect => {
+    const b = dialogueBounds(q);
+    return { x: b.x + c.x - q.outer.w / 2 - q.outer.x, y: b.y + c.y - q.outer.h / 2 - q.outer.y, w: b.w, h: b.h };
+  };
+  // only an overlap connection draws the two bodies as one, so only it may overlap its partner
+  const overlapIds = (q: BalloonPlan) => (q.props.connect === undefined ? [] : (Array.isArray(q.props.connect) ? q.props.connect : [q.props.connect]) as Obj[]).filter(c => (c.style ?? "overlap") === "overlap").map(c => String(c.to));
+  const linked = (a: BalloonPlan, b: BalloonPlan) => overlapIds(a).includes(b.el.id) || overlapIds(b).includes(a.el.id);
   const panelDialogueCenter = (b: Rect, c: Vec): Vec | undefined => {
     const box = rectInset(panelBox, 0.25 * u.k);
     if (b.w > box.w || b.h > box.h) return;
@@ -1580,6 +1595,28 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     ctx.bag.warn("BALLOON_NO_SPACE", `balloon ${pl.el.id} cannot fit within its panel at the dialogue font size`, { path: pl.el.path, elementId: pl.el.id });
     return c;
   };
+  // a cut body grows so what the frame leaves of it still holds the lines (spec 6.10.3)
+  if (ctx.panel && replan) {
+    for (const [i, pl] of plans.entries()) {
+      const sides = cutSides(pl.props);
+      if (!sides.length || pl.props.size !== undefined) continue;
+      const b = dialogueBounds(pl);
+      // a body cut by two facing sides is a band: across it, it only needs the lines plus a margin
+      const own = {
+        w: sides.includes("top") && sides.includes("bottom") ? Math.min(b.w, pl.text.width * 1.6) : b.w,
+        h: sides.includes("left") && sides.includes("right") ? Math.min(b.h, pl.text.height * 1.6) : b.h,
+      };
+      const grow = (o: { w: number; h: number }) => {
+        const g = cutSize(o, panelBox, sides, side => cutDepth(pl.props, side));
+        const size = [`${pl.outer.w * g.w / b.w}mm`, `${pl.outer.h * g.h / b.h}mm`];
+        return { size, vp: replan(pl, { ...pl.props, size }) };
+      };
+      let { size, vp } = grow(own);
+      // a band too thin for the shape's padding would shrink the lettering: keep the uncut depth instead
+      if (vp && vp.fontScaleApplied < pl.fontScaleApplied - 1e-6 && (own.w < b.w || own.h < b.h)) ({ size, vp } = grow(b));
+      if (vp) plans[i] = Object.assign(pl, { ...vp, el: pl.el, explicit: pl.explicit, props: { ...pl.props, size } });
+    }
+  }
   const obstacles: { r: Rect; w: number; ellipse?: boolean }[] = [];
   for (const it of processed.values()) {
     const el = it.el;
@@ -1611,10 +1648,14 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
   }
   const placedRects: Rect[] = [];
   const attachedRects: Rect[] = [];
+  const placedPlans: BalloonPlan[] = [];
   const setCenter = (pl: BalloonPlan, c: Vec) => {
     pl.center = c;
+    placedPlans.push(pl);
     placedRects.push({ x: c.x + pl.outer.x, y: c.y + pl.outer.y, w: pl.outer.w, h: pl.outer.h });
   };
+  /** the centre that cuts `pl` by its `cut` sides, keeping `free` on an uncut axis */
+  const cutAt = (pl: BalloonPlan, free: Vec): Vec => cutCenter(dialogueBounds(pl), panelBox, cutSides(pl.props), side => cutDepth(pl.props, side), free, ctx.panelPoly);
   // explicit first
   for (const pl of plans) {
     const attach = pl.props.attach as string | undefined;
@@ -1635,16 +1676,20 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         if (side === "bottom") frame.h -= width;
       }
       const stroke = resolveStroke(pl.props.stroke, pl.hand, u).width;
-      let c = attachedBalloonCenter(attach, pl.props.as === "narration", frame, pl.outer, stroke, at);
+      const cutBy = cutSides(pl.props).length > 0;
+      // a cut narration is checked for room where the cut leaves it, not at its corner
+      const snap = (p: Vec | undefined) => (p && cutBy ? cutAt(pl, p) : p);
+      let c = snap(attachedBalloonCenter(attach, pl.props.as === "narration", frame, pl.outer, stroke, at));
       if (!attach) {
         const free = (p: Vec) => !attachedRects.some(r => rectOverlapArea({ x: p.x + pl.outer.x, y: p.y + pl.outer.y, w: pl.outer.w, h: pl.outer.h }, r) > 0);
         if (c && !free(c)) {
           const corners = rtl ? ["top-right", "top-left", "bottom-right", "bottom-left"] : ["top-left", "top-right", "bottom-left", "bottom-right"];
-          c = corners.map(side => attachedBalloonCenter(side, true, frame, pl.outer, stroke)!).find(free);
+          c = corners.map(side => snap(attachedBalloonCenter(side, true, frame, pl.outer, stroke))!).find(free);
         }
       }
       if (c) {
         pl.explicit = true;
+        if (cutBy) pl.edgeCut = true;
         setCenter(pl, c);
         attachedRects.push(placedRects[placedRects.length - 1]);
         continue;
@@ -1658,6 +1703,12 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     // a balloon must not run off the trimmed page (it may cross gutters and panel borders)
     const lim = rectInset(geom.trim, 1 * u.k);
     const offscreen = hasOffscreenTail(pl.props);
+    const cut = ctx.panel ? cutSides(pl.props) : [];
+    if (cut.length) {
+      pl.edgeCut = true;
+      setCenter(pl, cutAt(pl, { x: tl.x - pl.outer.x, y: tl.y - pl.outer.y }));
+      continue;
+    }
     if (ctx.panelPoly && keepFlashInsidePanel(pl)) {
       const fitted = fitFlashPlacement(tl, panelBox, ctx.panelPoly, u.k);
       if (fitted) {
@@ -1754,37 +1805,89 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     if (isFlow(pl)) {
       for (const st0 of beam) {
         const st = { ...st0, rects: st0.rects.slice(), centers: new Map(st0.centers), costs: new Map(st0.costs) };
-        if ((rtl ? st.flowX - w < area.x : st.flowX + w > area.x + area.w) && st.rowH > 0) {
-          st.flowX = rtl ? area.x + area.w : area.x;
-          st.flowY += st.rowH + 1 * u.k;
-          st.rowH = 0;
-        }
-        const x = rtl ? st.flowX - w / 2 : st.flowX + w / 2;
-        for (const r of attachedRects.slice().sort((a, b) => a.y - b.y)) {
-          if (rectOverlapArea({ x: x - w / 2, y: st.flowY, w, h }, r) > 0) {
-            const rowBottom = st.flowY + st.rowH;
-            st.flowY = r.y + r.h + 1 * u.k;
-            st.rowH = Math.max(0, rowBottom - st.flowY);
-          }
-        }
-        const y = st.flowY + h / 2;
         let dx = 0;
         let dy = 0;
-        if (pl.fitDialogueInPanel) {
-          const b = dialogueBounds(pl);
-          const origin = { x: x - w / 2 - pl.outer.x, y: y - h / 2 - pl.outer.y };
-          const fit = panelDialogueCenter(b, origin);
-          const proposed = fit && { ...b, x: b.x + fit.x, y: b.y + fit.y };
-          if (!fit || (proposed && (fit.x !== origin.x || fit.y !== origin.y) && [...st.rects, ...attachedRects].some(r => rectOverlapArea(proposed, rectInset(r, -0.99 * u.k)) > 0))) {
+        let cx = 0;
+        let cy = 0;
+        const cut = ctx.panel && cutSides(pl.props).length > 0;
+        const cursor = { flowX: st.flowX, flowY: st.flowY, rowH: st.rowH };
+        let first: { cx: number; cy: number; dx: number; dy: number } | undefined;
+        let prev: Vec | undefined;
+        let fromStart = false;
+        // a balloon cut at the top or bottom keeps its height whatever row it is in
+        const pinned = cut && cutSides(pl.props).some(sd => sd === "top" || sd === "bottom");
+        for (let attempt = 0; ; attempt++) {
+          if ((rtl ? st.flowX - w < area.x : st.flowX + w > area.x + area.w) && st.rowH > 0) {
+            st.flowX = rtl ? area.x + area.w : area.x;
+            st.flowY += st.rowH + 1 * u.k;
+            st.rowH = 0;
+          }
+          const x = rtl ? st.flowX - w / 2 : st.flowX + w / 2;
+          for (const r of attachedRects.slice().sort((a, b) => a.y - b.y)) {
+            if (rectOverlapArea({ x: x - w / 2, y: st.flowY, w, h }, r) > 0) {
+              const rowBottom = st.flowY + st.rowH;
+              st.flowY = r.y + r.h + 1 * u.k;
+              st.rowH = Math.max(0, rowBottom - st.flowY);
+            }
+          }
+          const y = st.flowY + h / 2;
+          dx = 0;
+          dy = 0;
+          if (pl.fitDialogueInPanel) {
+            const b = dialogueBounds(pl);
+            const origin = { x: x - w / 2 - pl.outer.x, y: y - h / 2 - pl.outer.y };
+            const fit = panelDialogueCenter(b, origin);
+            const proposed = fit && { ...b, x: b.x + fit.x, y: b.y + fit.y };
+            if (!fit || (proposed && (fit.x !== origin.x || fit.y !== origin.y) && [...st.rects, ...attachedRects].some(r => rectOverlapArea(proposed, rectInset(r, -0.99 * u.k)) > 0))) {
+              st.costs.set(pl, Infinity);
+              st.total += 1000;
+            } else {
+              dx = fit.x - origin.x;
+              dy = fit.y - origin.y;
+            }
+          }
+          cx = x + dx;
+          cy = y + dy;
+          if (cut) {
+            // a cut balloon leaves its row for its cut sides; the row goes on from where it would have stood
+            const o = cutAt(pl, { x: cx - w / 2 - pl.outer.x, y: cy - h / 2 - pl.outer.y });
+            cx = o.x + pl.outer.x + w / 2;
+            cy = o.y + pl.outer.y + h / 2;
+          }
+          // nothing may land on a cut balloon of the flow, nor a cut one on anything placed before it
+          const own = drawnRect(pl, { x: cx, y: cy });
+          const others = [...st.centers].filter(([q]) => !linked(pl, q) && (cut || (isFlow(q) && cutSides(q.props).length))).map(([q, c]) => drawnRect(q, c));
+          const fixed = cut ? placedPlans.filter(q => !linked(pl, q)).map(q => drawnRect(q, { x: q.center!.x + q.outer.x + q.outer.w / 2, y: q.center!.y + q.outer.y + q.outer.h / 2 })) : [];
+          const hit = [...others, ...fixed].filter(r => rectOverlapArea(own, r) > 0);
+          if (!hit.length) break;
+          const moved = !prev || Math.abs(cx - prev.x) > 1e-6 || Math.abs(cy - prev.y) > 1e-6;
+          prev = { x: cx, y: cy };
+          first ??= { cx, cy, dx, dy };
+          // taken: a balloon pinned to the top or bottom tries the row start, then slides along its side past
+          // what it runs into; any other tries the next row below the row and what it ran into
+          const rowStart = rtl ? area.x + area.w : area.x;
+          const toStart = pinned && !fromStart && Math.abs(st.flowX - rowStart) > 1e-6;
+          const slid = st.flowX + (rtl ? Math.min(...hit.map(r => r.x)) - 1 * u.k - (own.x + own.w) : Math.max(...hit.map(r => r.x + r.w)) + 1 * u.k - own.x);
+          const slides = rtl ? slid - w >= area.x : slid + w <= area.x + area.w;
+          const nextY = st.flowY + Math.max(st.rowH, ...hit.map(r => r.y + r.h - own.y), 0) + 1 * u.k;
+          if (!moved || (pinned ? !toStart && !slides : nextY + h > area.y + area.h) || attempt > 8) {
+            ({ cx, cy, dx, dy } = first);
+            Object.assign(st, cursor);
             st.costs.set(pl, Infinity);
             st.total += 1000;
-          } else {
-            dx = fit.x - origin.x;
-            dy = fit.y - origin.y;
+            break;
           }
+          if (pinned) {
+            st.flowX = toStart ? rowStart : slid;
+            fromStart = true;
+            continue;
+          }
+          st.flowX = rowStart;
+          st.flowY = nextY;
+          st.rowH = 0;
         }
-        const cx = x + dx;
-        const cy = y + dy;
+        // moved along its side, it leaves the row going on from where it first stood
+        if (pinned && prev) Object.assign(st, cursor);
         st.centers.set(pl, { x: cx, y: cy });
         st.rects.push({ x: cx - w / 2, y: cy - h / 2, w, h });
         st.flowX += dx + (rtl ? -(w + 1 * u.k) : w + 1 * u.k);
@@ -1829,6 +1932,12 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
       const ys: number[] = [];
       for (let x = area.x + w / 2; x <= Math.max(area.x + w / 2, area.x + area.w - w / 2) + 0.01; x += step) xs.push(x);
       for (let y = area.y + h / 2; y <= Math.max(area.y + h / 2, area.y + area.h - h / 2) + 0.01; y += step) ys.push(y);
+      const cut = ctx.panel ? cutSides(vp.props) : [];
+      if (cut.length) {
+        const c = cutCenter(dialogueBounds(vp), panelBox, cut, side => cutDepth(vp.props, side), { x: NaN, y: NaN });
+        if (!isNaN(c.x)) xs.splice(0, xs.length, c.x + vp.outer.x + w / 2);
+        if (!isNaN(c.y)) ys.splice(0, ys.length, c.y + vp.outer.y + h / 2);
+      }
       if (face) {
         const gap = Math.max(w, h) * 0.05 + 0.4 * u.k;
         xs.push(...[face.x - gap - w / 2, face.x + face.w + gap + w / 2].filter(x => x >= area.x + w / 2 && x <= area.x + area.w - w / 2));
@@ -1838,7 +1947,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
         for (const x of xs) {
           const c = { x, y };
           const rect = { x: x - w / 2, y: y - h / 2, w, h };
-          if (containsBalloon(pl.el, ctx) && ctx.panelPoly && !polygonFits(bodyPolygon(vp, { x: x - (vp.outer.x + w / 2), y: y - (vp.outer.y + h / 2) }), ctx.panelPoly, frameClearance(ctx))) continue;
+          if (!cut.length && containsBalloon(pl.el, ctx) && ctx.panelPoly && !polygonFits(bodyPolygon(vp, { x: x - (vp.outer.x + w / 2), y: y - (vp.outer.y + h / 2) }), ctx.panelPoly, frameClearance(ctx))) continue;
           const A = w * h;
           let cost = extra;
           if (flashPanel && !rectPts(rectInset(rect, -u.k / 2)).every(q => pointInPolygon(q, flashPanel))) cost += 1000;
@@ -1868,7 +1977,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
             cost += W.offscreen * Math.max(0, dEdge) / Math.max(1, offSide === "left" || offSide === "right" ? area.w : area.h);
           }
           const inside = rectIntersect(rect, area);
-          cost += W.outside * (1 - (inside ? inside.w * inside.h : 0) / A);
+          if (!cut.length) cost += W.outside * (1 - (inside ? inside.w * inside.h : 0) / A);
           cells.push({ c, rect, base: cost, s: sOf(c, h), vp, w, h });
         }
       }
@@ -1965,9 +2074,9 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     if ((chosen.costs.get(pl) ?? 0) > threshold) ctx.bag.warn("BALLOON_NO_SPACE", `no good position for balloon ${pl.el.id}`, { path: pl.el.path, elementId: pl.el.id });
     const vp = chosen.shapes.get(pl);
     if (vp && vp !== pl) Object.assign(pl, { ...vp, el: pl.el, props: pl.props });
-    if (edgeCandidates.get(pl)?.some(p => Math.hypot(p.x - c.x, p.y - c.y) < 1e-6)) pl.edgeCut = true;
+    if ((ctx.panel && cutSides(pl.props).length) || edgeCandidates.get(pl)?.some(p => Math.hypot(p.x - c.x, p.y - c.y) < 1e-6)) pl.edgeCut = true;
     const origin = { x: c.x - (pl.outer.x + pl.outer.w / 2), y: c.y - (pl.outer.y + pl.outer.h / 2) };
-    pl.center = pl.edgeCut || isFlow(pl) ? origin : fitDialogue(pl, origin);
+    pl.center = ctx.panel && cutSides(pl.props).length ? cutAt(pl, origin) : pl.edgeCut || isFlow(pl) ? origin : fitDialogue(pl, origin);
   }
   // reading-order and overlap checks over the final positions
   const rects = plans.filter((pl) => pl.center).map((pl) => ({ pl, r: { x: pl.center!.x + pl.outer.x, y: pl.center!.y + pl.outer.y, w: pl.outer.w, h: pl.outer.h } }));
@@ -2289,7 +2398,7 @@ function checkTextSafety(items: Item[], geom: PageGeom, bag: DiagnosticBag, page
   const movement = (mm: number) => (Math.ceil(mm * 10 - 1e-9) / 10).toFixed(1);
   for (const it of items) {
     if (!["balloon", "text", "sfx"].includes(it.el.type)) continue;
-    const b = it.bbox;
+    const b = it.safetyBox ?? it.bbox;
     const s = geom.safe;
     const intentionalBleed = it.el.type === "sfx" && it.el.props.bleed === true;
     const t = geom.trim;

@@ -15,6 +15,7 @@ English | [日本語](README.ja.md)
 | [gallery-effects.yaml](gallery-effects.yaml) | Effects, tones, marks, and SFX lettering on one page | P0 and P1 |
 | [gallery-sfx.yaml](gallery-sfx.yaml) | SFX defaults, scale ramps, overlap, paths, and Mochiy Pop One | P1 |
 | [en-comic.yaml](en-comic.yaml) | An English page (`lang: en`): left-to-right reading, horizontal balloons in all caps with the `comic-basic` font set, balanced lines | P0 and P1 |
+| [edge-cuts.yaml](edge-cuts.yaml) | Balloons cut deep by two and three panel sides (`cut`) across ellipse, spike, burst, cloud and rect shapes ([render](../images/edge-cuts.png)) | P1 |
 | [full-page-art.yaml](full-page-art.yaml) | A full-bleed storm illustration seen through gutters and a frameless panel, with white knockouts around inset panels ([render](../images/full-page-art.png)) | P1 |
 
 - The examples use fonts from the built-in catalog. They are downloaded automatically on the first render. To fetch them in advance, run `npx mangacli fonts install --for docs/examples/b5-mono.yaml`.
