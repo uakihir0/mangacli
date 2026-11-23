@@ -131,6 +131,20 @@ describe("manga finish filter", () => {
     for (let x = 45; x < 88; x++) expect(out.data[(31 * out.width + x) * 4]).toBe(0);
   });
 
+  it("preserves the full width of an ink fold inside dark grey tone", async () => {
+    const px = sourcePixels();
+    for (let y = 0; y < px.height; y++) for (let x = 0; x < px.width; x++) {
+      const j = (y * px.width + x) * 4;
+      const shade = x < 25 || (x >= 58 && x < 62) ? 0 : 58;
+      px.data[j] = px.data[j + 1] = px.data[j + 2] = shade;
+    }
+    const out = await applyFilters(px, [{ name: "manga", args: [], opts: { betaMinSize: 1, lpi: 30 } }], 0.05);
+    const stripe = (x0: number, x1: number) => new Set(Array.from({ length: 60 * (x1 - x0) }, (_, i) =>
+      out.data[((10 + Math.floor(i / (x1 - x0))) * out.width + x0 + i % (x1 - x0)) * 4]));
+    expect(stripe(58, 62)).toEqual(new Set([0]));
+    expect(stripe(70, 105)).toEqual(new Set([0, 255]));
+  });
+
   it("keeps a smooth dark-to-light ramp out of solid black", async () => {
     const width = 180;
     const height = 60;

@@ -591,8 +591,26 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
   // real stroke without spreading black along a soft ramp.
   const strokeRadius = Math.max(1.5, betaSize * 0.08);
   const strokeSq = strokeRadius * strokeRadius;
+  const probe = Math.min(12, Math.max(2, Math.ceil(0.22 / mmPerPx)));
+  const axes = [[probe, 0], [0, probe], [probe, probe], [probe, -probe]];
   const strokeCore = new Uint8Array(n);
-  for (let i = 0; i < n; i++) if (dark[i] && lines[i] && betaMask.clearance[i] <= strokeSq) strokeCore[i] = 1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    if (!dark[i] || !lines[i]) continue;
+    if (betaMask.clearance[i] <= strokeSq) {
+      strokeCore[i] = 1;
+      continue;
+    }
+    const flank = lum01[i] + 0.07;
+    for (const [dx, dy] of axes) {
+      if (x - dx < 0 || x + dx >= w || y - Math.abs(dy) < 0 || y + Math.abs(dy) >= h) continue;
+      const offset = dy * w + dx;
+      if (data[(i - offset) * 4 + 3] && data[(i + offset) * 4 + 3] && lum01[i - offset] >= flank && lum01[i + offset] >= flank) {
+        strokeCore[i] = 1;
+        break;
+      }
+    }
+  }
   const strokes = new Uint8Array(n);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = y * w + x;
@@ -722,7 +740,7 @@ function mangaFilter(data: Uint8Array, w: number, h: number, mmPerPx: number, f:
   }
 
   for (let i = 0; i < n; i++) {
-    const v = ink[i] ? 0 : 255;
+    const v = strokes[i] || ink[i] ? 0 : 255;
     const j = i * 4;
     data[j] = data[j + 1] = data[j + 2] = v;
   }
