@@ -290,6 +290,7 @@ const balloonProps = {
   overflow: z.enum(["shrink", "grow", "clip", "error"]).optional(),
   minFontScale: z.number().min(0).max(1).optional(),
   halo: z.union([Length, z.literal("none"), z.literal(false)]).optional(),
+  haloColor: ColorStr.optional(),
   autoConnect: z.boolean().optional(),
   connect: z.union([z.object({ to: z.string(), style: z.enum(["neck", "overlap", "line"]).optional(), width: Length.optional() }).strict(), z.array(z.object({ to: z.string(), style: z.enum(["neck", "overlap", "line"]).optional(), width: Length.optional() }).strict())]).optional(),
   autoPlace: z.union([z.enum(["auto", "flow"]), z.object({ mode: z.enum(["auto", "flow"]).optional(), inset: Length.optional(), weights: z.record(z.string(), z.number()).optional(), threshold: z.number().optional(), reshape: z.boolean().optional() }).strict()]).optional(),

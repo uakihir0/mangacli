@@ -1244,9 +1244,11 @@ function inkBody(plan: BalloonPlan, bb: BodyBuild, ctx: ElemCtx, contour: ShapeC
     const res = inkShape(contour, { line: isFlash ? { ...bb.stroke, style: "none" } : bb.stroke, hand: plan.hand, rng: bb.rng.fork("body"), ruler: bb.ruler, join: plan.params.join ?? (cleanJoin ? "clean" : "overshoot"), strokes: plan.params.strokes, sizeHint: Math.min(plan.outer.w, plan.outer.h), pointWidth: 0 });
     fillPoly = res.fill;
     const fn = balloonFill(res.fill, plan);
-    // a thin rim of the fill colour outside the outline keeps it readable over black art
     const halo = plan.props.halo === "none" || plan.props.halo === false ? 0 : plan.props.halo !== undefined ? toMm(plan.props.halo as string, ctx.u) : 0.3 * ctx.u.k;
-    if (fn && halo > 0 && !isFlash && fn.kind === "path" && fn.paint?.type === "solid" && fn.paint.color.a > 0.99) nodes.push({ kind: "path", path: polyPath(res.fill, true), fillRule: "nonzero", paint: null, stroke: { width: bb.stroke.width + halo * 2, paint: fn.paint, join: "round" }, tag: tag(el, "fill") });
+    if (fn && halo > 0 && !isFlash && fn.kind === "path" && fn.paint?.type === "solid" && fn.paint.color.a > 0.99) {
+      const color = plan.props.haloColor !== undefined ? parseColor(plan.props.haloColor as string) : paintAvgLuminance(fn.paint) < 0.5 ? WHITE : fn.paint.color;
+      nodes.push({ kind: "path", path: polyPath(res.fill, true), fillRule: "nonzero", paint: null, stroke: { width: bb.stroke.width + halo * 2, paint: { type: "solid", color: color ?? WHITE }, join: "round" }, tag: tag(el, "fill") });
+    }
     if (fn) nodes.push(fn);
     if (isFlash) {
       const compact = plan.text.lines.length <= 1 && Math.max(plan.text.width, plan.text.height) <= plan.text.fontSize * 3.5 && !Array.isArray(plan.props.size);
