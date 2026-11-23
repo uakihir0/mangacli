@@ -883,6 +883,19 @@
                     }
                   ]
                 },
+                "betaReplace": {
+                  "type": "string",
+                  "enum": [
+                    "background",
+                    "all",
+                    "none"
+                  ]
+                },
+                "paper": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
                 "keepBeta": {
                   "type": "array",
                   "items": {

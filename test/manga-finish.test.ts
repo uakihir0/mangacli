@@ -24,7 +24,7 @@ function sourcePixels() {
   return { data, width, height };
 }
 
-const mangaOpts = { betaMinSize: 1, tones: [0.2], lpi: 30, cut: 0.4, grain: 0.3, seed: 9 };
+const mangaOpts = { betaMinSize: 1, tones: [0.2], lpi: 30, cut: 0.4, grain: 0.3, seed: 9, betaReplace: "all" };
 const mangaFilter: ImageFilter = { name: "manga", args: [], opts: mangaOpts };
 
 describe("manga finish filter", () => {
@@ -64,6 +64,35 @@ describe("manga finish filter", () => {
       const out = await applyFilters(sourcePixels(), [{ ...mangaFilter, opts: { ...mangaOpts, keepBeta } }], 0.05, context);
       for (let y = 20; y <= 50; y++) for (let x = 10; x <= 30; x++) expect(out.data[(y * out.width + x) * 4]).toBe(0);
     }
+  });
+
+  it("keeps interior solids black by default but tones an edge-touching background solid", async () => {
+    const opts = { betaMinSize: 1, tones: [0.2], lpi: 30, seed: 9 };
+    const filter: ImageFilter = { name: "manga", args: [], opts };
+    const interior = await applyFilters(sourcePixels(), [filter], 0.05);
+    for (let y = 30; y <= 50; y++) for (let x = 15; x <= 30; x++) expect(interior.data[(y * interior.width + x) * 4]).toBe(0);
+
+    const edged = sourcePixels();
+    for (let y = 10; y <= 69; y++) for (let x = 0; x <= 5; x++) {
+      const i = (y * edged.width + x) * 4;
+      edged.data[i] = edged.data[i + 1] = edged.data[i + 2] = 0;
+    }
+    const background = await applyFilters(edged, [filter], 0.05);
+    let paper = false;
+    for (let y = 30; y <= 50; y++) for (let x = 15; x <= 30; x++) if (background.data[(y * background.width + x) * 4] === 255) paper = true;
+    expect(paper).toBe(true);
+  });
+
+  it("keeps light paper and skin-tone shading free of dots by default", async () => {
+    const width = 20;
+    const height = 20;
+    const data = new Uint8Array(width * height * 4);
+    for (let i = 0; i < width * height; i++) {
+      data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = 224;
+      data[i * 4 + 3] = 255;
+    }
+    const out = await applyFilters({ data, width, height }, [{ name: "manga", args: [] }], 0.05);
+    for (let i = 0; i < out.data.length; i += 4) expect(out.data[i]).toBe(255);
   });
 
   it("is deterministic for the same input and seed", async () => {
