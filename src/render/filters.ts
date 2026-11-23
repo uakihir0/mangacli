@@ -310,7 +310,7 @@ function largeBetaMask(core: Uint8Array, lines: Uint8Array, w: number, h: number
   const minArea = Math.PI * rr * 0.5;
   const accepted = areas.map((area, i) => {
     const touch = touchesEdge[i];
-    const background = (touch & 1) !== 0 || (touch & 8) !== 0 && (touch & 2) !== 0;
+    const background = (touch & 1) !== 0;
     return mode !== "none" && area >= minArea && solid[i] / area >= 0.05 && (mode === "all" || background);
   });
   const out = new Uint8Array(n);
