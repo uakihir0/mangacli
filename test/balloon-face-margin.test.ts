@@ -50,6 +50,12 @@ describe("face margin", () => {
     expect(s.near[0].message).toMatch(/overlaps the face/);
   });
 
+  it("measures a balloon where an overlap connect moved it", async () => {
+    const s = await scene(`{ balloon: あ, id: say, tail: none, size: [10mm, 10mm], at: [88mm, 32mm] }
+          - { balloon: い, id: next, tail: none, size: [10mm, 10mm], at: [20mm, 32mm], connect: { to: say, style: overlap } }`);
+    expect(s.near.map(d => d.elementId)).toEqual(["next"]);
+  });
+
   it("measures a custom faceMargin and can be turned off", async () => {
     const at = (m: string) => `{ balloon: あ, id: say, tail: none, size: [10mm, 10mm], at: [47mm, 45mm], faceMargin: ${m} }`;
     const base = await scene(at("none"));

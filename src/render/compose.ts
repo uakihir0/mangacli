@@ -329,7 +329,6 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
       info.text[textIndex] = textInfo(plan.el.id, plan.text);
       if (plan.dialogueExceedsMaxSize) ctx.bag.warn("BALLOON_TOO_LARGE", `balloon ${plan.el.id} exceeds maxSize at the dialogue font size`, { path: plan.el.path, elementId: plan.el.id });
     }
-    warnBalloonsNearFaces(plans.map(p => p.plan), ctx, refs);
     pageBalloons.push(...plans.map(({ plan, idx }) => ({ plan, idx, panel: ctx.panel?.panel.id, order: ctx.panel?.order ?? panels.length })));
     const consumed = new Set<string>();
     const balloonPlans = plans.map(p => p.plan);
@@ -377,6 +376,8 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
         }
       }
     }
+    // after overlap connects have moved balloons to their final place
+    warnBalloonsNearFaces(balloonPlans, ctx, refs);
     for (const { plan, idx } of plans) {
       if (consumed.has(plan.el.id)) continue;
       try {
