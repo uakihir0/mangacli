@@ -24,6 +24,8 @@ export interface ElemCtx {
   characters: Record<string, Record<string, unknown>>;
   /** output resolution for asset resolution checks */
   outputDpi: number;
+  /** page-level image finish setting (`finish` in page settings) */
+  finish?: unknown;
   /** children of a sized group: coordinates are local, so the page safe area does not apply */
   localFrame?: boolean;
   /** coarse alpha maps of the panel's character art (tails stop short of the figures) */

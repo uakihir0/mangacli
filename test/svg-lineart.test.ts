@@ -50,6 +50,45 @@ describe("SVG embedded line art", () => {
     expect([e.width, e.height]).toEqual([300, 300]);
   });
 
+  it("accounts for image scale when adapting the manga screen ruling", async () => {
+    const art = await sharp({ create: { width: 600, height: 600, channels: 3, background: "#888888" } }).png().toBuffer();
+    const yaml = `mangacli: 1
+page: { size: [100mm, 100mm], bleed: 0mm, color: mono }
+assets:
+  art: { src: art.png }
+pages:
+  - layers:
+      - { image: art, size: [25.4mm, 25.4mm], at: [5mm, 5mm], anchor: top-left, scale: 2, filters: [manga] }
+`;
+    const embeddedSize = async (scale: number) => {
+      const r = await render({ yaml: yaml.replace("scale: 2,", `scale: ${scale},`) }, { profile: "print-mono", dpi: 96, format: "svg", assets: { art } });
+      const svg = Buffer.from(r.pages[0].data).toString("utf8");
+      const b64 = svg.match(/<image[^>]*href="data:image\/png;base64,([^"]+)"/)![1];
+      const meta = await sharp(Buffer.from(b64, "base64")).metadata();
+      return [meta.width, meta.height];
+    };
+    expect(await embeddedSize(2)).toEqual([360, 360]);
+    expect(await embeddedSize(4)).toEqual([384, 384]);
+  });
+
+  it("applies the configured cap even when packed mono exempts raster output", async () => {
+    const art = await sharp({ create: { width: 100, height: 100, channels: 3, background: "#888888" } }).png().toBuffer();
+    const yaml = `mangacli: 1
+page: { size: [10mm, 10mm], bleed: 0mm }
+assets:
+  art: { src: art.png }
+pages:
+  - layers:
+      - { image: art, size: [1mm, 1mm], at: [0mm, 0mm], anchor: top-left, scale: 100, filters: [manga] }
+`;
+    const r = await render({ yaml }, { profile: "print-mono", dpi: 96, format: "svg", assets: { art }, limits: { maxOutputPixels: 20000 } });
+    const svg = Buffer.from(r.pages[0].data).toString("utf8");
+    const b64 = svg.match(/<image[^>]*href="data:image\/png;base64,([^"]+)"/)![1];
+    const meta = await sharp(Buffer.from(b64, "base64")).metadata();
+    expect(meta.width).toBeLessThan(50);
+    expect(meta.height).toBeLessThan(50);
+  });
+
   it("leaves the raster output's line art intact when rendered together", async () => {
     const { r } = await embedded("lineart", 600, ["svg", "png"]);
     const png = r.pages.find((p) => p.format === "png")!;

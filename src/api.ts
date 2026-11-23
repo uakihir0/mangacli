@@ -305,7 +305,7 @@ function validateSchema(doc: Obj, bag: DiagnosticBag) {
   }
 }
 
-const COMMON_KEYS = ["text", "tail", "shape", "stroke", "fill", "font", "fontSize", "at", "place", "anchor", "size", "who", "as", "layers", "dialogue", "panels", "layout", "border", "bleed", "image", "src", "kind", "region", "paint", "color", "outline", "writing", "rotate", "offset", "id", "style", "hand", "pages", "assets", "fonts", "characters", "styles", "defaults", "meta", "book", "page"];
+const COMMON_KEYS = ["text", "tail", "shape", "stroke", "fill", "font", "fontSize", "at", "place", "anchor", "size", "who", "as", "layers", "dialogue", "panels", "layout", "border", "bleed", "image", "src", "kind", "region", "paint", "color", "outline", "writing", "rotate", "offset", "id", "style", "hand", "pages", "assets", "fonts", "characters", "styles", "defaults", "meta", "book", "page", "finish"];
 
 function hintFor(k: string, _doc: Obj, _path: (string | number)[]): string | undefined {
   const s = suggest(k, COMMON_KEYS);
@@ -622,7 +622,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       const g = composed.info.geom, dpi = resolution(page, g);
       const rasterCrop = g.type === "spread" && spreadMode === "split" && crop === "marks" ? "bleed" : crop;
       const outputScale = options.output === "print" ? g.printScale : 1;
-      const cost = (d: number) => Math.max(...outputSizes(g, d).map((s) => monoWorkingBytes(s.w, s.h))) + monoNodeWorkingBytes(composed.list, d * outputScale, rasterCrop, (prof.marks?.margin ?? 10) / outputScale);
+      const cost = (d: number) => Math.max(...outputSizes(g, d).map((s) => monoWorkingBytes(s.w, s.h))) + monoNodeWorkingBytes(composed.list, d * outputScale, rasterCrop, (prof.marks?.margin ?? 10) / outputScale, Number.MAX_SAFE_INTEGER);
       const estimated = cost(dpi);
       if (estimated <= limit) continue;
       let lo = 0, hi = Math.floor(dpi);
@@ -743,7 +743,8 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
       ];
       const psds = new Map<string, PsdWriter>();
       for (const run of runs) {
-        const backend = new RasterBackend({ maxPixels: packedMono || (geom.type === "spread" && spreadMode === "split") ? Number.MAX_SAFE_INTEGER : lim.maxOutputPixels, dpi: rasterDpi, crop: rasterCrop, marks, drawMarks: run.drawMarks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: run.transparent, separations: run.list, assets });
+        const rasterMaxPixels = packedMono || (geom.type === "spread" && spreadMode === "split") ? Number.MAX_SAFE_INTEGER : lim.maxOutputPixels;
+        const backend = new RasterBackend({ maxPixels: rasterMaxPixels, dpi: rasterDpi, crop: rasterCrop, marks, drawMarks: run.drawMarks, colorMode, toneRendering: options.toneRendering ?? prof.toneRendering, monoLpi: prof.monoLpi ?? 60, imageLpi: prof.imageLpi, monoImages: prof.monoImages, toneCurve: prof.toneCurve ?? "linear", transparent: run.transparent, separations: run.list, assets });
         const renderPacked = (x: number, width: number, height: number, side?: ProgressEvent["side"]) =>
           backend.renderMono(list, { x, y: 0, width, height }, undefined, (done, total) =>
             options.onProgress?.({ phase: "raster-band", pageId: page.id, ...(side && { side }), done, total }));
@@ -828,7 +829,7 @@ async function renderInner(input: MangaInput | Project, options: RenderOptions):
               continue;
             }
             const enc: EncodeOptions = { format: fmt, colorMode: options.debug ? "color" : colorMode, dpi, quality: prof.quality, lossless: prof.lossless, compression: prof.compression, chroma: prof.chroma, tiffCompression: prof.tiffCompression, transparent: transparentOut || !!run.list, metadata: prof.metadata === false ? {} : { Software: `mangacli ${PKG_VERSION}`, Title: String(meta.title ?? ""), ...(meta.author ? { Author: String(meta.author) } : {}), ...(meta.copyright ? { Copyright: String(meta.copyright) } : {}), "mangacli:page": page.id, "mangacli:seed": String(resolved.seed), ...(sourceHash ? { "mangacli:source-hash": sourceHash } : {}) } };
-            const svgOptions = { bag, crop, marks, splitSide: splitSvg ? part.side as "left" | "right" : undefined, assets, colorMode, imageDpi: rasterDpi, maxImageDpi: 300, outputScale };
+            const svgOptions = { bag, crop, marks, splitSide: splitSvg ? part.side as "left" | "right" : undefined, assets, colorMode, imageDpi: rasterDpi, maxImageDpi: 300, outputScale, maxPixels: lim.maxOutputPixels };
             const data = fmt === "psd" ? psds.get(part.side)!.build()
               : fmt === "svg" ? Buffer.from(await renderSvg(list, svgOptions))
               : await encode(raster.data, raster.width, raster.height, { ...enc, packed: raster.packed });

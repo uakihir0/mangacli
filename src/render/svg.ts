@@ -5,7 +5,7 @@ import { type RGBA, linearToSrgb, srgbToLinear } from "../core/color.js";
 import { type PathData, pathBounds } from "../geom/path.js";
 import type { Matrix } from "../geom/vec.js";
 import type { AssetRegistry } from "./assets.js";
-import { applyFilters } from "./filters.js";
+import { applyFilters, mangaOutputFilters, mangaResolutionBoost, mangaTempScale } from "./filters.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
 import { cropMarkLines } from "./marks.js";
 
@@ -20,6 +20,8 @@ export interface SvgOptions {
   imageDpi?: number;
   /** cap on the embedded resolution of non-line-art images */
   maxImageDpi?: number;
+  /** output pixel budget used to cap temporary manga filter images */
+  maxPixels?: number;
   colorMode: "color" | "gray" | "mono";
 }
 
@@ -160,13 +162,26 @@ export async function renderSvg(list: DisplayList, o: SvgOptions): Promise<strin
   };
 
   const image = async (im: ImageNode): Promise<string> => {
-    const dpi = im.lineart ? o.imageDpi ?? 200 : Math.min(o.imageDpi ?? 200, o.maxImageDpi ?? Infinity);
-    const w = Math.max(1, Math.min(im.sourceRect.w, Math.round((im.dest.w / 25.4) * dpi)));
-    const h = Math.max(1, Math.min(im.sourceRect.h, Math.round((im.dest.h / 25.4) * dpi)));
+    const manga = im.filters.some((f) => f.name === "manga");
+    const binary = im.lineart || (im.filters.length > 0 && im.filters[im.filters.length - 1].name === "manga");
+    const dpi = binary ? o.imageDpi ?? 200 : Math.min(o.imageDpi ?? 200, o.maxImageDpi ?? Infinity);
+    const scX = Math.hypot(im.transform?.[0] ?? 1, im.transform?.[1] ?? 0);
+    const scY = Math.hypot(im.transform?.[2] ?? 0, im.transform?.[3] ?? 1);
+    const outputMmPerPx = (25.4 / dpi) / Math.max(1e-9, Math.min(scX, scY));
+    const outputFilters = manga ? mangaOutputFilters(im.filters, outputMmPerPx) : im.filters;
+    const baseW = (im.dest.w / 25.4) * dpi * scX;
+    const baseH = (im.dest.h / 25.4) * dpi * scY;
+    const boostWanted = manga ? mangaResolutionBoost(outputFilters, outputMmPerPx) : 1;
+    const boost = manga ? mangaTempScale(baseW, baseH, boostWanted, o.maxPixels) : 1;
+    const w = Math.max(1, manga ? Math.round(baseW * boost) : Math.min(im.sourceRect.w, Math.round(baseW)));
+    const h = Math.max(1, manga ? Math.round(baseH * boost) : Math.min(im.sourceRect.h, Math.round(baseH)));
     const px0 = await o.assets.pixels(im.assetKey, w, h, im.sourceRect);
     if (!px0) return "";
-    const px1 = im.filters.length ? await applyFilters(px0, im.filters, im.dest.w / px0.width) : px0;
-    const px = im.lineart && o.colorMode === "mono" ? { ...px1, data: binarize(px1.data) } : px1;
+    const filterImage = { sourceRect: im.sourceRect, regions: o.assets.get(im.assetKey)?.regions };
+    const filterMmPerPx = im.dest.w / px0.width;
+    const renderFilters = manga ? mangaOutputFilters(outputFilters, filterMmPerPx) : outputFilters;
+    const px1 = renderFilters.length ? await applyFilters(px0, renderFilters, filterMmPerPx, filterImage) : px0;
+    const px = binary && o.colorMode === "mono" ? { ...px1, data: binarize(px1.data) } : px1;
     let img = sharp(px.data, { raw: { width: px.width, height: px.height, channels: 4 } });
     if (o.colorMode !== "color") img = img.grayscale();
     const png = await img.png().toBuffer();

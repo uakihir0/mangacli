@@ -138,6 +138,7 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
     panelPoly: pg ? flattenPath(panelClip(pg, panelShapePoly(pg, geom)), 0.05)[0]?.pts : undefined,
     characters: doc.characters,
     outputDpi: o.outputDpi(geom),
+    finish: page.settings.finish,
   });
   const panelPriority = (p: PanelGeom) => p.panel.props.overlay ? 2 : p.panel.props.dominant ? 1 : 0;
   const drawOrder = panels.slice().sort((a, b) => ((a.panel.props.z as number) ?? 0) - ((b.panel.props.z as number) ?? 0) || panelPriority(a) - panelPriority(b) || a.order - b.order);

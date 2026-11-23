@@ -7,7 +7,7 @@ import type { AssetRegistry } from "./assets.js";
 import type { DisplayList, GroupNode, ImageNode, Node, Paint, PathNode, ToneSpec } from "./ir.js";
 import { makeBinaryRoundToneSampler, makeToneSampler } from "./screen.js";
 import { distanceSquared } from "./edt.js";
-import { applyFilters } from "./filters.js";
+import { applyFilters, mangaOutputFilters, mangaResolutionBoost, mangaTempScale } from "./filters.js";
 import { MONO_BAND_PIXELS, packBand, type MonoRaster } from "./mono.js";
 import { setImmediate } from "node:timers/promises";
 import { imageInkMask } from "./image-ink.js";
@@ -132,7 +132,7 @@ function clampRect(r: Rect, W: number, H: number, halo = 0): { x: number; y: num
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
-export function monoNodeWorkingBytes(list: DisplayList, dpi: number, crop: "trim" | "bleed" | "marks", margin = 10): number {
+export function monoNodeWorkingBytes(list: DisplayList, dpi: number, crop: "trim" | "bleed" | "marks", margin = 10, maxPixels?: number): number {
   const s = dpi / 25.4, bleed = -list.boxes.bleed.x;
   const w = Math.round(list.boxes.trim.w * s + 1e-6), h = Math.round(list.boxes.trim.h * s + 1e-6);
   const edge = (crop === "trim" ? 0 : Math.round(bleed * s + 1e-6)) + (crop === "marks" ? Math.round(margin * s + 1e-6) : 0);
@@ -147,7 +147,22 @@ export function monoNodeWorkingBytes(list: DisplayList, dpi: number, crop: "trim
     const r = bounds && clampRect(bounds, w + 2 * edge, h + 2 * edge, halo);
     if (!r) return 0;
     const pixels = r.w * r.h;
-    if (n.kind === "image") return pixels * 64;
+    if (n.kind === "image") {
+      let cost = pixels * 64;
+      if (n.filters.some((f) => f.name === "manga")) {
+        const mm = matMul(m, n.transform ?? [1, 0, 0, 1, 0, 0]);
+        const scX = Math.hypot(mm[0], mm[1]);
+        const scY = Math.hypot(mm[2], mm[3]);
+        const outW = n.dest.w * scX;
+        const outH = n.dest.h * scY;
+        const mmPerPx = 1 / Math.max(1e-9, Math.min(scX, scY));
+        const outputFilters = mangaOutputFilters(n.filters, mmPerPx);
+        const boost = mangaResolutionBoost(outputFilters, mmPerPx);
+        const scale = mangaTempScale(outW, outH, boost, maxPixels);
+        cost = Math.max(cost, Math.ceil(outW * scale) * Math.ceil(outH * scale) * 64);
+      }
+      return cost;
+    }
     if (n.kind === "path") {
       if (n.backdrop) return pixels * 32;
       if (n.stroke && n.tag?.elementType === "sfx") return pixels * 8;
@@ -868,9 +883,22 @@ export class RasterBackend {
     const outW = n.dest.w * scX;
     const outH = n.dest.h * scY;
     if (outW < 1 || outH < 1) return;
-    const pix0 = await dev.opts.assets.pixels(n.assetKey, Math.min(outW, n.sourceRect.w * 4), Math.min(outH, n.sourceRect.h * 4), n.sourceRect);
+    const manga = n.filters.some((f) => f.name === "manga");
+    const outputMmPerPx = 1 / Math.max(1e-9, Math.min(scX, scY));
+    const outputFilters = manga ? mangaOutputFilters(n.filters, outputMmPerPx) : n.filters;
+    const boostWanted = manga ? mangaResolutionBoost(outputFilters, outputMmPerPx) : 1;
+    const boost = manga ? mangaTempScale(outW, outH, boostWanted, dev.opts.maxPixels) : 1;
+    const pix0 = await dev.opts.assets.pixels(
+      n.assetKey,
+      manga ? outW * boost : Math.min(outW, n.sourceRect.w * 4),
+      manga ? outH * boost : Math.min(outH, n.sourceRect.h * 4),
+      n.sourceRect,
+    );
     if (!pix0) return;
-    const pix = n.filters.length ? await applyFilters(pix0, n.filters, n.dest.w / pix0.width) : pix0;
+    const filterImage = { sourceRect: n.sourceRect, regions: dev.opts.assets.get(n.assetKey)?.regions };
+    const filterMmPerPx = n.dest.w / pix0.width;
+    const renderFilters = manga ? mangaOutputFilters(outputFilters, filterMmPerPx) : outputFilters;
+    const pix = renderFilters.length ? await applyFilters(pix0, renderFilters, filterMmPerPx, filterImage) : pix0;
     const tmp = createCanvas(pix.width, pix.height);
     const tctx = tmp.getContext("2d");
     const id = tctx.createImageData(pix.width, pix.height);
@@ -878,6 +906,7 @@ export class RasterBackend {
     tctx.putImageData(id, 0, 0);
     const k: Matrix = matMul(mm, [n.dest.w / pix.width, 0, 0, n.dest.h / pix.height, n.dest.x, n.dest.y]);
     const mono = dev.opts.colorMode === "mono";
+    const lineartLike = n.lineart || (n.filters.length > 0 && n.filters[n.filters.length - 1].name === "manga");
     const b = nodeBounds({ ...n, outline: undefined }, m);
     const r = b ? clampRect(b, dev.W, dev.H) : null;
     if (!r) return;
@@ -982,7 +1011,7 @@ export class RasterBackend {
     octx.drawImage(tmp, 0, 0);
     const od = octx.getImageData(0, 0, r.w, r.h);
     const dd = od.data;
-    const inkMask = mono && !n.lineart && dev.opts.monoImages !== "dither" ? imageInkMask(dd, r.w, r.h, dev.opts.dpi, dev.opts.toneCurve) : null;
+    const inkMask = mono && !lineartLike && dev.opts.monoImages !== "dither" ? imageInkMask(dd, r.w, r.h, dev.opts.dpi, dev.opts.toneCurve) : null;
     let curDensity = 0;
     // density map for edge-aware screening
     const dens = new Float32Array(r.w * r.h);
@@ -991,7 +1020,7 @@ export class RasterBackend {
       dens[i] = 1 - (dev.opts.toneCurve === "perceptual" ? linearToSrgb(lin0) : lin0);
     }
     // error diffusion instead of a dot screen (output.mono.images: dither)
-    const dither = mono && dev.opts.monoImages === "dither" && !n.lineart ? new Float32Array(r.w * r.h) : null;
+    const dither = mono && dev.opts.monoImages === "dither" && !lineartLike ? new Float32Array(r.w * r.h) : null;
     if (dither) for (let i = 0; i < r.w * r.h; i++) dither[i] = dens[i];
     const sampler = mono ? makeToneSampler({ density: 0, lpi: dev.opts.imageLpi ?? (n.monoLpi || dev.opts.monoLpi), angle: Math.PI / 4, dot: "round", grain: 0.08, invert: false, offset: [0, 0], seed: 11 }, this.target(dev, r), () => curDensity) : null;
     for (let y = 0; y < r.h; y++) {
@@ -1017,7 +1046,7 @@ export class RasterBackend {
             dither[i0 + r.w] += (e * 5) / 16;
             if (x + 1 < r.w) dither[i0 + r.w + 1] += e / 16;
           }
-        } else if (n.lineart) ink = linearToSrgb(lin) < 0.5;
+        } else if (lineartLike) ink = linearToSrgb(lin) < 0.5;
         else {
           const de = dens[y * r.w + x];
           let lo = de;

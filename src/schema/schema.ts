@@ -308,6 +308,29 @@ const balloonProps = {
 };
 
 const Filter = z.union([z.string(), z.record(z.string(), z.unknown())]);
+
+const MangaFinish = z.union([
+  z.literal("manga"),
+  z.literal("none"),
+  z
+    .object({
+      style: z.literal("manga"),
+      tones: z.array(z.number().min(0).max(1)).min(3).max(4).optional(),
+      lpi: z.number().positive().max(200).optional(),
+      angle: Angle.optional(),
+      line: z.number().min(0).max(1).optional(),
+      beta: z.number().min(0).max(1).optional(),
+      betaMinSize: Length.optional(),
+      betaTone: z.union([z.number().min(0.6).max(0.8), z.literal("gradient")]).optional(),
+      paper: z.number().min(0).max(1).optional(),
+      keepBeta: z.array(z.union([z.string(), z.tuple([z.number(), z.number(), z.number(), z.number()])])).optional(),
+      cut: z.number().min(0).max(1).optional(),
+      grain: z.number().min(0).max(1).optional(),
+      seed: z.number().int().min(0).max(4294967295).optional(),
+    })
+    .strict(),
+]);
+
 const CompositeFilters = {
   invert: z.boolean().optional(),
   filters: z.array(Filter).optional(),
@@ -331,6 +354,7 @@ const imageProps = {
   anchors: z.record(z.string(), z.tuple([z.number(), z.number()])).optional(),
   regions: z.record(z.string(), Rect).optional(),
   filters: z.array(Filter).optional(),
+  finish: MangaFinish.optional(),
   outline: Outline.optional(),
   shadow: z.object({ offset: z.tuple([Length, Length]).optional(), blur: Length.optional(), color: ColorStr.optional() }).strict().optional(),
   smoothing: z.enum(["high", "medium", "none"]).optional(),
@@ -539,6 +563,7 @@ const PageBackground = z.union([
 
 const pageSettings = {
   ...CompositeFilters,
+  finish: MangaFinish.optional(),
   size: z.union([z.string(), z.tuple([Length, Length])]).optional(),
   orientation: z.enum(["portrait", "landscape"]).optional(),
   units: z.enum(["mm", "px", "pt", "in", "cm"]).optional(),
@@ -608,6 +633,7 @@ const Asset = z
     regions: z.record(z.string(), Rect).optional(),
     crop: Rect.optional(),
     filters: z.array(Filter).optional(),
+    finish: MangaFinish.optional(),
     whiteToAlpha: z.union([z.boolean(), z.number()]).optional(),
     blend: z.string().optional(),
   })

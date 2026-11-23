@@ -10,6 +10,7 @@ type Obj = Record<string, unknown>;
 
 export interface AssetInfo {
   filters?: unknown[];
+  finish?: unknown;
   key: string;
   name: string;
   src: string;
@@ -148,6 +149,7 @@ export class AssetRegistry {
       whiteToAlpha: o.whiteToAlpha === true ? 0.92 : typeof o.whiteToAlpha === "number" ? o.whiteToAlpha : false,
       blend: o.blend as string | undefined,
       filters: Array.isArray(o.filters) ? (o.filters as unknown[]) : undefined,
+      finish: o.finish,
       data,
     };
     this.infos.set(ref, info);
