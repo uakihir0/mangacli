@@ -251,6 +251,10 @@ const cloud: BodyGenerator = (w, h, p, seed) => {
   return { contour: { pts: tilted, closed: true, corners, segmentProfile: t => 0.6 + 0.8 * Math.sin(Math.PI * t), seamJitter: 0.15 }, inner, kind: "cloud", smooth: false, ruler: false };
 };
 
+export function defaultSpikeDepth(burst: boolean): number {
+  return burst ? 6 : 4.5;
+}
+
 function spiky(w: number, h: number, p: ShapeParams, seed: number, burst: boolean): BodyGeom {
   const rng = new RngCls(seed);
   const a = w / 2;
@@ -261,12 +265,12 @@ function spiky(w: number, h: number, p: ShapeParams, seed: number, burst: boolea
   const lengths = [0];
   for (let i = 0; i < guide.length; i++) lengths.push(lengths[i] + dist(guide[i], guide[(i + 1) % guide.length]));
   const per = lengths[lengths.length - 1];
-  const pitch = (burst ? 6.5 : 5) * scale;
+  const pitch = (burst ? 3 : 2.5) * scale;
   const n = p.count === undefined || p.count === "auto" ? Math.max(burst ? 8 : 10, Math.round(per / pitch)) : Math.max(5, Math.round(p.count));
   const dep: [number, number] = Array.isArray(p.depth) ? p.depth : typeof p.depth === "number" ? [p.depth * 0.8, p.depth * 1.2] : [0.9, 1.1];
-  const depthMm = p.depth === undefined ? (burst ? 5 : 3) * scale * (p.spikeScale ?? 1) : (a + b) / 2;
+  const depthMm = p.depth === undefined ? defaultSpikeDepth(burst) * scale * (p.spikeScale ?? 1) : (a + b) / 2;
   const jit = p.angleJitter ?? (burst ? 0.2 : 0.15);
-  const curve = p.curve ?? (burst ? 0.05 : 0.1);
+  const curve = p.curve ?? 0;
   const step = per / n;
   const phase = rng.range(0, step);
   const tipArc: number[] = [];

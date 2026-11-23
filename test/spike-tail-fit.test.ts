@@ -33,7 +33,7 @@ describe("physical spike tail fitting", () => {
     const extension = Math.max(...contour.map(q => q.x)) - coreRight;
     expect(extension).toBeCloseTo(plan.body.spikeLength! * 2.25, 1);
   });
-  it.each(["spike", "burst"] as const)("aims one longer and wider %s tail without moving the other tips", async (kind) => {
+  it.each(["spike", "burst"] as const)("aims one longer, narrow %s tail without moving the other tips", async (kind) => {
     const { plan, ctx } = await setup();
     plan.params.kind = kind;
     plan.body = BODY_GENERATORS[kind](40, 40, { kind, irregularity: 0, egg: 0, tilt: 0, count: 20 }, 42);
@@ -56,7 +56,10 @@ describe("physical spike tail fitting", () => {
       expect(tips.slice(1).every(tip => pts.some(p => dist(p, tip) < 1e-8))).toBe(true);
       expect(pts.some(p => dist(p, peak) < 1e-8)).toBe(false);
       expect(roots).toHaveLength(2);
-      expect(dist(roots[0], roots[1])).toBeGreaterThan(baseWidth * 1.1);
+      expect(dist(roots[0], roots[1])).toBeLessThanOrEqual(1.3 * ctx.u.k);
+      expect(dist(roots[0], roots[1])).toBeGreaterThan(1.29 * ctx.u.k);
+      expect(dist(roots[0], roots[1])).toBeLessThan(baseWidth);
+      expect(valleys.every(valley => pts.some(p => dist(p, valley) < 1e-8))).toBe(true);
     } finally {
       ink.mockRestore();
     }

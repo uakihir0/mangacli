@@ -12,7 +12,7 @@ import type { RElement } from "../model/resolve.js";
 import { paintAvgLuminance, parsePaint, resolveHand, resolveStroke } from "../model/values.js";
 import type { Node, Paint } from "../render/ir.js";
 import polygonClipping from "polygon-clipping";
-import { BODY_GENERATORS, type BodyGeom, type ShapeParams } from "../shapes/balloon.js";
+import { BODY_GENERATORS, type BodyGeom, type ShapeParams, defaultSpikeDepth } from "../shapes/balloon.js";
 import { Contour, type PluginBalloonShape, activePlugins } from "../plugin.js";
 import { type TextLayout, breakFaults, layoutText, parseLayoutText } from "../text/layout.js";
 import { type ElemCtx, silhouetteHit, tag } from "./context.js";
@@ -251,7 +251,7 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       const fh = sizeValue(fixedSize[1], ctx.coordsBox.h, pc);
       if (fw !== "auto" && fh !== "auto") {
         const physicalSpikes = (kind === "spike" || kind === "burst") && params.depth === undefined;
-        if (physicalSpikes) params.spikeScale = Math.min(1, Math.min(fw, fh) * 0.9 / (2.2 * (kind === "burst" ? 5 : 3) * u.k));
+        if (physicalSpikes) params.spikeScale = Math.min(1, Math.min(fw, fh) * 0.9 / (2.2 * defaultSpikeDepth(kind === "burst") * u.k));
         const probe = genBody(kind, fw, fh, params, shapeSeed);
         const ob = boundsOf(probe.contour.pts);
         fixedBase = { w: fw * (fw / ob.w), h: fh * (fh / ob.h) };
@@ -603,7 +603,7 @@ function pointAtArc(pts: Vec[], s: number[], at: number): { p: Vec; i: number } 
   return { p: { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, i: lo };
 }
 
-function spikeTailBase(contour: ShapeContour, s: number[], at: number, tip: Vec, dir: Vec, widthScale: number) {
+function spikeTailBase(contour: ShapeContour, s: number[], at: number, tip: Vec, dir: Vec, width: number) {
   const corners = (contour.corners ?? []).slice().sort((a, b) => a.index - b.index);
   const n = corners.length;
   const perimeter = s[s.length - 1];
@@ -614,19 +614,27 @@ function spikeTailBase(contour: ShapeContour, s: number[], at: number, tip: Vec,
   const [leftOffset, rightOffset] = corner(0).kind === "tip" ? [-1, 1] : [-2, 0];
   const left = corner(leftOffset);
   const right = corner(rightOffset);
-  if (left.kind !== "valley" || right.kind !== "valley" || corner(leftOffset + 1).kind !== "tip") return;
-  const prev = corner(leftOffset - 1);
-  const following = corner(rightOffset + 1);
-  const start = s[left.index], end = s[right.index];
-  const flankA = prev.kind === "tip" ? (start - s[prev.index] + perimeter) % perimeter : 0;
-  const flankB = following.kind === "tip" ? (s[following.index] - end + perimeter) % perimeter : 0;
-  // Widen into the adjacent flanks without moving or swallowing their tips.
-  const widen = Math.max(0, Math.min(0.5, 0.3 * widthScale));
-  for (const f of [widen, 0]) {
-    const A = pointAtArc(contour.pts, s, start - flankA * f);
-    const B = pointAtArc(contour.pts, s, end + flankB * f);
-    if (dot(sub(tip, A.p), dir) > 0 && dot(sub(tip, B.p), dir) > 0) return { A, B };
+  const peak = corner(leftOffset + 1);
+  if (left.kind !== "valley" || right.kind !== "valley" || peak.kind !== "tip") return;
+  const apex = s[peak.index];
+  const spanA = (apex - s[left.index] + perimeter) % perimeter;
+  const spanB = (s[right.index] - apex + perimeter) % perimeter;
+  const roots = (f: number) => ({
+    A: pointAtArc(contour.pts, s, apex - spanA * f),
+    B: pointAtArc(contour.pts, s, apex + spanB * f),
+  });
+  let lo = 0, hi = 1;
+  const fits = ({ A, B }: ReturnType<typeof roots>) => Math.hypot(A.p.x - B.p.x, A.p.y - B.p.y) <= width;
+  let base = roots(1);
+  if (!fits(base)) {
+    for (let i = 0; i < 20; i++) {
+      const f = (lo + hi) / 2;
+      if (fits(roots(f))) lo = f;
+      else hi = f;
+    }
+    base = roots(lo);
   }
+  if (dot(sub(tip, base.A.p), dir) > 0 && dot(sub(tip, base.B.p), dir) > 0) return base;
 }
 
 interface TailResult {
@@ -937,11 +945,11 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     // a lightning-bolt tail is a narrower band than a wedge
     // a wedge's base is about a ninth of the body
     const bwAuto = automaticTailWidth(minSide, length, u.k, kind, !!offSide, whisperWedge);
-    const bw = (t.width !== undefined ? toMm(t.width as string, u) : bwAuto) * widthScale;
-    // on a spiky body the tail is one more, larger spike of the outline (the shout/scream presets
-    // also set bend/sideCurve 0 for straight sides)
-    let bend = typeof t.bend === "number" ? t.bend : 0.1;
-    const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : 0.12;
+    const spikeWedge = spiky && kind === "wedge" && !offSide;
+    const thinSpike = spikeWedge && t.width === undefined;
+    const bw = thinSpike ? 1.3 * u.k * Math.min(1, widthScale) : (t.width !== undefined ? toMm(t.width as string, u) : bwAuto) * widthScale;
+    let bend = typeof t.bend === "number" ? t.bend : spikeWedge ? 0 : 0.1;
+    const sideCurve = typeof t.sideCurve === "number" ? t.sideCurve : spikeWedge ? 0 : 0.12;
     const perp = { x: -dir.y, y: dir.x };
     let tip = { x: R.x + dir.x * length, y: R.y + dir.y * length };
     // a tail with a speaker curls toward the face: its centre line is a circular arc whose centre
@@ -1048,10 +1056,10 @@ function makeTails(contour: ShapeContour, tails: Obj[], tc: TailCtx): TailResult
     // wedge / zigzag: splice into contour
     const s = arcLengths(cur.pts);
     const sR = s[hit.index] + hit.u * (s[hit.index + 1] - s[hit.index]);
-    const spikeBase = spiky && kind === "wedge" && !offSide && t.width === undefined
-      ? spikeTailBase(cur, s, sR, tipBent, dir, widthScale)
-      : undefined;
-    const { A, B } = spikeBase ?? { A: pointAtChord(cur.pts, s, sR, bw / 2, -1), B: pointAtChord(cur.pts, s, sR, bw / 2, 1) };
+    const spikeBase = thinSpike ? spikeTailBase(cur, s, sR, tipBent, dir, bw) : undefined;
+    const { A, B } = spikeBase ?? (thinSpike
+      ? { A: pointAtArc(cur.pts, s, sR - bw / 2), B: pointAtArc(cur.pts, s, sR + bw / 2) }
+      : { A: pointAtChord(cur.pts, s, sR, bw / 2, -1), B: pointAtChord(cur.pts, s, sR, bw / 2, 1) });
     const sideA: Vec[] = [];
     const sideB: Vec[] = [];
     const N = Math.max(12, Math.ceil(length / (0.3 * u.k)));

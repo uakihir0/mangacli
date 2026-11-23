@@ -202,7 +202,7 @@ describe("balloon tails", () => {
     const t = tip(pts);
     expect(widthAt(pts, t.x - 3, t.y)).toBeGreaterThan(0.4);
   });
-  it.each([["shout", 3], ["scream", 5]] as const)("makes the automatic %s wedge one longer spike while honoring explicit tail lengths", async (as, nominal) => {
+  it.each([["shout", 4.5], ["scream", 6]] as const)("makes the automatic %s wedge one longer spike while honoring explicit tail lengths", async (as, nominal) => {
     const kind = as === "shout" ? "spike" : "burst";
     const balloon = `balloon: "", id: b, as: ${as}, hand: clean, size: [40mm, 40mm], at: [40mm, 35mm], shape: { kind: ${kind}, irregularity: 0, egg: 0 }`;
     const make = BODY_GENERATORS[kind];
@@ -213,7 +213,7 @@ describe("balloon tails", () => {
       return body;
     });
     try {
-      const auto = await outline(`{ ${balloon}, tail: { direction: 0deg } }`);
+      const auto = await outline(`{ ${balloon}, tail: { direction: 0deg, maxLength: 20mm } }`);
       const body = bodies.at(-1)!;
       const coreRight = Math.max(...body.spikeCore!.map(q => q.x));
       const centerX = Math.min(...auto.pts.map(q => q.x)) - Math.min(...body.contour.pts.map(q => q.x));
