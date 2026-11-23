@@ -17,7 +17,7 @@ import { renderSfx, renderText } from "../elements/textel.js";
 import { textValue } from "../elements/textstyle.js";
 import type { FontRegistry } from "../fonts/registry.js";
 import { miterFrameEdges } from "../geom/miter.js";
-import { type PathData, flattenPath, offsetPolygon, parseSvgPath, pointInPolygon, polygonArea, polyPath, smoothPath, transformPath } from "../geom/path.js";
+import { type PathData, flattenPath, offsetPolygon, parseSvgPath, distToPolyline, pointInPolygon, polygonArea, polyPath, smoothPath, transformPath } from "../geom/path.js";
 import { type Matrix, type Rect, type Vec, applyMat, boundsOf, invertMat, lerp, matMul, rectInset, rectIntersect, rectOverlapArea, rot } from "../geom/vec.js";
 import { inkLine, inkShape } from "../ink/shape.js";
 import type { InkPoly } from "../ink/stroke.js";
@@ -377,6 +377,8 @@ export async function composePage(doc: ResolvedDoc, page: RPage, physicalIndex: 
         }
       }
     }
+    // after overlap connects have moved balloons to their final place
+    warnBalloonsNearFaces(balloonPlans, ctx, refs);
     for (const { plan, idx } of plans) {
       if (consumed.has(plan.el.id)) continue;
       try {
@@ -1587,6 +1589,22 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     else if (el && el.type === "mark" && rectIntersect(it.bbox, panelBox)) obstacles.push({ r: it.bbox, w: 30 });
   }
   const pid = ctx.panel?.panel.id;
+  const faces = panelFaces(refs, pid, panelBox).map(f => f.r);
+  // the body keeps a margin from every face (spec 6.12.2): closer candidates are ruled out
+  const faceShortfall = (vp: BalloonPlan, c: Vec, rect: Rect): number => {
+    if (!faces.length || !hasBody(vp)) return 0;
+    let worst = 0;
+    // the rotated body can reach past the unrotated box
+    const poly = bodyPolygon(vp, { x: c.x - (vp.outer.x + rect.w / 2), y: c.y - (vp.outer.y + rect.h / 2) });
+    const box = boundsOf(poly);
+    for (const f of faces) {
+      const m = faceMarginOf(vp, f, u);
+      if (m <= 0 || !rectIntersect(rectInset(box, -m), f)) continue;
+      const d = faceDistance(poly, f);
+      if (d < m - 1e-6) worst = Math.max(worst, (m - d) / m);
+    }
+    return worst;
+  };
   const speakers = balloonSpeakerImages(ctx);
   for (const t of speakers) {
     // faces are roughly elliptical: the corners of the face box are free space
@@ -1785,7 +1803,7 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
     const aside = pl.props.as === "aside";
     const face = aside && who ? refs.target(who, pid)?.regions.face?.bbox : undefined;
     // cost weights (spec 6.12.2), overridable per balloon with autoPlace.weights
-    const W = { order: 120, rise: 30, flow: 3, start: 4, overlap: 50, avoid: 60, figure: 25, speaker: 1.5, tail: 4, top: 1, outside: 30, offscreen: 8, reshape: 3, ...((apOf(pl).weights as Record<string, number> | undefined) ?? {}) };
+    const W = { order: 120, rise: 30, flow: 3, start: 4, overlap: 50, avoid: 60, figure: 25, speaker: 0, tail: 4, top: 1, outside: 30, offscreen: 8, reshape: 3, ...((apOf(pl).weights as Record<string, number> | undefined) ?? {}) };
     if (aside) Object.assign(W, { order: 0, rise: 0, flow: 0, start: 0, top: 0, figure: 0, speaker: face ? 0 : 1.5, overlap: 10000, avoid: 10000, outside: 10000 });
     // the balloon may also be set with shorter or longer lines when that finds it a free place
     const variants: { vp: BalloonPlan; extra: number }[] = [{ vp: pl, extra: 0 }];
@@ -1839,6 +1857,10 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
           // lettering keeps a little air around it: text and SFX boxes count with a margin
           for (const ob of obstacles) if (!aside) cost += (ob.w === 60 ? W.avoid : ob.w) * (ob.ellipse ? ellipseOverlap(rect, ob.r) : rectOverlapArea(rect, rectInset(ob.r, -air)) / A);
           for (const hr of hard) if (rectOverlapArea(rect, hr) > 0) cost += 1000;
+          if (!aside) {
+            const short = faceShortfall(vp, c, rect);
+            if (short > 0) cost += 1000 + 100 * short;
+          }
           if (sils.length) cost += W.figure * silhouetteCover(rect, sils);
           if (speaker) cost += W.speaker * Math.abs(Math.hypot(x - speaker.x, y - speaker.y) / R - 1.6);
           cost += W.top * ((y - area.y) / Math.max(1, area.h));
@@ -1878,6 +1900,8 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
           let cost = -0.02 + extra + W.top * ((c.y - area.y) / Math.max(1, area.h));
           for (const ob of obstacles) cost += (ob.w === 60 ? W.avoid : ob.w) * (ob.ellipse ? ellipseOverlap(rect, ob.r) : rectOverlapArea(rect, rectInset(ob.r, -air)) / (w * h));
           for (const hr of hard) if (rectOverlapArea(rect, hr) > 0) cost += 1000;
+          const short = faceShortfall(vp, c, rect);
+          if (short > 0) cost += 1000 + 100 * short;
           if (sils.length) cost += W.figure * silhouetteCover(rect, sils);
           if (speaker) cost += W.speaker * Math.abs(Math.hypot(c.x - speaker.x, c.y - speaker.y) / R - 1.6);
           cutCells.push({ c, rect, base: cost, s: sOf(c, h), vp, w, h });
@@ -1964,6 +1988,75 @@ function placeBalloons(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry, pr
       // earlier balloons are drawn on top: a large overlap hides the later one's text
       if (ov > 0.2 * Math.min(a.w * a.h, b.w * b.h) && !rects[j].pl.props.connect && !rects[i].pl.props.connect) ctx.bag.warn("BALLOON_TEXT_HIDDEN", `balloon ${rects[j].pl.el.id} is largely covered by ${rects[i].pl.el.id}`, { path: rects[j].pl.el.path, elementId: rects[j].pl.el.id });
     }
+}
+
+function panelFaces(refs: RefRegistry, pid: string | undefined, panelBox: Rect): { r: Rect; id: string }[] {
+  const faces: { r: Rect; id: string }[] = [];
+  for (const t of refs.allSpeakers()) {
+    if (t.type !== "image" || (pid && t.panelId !== undefined && t.panelId !== pid)) continue;
+    const f = t.regions.face?.bbox;
+    if (f && rectIntersect(f, panelBox)) faces.push({ r: f, id: t.id });
+  }
+  return faces;
+}
+
+/** balloons with a drawn body; `shape: none` (aside, monologue) sets bare text */
+function hasBody(pl: BalloonPlan): boolean {
+  return pl.params.kind !== "none" && pl.props.as !== "aside" && pl.body.contour.pts.length > 0;
+}
+
+/** clearance a balloon body keeps from a face box: `faceMargin`, by default max(3 bmm, 20 % of the face width) */
+function faceMarginOf(pl: BalloonPlan, face: Rect, u: ElemCtx["u"]): number {
+  const m = pl.props.faceMargin;
+  if (m === "none" || m === false) return 0;
+  if (typeof m === "number" || (typeof m === "string" && m !== "auto")) return toMm(m, u);
+  return Math.max(3 * u.k, face.w * 0.2);
+}
+
+function segmentsCross(a: Vec, b: Vec, c: Vec, d: Vec): boolean {
+  const side = (p: Vec, q: Vec, r: Vec) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+  return side(a, b, c) * side(a, b, d) < 0 && side(c, d, a) * side(c, d, b) < 0;
+}
+
+/** distance from a closed contour to a rectangle; 0 when they overlap */
+function faceDistance(poly: Vec[], r: Rect): number {
+  const corners = rectPts(r);
+  let best = Infinity;
+  for (const p of poly) {
+    const dx = Math.max(r.x - p.x, 0, p.x - (r.x + r.w));
+    const dy = Math.max(r.y - p.y, 0, p.y - (r.y + r.h));
+    if (dx === 0 && dy === 0) return 0;
+    best = Math.min(best, Math.hypot(dx, dy));
+  }
+  for (const q of corners) {
+    if (pointInPolygon(q, poly)) return 0;
+    best = Math.min(best, distToPolyline(q, poly, true));
+  }
+  // a body crossing the face as a band has no vertex inside the other shape
+  for (let i = 0; i < poly.length; i++)
+    for (let j = 0; j < 4; j++) if (segmentsCross(poly[i], poly[(i + 1) % poly.length], corners[j], corners[(j + 1) % 4])) return 0;
+  return best;
+}
+
+/** a balloon body within its face margin, set by hand or left there by containment (spec 6.12.2) */
+function warnBalloonsNearFaces(plans: BalloonPlan[], ctx: ElemCtx, refs: RefRegistry): void {
+  const faces = panelFaces(refs, ctx.panel?.panel.id, ctx.panel ? ctx.panel.box : ctx.geom.baseFrame);
+  if (!faces.length) return;
+  for (const pl of plans) {
+    if (!pl.center || !hasBody(pl)) continue;
+    const poly = bodyPolygon(pl);
+    let worst: { id: string; d: number; m: number } | undefined;
+    for (const f of faces) {
+      const m = faceMarginOf(pl, f.r, ctx.u);
+      if (m <= 0) continue;
+      const d = faceDistance(poly, f.r);
+      if (d < m - 0.05 && (!worst || m - d > worst.m - worst.d)) worst = { id: f.id, d, m };
+    }
+    if (worst) {
+      const how = worst.d === 0 ? "overlaps the face of" : `is ${worst.d.toFixed(1)} mm from the face of`;
+      ctx.bag.warn("BALLOON_NEAR_FACE", `balloon ${pl.el.id} ${how} ${worst.id}; keep at least ${worst.m.toFixed(1)} mm between them`, { path: pl.el.path, elementId: pl.el.id });
+    }
+  }
 }
 
 /** fraction of rect `r` covered by the ellipse inscribed in `e` (sampled) */

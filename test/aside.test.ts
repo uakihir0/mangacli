@@ -4,7 +4,7 @@ import { load, render } from "../src/api.js";
 import { DiagnosticBag } from "../src/core/diagnostics.js";
 import { resolveDocument } from "../src/model/resolve.js";
 import { boundsOf, type Rect } from "../src/geom/vec.js";
-import { flattenPath } from "../src/geom/path.js";
+import { flattenPath, pointInPolygon } from "../src/geom/path.js";
 import type { Node } from "../src/render/ir.js";
 
 const input = (layers: string, dialogue = "") => ({
@@ -77,7 +77,7 @@ pages:
 
   it("places asides beside the face after balloons, deterministically", async () => {
     const doc = input("          - { aside: ボソッ, who: taro, id: aside }\n          - { aside: 小声, who: taro, id: aside2 }", "{ taro: まかせて, id: speech }");
-    const a = await render(doc, { profile: "preview", layoutOnly: true });
+    const a = await render(doc, { profile: "preview", layoutOnly: true, keepLists: true });
     const b = await render(doc, { profile: "preview", layoutOnly: true });
     expect(a.layout).toEqual(b.layout);
     expect(a.diagnostics.filter(d => d.severity === "error")).toEqual([]);
@@ -86,10 +86,12 @@ pages:
     const face = { x: figure.x + figure.w * 0.28, y: figure.y + figure.h * 0.1, w: figure.w * 0.44, h: figure.h * 480 / 1400 };
     const aside = elements.find(e => e.id === "aside")!.bbox;
     const aside2 = elements.find(e => e.id === "aside2")!.bbox;
-    const speech = elements.find(e => e.id === "speech")!.bbox;
+    const outline = flatten(a.lists![0].root.children).find(n => n.kind === "path" && n.tag?.elementId === "speech" && n.tag.role === "fill");
+    const speech = outline?.kind === "path" ? flattenPath(outline.path).flatMap(q => q.pts) : [];
+    expect(speech.length).toBeGreaterThan(2);
     for (const box of [aside, aside2]) {
       expect(overlap(box, face)).toBe(0);
-      expect(overlap(box, speech)).toBe(0);
+      expect([{ x: box.x, y: box.y }, { x: box.x + box.w, y: box.y }, { x: box.x, y: box.y + box.h }, { x: box.x + box.w, y: box.y + box.h }].some(q => pointInPolygon(q, speech)) || speech.some(q => q.x > box.x && q.x < box.x + box.w && q.y > box.y && q.y < box.y + box.h)).toBe(false);
       expect(Math.min(Math.abs(box.x + box.w - face.x), Math.abs(box.x - face.x - face.w))).toBeLessThan(3);
       expect(box.y).toBeLessThan(face.y + face.h + 10);
       expect(box.x).toBeGreaterThanOrEqual(0);
