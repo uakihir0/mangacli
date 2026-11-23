@@ -256,6 +256,14 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
         const probe = genBody(kind, fw, fh, params, shapeSeed);
         const ob = boundsOf(probe.contour.pts);
         fixedBase = { w: fw * (fw / ob.w), h: fh * (fh / ob.h) };
+        if (physicalSpikes && kind === "spike-rect") {
+          // Solve the two dimensions independently before the final fit; long corners add a fixed overhang.
+          for (let i = 0; i < 8; i++) {
+            const ob = boundsOf(genBody(kind, fixedBase.w, fixedBase.h, params, shapeSeed).contour.pts);
+            fixedBase.w = Math.max(fw * 0.01, fixedBase.w + fw - ob.w);
+            fixedBase.h = Math.max(fh * 0.01, fixedBase.h + fh - ob.h);
+          }
+        }
         if (physicalSpikes) {
           let lo = 0;
           let hi = 1;

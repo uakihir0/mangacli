@@ -25,7 +25,7 @@ function ellipsePoint(w: number, h: number, t: number) {
 }
 
 describe("shout contours", () => {
-  it.each([[40, 60], [14, 100], [100, 14]])("keeps four sharp corner spikes and a rectangular %sx%s text core", (w, h) => {
+  it.each([[40, 60], [14, 100], [100, 14], [14, 16]])("keeps four dominant corner spikes and a rectangular %sx%s text core", (w, h) => {
     const make = (seed: number) => BODY_GENERATORS["spike-rect"](w, h, { kind: "spike-rect", irregularity: 0, tilt: 0 }, seed);
     const body = make(42);
     expect(make(42)).toEqual(body);
@@ -36,15 +36,32 @@ describe("shout contours", () => {
     const peaks = corners!.filter(c => c.kind === "tip");
     const diagonal = peaks.filter(c => Math.abs(pts[c.index].x) > w / 2 && Math.abs(pts[c.index].y) > h / 2);
     expect(diagonal.map(c => [Math.sign(pts[c.index].x), Math.sign(pts[c.index].y)])).toEqual([[1, -1], [1, 1], [-1, 1], [-1, -1]]);
-    for (const { index } of diagonal) {
+    const tipAngle = (index: number) => {
       const q = pts[index];
       const a = norm(sub(pts.at(index - 1)!, q));
       const b = norm(sub(pts[(index + 1) % pts.length], q));
-      expect(Math.acos(dot(a, b)) * 180 / Math.PI).toBeCloseTo(30, 0);
+      return Math.acos(dot(a, b)) * 180 / Math.PI;
+    };
+    let maxSideDepth = 0;
+    for (const { index } of peaks.filter(c => !diagonal.includes(c))) {
+      const q = pts[index];
+      const depth = Math.max(Math.abs(q.x) - w / 2, Math.abs(q.y) - h / 2);
+      maxSideDepth = Math.max(maxSideDepth, depth);
+      expect(depth).toBeGreaterThanOrEqual(4.05);
+      expect(depth).toBeLessThanOrEqual(4.95);
+      expect(tipAngle(index)).toBeGreaterThan(24);
+      expect(tipAngle(index)).toBeLessThan(40);
+    }
+    for (const { index } of diagonal) {
+      const q = pts[index];
+      expect(tipAngle(index)).toBeCloseTo(30, 0);
+      expect(Math.abs(q.x) - w / 2).toBeCloseTo(Math.abs(q.y) - h / 2);
+      expect(Math.hypot(Math.abs(q.x) - w / 2, Math.abs(q.y) - h / 2)).toBeGreaterThanOrEqual(1.5 * maxSideDepth);
     }
     for (const side of ["x", "y"] as const) for (const sign of [-1, 1]) {
       expect(peaks.some(({ index }) => sign * pts[index][side] > (side === "x" ? w : h) / 2 && !diagonal.some(c => c.index === index))).toBe(true);
     }
+    if (w === 14 && h === 16) expect(peaks.length).toBeLessThanOrEqual(14);
   });
 
   it("preserves the ink where an entry pool overlaps a spike flank", () => {

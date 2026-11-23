@@ -273,25 +273,29 @@ const spikeRect: BodyGenerator = (w, h, p, seed) => {
     corners.push({ index: pts.length, kind });
     pts.push(rot(q, p.tilt));
   };
-  // The roots on the adjacent sides give a diagonal corner tip the same ~30° angle as the side tips.
-  const cornerRoot = Math.min(meanDepth * 0.518, Math.min(w, h) / 4);
-  const cornerDepth = cornerRoot / 0.518 / Math.SQRT2;
+  const nominalCornerLength = meanDepth * 1.85;
+  // Leave space for side teeth on narrow cores without making corner miters too acute.
+  const cornerRoot = Math.min(nominalCornerLength * 0.518, Math.min(w, h) / 3);
+  const cornerLength = Math.min(nominalCornerLength, cornerRoot * 4);
+  const cornerOffset = cornerLength / Math.SQRT2;
+  const pitch = Math.max(2.75 * scale, 2 * meanDepth * Math.tan(17 * Math.PI / 180));
   for (let i = 0; i < core.length; i++) {
     const a = core[i], b = core[(i + 1) % 4];
     const length = i % 2 === 0 ? w : h;
     const start = cornerRoot / length;
-    const count = Math.max(1, Math.round((length - 2 * cornerRoot) / (2.5 * scale)));
+    const count = Math.max(1, Math.round((length - 2 * cornerRoot) / pitch));
     const step = (1 - 2 * start) / count;
+    const depthLimit = Math.min(cornerLength / 1.55, step * length / (2 * Math.tan(12.5 * Math.PI / 180)));
     const nx = (b.y - a.y) / length, ny = (a.x - b.x) / length;
     for (let j = 0; j < count; j++) {
       const t = start + j * step;
       add(lerp(a, b, t), "valley");
       const root = lerp(a, b, t + step * (0.5 + rng.range(-0.03, 0.03)));
-      const d = rng.range(depth[0], depth[1]) * depthScale;
+      const d = Math.min(rng.range(depth[0], depth[1]) * depthScale, depthLimit);
       add({ x: root.x + nx * d, y: root.y + ny * d }, "tip");
     }
     add(lerp(a, b, 1 - start), "valley");
-    add({ x: b.x + Math.sign(b.x) * cornerDepth, y: b.y + Math.sign(b.y) * cornerDepth }, "tip");
+    add({ x: b.x + Math.sign(b.x) * cornerOffset, y: b.y + Math.sign(b.y) * cornerOffset }, "tip");
   }
   const inner = core.map(q => rot(q, p.tilt));
   return { contour: { pts, closed: true, corners }, inner, kind: "spike-rect", smooth: false, ruler: false, spikeLength: meanDepth, spikeCore: inner };
