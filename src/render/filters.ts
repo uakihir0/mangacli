@@ -61,8 +61,8 @@ export function mangaOutputFilters(filters: ImageFilter[], mmPerPx: number): Ima
     const n = typeof raw === "string" ? parseFloat(raw) : Number(raw);
     const lpi = Number.isFinite(n) && n > 0 ? n : 60;
     const cellPx = (25.4 / lpi) / mmPerPx;
-    if (cellPx >= 3) return f;
-    const adjusted = 25.4 / (mmPerPx * 4);
+    if (cellPx >= 6) return f;
+    const adjusted = 25.4 / (mmPerPx * 6);
     if (adjusted >= lpi) return f;
     changed = true;
     return { ...f, opts: { ...(f.opts ?? {}), lpi: adjusted } };
