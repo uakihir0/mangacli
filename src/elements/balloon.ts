@@ -114,6 +114,28 @@ function genBody(kind: string, w: number, h: number, p: ShapeParams, seed: numbe
   return BODY_GENERATORS.ellipse(w, h, p, seed);
 }
 
+function fitFixedSpikeRect(w: number, h: number, params: ShapeParams, seed: number): { w: number; h: number } | undefined {
+  const c = Math.abs(Math.cos(params.tilt));
+  const s = Math.abs(Math.sin(params.tilt));
+  const det = c * c - s * s;
+  if (Math.abs(det) < 1e-8) return undefined;
+  const width = (c * w - s * h) / det;
+  const height = (c * h - s * w) / det;
+  if (width <= 0 || height <= 0) return undefined;
+
+  // The four corner tips bound the unrotated contour and add the same overhang to both axes.
+  const untilted = { ...params, tilt: 0 };
+  let lo = 0;
+  let hi = Math.min(width, height);
+  for (let i = 0; i < 24; i++) {
+    const inset = (lo + hi) / 2;
+    const outer = boundsOf(genBody("spike-rect", width - inset, height - inset, untilted, seed).contour.pts);
+    if (outer.w > width || outer.h > height) lo = inset;
+    else hi = inset;
+  }
+  return { w: width - hi, h: height - hi };
+}
+
 /** balloon body from a plugin shape (spec 11.8) */
 function pluginBody(kind: string, def: PluginBalloonShape, w: number, h: number, p: ShapeParams, seed: number): BodyGeom {
   const raw = (p.raw ?? {}) as Obj;
@@ -253,27 +275,21 @@ function planBalloonWithFit(el: RElement, ctx: ElemCtx, fallback?: { lineEm: num
       if (fw !== "auto" && fh !== "auto") {
         const physicalSpikes = isSpikyShape(kind) && params.depth === undefined;
         if (physicalSpikes) params.spikeScale = Math.min(1, Math.min(fw, fh) * 0.9 / (2.2 * defaultSpikeDepth(kind === "burst") * u.k));
-        const probe = genBody(kind, fw, fh, params, shapeSeed);
-        const ob = boundsOf(probe.contour.pts);
-        fixedBase = { w: fw * (fw / ob.w), h: fh * (fh / ob.h) };
-        if (physicalSpikes && kind === "spike-rect") {
-          // Solve the two dimensions independently before the final fit; long corners add a fixed overhang.
-          for (let i = 0; i < 8; i++) {
-            const ob = boundsOf(genBody(kind, fixedBase.w, fixedBase.h, params, shapeSeed).contour.pts);
-            fixedBase.w = Math.max(fw * 0.01, fixedBase.w + fw - ob.w);
-            fixedBase.h = Math.max(fh * 0.01, fixedBase.h + fh - ob.h);
+        fixedBase = kind === "spike-rect" ? fitFixedSpikeRect(fw, fh, params, shapeSeed) : undefined;
+        if (!fixedBase) {
+          const ob = boundsOf(genBody(kind, fw, fh, params, shapeSeed).contour.pts);
+          fixedBase = { w: fw * (fw / ob.w), h: fh * (fh / ob.h) };
+          if (physicalSpikes || kind === "spike-rect") {
+            let lo = 0;
+            let hi = 1;
+            for (let i = 0; i < 20; i++) {
+              const s = (lo + hi) / 2;
+              const bounds = boundsOf(genBody(kind, fixedBase.w * s, fixedBase.h * s, params, shapeSeed).contour.pts);
+              if (bounds.w <= fw && bounds.h <= fh) lo = s;
+              else hi = s;
+            }
+            fixedBase = { w: fixedBase.w * lo, h: fixedBase.h * lo };
           }
-        }
-        if (physicalSpikes) {
-          let lo = 0;
-          let hi = 1;
-          for (let i = 0; i < 20; i++) {
-            const s = (lo + hi) / 2;
-            const bounds = boundsOf(genBody(kind, fixedBase.w * s, fixedBase.h * s, params, shapeSeed).contour.pts);
-            if (bounds.w <= fw && bounds.h <= fh) lo = s;
-            else hi = s;
-          }
-          fixedBase = { w: fixedBase.w * lo, h: fixedBase.h * lo };
         }
         const ib = boundsOf(genBody(kind, fixedBase.w, fixedBase.h, params, shapeSeed).inner);
         boxLimit = (style.writing === "vertical" ? ib.h * 0.86 : ib.w * 0.86) - 2 * (style.writing === "vertical" ? padV : padH);

@@ -81,6 +81,12 @@ describe("balloon text extent sizing", () => {
       expect(p.outer.h).toBeLessThanOrEqual(h + 1e-6);
     }
   });
+  it.each([[15, 40, 0], [40, 15, 0], [15, 40, 5]])("fits both dimensions of a %s × %s mm yell-box at %s° tilt", async (w, h, tilt) => {
+    const { outer, params } = await plan("", "vertical", { as: "yell-box", size: [`${w}mm`, `${h}mm`], shape: { tilt: `${tilt}deg` }, tail: { kind: "none" } });
+    expect(params.tilt).toBeCloseTo(tilt * Math.PI / 180);
+    expect(outer.w).toBeCloseTo(w, 4);
+    expect(outer.h).toBeCloseTo(h, 4);
+  });
   it.each(["vertical", "horizontal"])("uses full-width spaces as phrase breaks in %s balloons", async (writing) => {
     const expected = await plan("いや〜\n字が\n勝手に\nデカく", writing);
     const actual = await plan("いや〜　字が\n勝手に　デカく", writing);
